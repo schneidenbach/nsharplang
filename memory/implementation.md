@@ -1,6 +1,6 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.53 - Property Modifiers (Init/Readonly/Required) Fix
+**Version:** v1.54 - Duplicate Using Statement Fix
 **Tests:** 429 passing ✅
 **Status:** Production-ready for experimentation and learning
 
@@ -148,7 +148,25 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.53 (Property Modifiers Fix) ✅ COMPLETE - LATEST!
+### v1.54 (Duplicate Using Statement Fix) ✅ COMPLETE - LATEST!
+1. **Transpiler enhancement**: ✅ Deduplicate 'using System;' statement
+   - Check if user already has 'using System' in their using statements
+   - Only add 'using System;' if not already present
+   - Prevents CS0105 warning about duplicate using directives
+   - Line 45 in Transpiler.cs: `var hasSystemUsing = _compilationUnit.Usings.Any(u => u.Namespace == "System" && u.Alias == null);`
+2. **Example fix**: ✅ Fixed generic_methods.nl example
+   - Changed `items.Count` to `items.Length` (line 34)
+   - Arrays have .Length property, not .Count
+   - Fixes CS1503 compilation error
+
+**Impact:** Quality-of-life improvement - cleaner generated C# code without duplicate using statements.
+
+**What works:**
+- No more duplicate `using System;` warnings ✅
+- generic_methods.nl example compiles and runs successfully ✅
+- All 429 tests still passing ✅
+
+### v1.53 (Property Modifiers Fix) ✅ COMPLETE
 1. **Parser fix**: ✅ Removed init/readonly/required from ParseModifiers()
    - These are field/property-specific modifiers, not general modifiers
    - ParseModifiers was consuming them, then ParseFieldDeclaration tried to parse them again
