@@ -362,7 +362,42 @@
 - [x] All 215 tests passing, 0 skipped (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
 - [x] Build successful with warnings (same nullability warnings as before)
 
-### Phase 21: Import System - Phase 2 Complete (v1.22 - LATEST!)
+### Phase 24: Multi-File Compilation (v1.25 - LATEST!)
+- [x] **Multi-File Compiler**: Created MultiFileCompiler class
+  - Two-pass compilation: parse all files, then analyze/transpile
+  - Discovers all .nl files in project directory
+  - Compiles each file independently with full error reporting
+  - Transpiles to multiple C# files preserving directory structure
+- [x] **CLI Integration**: Updated build and run commands
+  - `nlc build` - builds all .nl files in current directory (multi-file mode)
+  - `nlc build <file>` - builds single file (single-file mode)
+  - `nlc run` - compiles and runs multi-file project
+  - `nlc run <file>` - compiles and runs single file
+- [x] **Multi-File Example**: Created examples/MultiFileProject/
+  - Models/Person.nl: Person record and Status enum
+  - Services/PersonService.nl: PersonService class with List<Person>
+  - Program.nl: Main entry point demonstrating cross-file usage
+  - Successfully compiles and runs with 3 files across 3 namespaces
+- [x] **Import System Integration**: Works with existing file import system
+  - Files use `import "Models/Person"` for cross-file references
+  - Requires `using` statements for .NET namespaces
+  - Analyzer resolves imported symbols correctly
+- [x] All 270 tests passing, 0 skipped
+
+**What works:**
+- Multi-file projects compile successfully ✅
+- Files can reference types from other files via imports ✅
+- Directory structure preserved in generated C# ✅
+- Build and run commands work in both single-file and multi-file modes ✅
+
+**Known limitations (future enhancements):**
+- Requires explicit file imports for cross-file references
+- No automatic namespace-based symbol resolution
+- No partial class merging across files
+- No circular import detection
+- No top-level statement ordering (all files executed in arbitrary order)
+
+### Phase 21: Import System - Phase 2 Complete (v1.22)
 - [x] **FileResolver Class**: Path resolution for file-based imports
   - Handles relative paths (`./`, `../`)
   - Handles project-root paths (`Models/Person`)

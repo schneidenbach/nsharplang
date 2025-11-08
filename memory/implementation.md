@@ -146,6 +146,49 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
+### v1.25 (Multi-File Compilation) ✅ COMPLETE - LATEST!
+1. **MultiFileCompiler class**: ✅ Two-pass compilation for multiple files
+   - Created MultiFileCompiler.cs with DiscoverSourceFiles, ParseAllFiles, AnalyzeAllFiles, TranspileAllFiles
+   - Two-pass compilation: Pass 1 parses all files, Pass 2 analyzes and transpiles
+   - Each file analyzed independently (works with existing import system)
+   - Returns MultiFileCompilationResult with success status, errors, and transpiled files
+2. **CLI integration**: ✅ Updated build and run commands for multi-file mode
+   - BuildMultiFile method: compiles all .nl files in project directory
+   - RunMultiFile method: compiles and runs multi-file projects
+   - Commands work without arguments (multi-file mode) or with file argument (single-file mode)
+   - Output files written to obj/generated/ with preserved directory structure
+3. **Multi-file example**: ✅ Created examples/MultiFileProject/
+   - Models/Person.nl: Person record, Status enum
+   - Services/PersonService.nl: PersonService class using List<Person>
+   - Program.nl: Main entry point, uses both models and services
+   - Successfully compiles 3 files across 3 namespaces
+   - Demonstrates cross-file references with import statements
+4. **Import system integration**: ✅ Works seamlessly
+   - Files use `import "relative/path"` for cross-file symbol access
+   - Analyzer resolves imported symbols correctly
+   - Each file needs proper `using` statements for .NET namespaces
+5. **Help text updated**: ✅ Documents multi-file mode
+6. **Test status**: ✅ All 270 tests passing (no changes to existing tests)
+
+**What works:**
+- Multi-file projects with cross-file type references ✅
+- Directory structure preserved in output ✅
+- Both single-file and multi-file modes ✅
+- Error reporting across all files ✅
+
+**Known limitations:**
+- Each file analyzed independently (no global symbol table yet)
+- Requires explicit file imports for cross-file references
+- No automatic namespace-based symbol resolution
+- No partial class merging
+- No circular import detection
+- No top-level statement ordering
+
+**Next steps:**
+- Task 009: Testing support (.tests.nl files)
+- Task 004: Async implicit wrapping (use asyncDefaultType from project.yml)
+- Enhanced multi-file: global symbol table, partial classes, circular import detection
+
 ### v1.24 (Project.yml Support) ✅ COMPLETE
 1. **YamlDotNet dependency**: ✅ Added to Compiler project
    - Using YamlDotNet 16.3.0 for YAML parsing
