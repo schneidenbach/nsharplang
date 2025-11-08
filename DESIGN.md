@@ -11,6 +11,7 @@ N# is a pragmatic language targeting .NET/CLI that prioritizes:
 - **Pragmatism**: Embraces .NET realities (including null)
 - **Perfect C# interop**: Generated code is idiomatic C# that C# consumers can't distinguish
 - **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
+- **Multi-paradigm**: Use the right tool for the job (OOP, functional, procedural)
 
 ### The Type System Philosophy
 
@@ -30,7 +31,7 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 | **Functions** | C# methods (static or instance) | F# functions aren't methods | C# can call directly |
 | **Async** | C# async/await (Task/ValueTask) | F# Async is different type | Same async model |
 | **Nullability** | C# nullable reference types | F# uses Option (not null) | C# understands nulls |
-| **Duck interfaces** | Internal only, regular interfaces exposed | F# has no duck typing | Best of both worlds |
+| **Duck interfaces** | Type-erased (compile-time only) | F# has no duck typing | Structural typing without runtime cost |
 
 **Goal**: C# consumers should not know they're using N#-compiled code. It should look and feel like idiomatic C#.
 
@@ -1513,7 +1514,7 @@ N# is a **focused subset of C#** with **type system improvements**:
 - **Improved type system**: Adds discriminated unions, exhaustive pattern matching, duck typing
 - **Seamless C# interop**: All N# types are consumable as idiomatic C# types
 - Pragmatic, multi-paradigm (functional support, but not dogmatic)
-- "Go for .NET" with better type system and pattern matching
+- C# with discriminated unions, structural typing, and Go-inspired syntax
 
 ### What N# Is NOT
 - **NOT F#** - F# has **absolute trash interop** with C#:
@@ -1535,7 +1536,7 @@ When you compile N# code to a library, C# consumers should:
 - Work with your unions as if they were hand-written C# class hierarchies
 - Never know the difference
 
-This is **critical** for .NET ecosystem adoption. F# failed at this. N# will succeed.
+This is the experiment: can we get better types while keeping C# interop simple?
 
 ## Open Design Questions
 
