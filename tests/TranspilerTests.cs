@@ -188,4 +188,50 @@ func Test() {
 
         Assert.Contains("(x, y) = GetPair()", result);
     }
+
+    [Fact]
+    public void TestErrorHandlingTranspilation()
+    {
+        var source = @"
+func MightFail(): string {
+    throw new Exception(""oops"")
+}
+
+func Test() {
+    result, err := MightFail()
+    if err != null {
+        Console.WriteLine(err.Message)
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate try-catch wrapper
+        Assert.Contains("object? result = null;", result);
+        Assert.Contains("Exception? err = null;", result);
+        Assert.Contains("try", result);
+        Assert.Contains("result = MightFail()", result);
+        Assert.Contains("catch (Exception ex)", result);
+        Assert.Contains("err = ex;", result);
+    }
+
+    [Fact]
+    public void TestThrowExpressionTranspilation()
+    {
+        var source = @"
+func Divide(a: int, b: int): int {
+    if b == 0 {
+        throw new Exception(""Division by zero"")
+    }
+    return a / b
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should contain throw statement
+        Assert.Contains("throw new Exception(", result);
+        Assert.Contains("Division by zero", result);
+    }
 }

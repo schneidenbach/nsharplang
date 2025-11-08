@@ -146,7 +146,22 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.3 (Latest)
+### v1.4 (Latest - Error Handling)
+1. **Automatic exception capture**: ✅ MAJOR feature - error handling with tuple deconstruction
+   - Pattern: `result, err := Function()` automatically wraps call in try-catch
+   - Generates: `object? result = null; Exception? err = null; try { result = ... } catch (Exception ex) { err = ex; }`
+   - Parser enhanced to recognize `x, y := expr` syntax (without parens)
+   - Transpiler detects pattern when second variable is exactly `err`
+   - Analyzer declares `err` as `Exception?` type, result gets inferred type
+2. **Improved null-coalesce operator**: ✅ Better type inference for `??` with throw expressions
+   - Added `AnalyzeNullCoalesceOp` method in Analyzer
+   - When right side is throw expression, returns left type (e.g., `string? ?? throw => string`)
+   - Otherwise returns right type for proper fallback typing
+3. **Test coverage**: ✅ 110 tests total (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
+   - New test: TestErrorHandlingTranspilation
+   - New test: TestThrowExpressionTranspilation
+
+### v1.3
 1. **Constructor transpilation fix**: ✅ CRITICAL bug fixed - now emits class name instead of "ctor"
    - Added _currentTypeName tracking in Transpiler
    - Properly generates `ClassName(params)` syntax

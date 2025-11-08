@@ -1269,6 +1269,47 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
 
+        // Check for tuple deconstruction without parens: x, y := expr
+        // This handles cases like: result, err := MightFail()
+        if (Check(TokenType.Identifier) && _position + 1 < _tokens.Count &&
+            _tokens[_position + 1].Type == TokenType.Comma)
+        {
+            // Look ahead to find := or =
+            int pos = 1;
+            bool isTupleDeconstruction = false;
+
+            while (_position + pos < _tokens.Count)
+            {
+                var token = _tokens[_position + pos];
+                if (token.Type == TokenType.ColonAssign || token.Type == TokenType.Assign)
+                {
+                    isTupleDeconstruction = true;
+                    break;
+                }
+                // Continue only if we see identifier or comma
+                if (token.Type != TokenType.Identifier && token.Type != TokenType.Comma)
+                {
+                    break;
+                }
+                pos++;
+            }
+
+            if (isTupleDeconstruction)
+            {
+                // Parse the tuple deconstruction without parens
+                var names = new List<string>();
+                do
+                {
+                    var name = ConsumeIdentifier("Expected identifier or '_'");
+                    names.Add(name);
+                } while (Match(TokenType.Comma));
+
+                Advance(); // consume := or =
+                var initializer = ParseExpression();
+                return new TupleDeconstructionStatement(names, initializer, VariableKind.Let, line, column);
+            }
+        }
+
         // Check for tuple deconstruction shorthand: (x, y) := expr
         // Simple heuristic: (identifier, ... matches tuple deconstruction pattern
         if (Check(TokenType.LeftParen) && _position + 1 < _tokens.Count &&

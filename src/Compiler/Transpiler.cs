@@ -583,13 +583,43 @@ public class Transpiler
 
     private void TranspileTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
     {
-        var keyword = tupleDecl.Kind == VariableKind.Const ? "const " :
-                     tupleDecl.Kind == VariableKind.Readonly ? "readonly " : "";
+        // Check if this is error handling pattern: (result, err := Function())
+        // The pattern is: exactly 2 names, last one is "err"
+        bool isErrorHandling = tupleDecl.Names.Count == 2 && tupleDecl.Names[1] == "err";
 
-        // C# tuple deconstruction syntax: (var x, var y) = expr;
-        // or: var (x, y) = expr;
-        var names = string.Join(", ", tupleDecl.Names.Select(n => n == "_" ? "_" : n));
-        WriteLine($"{keyword}({names}) = {TranspileExpression(tupleDecl.Initializer)};");
+        if (isErrorHandling)
+        {
+            // Generate try-catch wrapper for error handling pattern
+            var resultVar = tupleDecl.Names[0];
+            var errVar = tupleDecl.Names[1];
+
+            // Declare both variables
+            WriteLine($"object? {resultVar} = null;");
+            WriteLine($"Exception? {errVar} = null;");
+            WriteLine("try");
+            WriteLine("{");
+            _indentLevel++;
+            WriteLine($"{resultVar} = {TranspileExpression(tupleDecl.Initializer)};");
+            _indentLevel--;
+            WriteLine("}");
+            WriteLine($"catch (Exception ex)");
+            WriteLine("{");
+            _indentLevel++;
+            WriteLine($"{errVar} = ex;");
+            _indentLevel--;
+            WriteLine("}");
+        }
+        else
+        {
+            // Normal tuple deconstruction
+            var keyword = tupleDecl.Kind == VariableKind.Const ? "const " :
+                         tupleDecl.Kind == VariableKind.Readonly ? "readonly " : "";
+
+            // C# tuple deconstruction syntax: (var x, var y) = expr;
+            // or: var (x, y) = expr;
+            var names = string.Join(", ", tupleDecl.Names.Select(n => n == "_" ? "_" : n));
+            WriteLine($"{keyword}({names}) = {TranspileExpression(tupleDecl.Initializer)};");
+        }
     }
 
     private void TranspileIfStatement(IfStatement ifStmt)

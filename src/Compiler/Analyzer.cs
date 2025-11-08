@@ -486,16 +486,45 @@ public class Analyzer
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
     {
-        // Analyze the initializer expression
-        var initType = AnalyzeExpression(tupleDecl.Initializer);
+        // Check if this is error handling pattern: (result, err := Function())
+        bool isErrorHandling = tupleDecl.Names.Count == 2 && tupleDecl.Names[1] == "err";
 
-        // TODO: Check if initType is a tuple type and has the right number of elements
-        // For now, just declare all variables with Unknown type
-        foreach (var name in tupleDecl.Names)
+        if (isErrorHandling)
         {
-            if (name != "_")  // Skip discard
+            // Error handling pattern
+            var resultVar = tupleDecl.Names[0];
+            var errVar = tupleDecl.Names[1];
+
+            // Analyze the initializer expression to ensure it's valid
+            var initType = AnalyzeExpression(tupleDecl.Initializer);
+
+            // Declare result variable with inferred type (or Unknown if can't infer)
+            if (resultVar != "_")
             {
-                DeclareSymbol(name, BuiltInTypes.Unknown, tupleDecl.Line, tupleDecl.Column);
+                DeclareSymbol(resultVar, initType, tupleDecl.Line, tupleDecl.Column);
+            }
+
+            // Declare err variable as nullable Exception
+            if (errVar != "_")
+            {
+                var exceptionType = new ExternalTypeInfo("Exception?");
+                DeclareSymbol(errVar, exceptionType, tupleDecl.Line, tupleDecl.Column);
+            }
+        }
+        else
+        {
+            // Normal tuple deconstruction
+            // Analyze the initializer expression
+            var initType = AnalyzeExpression(tupleDecl.Initializer);
+
+            // TODO: Check if initType is a tuple type and has the right number of elements
+            // For now, just declare all variables with Unknown type
+            foreach (var name in tupleDecl.Names)
+            {
+                if (name != "_")  // Skip discard
+                {
+                    DeclareSymbol(name, BuiltInTypes.Unknown, tupleDecl.Line, tupleDecl.Column);
+                }
             }
         }
     }
@@ -713,9 +742,23 @@ public class Analyzer
             BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
             BinaryOperator.And or BinaryOperator.Or => AnalyzeLogicalOp(leftType, rightType, binary),
-            BinaryOperator.NullCoalesce => leftType, // Simplified
+            BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftType, rightType, binary),
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private TypeInfo AnalyzeNullCoalesceOp(TypeInfo leftType, TypeInfo rightType, BinaryExpression expr)
+    {
+        // If right side is a throw expression, the result type is the left type
+        // e.g., string? ?? throw => string (C# infers this correctly)
+        if (expr.Right is ThrowExpression)
+        {
+            return leftType;
+        }
+
+        // Otherwise, the result is the right type (the fallback value)
+        // In C#: T? ?? T returns T
+        return rightType;
     }
 
     private TypeInfo AnalyzeArithmeticOp(TypeInfo left, TypeInfo right, BinaryExpression expr)

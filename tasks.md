@@ -42,15 +42,24 @@
 - [x] Comprehensive transpiler test suite (7 tests)
 - [x] All 105 tests passing (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
 
-### Phase 6: Advanced Features (NEW!)
+### Phase 6: Advanced Features
 - [x] Constructor transpilation bug fix (emits class name not "ctor")
 - [x] Property get/set accessors (was marked as v2, now implemented!)
 - [x] Tuple deconstruction in variable declarations `(x, y) := expr`
 - [x] All 108 tests passing (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
 
+### Phase 7: Error Handling (v1.4 - LATEST!)
+- [x] Automatic exception capture pattern: `result, err := Function()`
+- [x] Parser support for `x, y := expr` syntax (without parens)
+- [x] Transpiler generates try-catch wrapper when second var is `err`
+- [x] Analyzer declares err as Exception?, result gets inferred type
+- [x] Improved null-coalesce operator type inference
+- [x] Throw expressions already implemented (from v1.3)
+- [x] All 110 tests passing (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
+
 ## 🚧 In Progress
 
-None currently - core functionality complete!
+None currently - v1.4 complete!
 
 ## 📋 Next Steps
 
@@ -59,12 +68,13 @@ None currently - core functionality complete!
    - Member type resolution (method/property lookup on types)
    - Generic type inference
    - Better lambda type inference
+   - Nullable reference type tracking
 
 2. **Enhanced Language Features**
    - Match expressions (currently basic implementation)
    - Pattern matching improvements
-   - Error handling with tuple deconstruction (result, err := Function())
    - With expressions for records
+   - Nested classes/types
 
 3. **Testing & Quality**
    - More end-to-end tests with complex examples
@@ -106,7 +116,8 @@ The compiler successfully:
 
 **Working Examples:**
 - `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops, external types ✅
-- `examples/simple.nl` - Basic functions and type inference
+- `examples/simple.nl` - Basic functions and type inference ✅
+- `examples/error_handling.nl` - Automatic exception capture with `result, err := Function()` ✅
 
 ## 📝 Notes
 
@@ -114,11 +125,13 @@ The compiler successfully:
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
 - String enum values use const fields instead of traditional enums
-- **All 108 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
+- **All 110 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
 - **Constructor transpilation bug fixed (v1.3)**
 - **Property get/set accessors fully implemented (v1.3)**
 - **Tuple deconstruction in variable declarations (v1.3)**
+- **Automatic exception capture with `result, err := Function()` (v1.4)**
+- **Improved null-coalesce operator type inference (v1.4)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)
