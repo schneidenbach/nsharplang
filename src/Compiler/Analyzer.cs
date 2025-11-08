@@ -702,8 +702,92 @@ public class Analyzer
 
     private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
     {
-        // Simplified pattern analysis
-        // TODO: More sophisticated pattern matching
+        switch (pattern)
+        {
+            case IdentifierPattern identPattern:
+                // Check if this is a qualified union case name (e.g., "Result.Success")
+                if (valueType is UnionTypeInfo ut && identPattern.Name.Contains('.'))
+                {
+                    var caseName = identPattern.Name.Contains('.')
+                        ? identPattern.Name.Substring(identPattern.Name.LastIndexOf('.') + 1)
+                        : identPattern.Name;
+
+                    var matchingCase = ut.Declaration.Cases
+                        .FirstOrDefault(c => c.Name == caseName);
+
+                    if (matchingCase == null)
+                    {
+                        Error($"Union type '{ut}' does not have a case '{identPattern.Name}'",
+                            pattern.Line, pattern.Column);
+                    }
+                    // For union cases without properties, no variables to bind
+                }
+                else
+                {
+                    // Regular identifier pattern - bind the identifier to the value type
+                    DeclareSymbol(identPattern.Name, valueType, identPattern.Line, identPattern.Column);
+                }
+                break;
+
+            case LiteralPattern literalPattern:
+                // Just analyze the literal expression for type checking
+                AnalyzeExpression(literalPattern.Literal);
+                break;
+
+            case UnionCasePattern unionPattern:
+                // Verify the union case exists if matching against a union type
+                if (valueType is UnionTypeInfo unionType)
+                {
+                    // Extract just the case name (after the last dot if qualified)
+                    var caseName = unionPattern.CaseName.Contains('.')
+                        ? unionPattern.CaseName.Substring(unionPattern.CaseName.LastIndexOf('.') + 1)
+                        : unionPattern.CaseName;
+
+                    var matchingCase = unionType.Declaration.Cases
+                        .FirstOrDefault(c => c.Name == caseName);
+
+                    if (matchingCase == null)
+                    {
+                        Error($"Union type '{unionType}' does not have a case '{unionPattern.CaseName}'",
+                            pattern.Line, pattern.Column);
+                    }
+                    else if (unionPattern.Properties != null)
+                    {
+                        // Bind property patterns to their types
+                        if (matchingCase.Properties == null)
+                        {
+                            Error($"Union case '{caseName}' has no properties (Properties is null)",
+                                pattern.Line, pattern.Column);
+                        }
+                        else if (matchingCase.Properties.Count == 0)
+                        {
+                            Error($"Union case '{caseName}' has no properties (Properties is empty)",
+                                pattern.Line, pattern.Column);
+                        }
+                        else
+                        {
+                            foreach (var propPattern in unionPattern.Properties)
+                            {
+                                var caseProperty = matchingCase.Properties
+                                    .FirstOrDefault(p => p.Name == propPattern.Name);
+
+                                if (caseProperty != null)
+                                {
+                                    var propType = ResolveType(caseProperty.Type);
+                                    var bindingName = propPattern.BindingName ?? propPattern.Name;
+                                    DeclareSymbol(bindingName, propType, pattern.Line, pattern.Column);
+                                }
+                                else
+                                {
+                                    Error($"Union case '{caseName}' does not have property '{propPattern.Name}'",
+                                        pattern.Line, pattern.Column);
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+        }
     }
 
     private TypeInfo AnalyzeExpression(Expression expr)
@@ -730,6 +814,7 @@ public class Analyzer
             AwaitExpression await => AnalyzeAwaitExpression(await),
             ThrowExpression => BuiltInTypes.Never,
             ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
+            MatchExpression match => AnalyzeMatchExpression(match),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1129,6 +1214,23 @@ public class Analyzer
     {
         var type = ResolveType(newExpr.Type);
 
+        // Special case: if the type is a qualified name like "Result.Success",
+        // it might be a union case. Check if the base type is a union.
+        if (newExpr.Type is SimpleTypeReference simpleRef && simpleRef.Name.Contains('.'))
+        {
+            var parts = simpleRef.Name.Split('.');
+            if (parts.Length == 2)
+            {
+                var baseTypeName = parts[0];
+                var baseType = LookupType(baseTypeName);
+                if (baseType is UnionTypeInfo)
+                {
+                    // This is a union case instantiation - the variable should have the union type
+                    type = baseType;
+                }
+            }
+        }
+
         // Analyze constructor arguments
         foreach (var arg in newExpr.ConstructorArguments)
         {
@@ -1152,6 +1254,89 @@ public class Analyzer
         var exprType = AnalyzeExpression(await.Expression);
         // TODO: Unwrap Task<T> to get T
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeMatchExpression(MatchExpression match)
+    {
+        // Analyze the value being matched
+        var valueType = AnalyzeExpression(match.Value);
+
+        // Analyze each case and track variable bindings
+        TypeInfo? resultType = null;
+        foreach (var matchCase in match.Cases)
+        {
+            // Create new scope for pattern bindings
+            PushScope(new Scope(ScopeKind.Block));
+
+            // Analyze pattern and bind variables
+            AnalyzePattern(matchCase.Pattern, valueType);
+
+            // Analyze the case expression
+            var caseType = AnalyzeExpression(matchCase.Expression);
+
+            // Ensure all cases return compatible types
+            if (resultType == null)
+            {
+                resultType = caseType;
+            }
+            else if (!IsAssignable(resultType, caseType) && !IsAssignable(caseType, resultType))
+            {
+                Error($"Match case has incompatible type '{caseType}', expected '{resultType}'",
+                    matchCase.Expression.Line, matchCase.Expression.Column);
+            }
+
+            PopScope();
+        }
+
+        // Check exhaustiveness for union types (after analyzing patterns to report specific errors first)
+        if (valueType is UnionTypeInfo unionType)
+        {
+            CheckMatchExhaustiveness(match, unionType);
+        }
+
+        return resultType ?? BuiltInTypes.Unknown;
+    }
+
+    private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
+    {
+        // Collect all union case names that are covered in the match
+        var coveredCases = new HashSet<string>();
+
+        foreach (var matchCase in match.Cases)
+        {
+            if (matchCase.Pattern is UnionCasePattern unionPattern)
+            {
+                // Extract just the case name (after the last dot if qualified)
+                var caseName = unionPattern.CaseName.Contains('.')
+                    ? unionPattern.CaseName.Substring(unionPattern.CaseName.LastIndexOf('.') + 1)
+                    : unionPattern.CaseName;
+                coveredCases.Add(caseName);
+            }
+            else if (matchCase.Pattern is IdentifierPattern identPattern)
+            {
+                if (identPattern.Name == "_")
+                {
+                    // Wildcard pattern covers all remaining cases
+                    return;
+                }
+                else if (identPattern.Name.Contains('.'))
+                {
+                    // Qualified union case name without properties
+                    var caseName = identPattern.Name.Substring(identPattern.Name.LastIndexOf('.') + 1);
+                    coveredCases.Add(caseName);
+                }
+            }
+        }
+
+        // Check if all union cases are covered
+        var allCases = unionType.Declaration.Cases.Select(c => c.Name).ToHashSet();
+        var missingCases = allCases.Except(coveredCases).ToList();
+
+        if (missingCases.Any())
+        {
+            Error($"Match expression is not exhaustive. Missing cases: {string.Join(", ", missingCases)}",
+                match.Line, match.Column);
+        }
     }
 
     // Type resolution

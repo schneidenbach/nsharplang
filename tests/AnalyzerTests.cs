@@ -913,4 +913,187 @@ public class AnalyzerTests
             }
         ");
     }
+
+    // Match expression exhaustiveness tests
+
+    [Fact]
+    public void MatchExpression_Exhaustive_AllCasesCovered()
+    {
+        AssertNoErrors(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                    Result.Failure { error } => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_NonExhaustive_MissingCase()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void MatchExpression_WithWildcard_IsExhaustive()
+    {
+        AssertNoErrors(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+                Pending { message: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                    _ => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_NonExhaustive_MultipleMissingCases()
+    {
+        AssertHasError(@"
+            union Status {
+                Pending { id: int }
+                Active { id: int }
+                Completed { id: int }
+                Failed { id: int }
+            }
+
+            func Main() {
+                s := new Status.Pending { id: 1 }
+                x := match s {
+                    Status.Pending { id } => 0
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void MatchExpression_PatternBinding_CorrectTypes()
+    {
+        AssertNoErrors(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string, code: int }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value * 2
+                    Result.Failure { error, code } => code
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_InvalidUnionCase_Error()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                    Result.Unknown => 0
+                }
+            }
+        ", "does not have a case");
+    }
+
+    [Fact]
+    public void MatchExpression_InvalidProperty_Error()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                    Result.Failure { invalidProp } => 0
+                }
+            }
+        ", "does not have property");
+    }
+
+    [Fact]
+    public void MatchExpression_LiteralPatterns_NoExhaustivenessCheck()
+    {
+        // For non-union types, we don't check exhaustiveness
+        AssertNoErrors(@"
+            func Main() {
+                x := 5
+                result := match x {
+                    1 => ""one""
+                    2 => ""two""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_IdentifierPattern_BindsVariable()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x := 5
+                result := match x {
+                    n => n * 2
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_IncompatibleCaseTypes_Error()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value
+                    Result.Failure { error } => error
+                }
+            }
+        ", "incompatible type");
+    }
 }

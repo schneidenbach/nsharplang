@@ -183,9 +183,46 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
+### Phase 17: Match Expression Exhaustiveness Checking (v1.14 - LATEST!)
+- [x] **Match Expression Analysis**: Complete AnalyzeMatchExpression implementation
+  - Analyzes value being matched and all match cases
+  - Creates scopes for pattern variable bindings
+  - Type checks all case expressions for compatibility
+- [x] **Pattern Analysis**: Enhanced AnalyzePattern to handle all pattern types
+  - IdentifierPattern: Binds variables or validates union cases without properties
+  - LiteralPattern: Type checks literal values
+  - UnionCasePattern: Validates union cases and binds property patterns
+  - Handles qualified names (Result.Success) by extracting case name
+- [x] **Exhaustiveness Checking**: Compiler-enforced exhaustive pattern matching
+  - CheckMatchExhaustiveness validates all union cases are covered
+  - Reports missing cases with helpful error messages
+  - Supports wildcard pattern (_) as catch-all
+  - Handles both UnionCasePattern and qualified IdentifierPattern
+- [x] **Union Case Type Resolution**: Fixed type inference for union instantiation
+  - `new Result.Success { ... }` correctly infers type as `Result` (union type), not `Result.Success`
+  - Enables proper pattern matching on union values
+- [x] **Comprehensive Test Coverage**: 10 new analyzer tests
+  - MatchExpression_Exhaustive_AllCasesCovered: All cases covered, no error
+  - MatchExpression_NonExhaustive_MissingCase: Reports missing cases
+  - MatchExpression_WithWildcard_IsExhaustive: Wildcard covers remaining cases
+  - MatchExpression_NonExhaustive_MultipleMissingCases: Reports multiple missing
+  - MatchExpression_PatternBinding_CorrectTypes: Property binding works correctly
+  - MatchExpression_InvalidUnionCase_Error: Detects invalid union case names
+  - MatchExpression_InvalidProperty_Error: Detects invalid property names
+  - MatchExpression_LiteralPatterns_NoExhaustivenessCheck: Non-union types work
+  - MatchExpression_IdentifierPattern_BindsVariable: Variable binding works
+  - MatchExpression_IncompatibleCaseTypes_Error: Type mismatch detection
+- [x] **End-to-End Example**: `examples/match_exhaustiveness.nl`
+  - Demonstrates exhaustive matching on HttpResponse (4 cases)
+  - Shows wildcard pattern usage
+  - Proves pattern matching with property destructuring
+  - Successfully transpiles to C# switch expressions
+- [x] All 193 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
+- [x] Build successful with no warnings
+
 ## 🚧 In Progress
 
-None currently - v1.13 complete!
+None currently - v1.14 complete!
 
 ## 📋 Next Steps
 
@@ -197,9 +234,7 @@ None currently - v1.13 complete!
    - Nullable reference type tracking
 
 2. **Enhanced Language Features**
-   - Match expressions (currently basic implementation)
-   - Pattern matching improvements
-   - With expressions for records
+   - Pattern matching improvements (nested patterns, guards)
    - Nested classes/types
 
 3. **Testing & Quality**
@@ -257,7 +292,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 183 unit tests passing, 0 skipped** (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
+- **All 193 unit tests passing, 0 skipped** (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -286,4 +321,7 @@ The compiler successfully:
 - **Duck interface structural typing fully implemented (v1.13)**
 - **Function parameter type checking enforces type safety (v1.13)**
 - **Automatic duck interface implementation in transpiled C# (v1.13)**
+- **Match expression exhaustiveness checking enforced by compiler (v1.14)**
+- **Pattern variable binding works correctly in all match cases (v1.14)**
+- **Union case type resolution fixed for proper pattern matching (v1.14)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

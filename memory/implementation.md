@@ -146,7 +146,38 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.13 (Latest - Duck Interface Structural Typing)
+### v1.14 (Latest - Match Expression Exhaustiveness Checking)
+1. **Match expression analysis fully implemented**: ✅ MAJOR feature - compiler-enforced exhaustive pattern matching
+   - Added `AnalyzeMatchExpression` method to analyze match expressions
+   - Creates scopes for each match case to properly bind pattern variables
+   - Type checks all case expressions for compatibility
+   - Checks exhaustiveness AFTER pattern analysis to report specific errors first
+2. **Pattern analysis enhanced**: ✅ Handles all pattern types correctly
+   - IdentifierPattern: Binds variables OR validates qualified union cases without properties
+   - LiteralPattern: Type checks literals
+   - UnionCasePattern: Validates union cases exist and binds property patterns to variables
+   - Extracts case names from qualified patterns (Result.Success → Success)
+3. **Exhaustiveness checking**: ✅ Compiler enforces all union cases are covered
+   - `CheckMatchExhaustiveness` validates all union cases are matched
+   - Reports helpful error messages listing missing cases
+   - Supports wildcard pattern (_) as catch-all
+   - Handles both UnionCasePattern and qualified IdentifierPattern
+4. **Union case type resolution fixed**: ✅ CRITICAL bug fix for pattern matching
+   - `new Result.Success { ... }` now correctly infers type as `Result` (the union type)
+   - Previously incorrectly inferred as `Result.Success` (the case), breaking pattern matching
+   - Added special handling in `AnalyzeNewExpression` to detect union case instantiation
+5. **Comprehensive test coverage**: ✅ 10 new analyzer tests for match expressions
+   - Tests cover: exhaustive matching, missing cases, wildcard patterns, invalid cases/properties
+   - Tests validate: pattern binding, type compatibility, error reporting
+   - All scenarios properly tested and validated
+6. **End-to-end example**: ✅ `examples/match_exhaustiveness.nl`
+   - Demonstrates exhaustive matching on HttpResponse union (4 cases)
+   - Shows wildcard pattern usage for partial matching
+   - Proves property destructuring in patterns works correctly
+   - Successfully transpiles to C# switch expressions
+7. **Test count**: ✅ 193 tests total, all passing (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
+
+### v1.13 (Duck Interface Structural Typing)
 1. **Duck interface structural typing fully implemented**: ✅ MAJOR feature - Go-style duck typing for .NET
    - Added `ImplementsDuckInterface` method in Analyzer to check structural compatibility
    - Added `MethodSignaturesMatch` helper to compare method signatures
