@@ -1394,6 +1394,147 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestPropertyWithGetSet()
+    {
+        var source = @"
+            class Counter {
+                count: int
+
+                Count: int {
+                    get { return count }
+                    set { count = value }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal(2, classDecl.Members.Count);
+
+        // First member should be a field
+        var field = classDecl.Members[0] as FieldDeclaration;
+        Assert.NotNull(field);
+        Assert.Equal("count", field.Name);
+
+        // Second member should be a property with get/set
+        var property = classDecl.Members[1] as PropertyDeclaration;
+        Assert.NotNull(property);
+        Assert.Equal("Count", property.Name);
+        Assert.NotNull(property.GetBody);
+        Assert.NotNull(property.SetBody);
+    }
+
+    [Fact]
+    public void TestPropertyWithGetOnly()
+    {
+        var source = @"
+            class Data {
+                value: int
+
+                Value: int {
+                    get { return value }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var property = classDecl.Members[1] as PropertyDeclaration;
+        Assert.NotNull(property);
+        Assert.Equal("Value", property.Name);
+        Assert.NotNull(property.GetBody);
+        Assert.Null(property.SetBody);
+    }
+
+    [Fact]
+    public void TestPropertyWithSetOnly()
+    {
+        var source = @"
+            class Logger {
+                message: string
+
+                Message: string {
+                    set {
+                        message = value
+                        Console.WriteLine(value)
+                    }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var property = classDecl.Members[1] as PropertyDeclaration;
+        Assert.NotNull(property);
+        Assert.Equal("Message", property.Name);
+        Assert.Null(property.GetBody);
+        Assert.NotNull(property.SetBody);
+    }
+
+    [Fact]
+    public void TestNestedClass()
+    {
+        var source = @"
+            class Outer {
+                Name: string
+
+                class Inner {
+                    Value: int
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var outerClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(outerClass);
+        Assert.Equal("Outer", outerClass.Name);
+        Assert.Equal(2, outerClass.Members.Count);
+
+        var field = outerClass.Members[0] as FieldDeclaration;
+        Assert.NotNull(field);
+        Assert.Equal("Name", field.Name);
+
+        var innerClass = outerClass.Members[1] as ClassDeclaration;
+        Assert.NotNull(innerClass);
+        Assert.Equal("Inner", innerClass.Name);
+        Assert.Single(innerClass.Members);
+    }
+
+    [Fact]
+    public void TestNestedEnum()
+    {
+        var source = @"
+            class Container {
+                enum Status {
+                    Active,
+                    Inactive
+                }
+
+                CurrentStatus: Status
+            }
+        ";
+
+        var cu = Parse(source);
+        var containerClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(containerClass);
+        Assert.Equal(2, containerClass.Members.Count);
+
+        var nestedEnum = containerClass.Members[0] as EnumDeclaration;
+        Assert.NotNull(nestedEnum);
+        Assert.Equal("Status", nestedEnum.Name);
+        Assert.Equal(2, nestedEnum.Members.Count);
+
+        var field = containerClass.Members[1] as FieldDeclaration;
+        Assert.NotNull(field);
+        Assert.Equal("CurrentStatus", field.Name);
+    }
+
+    [Fact]
     public void TestMultiLineTemplateString()
     {
         var source = @"

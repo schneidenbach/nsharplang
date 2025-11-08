@@ -288,8 +288,10 @@ public class Analyzer
         if (prop.GetBody != null)
         {
             PushScope(new Scope(ScopeKind.Function));
+            var prevReturnType = _currentReturnType;
+            _currentReturnType = propType; // Getter should return the property type
             AnalyzeStatement(prop.GetBody);
-            // TODO: Verify getter returns the property type
+            _currentReturnType = prevReturnType;
             PopScope();
         }
 
@@ -297,9 +299,12 @@ public class Analyzer
         if (prop.SetBody != null)
         {
             PushScope(new Scope(ScopeKind.Function));
+            var prevReturnType = _currentReturnType;
+            _currentReturnType = BuiltInTypes.Void; // Setter returns void
             // Implicitly declare 'value' parameter
             DeclareSymbol("value", propType, prop.Line, prop.Column);
             AnalyzeStatement(prop.SetBody);
+            _currentReturnType = prevReturnType;
             PopScope();
         }
     }

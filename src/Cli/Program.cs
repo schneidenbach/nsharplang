@@ -142,8 +142,9 @@ class Program
 
             if (buildResult?.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "Unknown error";
-                return Error($"Build failed:\n{error}");
+                var error = buildResult?.StandardError.ReadToEnd() ?? "";
+                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
+                return Error($"Build failed:\n{error}{output}");
             }
 
             Console.WriteLine();

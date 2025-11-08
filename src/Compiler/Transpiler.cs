@@ -202,6 +202,17 @@ public class Transpiler
         TranspileAttributes(cls.Attributes);
 
         var modifiers = GetModifierString(cls.Modifiers);
+
+        // Infer visibility for nested types (PascalCase = public)
+        if (_currentTypeName != null && !cls.Modifiers.HasFlag(Modifiers.Public) &&
+            !cls.Modifiers.HasFlag(Modifiers.Private) && !cls.Modifiers.HasFlag(Modifiers.Protected) &&
+            !cls.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (char.IsUpper(cls.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+        }
         var typeParams = cls.TypeParameters != null && cls.TypeParameters.Count > 0
             ? $"<{string.Join(", ", cls.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -231,13 +242,14 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        var previousTypeName = _currentTypeName;
         _currentTypeName = cls.Name;
         foreach (var member in cls.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
-        _currentTypeName = null;
+        _currentTypeName = previousTypeName;
 
         _indentLevel--;
         WriteLine("}");
@@ -248,6 +260,17 @@ public class Transpiler
         TranspileAttributes(str.Attributes);
 
         var modifiers = GetModifierString(str.Modifiers);
+
+        // Infer visibility for nested types (PascalCase = public)
+        if (_currentTypeName != null && !str.Modifiers.HasFlag(Modifiers.Public) &&
+            !str.Modifiers.HasFlag(Modifiers.Private) && !str.Modifiers.HasFlag(Modifiers.Protected) &&
+            !str.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (char.IsUpper(str.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+        }
         var typeParams = str.TypeParameters != null && str.TypeParameters.Count > 0
             ? $"<{string.Join(", ", str.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -275,13 +298,14 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        var previousTypeName = _currentTypeName;
         _currentTypeName = str.Name;
         foreach (var member in str.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
-        _currentTypeName = null;
+        _currentTypeName = previousTypeName;
 
         _indentLevel--;
         WriteLine("}");
@@ -292,6 +316,17 @@ public class Transpiler
         TranspileAttributes(rec.Attributes);
 
         var modifiers = GetModifierString(rec.Modifiers);
+
+        // Infer visibility for nested types (PascalCase = public)
+        if (_currentTypeName != null && !rec.Modifiers.HasFlag(Modifiers.Public) &&
+            !rec.Modifiers.HasFlag(Modifiers.Private) && !rec.Modifiers.HasFlag(Modifiers.Protected) &&
+            !rec.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (char.IsUpper(rec.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+        }
         var typeParams = rec.TypeParameters != null && rec.TypeParameters.Count > 0
             ? $"<{string.Join(", ", rec.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -319,13 +354,14 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        var previousTypeName = _currentTypeName;
         _currentTypeName = rec.Name;
         foreach (var member in rec.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
-        _currentTypeName = null;
+        _currentTypeName = previousTypeName;
 
         _indentLevel--;
         WriteLine("}");
@@ -371,6 +407,17 @@ public class Transpiler
         TranspileAttributes(enm.Attributes);
 
         var modifiers = GetModifierString(enm.Modifiers);
+
+        // Infer visibility for nested types (PascalCase = public)
+        if (_currentTypeName != null && !enm.Modifiers.HasFlag(Modifiers.Public) &&
+            !enm.Modifiers.HasFlag(Modifiers.Private) && !enm.Modifiers.HasFlag(Modifiers.Protected) &&
+            !enm.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (char.IsUpper(enm.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+        }
 
         // String enums in C# need to be handled differently (using constants or records)
         if (enm.Type == EnumType.String)
@@ -685,13 +732,24 @@ public class Transpiler
             var resultVar = tupleDecl.Names[0];
             var errVar = tupleDecl.Names[1];
 
-            // Declare both variables
-            WriteLine($"object? {resultVar} = null;");
+            // Declare variables (skip result var if it's discarded)
+            if (resultVar != "_")
+            {
+                WriteLine($"object? {resultVar} = null;");
+            }
             WriteLine($"Exception? {errVar} = null;");
             WriteLine("try");
             WriteLine("{");
             _indentLevel++;
-            WriteLine($"{resultVar} = {TranspileExpression(tupleDecl.Initializer)};");
+            // If result is discarded, just call the function; otherwise assign
+            if (resultVar == "_")
+            {
+                WriteLine($"{TranspileExpression(tupleDecl.Initializer)};");
+            }
+            else
+            {
+                WriteLine($"{resultVar} = {TranspileExpression(tupleDecl.Initializer)};");
+            }
             _indentLevel--;
             WriteLine("}");
             WriteLine($"catch (Exception ex)");
@@ -968,10 +1026,10 @@ public class Transpiler
             UnaryOperator.Negate => $"(-{operand})",
             UnaryOperator.Not => $"(!{operand})",
             UnaryOperator.BitwiseNot => $"(~{operand})",
-            UnaryOperator.PreIncrement => $"(++{operand})",
-            UnaryOperator.PreDecrement => $"(--{operand})",
-            UnaryOperator.PostIncrement => $"({operand}++)",
-            UnaryOperator.PostDecrement => $"({operand}--)",
+            UnaryOperator.PreIncrement => $"++{operand}",
+            UnaryOperator.PreDecrement => $"--{operand}",
+            UnaryOperator.PostIncrement => $"{operand}++",
+            UnaryOperator.PostDecrement => $"{operand}--",
             _ => throw new Exception($"Unsupported unary operator: {unary.Operator}")
         };
     }

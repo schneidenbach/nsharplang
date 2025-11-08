@@ -803,4 +803,121 @@ func Test() {
         // The multi-line content should be preserved
         Assert.Contains("multi-line", result);
     }
+
+    [Fact]
+    public void TestPropertyGetOnlyTranspilation()
+    {
+        var source = @"
+class Data {
+    value: int
+
+    Value: int {
+        get { return value }
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class Data", result);
+        Assert.Contains("private int value", result);
+        Assert.Contains("public int Value", result);
+        Assert.Contains("get", result);
+        Assert.Contains("return value", result);
+        // Should not have a setter
+        Assert.DoesNotContain("set {", result);
+    }
+
+    [Fact]
+    public void TestPropertySetOnlyTranspilation()
+    {
+        var source = @"
+class Logger {
+    message: string
+
+    Message: string {
+        set {
+            message = value
+        }
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class Logger", result);
+        Assert.Contains("private string message", result);
+        Assert.Contains("public string Message", result);
+        Assert.Contains("set", result);
+        Assert.Contains("message = value", result);
+        // Should not have a getter
+        Assert.DoesNotContain("get {", result);
+    }
+
+    [Fact]
+    public void TestNestedClassTranspilation()
+    {
+        var source = @"
+class Outer {
+    Name: string
+
+    class Inner {
+        Value: int
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class Outer", result);
+        Assert.Contains("public string Name", result);
+        Assert.Contains("class Inner", result);
+        Assert.Contains("public int Value", result);
+    }
+
+    [Fact]
+    public void TestNestedEnumTranspilation()
+    {
+        var source = @"
+class Container {
+    enum Status {
+        Active,
+        Inactive
+    }
+
+    CurrentStatus: Status
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class Container", result);
+        Assert.Contains("enum Status", result);
+        Assert.Contains("Active", result);
+        Assert.Contains("Inactive", result);
+        Assert.Contains("Status CurrentStatus", result);
+    }
+
+    [Fact]
+    public void TestNestedRecordTranspilation()
+    {
+        var source = @"
+class Service {
+    record Config {
+        Host: string
+        Port: int
+    }
+
+    CurrentConfig: Config
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class Service", result);
+        Assert.Contains("record Config", result);
+        Assert.Contains("string Host", result);
+        Assert.Contains("int Port", result);
+        Assert.Contains("Config CurrentConfig", result);
+    }
 }

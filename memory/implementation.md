@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (53 tests), Analyzer (63 tests), Transpiler (40 tests)
-- **Total**: 183 tests (183 passing, 0 skipped)
+- **Unit tests**: Lexer (27 tests), Parser (58 tests), Analyzer (63 tests), Transpiler (45 tests)
+- **Total**: 203 tests (203 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, **duck interfaces with structural typing (NEW!)**
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, **properties with custom get/set (NEW!)**, **nested types (NEW!)**
 
 ## Build & Run
 
@@ -146,7 +146,43 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.14 (Latest - Match Expression Exhaustiveness Checking)
+### v1.15 (Latest - Properties and Nested Types)
+1. **Property get/set return type tracking**: ✅ Fixed analyzer to properly handle return statements in properties
+   - Property getters set `_currentReturnType` to property type
+   - Property setters set `_currentReturnType` to void
+   - Return statements now work correctly inside property accessors
+   - Fixes "Return statement outside of function" error
+2. **Nested type support in parser**: ✅ MAJOR feature - classes can now contain other types
+   - Added checks for type keywords (class, struct, record, enum, union, interface) in ParseMemberDeclaration
+   - Nested types are parsed just like top-level types
+   - Enables proper encapsulation and organization of types
+3. **Nested type transpilation fixes**: ✅ Critical bug fixes for C# generation
+   - Fixed `_currentTypeName` tracking to save/restore when entering/exiting nested types
+   - Nested constructors now emit correct class name instead of "UnknownType"
+   - Nested types with PascalCase automatically get public visibility (C# requirement)
+   - Fixed visibility inference for nested enums, classes, structs, records
+4. **Increment/decrement transpilation**: ✅ Fixed extra parentheses bug
+   - Pre/post increment/decrement no longer wrapped in parentheses
+   - `x++` transpiles as `x++` not `(x++)`
+   - Fixes invalid C# code `(x++);` when used as statement
+5. **Error handling with void functions**: ✅ Fixed transpilation for discarded results
+   - `_, err := VoidFunc()` now just calls function: `VoidFunc();`
+   - Previously tried invalid assignment: `_ = VoidFunc();` (can't assign void to object)
+   - Result variable declaration skipped when using discard pattern `_`
+6. **Comprehensive test coverage**: ✅ 10 new tests (5 parser + 5 transpiler)
+   - TestPropertyWithGetSet, TestPropertyWithGetOnly, TestPropertyWithSetOnly
+   - TestPropertyGetOnlyTranspilation, TestPropertySetOnlyTranspilation
+   - TestNestedClass, TestNestedEnum (parser)
+   - TestNestedClassTranspilation, TestNestedEnumTranspilation, TestNestedRecordTranspilation
+7. **End-to-end example**: ✅ `examples/properties_and_nested_types.nl`
+   - BankAccount class with custom properties (Balance with validation)
+   - Nested enum (Status: Active, Frozen, Closed)
+   - Nested class (Transaction)
+   - Error handling with void function (Deposit/Withdraw)
+   - Successfully compiles and runs
+8. **Test count**: ✅ 203 tests total, all passing (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
+
+### v1.14 (Match Expression Exhaustiveness Checking)
 1. **Match expression analysis fully implemented**: ✅ MAJOR feature - compiler-enforced exhaustive pattern matching
    - Added `AnalyzeMatchExpression` method to analyze match expressions
    - Creates scopes for each match case to properly bind pattern variables

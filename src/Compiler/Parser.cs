@@ -552,6 +552,32 @@ public class Parser
         var attributes = ParseAttributes();
         var modifiers = ParseModifiers();
 
+        // Nested type declarations
+        if (Check(TokenType.Class))
+        {
+            return ParseClassDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Struct))
+        {
+            return ParseStructDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Record))
+        {
+            return ParseRecordDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Enum))
+        {
+            return ParseEnumDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Union))
+        {
+            return ParseUnionDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Interface))
+        {
+            return ParseInterfaceDeclaration(attributes, modifiers);
+        }
+
         // Constructor
         if (Check(TokenType.Identifier) && Current.Value == "constructor")
         {

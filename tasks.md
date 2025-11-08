@@ -183,7 +183,7 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
-### Phase 17: Match Expression Exhaustiveness Checking (v1.14 - LATEST!)
+### Phase 17: Match Expression Exhaustiveness Checking (v1.14)
 - [x] **Match Expression Analysis**: Complete AnalyzeMatchExpression implementation
   - Analyzes value being matched and all match cases
   - Creates scopes for pattern variable bindings
@@ -220,9 +220,47 @@
 - [x] All 193 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
+### Phase 18: Properties and Nested Types (v1.15 - LATEST!)
+- [x] **Property Get/Set Tests**: Added comprehensive parser and transpiler tests
+  - TestPropertyWithGetSet: Full property with custom get/set
+  - TestPropertyWithGetOnly: Read-only property
+  - TestPropertyWithSetOnly: Write-only property
+  - TestPropertyGetOnlyTranspilation: Verifies get-only C# output
+  - TestPropertySetOnlyTranspilation: Verifies set-only C# output
+- [x] **Nested Type Support**: Parser now handles nested type declarations
+  - Added support for nested classes, structs, records, enums, unions, and interfaces
+  - ParseMemberDeclaration now checks for type keywords before falling back to fields
+  - TestNestedClass, TestNestedEnum parser tests validate parsing
+- [x] **Nested Type Transpilation**: Proper C# generation for nested types
+  - Nested types with PascalCase automatically get public visibility
+  - Fixed _currentTypeName tracking to save/restore when entering/exiting types
+  - Constructor names correctly use nested class name (not "UnknownType")
+  - TestNestedClassTranspilation, TestNestedEnumTranspilation, TestNestedRecordTranspilation verify output
+- [x] **Property Return Type Tracking**: Fixed analyzer to support property get/set
+  - Property getter sets _currentReturnType to property type
+  - Property setter sets _currentReturnType to void
+  - Return statements now work correctly inside property accessors
+- [x] **Increment/Decrement Transpilation**: Fixed extra parentheses bug
+  - Pre/post increment/decrement no longer wrapped in parentheses
+  - `transactionCount++` now transpiles as `transactionCount++` not `(transactionCount++)`
+  - Fixes invalid C# code when used as statement
+- [x] **Error Handling with Void Functions**: Fixed transpilation for discarded results
+  - `_, err := VoidFunc()` now just calls function without assignment
+  - Avoids invalid C# code trying to assign void to object
+  - Result variable declaration skipped when using discard pattern `_`
+- [x] **End-to-End Example**: `examples/properties_and_nested_types.nl`
+  - Demonstrates custom properties with validation
+  - Shows nested enum (Status) inside class
+  - Shows nested class (Transaction) inside class
+  - Proves error handling with void functions
+  - Successfully compiles and runs with full functionality
+- [x] Added 10 new tests (5 parser + 5 transpiler) = 203 tests total
+- [x] All 203 tests passing, 0 skipped (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
+- [x] Build successful with no warnings
+
 ## 🚧 In Progress
 
-None currently - v1.14 complete!
+None currently - v1.15 complete!
 
 ## 📋 Next Steps
 
@@ -281,7 +319,9 @@ The compiler successfully:
 - `examples/error_handling.nl` - Automatic exception capture with `result, err := Function()` ✅
 - `examples/unions_and_match.nl` - Discriminated unions, enums (int and string), type aliases ✅
 - `examples/records_and_interfaces.nl` - Records, interfaces, structs, readonly fields, with expressions ✅
-- `examples/duck_interfaces.nl` - Duck interfaces with structural typing (NEW!) ✅
+- `examples/duck_interfaces.nl` - Duck interfaces with structural typing ✅
+- `examples/match_exhaustiveness.nl` - Exhaustive pattern matching on unions ✅
+- `examples/properties_and_nested_types.nl` - Custom properties, nested types (NEW!) ✅
 
 ## 📝 Notes
 
@@ -292,7 +332,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 193 unit tests passing, 0 skipped** (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
+- **All 203 unit tests passing, 0 skipped** (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
