@@ -1,8 +1,8 @@
 {
   "name": "nsharp",
   "displayName": "N# Language Support",
-  "description": "Syntax highlighting for N# (.nl files)",
-  "version": "0.1.0",
+  "description": "Language support for N# (.nl files) with IntelliSense, diagnostics, and more",
+  "version": "0.2.0",
   "publisher": "nsharp",
   "repository": {
     "type": "git",
@@ -21,6 +21,10 @@
     "CLI",
     "transpiler"
   ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:nsharp"
+  ],
   "contributes": {
     "languages": [
       {
@@ -36,6 +40,37 @@
         "scopeName": "source.nsharp",
         "path": "./syntaxes/nsharp.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "N#",
+      "properties": {
+        "nsharp.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the N# language server executable. Leave empty to use bundled server."
+        },
+        "nsharp.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.22.0"
   }
 }

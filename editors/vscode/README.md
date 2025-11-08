@@ -1,13 +1,17 @@
 # N# Language Support for VS Code
 
-Syntax highlighting and language support for N# (.nl files).
+Complete language support for N# (.nl files) with IntelliSense, diagnostics, and more powered by the N# Language Server.
 
 ## Features
 
 - **Syntax Highlighting** - Full syntax highlighting for N# language features
+- **IntelliSense** - Auto-completion for keywords, types, and symbols
+- **Diagnostics** - Real-time error and warning detection as you type
+- **Hover Information** - Type information and documentation on hover
 - **Bracket Matching** - Automatic bracket, parenthesis, and quote matching
 - **Comment Support** - Line comments (//) and block comments (/* */)
 - **Code Folding** - Fold code blocks and regions
+- **Language Server** - Full LSP support for rich IDE experience
 
 ## Supported Features
 
@@ -23,18 +27,35 @@ Syntax highlighting and language support for N# (.nl files).
 
 ## Installation
 
+### Prerequisites
+- .NET 9.0 SDK or later
+- Build the N# Language Server first:
+  ```bash
+  cd /path/to/NewCLILang
+  dotnet build src/LanguageServer/LanguageServer.csproj
+  ```
+
 ### From VSIX (Local Development)
 ```bash
-# Package the extension
+# Build and package the extension
 cd editors/vscode
+npm install
+npm run compile
 npx vsce package
 
 # Install in VS Code
-code --install-extension nsharp-0.1.0.vsix
+code --install-extension nsharp-0.2.0.vsix
 ```
 
 ### From Marketplace (coming soon)
 Search for "N#" in the VS Code Extensions marketplace
+
+## Configuration
+
+The extension can be configured via VS Code settings:
+
+- **nsharp.languageServer.path** - Custom path to the language server DLL (leave empty to auto-detect from workspace)
+- **nsharp.trace.server** - Enable LSP communication tracing for debugging (`off` / `messages` / `verbose`)
 
 ## Usage
 
@@ -64,14 +85,16 @@ result := match someValue {
 }
 ```
 
-## Future Features
+## Upcoming Features
 
-- Language Server Protocol (LSP) support for:
-  - IntelliSense / Auto-completion
-  - Go to Definition
-  - Find All References
-  - Rename Symbol
-  - Real-time error checking
+Coming soon:
+- Go to Definition
+- Find All References
+- Rename Symbol
+- Signature Help (parameter hints)
+- Code Actions (quick fixes)
+- Semantic Tokens (enhanced syntax highlighting)
+- Document Symbols (outline view)
 
 ## Contributing
 

@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+
+# Package
+*.vsix
+
+# npm
+package-lock.json
