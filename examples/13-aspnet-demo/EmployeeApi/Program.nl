@@ -15,7 +15,7 @@ func Main(args: string[]) {
     builder.Services.AddSwaggerGen()
 
     // Add database context with SQLite
-    builder.Services.AddDbContext<AppDbContext>((options) => {
+    builder.Services.AddDbContext<AppDbContext>(options => {
         options.UseSqlite("Data Source=employees.db")
     })
 

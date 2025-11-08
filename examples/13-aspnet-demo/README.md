@@ -60,7 +60,7 @@ The Employee API demonstrates N# at its best:
 func Main(args: string[]) {
     builder := WebApplication.CreateBuilder(args)
     builder.Services.AddControllers()
-    builder.Services.AddDbContext<AppDbContext>((options) => {
+    builder.Services.AddDbContext<AppDbContext>(options => {
         options.UseSqlite("Data Source=employees.db")
     })
     app := builder.Build()

@@ -2974,4 +2974,53 @@ func Test() {
 
         Assert.Contains("public static partial class MyCompany.Utils", result);
     }
+
+    // Lambda syntax tests (Task 033)
+
+    [Fact]
+    public void Transpile_SingleParamLambda_EmitsParens()
+    {
+        var source = @"
+            import System.Linq
+
+            func Test() {
+                items := [1, 2, 3]
+                evens := items.Where(x => x % 2 == 0)
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // C# output should have parens even though N# doesn't require them
+        Assert.Contains("(x) =>", result);
+    }
+
+    [Fact]
+    public void Transpile_MultiParamLambda_EmitsParens()
+    {
+        var source = @"
+            func Test() {
+                items := [1, 2, 3]
+                indexed := items.Select((item, index) => new { Item: item, Index: index })
+            }
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("(item, index) =>", result);
+    }
+
+    [Fact]
+    public void Transpile_NoParamLambda_EmitsParens()
+    {
+        var source = @"
+            func Test() {
+                Task.Run(() => { print ""Hello"" })
+            }
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("() =>", result);
+    }
 }

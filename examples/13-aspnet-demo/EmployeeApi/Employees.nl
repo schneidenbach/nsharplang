@@ -228,7 +228,7 @@ class EmployeesController : ControllerBase {
     [HttpGet("status/{status}")]
     func async GetByStatus(status: string): IActionResult {
         employees := await db.Employees
-            .Where((e) => e.Status == status)
+            .Where(e => e.Status == status)
             .ToArrayAsync()
 
         return Ok(employees)
@@ -238,7 +238,7 @@ class EmployeesController : ControllerBase {
     [HttpGet("department/{department}")]
     func async GetByDepartment(department: string): IActionResult {
         employees := await db.Employees
-            .Where((e) => e.Department == department)
+            .Where(e => e.Department == department)
             .ToArrayAsync()
 
         return Ok(employees)

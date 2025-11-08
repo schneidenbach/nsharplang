@@ -4486,5 +4486,121 @@ func Helper(): int {
 
         Assert.Null(cu.Package);
     }
+
+    // Lambda syntax tests (Task 033)
+
+    [Fact]
+    public void Lambda_SingleParamWithoutParens_Parses()
+    {
+        var source = @"
+            import System.Linq
+
+            func Test() {
+                items := [1, 2, 3, 4, 5]
+                evens := items.Where(x => x % 2 == 0)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var evensDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
+
+        Assert.NotNull(evensDecl);
+        Assert.NotNull(evensDecl.Initializer);
+    }
+
+    [Fact]
+    public void Lambda_SingleParamWithParens_StillWorks()
+    {
+        var source = @"
+            import System.Linq
+
+            func Test() {
+                items := [1, 2, 3, 4, 5]
+                evens := items.Where((x) => x % 2 == 0)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var evensDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
+
+        Assert.NotNull(evensDecl);
+        Assert.NotNull(evensDecl.Initializer);
+    }
+
+    [Fact]
+    public void Lambda_MultipleParams_RequiresParens()
+    {
+        var source = @"
+            func Test() {
+                items := [1, 2, 3]
+                indexed := items.Select((item, index) => new { Item: item, Index: index })
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var indexedDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
+
+        Assert.NotNull(indexedDecl);
+        Assert.NotNull(indexedDecl.Initializer);
+    }
+
+    [Fact]
+    public void Lambda_NoParams_RequiresParens()
+    {
+        var source = @"
+            func Test() {
+                Task.Run(() => { print ""Hello"" })
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+    }
+
+    [Fact]
+    public void Lambda_SingleParamWithBlockBody()
+    {
+        var source = @"
+            func Test() {
+                items := [1, 2, 3]
+                evens := items.Where(x => {
+                    print x
+                    return x % 2 == 0
+                })
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var evensDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
+
+        Assert.NotNull(evensDecl);
+        Assert.NotNull(evensDecl.Initializer);
+    }
+
+    [Fact]
+    public void Lambda_NestedLambdas()
+    {
+        var source = @"
+            func Test() {
+                mapper := x => y => x + y
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var mapperDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
+        var outerLambda = mapperDecl!.Initializer as LambdaExpression;
+
+        Assert.NotNull(outerLambda);
+        Assert.Single(outerLambda.Parameters);
+        Assert.NotNull(outerLambda.ExpressionBody);
+    }
 }
 

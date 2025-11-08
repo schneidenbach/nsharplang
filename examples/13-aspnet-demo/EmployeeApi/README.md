@@ -225,7 +225,7 @@ class EmployeeEntity {
    }
    ```
 5. **Async/Await**: `func async GetAll(): IActionResult`
-6. **Lambda Expressions**: `.Where((e) => e.Status == status)`
+6. **Lambda Expressions**: `.Where(e => e.Status == status)`
 7. **Object Initializers**:
    ```n#
    employee := new EmployeeEntity {

@@ -1675,9 +1675,8 @@ public class Transpiler
 
     private string TranspileLambdaExpression(LambdaExpression lambda)
     {
-        var parameters = lambda.Parameters.Count == 1
-            ? lambda.Parameters[0].Name
-            : $"({string.Join(", ", lambda.Parameters.Select(p => p.Name))})";
+        // Always emit with parens in C# for consistency (C# requires parens)
+        var parameters = $"({string.Join(", ", lambda.Parameters.Select(p => p.Name))})";
 
         if (lambda.ExpressionBody != null)
         {

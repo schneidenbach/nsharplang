@@ -628,20 +628,51 @@ doWork(new MemoryReader())  // works via structural typing
   - Natural syntax for dictionary initialization
 
 #### Lambdas and Closures
-- C# style lambda syntax, no parentheses on parameters
-- Expression lambdas: `x => x * 2`
-- Statement lambdas: `x => { return x * 2 }`
-- Multiple parameters: `(x, y) => x + y` (parens required for multiple)
+
+Lambda expressions support multiple syntaxes for convenience:
+
+**Single parameter (no type annotation):**
+```n#
+items.Where(x => x > 10)              // Preferred: no parens
+items.Where((x) => x > 10)            // Also valid: with parens
+```
+
+**Single parameter (with type annotation):**
+```n#
+items.Where((x: int) => x > 10)       // Parens required with type
+```
+
+**Multiple parameters:**
+```n#
+items.Select((x, i) => new { Value: x, Index: i })  // Parens required
+```
+
+**No parameters:**
+```n#
+Task.Run(() => { DoWork() })          // Parens required
+```
+
+**Block body:**
+```n#
+items.Where(x => {
+    print x
+    return x > 10
+})
+```
+
+**Type inference:**
+- Parameter types are inferred from the delegate type when not specified
 - Full closure support (capture variables from outer scope)
-- Examples:
-  ```
-  numbers.Map(x => x * 2)
 
-  multiplier := 10
-  numbers.Map(x => x * multiplier)  // captures 'multiplier'
+**Examples:**
+```n#
+numbers.Map(x => x * 2)
 
-  pairs.Map((x, y) => x + y)  // multiple params need parens
-  ```
+multiplier := 10
+numbers.Map(x => x * multiplier)  // captures 'multiplier'
+
+pairs.Select((x, y) => x + y)     // multiple params need parens
+```
 
 #### Strings
 - Regular strings: `"hello world"`
