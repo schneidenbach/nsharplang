@@ -81,6 +81,7 @@ public record IndexAccessExpression(
 public record CallExpression(
     Expression Callee,
     List<Argument> Arguments,
+    List<TypeReference>? TypeArguments,
     int Line,
     int Column) : Expression(Line, Column);
 

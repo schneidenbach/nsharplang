@@ -2333,4 +2333,97 @@ func Main() {
         var csharp = Transpile(source);
         Assert.Contains("if (TryParse(\"456\", out int value))", csharp);
     }
+
+    [Fact]
+    public void TestGenericMethodCallTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<int>(42)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<int>(42)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithMultipleTypeArgsTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<int, string, bool>(42, ""hello"", true)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<int, string, bool>(42, \"hello\", true)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithNestedGenericsTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<List<int>>(list)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<List<int>>(list)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallOnMemberAccessTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := list.OfType<string>()
+    result2 := obj.Method<int>(42)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("list.OfType<string>()", csharp);
+        Assert.Contains("obj.Method<int>(42)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithNullableTypeTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<int?>(value)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<int?>(value)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithArrayTypeTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<int[]>(array)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<int[]>(array)", csharp);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithDictionaryTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := Method<Dictionary<string, int>>(dict)
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("Method<Dictionary<string, int>>(dict)", csharp);
+    }
 }

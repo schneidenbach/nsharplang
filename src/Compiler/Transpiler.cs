@@ -1415,6 +1415,15 @@ public class Transpiler
     private string TranspileCallExpression(CallExpression call)
     {
         var callee = TranspileExpression(call.Callee);
+
+        // Add generic type arguments if present
+        var typeArgs = "";
+        if (call.TypeArguments != null && call.TypeArguments.Count > 0)
+        {
+            var typeArgList = string.Join(", ", call.TypeArguments.Select(TranspileTypeReference));
+            typeArgs = $"<{typeArgList}>";
+        }
+
         var args = string.Join(", ", call.Arguments.Select(arg =>
         {
             var prefix = "";
@@ -1440,7 +1449,7 @@ public class Transpiler
             var result = prefix + argValue;
             return arg.Name != null ? $"{arg.Name}: {result}" : result;
         }));
-        return $"{callee}({args})";
+        return $"{callee}{typeArgs}({args})";
     }
 
     private string TranspileAssignmentExpression(AssignmentExpression assign)

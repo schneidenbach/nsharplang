@@ -789,6 +789,7 @@ public class Parser
                 initializer = new CallExpression(
                     new ThisExpression(thisLine, thisColumn),
                     arguments,
+                    null,  // No type arguments for constructor calls
                     thisLine,
                     thisColumn);
             }
@@ -806,6 +807,7 @@ public class Parser
                 initializer = new CallExpression(
                     new BaseExpression(baseLine, baseColumn),
                     arguments,
+                    null,  // No type arguments for constructor calls
                     baseLine,
                     baseColumn);
             }
@@ -996,7 +998,7 @@ public class Parser
                 typeArgs.Add(ParseTypeReference());
             }
 
-            Consume(TokenType.Greater, "Expected '>'");
+            ConsumeGreater("Expected '>'");
             return new GenericTypeReference(name, typeArgs);
         }
 
@@ -1047,6 +1049,111 @@ public class Parser
         // Last type is return type, rest are parameters
         return new FunctionTypeReference(paramTypes, returnType);
     }
+
+    // Check if we're looking at a generic method call (e.g., Method<T>(...))
+    // vs a less-than comparison (e.g., x < y)
+    private bool IsGenericMethodCall()
+    {
+        // We're at '<'. Look ahead to see if this could be a type argument list.
+        // A generic method call looks like: Method<Type>(...)
+        // We need to distinguish from: x < y
+
+        var lookAheadPos = _position + 1;
+
+        // Simple heuristic: if we see an identifier followed by '>' or ',', it's likely a type argument
+        // This isn't perfect but should cover most cases
+        if (lookAheadPos < _tokens.Count)
+        {
+            var next = _tokens[lookAheadPos];
+
+            // Must start with identifier (type name)
+            if (next.Type != TokenType.Identifier)
+                return false;
+
+            lookAheadPos++;
+
+            // Skip potential qualified names, array brackets, and nested generics
+            while (lookAheadPos < _tokens.Count)
+            {
+                var token = _tokens[lookAheadPos];
+
+                if (token.Type == TokenType.Greater)
+                {
+                    // Found '>' - check if followed by '('
+                    lookAheadPos++;
+                    return lookAheadPos < _tokens.Count && _tokens[lookAheadPos].Type == TokenType.LeftParen;
+                }
+                else if (token.Type == TokenType.RightShift)
+                {
+                    // Found '>>' (nested generics) - check if followed by '('
+                    lookAheadPos++;
+                    return lookAheadPos < _tokens.Count && _tokens[lookAheadPos].Type == TokenType.LeftParen;
+                }
+                else if (token.Type == TokenType.Comma)
+                {
+                    // Multiple type arguments, likely generic
+                    return true;
+                }
+                else if (token.Type == TokenType.Dot || token.Type == TokenType.Less ||
+                         token.Type == TokenType.LeftBracket || token.Type == TokenType.Question ||
+                         token.Type == TokenType.Identifier || token.Type == TokenType.RightBracket)
+                {
+                    // Continue scanning (qualified names, nested generics, arrays, nullables)
+                    lookAheadPos++;
+                }
+                else
+                {
+                    // Something else - not a generic method call
+                    return false;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private List<TypeReference> ParseCallTypeArguments()
+    {
+        Consume(TokenType.Less, "Expected '<'");
+        var typeArgs = new List<TypeReference> { ParseTypeReference() };
+
+        while (Match(TokenType.Comma))
+        {
+            typeArgs.Add(ParseTypeReference());
+        }
+
+        ConsumeGreater("Expected '>'");
+        return typeArgs;
+    }
+
+    // Helper to consume '>' but also handle '>>' (which needs to be split)
+    private void ConsumeGreater(string message)
+    {
+        if (Check(TokenType.Greater))
+        {
+            Advance();
+        }
+        else if (Check(TokenType.RightShift))
+        {
+            // Split >> into two > tokens by inserting a virtual > token
+            // We consume the >> but pretend we only consumed one >
+            var rightShift = Current;
+            _position++; // consume the >>
+
+            // Insert a virtual > token at the current position
+            // by decrementing position and modifying the current token
+            // Actually, we can't modify the token stream, so we'll use a different approach:
+            // We'll keep track that we "owe" a > token
+            _splitGreaterDepth++;
+        }
+        else
+        {
+            throw new Exception($"{message} at line {Current.Line}, column {Current.Column}");
+        }
+    }
+
+    // Track when we split >> into > >
+    private int _splitGreaterDepth = 0;
 
     private BlockStatement ParseBlock()
     {
@@ -2218,11 +2325,23 @@ public class Parser
                 Consume(TokenType.RightBracket, "Expected ']'");
                 expr = new IndexAccessExpression(expr, index, isNullConditional, bracketToken.Line, bracketToken.Column);
             }
+            else if (Check(TokenType.Less) && IsGenericMethodCall())
+            {
+                // Parse generic type arguments for method call
+                var typeArgs = ParseCallTypeArguments();
+
+                // Now parse the arguments
+                if (!Check(TokenType.LeftParen))
+                    throw new Exception($"Expected '(' after generic type arguments at line {Current.Line}, column {Current.Column}");
+                var parenToken = Advance();
+                var args = ParseArgumentList();
+                expr = new CallExpression(expr, args, typeArgs, parenToken.Line, parenToken.Column);
+            }
             else if (Check(TokenType.LeftParen))
             {
                 var parenToken = Advance();
                 var args = ParseArgumentList();
-                expr = new CallExpression(expr, args, parenToken.Line, parenToken.Column);
+                expr = new CallExpression(expr, args, null, parenToken.Line, parenToken.Column);
             }
             else if (Check(TokenType.Increment))
             {
@@ -2800,12 +2919,29 @@ public class Parser
 
     private Token Advance()
     {
+        // Handle split >> token
+        if (_splitGreaterDepth > 0)
+        {
+            _splitGreaterDepth--;
+            // Return a virtual > token
+            var prev = _tokens[_position - 1];
+            return new Token(TokenType.Greater, ">", prev.Line, prev.Column + 1, prev.FileName);
+        }
+
         if (!IsAtEnd())
             _position++;
         return _tokens[_position - 1];
     }
 
-    private bool Check(TokenType type) => Current.Type == type;
+    private bool Check(TokenType type)
+    {
+        // Handle split >> token
+        if (_splitGreaterDepth > 0 && type == TokenType.Greater)
+        {
+            return true; // We owe a > from a previous >>
+        }
+        return Current.Type == type;
+    }
 
     private bool Match(TokenType type)
     {

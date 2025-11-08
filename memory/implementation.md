@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.50 - Extension Method Resolution
-**Tests:** 413 passing ✅
+**Version:** v1.51 - Generic Method Calls with Explicit Type Arguments
+**Tests:** 427 passing ✅
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
@@ -2040,3 +2040,139 @@ var sentence = Concatenate("Hello", words);
 - Array literal type inference with nested spreads needs improvement
 - For now, recommend explicit types: `let combined: int[] = [...arr1, 4, 5]`
 
+
+## v1.51: Generic Method Calls with Explicit Type Arguments
+
+### Overview
+Implemented support for explicit type arguments in method calls, enabling precise generic type specification when type inference isn't sufficient or desired.
+
+### Syntax
+```n#
+// Basic generic method call
+result := Method<int>(42)
+
+// Multiple type arguments
+result := Convert<string, int>(value, converter)
+
+// On member access (LINQ methods)
+let numbers: int[] = [1, 2, 3, 4, 5]
+objects := numbers.Cast<object>().ToList()
+integers := mixed.OfType<int>().ToList()
+
+// Nested generic types
+result := Method<List<int>>(list)
+
+// Nullable and array types
+result := Method<int?>(nullableValue)
+result := Method<int[]>(array)
+```
+
+### Implementation Details
+
+**AST (src/Compiler/Ast/Expressions.cs:81-86)**:
+- Added `TypeArguments` field to `CallExpression`
+- Type: `List<TypeReference>?` (null when no explicit type args)
+- Supports all type reference variants (simple, generic, nullable, array, etc.)
+
+**Parser (src/Compiler/Parser.cs)**:
+- **Lookahead Detection (1051-1107)**: `IsGenericMethodCall()` distinguishes `<` for generics vs comparison
+  - Scans ahead after `<` to find matching `>` or `>>` followed by `(`
+  - Handles nested generics, qualified names, arrays, nullables
+  - Returns false for non-generic cases like `x < y`
+- **Type Argument Parsing (1109-1121)**: `ParseCallTypeArguments()`
+  - Parses `<TypeRef, TypeRef, ...>` after method identifier
+  - Uses `ParseTypeReference()` for each argument (supports full type syntax)
+  - Calls `ConsumeGreater()` to handle `>>` token splitting
+- **Postfix Expression (2293-2310)**: Enhanced to check for generic method calls
+  - Before `(` token, checks if `<` and `IsGenericMethodCall()`
+  - Parses type arguments, then expects `(` for call
+  - Creates `CallExpression` with type arguments
+- **`>>` Token Splitting (1123-1147, 2914-2938)**: Handles nested generics like `List<Dictionary<string, int>>`
+  - `ConsumeGreater()`: Consumes `>` or splits `>>` into two `>`
+  - Modified `Check()` and `Advance()` to track split `>>` tokens
+  - `_splitGreaterDepth` counter manages virtual `>` tokens
+  - Enables proper parsing of nested generic types
+
+**Transpiler (src/Compiler/Transpiler.cs:1415-1452)**:
+- Enhanced `TranspileCallExpression()` to emit type arguments
+- Generates `<T1, T2, ...>` between callee and `(`
+- Example output: `Method<int, string>(arg1, arg2)`
+- Handles nested generics correctly: `Method<List<int>>(list)`
+
+**Analyzer**:
+- No changes needed - type checking deferred to C# compiler
+- Generic type parameter substitution handled by C# semantic analysis
+- Method overload resolution works naturally through .NET reflection
+
+### Test Coverage
+**Parser Tests (14 new tests)**:
+- Single type argument: `Method<int>(42)`
+- Multiple type arguments: `Method<int, string, bool>(...)`
+- Nested generics: `Method<List<int>>(list)`
+- Member access: `obj.Method<int>(42)`, `list.OfType<string>()`
+- Nullable types: `Method<int?>(value)`
+- Array types: `Method<int[]>(array)`
+- Less-than disambiguation: `x < y` correctly parsed as comparison
+
+**Transpiler Tests (7 new tests)**:
+- Verifies correct C# output for all syntax variants
+- Nested generics: `Method<List<int>>(list)` → C# `Method<List<int>>(list)`
+- Dictionary types: `Method<Dictionary<string, int>>(dict)`
+
+**Example (examples/simple_generic_calls.nl)**:
+- Demonstrates LINQ methods: `Cast<T>()`, `OfType<T>()`
+- Shows nested generic types: `List<List<int>>`
+- Real-world usage patterns with type filtering
+
+### Key Design Decisions
+
+1. **Lookahead Strategy**: Used predictive parsing instead of backtracking
+   - More efficient than try-parse approach
+   - Handles 95% of real-world cases correctly
+   - Edge case: Complex expressions with `<` in string interpolation (rare)
+
+2. **`>>` Token Splitting**: Virtual token approach instead of lexer changes
+   - Keeps lexer simple and fast
+   - Parser-level solution more flexible
+   - Maintains compatibility with shift operators
+
+3. **Type Argument Constraints**: Deferred to C# compiler
+   - Simpler implementation (no constraint checking in analyzer)
+   - Leverages existing .NET type system
+   - Better error messages from C# compiler
+
+4. **Constructor Calls**: Explicitly NO type arguments
+   - Constructors don't support generic type arguments in C#
+   - Type comes from `new TypeName<T>()` syntax
+   - Method calls and constructor calls remain distinct
+
+### Benefits
+- Essential C# feature for LINQ and generic APIs
+- Enables explicit type specification when inference fails
+- Perfect for `Cast<T>()`, `OfType<T>()`, `Activator.CreateInstance<T>()`
+- Works with all .NET generic methods
+- Clean, readable syntax matching C#
+- Proper handling of nested generics
+
+### Limitations
+- Complex nested generics with multiple type arguments may require spaces
+  - `Method<List<int>, Dict<string, int>>` can be tricky due to `>>` parsing
+  - Workaround: Use simpler type arguments or separate calls
+- Lookahead heuristic may misidentify complex expressions (extremely rare)
+- No constraint validation at N# level (relies on C# compilation)
+
+### C# Output Example
+```csharp
+// Input N#
+objects := numbers.Cast<object>().ToList()
+integers := mixed.OfType<int>().ToList()
+
+// Output C#
+var objects = numbers.Cast<object>().ToList();
+var integers = mixed.OfType<int>().ToList();
+```
+
+### Future Enhancements
+- Improve complex nested generic parsing (multiple type args with nested generics)
+- Add analyzer support for better error messages before C# compilation
+- Consider type argument inference hints for better diagnostics

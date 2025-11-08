@@ -3724,5 +3724,241 @@ func Helper(): int {
         Assert.NotNull(simpleType);
         Assert.Equal("int", simpleType.Name);
     }
+
+    [Fact]
+    public void TestGenericMethodCallWithSingleTypeArgument()
+    {
+        var source = @"
+            func Test() {
+                result := Method<int>(42)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var callExpr = varDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.NotNull(callExpr.TypeArguments);
+        Assert.Single(callExpr.TypeArguments);
+
+        var typeArg = callExpr.TypeArguments[0] as SimpleTypeReference;
+        Assert.NotNull(typeArg);
+        Assert.Equal("int", typeArg.Name);
+
+        Assert.Single(callExpr.Arguments);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithMultipleTypeArguments()
+    {
+        var source = @"
+            func Test() {
+                result := Method<int, string, bool>(42, ""hello"", true)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var callExpr = varDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.NotNull(callExpr.TypeArguments);
+        Assert.Equal(3, callExpr.TypeArguments.Count);
+
+        var typeArg1 = callExpr.TypeArguments[0] as SimpleTypeReference;
+        Assert.NotNull(typeArg1);
+        Assert.Equal("int", typeArg1.Name);
+
+        var typeArg2 = callExpr.TypeArguments[1] as SimpleTypeReference;
+        Assert.NotNull(typeArg2);
+        Assert.Equal("string", typeArg2.Name);
+
+        var typeArg3 = callExpr.TypeArguments[2] as SimpleTypeReference;
+        Assert.NotNull(typeArg3);
+        Assert.Equal("bool", typeArg3.Name);
+
+        Assert.Equal(3, callExpr.Arguments.Count);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithComplexTypeArguments()
+    {
+        // Test single nested generic type argument
+        var source = @"
+            func Test() {
+                result := Method<List<int>>(list)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var callExpr = varDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.NotNull(callExpr.TypeArguments);
+        Assert.Single(callExpr.TypeArguments);
+
+        // Type argument: List<int>
+        var typeArg1 = callExpr.TypeArguments[0] as GenericTypeReference;
+        Assert.NotNull(typeArg1);
+        Assert.Equal("List", typeArg1.Name);
+        Assert.Single(typeArg1.TypeArguments);
+        var listInner = typeArg1.TypeArguments[0] as SimpleTypeReference;
+        Assert.NotNull(listInner);
+        Assert.Equal("int", listInner.Name);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallOnMemberAccess()
+    {
+        var source = @"
+            func Test() {
+                result := obj.Method<int>(42)
+                result2 := list.OfType<string>()
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        // First call
+        var varDecl1 = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl1);
+
+        var callExpr1 = varDecl1.Initializer as CallExpression;
+        Assert.NotNull(callExpr1);
+        Assert.NotNull(callExpr1.TypeArguments);
+        Assert.Single(callExpr1.TypeArguments);
+
+        var memberAccess1 = callExpr1.Callee as MemberAccessExpression;
+        Assert.NotNull(memberAccess1);
+        Assert.Equal("Method", memberAccess1.MemberName);
+
+        // Second call
+        var varDecl2 = block.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl2);
+
+        var callExpr2 = varDecl2.Initializer as CallExpression;
+        Assert.NotNull(callExpr2);
+        Assert.NotNull(callExpr2.TypeArguments);
+        Assert.Single(callExpr2.TypeArguments);
+
+        var memberAccess2 = callExpr2.Callee as MemberAccessExpression;
+        Assert.NotNull(memberAccess2);
+        Assert.Equal("OfType", memberAccess2.MemberName);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithNullableTypeArgument()
+    {
+        var source = @"
+            func Test() {
+                result := Method<int?>(value)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var callExpr = varDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.NotNull(callExpr.TypeArguments);
+        Assert.Single(callExpr.TypeArguments);
+
+        var typeArg = callExpr.TypeArguments[0] as NullableTypeReference;
+        Assert.NotNull(typeArg);
+        var innerType = typeArg.InnerType as SimpleTypeReference;
+        Assert.NotNull(innerType);
+        Assert.Equal("int", innerType.Name);
+    }
+
+    [Fact]
+    public void TestGenericMethodCallWithArrayTypeArgument()
+    {
+        var source = @"
+            func Test() {
+                result := Method<int[]>(array)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var callExpr = varDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.NotNull(callExpr.TypeArguments);
+        Assert.Single(callExpr.TypeArguments);
+
+        var typeArg = callExpr.TypeArguments[0] as ArrayTypeReference;
+        Assert.NotNull(typeArg);
+        var elementType = typeArg.ElementType as SimpleTypeReference;
+        Assert.NotNull(elementType);
+        Assert.Equal("int", elementType.Name);
+    }
+
+    [Fact]
+    public void TestLessThanIsNotGenericMethodCall()
+    {
+        var source = @"
+            func Test() {
+                result := x < y
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var block = funcDecl.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        // Should be a binary expression, not a call expression
+        var binaryExpr = varDecl.Initializer as BinaryExpression;
+        Assert.NotNull(binaryExpr);
+        Assert.Equal(BinaryOperator.Less, binaryExpr.Operator);
+    }
 }
 
