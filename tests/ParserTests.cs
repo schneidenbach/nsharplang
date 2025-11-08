@@ -2315,4 +2315,72 @@ func main() {
         Assert.NotNull(countIdent);
         Assert.Equal("count", countIdent.Name);
     }
+
+    [Fact]
+    public void TestTestDeclaration()
+    {
+        var source = @"
+test ""should add two numbers"" {
+    result := Add(2, 3)
+    assert result == 5
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var unit = parser.ParseCompilationUnit();
+
+        Assert.Single(unit.Declarations);
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        Assert.Equal("should add two numbers", testDecl.Description);
+        Assert.Equal(2, testDecl.Body.Statements.Count);
+
+        // Check variable declaration
+        var varDecl = testDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+        Assert.Equal("result", varDecl.Name);
+
+        // Check assert statement
+        var assertStmt = testDecl.Body.Statements[1] as AssertStatement;
+        Assert.NotNull(assertStmt);
+        var binExpr = assertStmt.Condition as BinaryExpression;
+        Assert.NotNull(binExpr);
+        Assert.Equal(BinaryOperator.Equal, binExpr.Operator);
+    }
+
+    [Fact]
+    public void TestAssertStatement()
+    {
+        var source = @"
+func TestFunc() {
+    value := 10
+    assert value > 5
+    assert value != null
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var unit = parser.ParseCompilationUnit();
+
+        var funcDecl = unit.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+        Assert.Equal(3, funcDecl.Body.Statements.Count);
+
+        // First assert: value > 5
+        var assert1 = funcDecl.Body.Statements[1] as AssertStatement;
+        Assert.NotNull(assert1);
+        var binExpr1 = assert1.Condition as BinaryExpression;
+        Assert.NotNull(binExpr1);
+        Assert.Equal(BinaryOperator.Greater, binExpr1.Operator);
+
+        // Second assert: value != null
+        var assert2 = funcDecl.Body.Statements[2] as AssertStatement;
+        Assert.NotNull(assert2);
+        var binExpr2 = assert2.Condition as BinaryExpression;
+        Assert.NotNull(binExpr2);
+        Assert.Equal(BinaryOperator.NotEqual, binExpr2.Operator);
+    }
 }

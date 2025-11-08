@@ -231,3 +231,10 @@ public record TupleTypeElement(TypeReference Type, string? Name);
 public record FunctionTypeReference(
     List<TypeReference> ParameterTypes,
     TypeReference ReturnType) : TypeReference;
+
+// Test declaration (for .tests.nl files)
+public record TestDeclaration(
+    string Description,
+    BlockStatement Body,
+    int Line,
+    int Column) : Declaration(Line, Column);

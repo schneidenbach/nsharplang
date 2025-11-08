@@ -1325,4 +1325,96 @@ func main() {
         // Should transpile union case with nested property pattern
         Assert.Contains("Result.Success { value: { Count: var count } } => count", result);
     }
+
+    [Fact]
+    public void TestTestDeclarationTranspilation()
+    {
+        var source = @"
+test ""should add two numbers"" {
+    result := Add(2, 3)
+    assert result == 5
+}";
+
+        var result = Transpile(source);
+
+        // Should have [Fact] attribute
+        Assert.Contains("[Fact]", result);
+        // Should generate PascalCase method name
+        Assert.Contains("public void ShouldAddTwoNumbers()", result);
+        // Should transpile assert
+        Assert.Contains("Assert.Equal(5, result);", result);
+    }
+
+    [Fact]
+    public void TestAssertEqualTranspilation()
+    {
+        var source = @"
+test ""test equals"" {
+    assert x == 5
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Equal(5, x);", result);
+    }
+
+    [Fact]
+    public void TestAssertNotEqualTranspilation()
+    {
+        var source = @"
+test ""test not equals"" {
+    assert x != 5
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.NotEqual(5, x);", result);
+    }
+
+    [Fact]
+    public void TestAssertNotNullTranspilation()
+    {
+        var source = @"
+test ""test not null"" {
+    assert value != null
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.NotNull(value);", result);
+    }
+
+    [Fact]
+    public void TestAssertGreaterThanTranspilation()
+    {
+        var source = @"
+test ""test greater than"" {
+    assert x > 5
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.True(x > 5);", result);
+    }
+
+    [Fact]
+    public void TestAssertBooleanTranspilation()
+    {
+        var source = @"
+test ""test boolean"" {
+    assert isValid
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.True(isValid);", result);
+    }
+
+    [Fact]
+    public void TestMethodNameConversion()
+    {
+        var source = @"
+test ""should-handle_special characters!"" {
+    assert true
+}";
+
+        var result = Transpile(source);
+        // Should convert to valid C# method name
+        Assert.Contains("public void ShouldHandleSpecialCharacters()", result);
+    }
 }

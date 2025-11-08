@@ -75,6 +75,8 @@ public class Lexer
         { "immutable", TokenType.Immutable },
         { "with", TokenType.With },
         { "type", TokenType.Type },
+        { "test", TokenType.Test },
+        { "assert", TokenType.Assert },
     };
 
     public Lexer(string source, string? fileName = null)

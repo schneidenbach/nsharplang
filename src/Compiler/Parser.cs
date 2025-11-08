@@ -129,6 +129,10 @@ public class Parser
 
     private Declaration ParseDeclaration()
     {
+        // Test declarations don't have attributes or modifiers
+        if (Check(TokenType.Test))
+            return ParseTestDeclaration();
+
         var attributes = ParseAttributes();
         var modifiers = ParseModifiers();
 
@@ -272,6 +276,25 @@ public class Parser
         }
 
         return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, line, column);
+    }
+
+    private TestDeclaration ParseTestDeclaration()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Test, "Expected 'test'");
+
+        // Test description must be a string literal
+        if (Current.Type != TokenType.StringLiteral)
+            throw new Exception($"Expected string literal for test description at {Current.Line}:{Current.Column}");
+
+        var description = Current.Value.Trim('"'); // Remove quotes
+        Advance();
+
+        // Parse test body
+        var body = ParseBlock();
+
+        return new TestDeclaration(description, body, line, column);
     }
 
     private List<TypeParameter>? ParseTypeParameters()
@@ -939,11 +962,24 @@ public class Parser
             return ParseSwitchStatement();
         if (Check(TokenType.Print))
             return ParsePrintStatement();
+        if (Check(TokenType.Assert))
+            return ParseAssertStatement();
         if (Check(TokenType.LeftBrace))
             return ParseBlock();
 
         // Expression statement (or shorthand declaration with :=)
         return ParseExpressionStatement();
+    }
+
+    private AssertStatement ParseAssertStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Assert, "Expected 'assert'");
+
+        var condition = ParseExpression();
+
+        return new AssertStatement(condition, line, column);
     }
 
     private Statement ParseVariableDeclaration(VariableKind kind)

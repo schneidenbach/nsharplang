@@ -132,6 +132,9 @@ public class Transpiler
     {
         switch (declaration)
         {
+            case TestDeclaration test:
+                TranspileTestDeclaration(test);
+                break;
             case FunctionDeclaration func:
                 TranspileFunctionDeclaration(func);
                 break;
@@ -171,6 +174,60 @@ public class Transpiler
             default:
                 throw new Exception($"Unsupported declaration type: {declaration.GetType().Name}");
         }
+    }
+
+    private void TranspileTestDeclaration(TestDeclaration test)
+    {
+        // Convert test description to valid C# method name
+        var methodName = TestDescriptionToMethodName(test.Description);
+
+        WriteLine("[Fact]");
+        WriteLine($"public void {methodName}()");
+        WriteLine("{");
+        _indentLevel++;
+
+        foreach (var stmt in test.Body.Statements)
+        {
+            TranspileStatement(stmt);
+        }
+
+        _indentLevel--;
+        WriteLine("}");
+        WriteLine();
+    }
+
+    private string TestDescriptionToMethodName(string description)
+    {
+        // Convert "should add two numbers" to "ShouldAddTwoNumbers"
+        var words = description.Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        var sb = new StringBuilder();
+
+        foreach (var word in words)
+        {
+            if (word.Length > 0)
+            {
+                // Capitalize first letter, lowercase rest (simple version)
+                sb.Append(char.ToUpper(word[0]));
+                if (word.Length > 1)
+                {
+                    // Keep rest of word as-is for acronyms like "API"
+                    sb.Append(word.Substring(1));
+                }
+            }
+        }
+
+        var result = sb.ToString();
+
+        // Remove any remaining invalid characters
+        result = new string(result.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
+
+        // Ensure it starts with a letter or underscore
+        if (result.Length == 0 || !char.IsLetter(result[0]))
+        {
+            result = "Test_" + result;
+        }
+
+        return result;
     }
 
     private void TranspileFunctionDeclaration(FunctionDeclaration func)
@@ -740,11 +797,97 @@ public class Transpiler
             case PrintStatement printStmt:
                 WriteLine($"Console.WriteLine({TranspileExpression(printStmt.Value)});");
                 break;
+            case AssertStatement assertStmt:
+                TranspileAssertStatement(assertStmt);
+                break;
             case EmptyStatement:
                 WriteLine(";");
                 break;
             default:
                 throw new Exception($"Unsupported statement type: {statement.GetType().Name}");
+        }
+    }
+
+    private void TranspileAssertStatement(AssertStatement assertStmt)
+    {
+        // Smart assert transpilation - convert different patterns to appropriate XUnit asserts
+        var condition = assertStmt.Condition;
+
+        switch (condition)
+        {
+            case BinaryExpression binExpr:
+                TranspileBinaryAssert(binExpr);
+                break;
+
+            case IsExpression isExpr:
+                // assert x is Type → Assert.IsType<Type>(x)
+                var typeName = TranspileTypeReference(isExpr.Type);
+                WriteLine($"Assert.IsType<{typeName}>({TranspileExpression(isExpr.Expression)});");
+                break;
+
+            default:
+                // Simple boolean expression: assert x → Assert.True(x)
+                WriteLine($"Assert.True({TranspileExpression(condition)});");
+                break;
+        }
+    }
+
+    private void TranspileBinaryAssert(BinaryExpression binExpr)
+    {
+        var left = TranspileExpression(binExpr.Left);
+        var right = TranspileExpression(binExpr.Right);
+
+        switch (binExpr.Operator)
+        {
+            case BinaryOperator.Equal:
+                // assert x == y → Assert.Equal(y, x) [XUnit expects expected first]
+                WriteLine($"Assert.Equal({right}, {left});");
+                break;
+
+            case BinaryOperator.NotEqual:
+                // Special case: assert x != null → Assert.NotNull(x)
+                if (binExpr.Right is NullLiteralExpression)
+                {
+                    WriteLine($"Assert.NotNull({left});");
+                }
+                else if (binExpr.Left is NullLiteralExpression)
+                {
+                    WriteLine($"Assert.NotNull({right});");
+                }
+                else
+                {
+                    WriteLine($"Assert.NotEqual({right}, {left});");
+                }
+                break;
+
+            case BinaryOperator.Greater:
+            case BinaryOperator.Less:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.LessOrEqual:
+                // Relational operators: assert x > y → Assert.True(x > y)
+                var relOp = binExpr.Operator switch
+                {
+                    BinaryOperator.Greater => ">",
+                    BinaryOperator.Less => "<",
+                    BinaryOperator.GreaterOrEqual => ">=",
+                    BinaryOperator.LessOrEqual => "<=",
+                    _ => "??"
+                };
+                WriteLine($"Assert.True({left} {relOp} {right});");
+                break;
+
+            default:
+                // Default to Assert.True for any other binary expression
+                var defaultOp = binExpr.Operator switch
+                {
+                    BinaryOperator.Add => "+",
+                    BinaryOperator.Subtract => "-",
+                    BinaryOperator.And => "&&",
+                    BinaryOperator.Or => "||",
+                    _ => "??"
+                };
+                WriteLine($"Assert.True({left} {defaultOp} {right});");
+                break;
         }
     }
 

@@ -151,3 +151,9 @@ public record NamespaceImport(
     string? Alias,
     int Line,
     int Column) : Statement(Line, Column);
+
+// Assert statement (for test files)
+public record AssertStatement(
+    Expression Condition,
+    int Line,
+    int Column) : Statement(Line, Column);

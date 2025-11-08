@@ -100,6 +100,9 @@ public class Analyzer
     {
         switch (decl)
         {
+            case TestDeclaration test:
+                AnalyzeTestDeclaration(test);
+                break;
             case FunctionDeclaration func:
                 AnalyzeFunctionDeclaration(func);
                 break;
@@ -131,6 +134,19 @@ public class Analyzer
                 AnalyzeConstructorDeclaration(ctor);
                 break;
         }
+    }
+
+    private void AnalyzeTestDeclaration(TestDeclaration test)
+    {
+        // Tests are similar to functions - create scope and analyze body
+        PushScope(new Scope(ScopeKind.Function));
+
+        foreach (var stmt in test.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+
+        PopScope();
     }
 
     private void AnalyzeFunctionDeclaration(FunctionDeclaration func)
@@ -487,7 +503,19 @@ public class Analyzer
             case PrintStatement printStmt:
                 AnalyzeExpression(printStmt.Value);
                 break;
+            case AssertStatement assertStmt:
+                AnalyzeAssertStatement(assertStmt);
+                break;
         }
+    }
+
+    private void AnalyzeAssertStatement(AssertStatement assertStmt)
+    {
+        // Analyze the condition expression
+        var condType = AnalyzeExpression(assertStmt.Condition);
+
+        // We don't strictly require boolean type because we support various comparison patterns
+        // The transpiler will convert different expression types to appropriate Assert calls
     }
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)

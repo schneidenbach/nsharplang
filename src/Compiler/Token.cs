@@ -71,6 +71,8 @@ public enum TokenType
     Immutable,
     With,
     Type,
+    Test,
+    Assert,
 
     // Operators
     Plus,           // +
