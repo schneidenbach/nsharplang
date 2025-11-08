@@ -1,8 +1,8 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.66 - Async Streams (IAsyncEnumerable) (Current)
+**Version:** v1.67 - Enhanced Error Messages with Source Snippets (Current)
 **Tests:** 482 passing ✅ (all existing tests passing)
-**Status:** Feature-complete! All DESIGN.md features implemented. **Async streams support added!** LSP server integrated with VS Code!
+**Status:** Feature-complete! All DESIGN.md features implemented. **Rust-quality error messages with source snippets and colors!** LSP server integrated with VS Code!
 
 ## Architecture Overview
 

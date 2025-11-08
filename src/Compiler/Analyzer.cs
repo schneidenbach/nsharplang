@@ -26,13 +26,14 @@ public class Analyzer
     private string? _currentFilePath;
     private string? _projectRoot;
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
+    private string[]? _sourceLines;  // Source code lines for error snippets
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
-        return Analyze(unit, null, null);
+        return Analyze(unit, null, null, null);
     }
 
-    public AnalysisResult Analyze(CompilationUnit unit, string? currentFilePath, string? projectRoot)
+    public AnalysisResult Analyze(CompilationUnit unit, string? currentFilePath, string? projectRoot, string? sourceCode = null)
     {
         _errors.Clear();
         _scopes.Clear();
@@ -46,6 +47,7 @@ public class Analyzer
         _inConstructor = false;
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
+        _sourceLines = sourceCode?.Split('\n');
 
         // Process using statements
         foreach (var usingStmt in unit.Usings)
@@ -2642,12 +2644,35 @@ public class Analyzer
         Error(ErrorCode.InvalidSyntax, message, line, column);
     }
 
-    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null)
+    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
     {
-        var error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
+        CompilerError error;
+
+        // If we have source lines and the line is valid, include snippet
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
         {
-            Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
-        };
+            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
+            error = CompilerError.WithSnippet(
+                code,
+                message,
+                _currentFilePath,
+                line,
+                column,
+                sourceSnippet,
+                length,
+                suggestion ?? ErrorSuggestions.GetSuggestion(code),
+                ErrorSeverity.Error
+            );
+        }
+        else
+        {
+            error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
+            {
+                FileName = _currentFilePath,
+                Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
+            };
+        }
+
         _errors.Add(error);
     }
 
@@ -2656,12 +2681,35 @@ public class Analyzer
         Warning(ErrorCode.UnusedVariable, message, line, column);
     }
 
-    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null)
+    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
     {
-        var warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
+        CompilerError warning;
+
+        // If we have source lines and the line is valid, include snippet
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
         {
-            Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
-        };
+            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
+            warning = CompilerError.WithSnippet(
+                code,
+                message,
+                _currentFilePath,
+                line,
+                column,
+                sourceSnippet,
+                length,
+                suggestion ?? ErrorSuggestions.GetSuggestion(code),
+                ErrorSeverity.Warning
+            );
+        }
+        else
+        {
+            warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
+            {
+                FileName = _currentFilePath,
+                Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
+            };
+        }
+
         _errors.Add(warning);
     }
 

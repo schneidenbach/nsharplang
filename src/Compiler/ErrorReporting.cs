@@ -116,42 +116,97 @@ public record CompilerError
     /// <summary>
     /// Format error in Rust-style with source snippet and suggestions
     /// </summary>
-    public string Format()
+    public string Format(bool useColors = true)
     {
         var builder = new StringBuilder();
         var severityText = Severity == ErrorSeverity.Warning ? "warning" : "error";
 
+        // ANSI color codes
+        const string Red = "\x1b[1;31m";      // Bold red for errors
+        const string Yellow = "\x1b[1;33m";   // Bold yellow for warnings
+        const string Cyan = "\x1b[1;36m";     // Cyan for line numbers
+        const string Green = "\x1b[1;32m";    // Green for help text
+        const string Bold = "\x1b[1m";        // Bold for emphasis
+        const string Reset = "\x1b[0m";       // Reset color
+
+        var severityColor = Severity == ErrorSeverity.Warning ? Yellow : Red;
+
         // First line: error/warning with code and message
-        builder.AppendLine($"{severityText} NL{(int)Code:D3}: {Message}");
+        if (useColors)
+        {
+            builder.AppendLine($"{severityColor}{severityText}{Reset} {Bold}NL{(int)Code:D3}{Reset}: {Message}");
+        }
+        else
+        {
+            builder.AppendLine($"{severityText} NL{(int)Code:D3}: {Message}");
+        }
 
         // Location
         if (FileName != null)
         {
-            builder.AppendLine($"  --> {FileName}:{Line}:{Column}");
+            if (useColors)
+            {
+                builder.AppendLine($"  {Cyan}-->{Reset} {FileName}:{Line}:{Column}");
+            }
+            else
+            {
+                builder.AppendLine($"  --> {FileName}:{Line}:{Column}");
+            }
         }
         else
         {
-            builder.AppendLine($"  --> line {Line}, column {Column}");
+            if (useColors)
+            {
+                builder.AppendLine($"  {Cyan}-->{Reset} line {Line}, column {Column}");
+            }
+            else
+            {
+                builder.AppendLine($"  --> line {Line}, column {Column}");
+            }
         }
 
         // Source snippet with marker
         if (SourceSnippet != null)
         {
-            builder.AppendLine("   |");
-            builder.AppendLine($"{Line,3} | {SourceSnippet}");
+            if (useColors)
+            {
+                builder.AppendLine($"   {Cyan}|{Reset}");
+                builder.AppendLine($"{Cyan}{Line,3} |{Reset} {SourceSnippet}");
+            }
+            else
+            {
+                builder.AppendLine("   |");
+                builder.AppendLine($"{Line,3} | {SourceSnippet}");
+            }
 
             // Calculate marker position (accounting for line number width)
             var markerIndent = Column > 0 ? new string(' ', Column - 1) : "";
             var markerLength = Math.Max(1, Length);
             var marker = new string('^', markerLength);
-            builder.AppendLine($"   | {markerIndent}{marker}");
+
+            if (useColors)
+            {
+                builder.AppendLine($"   {Cyan}|{Reset} {markerIndent}{severityColor}{marker}{Reset}");
+            }
+            else
+            {
+                builder.AppendLine($"   | {markerIndent}{marker}");
+            }
         }
 
         // Suggestion (help text)
         if (Suggestion != null)
         {
-            builder.AppendLine("   |");
-            builder.AppendLine($"help: {Suggestion}");
+            if (useColors)
+            {
+                builder.AppendLine($"   {Cyan}|{Reset}");
+                builder.AppendLine($"{Green}help{Reset}: {Suggestion}");
+            }
+            else
+            {
+                builder.AppendLine("   |");
+                builder.AppendLine($"help: {Suggestion}");
+            }
         }
 
         return builder.ToString();

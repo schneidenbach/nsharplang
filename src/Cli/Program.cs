@@ -351,7 +351,7 @@ class Program
         // Semantic analysis
         var analyzer = new Analyzer();
         var projectRoot = Path.GetDirectoryName(Path.GetFullPath(fileName)) ?? Directory.GetCurrentDirectory();
-        var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot);
+        var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot, source);
 
         // Report errors and warnings with rich formatting
         foreach (var error in analysisResult.Errors)

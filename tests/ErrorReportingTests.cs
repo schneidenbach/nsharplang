@@ -16,7 +16,7 @@ public class ErrorReportingTests
             ErrorSeverity.Error
         );
 
-        var formatted = error.Format();
+        var formatted = error.Format(useColors: false);
 
         Assert.Contains("NL202", formatted); // TypeMismatch = 202
         Assert.Contains("error", formatted);
@@ -34,7 +34,7 @@ public class ErrorReportingTests
             ErrorSeverity.Error
         );
 
-        var formatted = error.Format();
+        var formatted = error.Format(useColors: false);
 
         Assert.Contains("line 15", formatted);
         Assert.Contains("column 10", formatted);
@@ -54,7 +54,7 @@ public class ErrorReportingTests
             Suggestion = "Add wildcard pattern '_'"
         };
 
-        var formatted = error.Format();
+        var formatted = error.Format(useColors: false);
 
         Assert.Contains("help:", formatted);
         Assert.Contains("Add wildcard pattern '_'", formatted);
@@ -74,7 +74,7 @@ public class ErrorReportingTests
             "Change return type to string"
         );
 
-        var formatted = error.Format();
+        var formatted = error.Format(useColors: false);
 
         Assert.Contains("test.nl:10:5", formatted);
         Assert.Contains("return \"string\"", formatted);
@@ -124,7 +124,7 @@ public class ErrorReportingTests
             ErrorSeverity.Warning
         );
 
-        var formatted = warning.Format();
+        var formatted = warning.Format(useColors: false);
 
         Assert.Contains("warning", formatted);
         Assert.Contains("NL901", formatted); // UnusedVariable = 901
@@ -144,7 +144,7 @@ public class ErrorReportingTests
             Suggestion = "Custom suggestion"
         };
 
-        var formatted = error.Format();
+        var formatted = error.Format(useColors: false);
 
         Assert.Contains("Custom suggestion", formatted);
         Assert.DoesNotContain("Ensure types are compatible", formatted);
