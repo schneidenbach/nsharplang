@@ -79,9 +79,9 @@ public record ReturnStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
-// Yield statement
+// Yield statement (Value is null for "yield break")
 public record YieldStatement(
-    Expression Value,
+    Expression? Value,
     int Line,
     int Column) : Statement(Line, Column);
 

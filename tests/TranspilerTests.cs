@@ -357,6 +357,28 @@ func* GetNumbers(): IEnumerable<int> {
     }
 
     [Fact]
+    public void TestYieldBreakTranspilation()
+    {
+        var source = @"
+func* GetNumbersUntilNegative(numbers: int[]): IEnumerable<int> {
+    for num in numbers {
+        if num < 0 {
+            yield break
+        }
+        yield num
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should contain yield break and yield return
+        Assert.Contains("IEnumerable<int> GetNumbersUntilNegative", result);
+        Assert.Contains("yield break;", result);
+        Assert.Contains("yield return num;", result);
+    }
+
+    [Fact]
     public void TestUsingStatementTranspilation()
     {
         var source = @"

@@ -1419,7 +1419,17 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.Yield, "Expected 'yield'");
 
-        var value = ParseExpression();
+        // Check for "yield break" (no expression)
+        Expression? value = null;
+        if (!Check(TokenType.Break))
+        {
+            value = ParseExpression();
+        }
+        else
+        {
+            Advance(); // consume 'break'
+        }
+
         return new YieldStatement(value, line, column);
     }
 

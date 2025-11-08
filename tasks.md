@@ -772,3 +772,41 @@ The compiler successfully:
   - Cleaner pattern matching with .NET APIs
   - Full compatibility with C# 7+ features
 
+### Phase 52: Yield Break and Iterators (v1.52 - LATEST!)
+- [x] **Yield Break Support**: Complete implementation
+  - Made `YieldStatement.Value` optional (nullable Expression?)
+  - Parser checks for `break` keyword after `yield`
+  - Transpiler emits `yield break;` when value is null
+  - Enables early termination of iterator functions
+- [x] **Parser Enhancement**:
+  - Updated ParseYieldStatement to handle `yield break` pattern
+  - Checks for Break token after Yield token
+  - Falls back to expression parsing for `yield value` pattern
+- [x] **Transpiler Enhancement**:
+  - Conditional transpilation based on Value being null
+  - Emits `yield break;` for null values
+  - Emits `yield return expr;` for non-null values
+- [x] **Test Coverage**: 2 new tests (1 parser + 1 transpiler)
+  - TestYieldBreak: Validates parsing of yield break statements
+  - TestYieldBreakTranspilation: Verifies C# output
+- [x] **Comprehensive Iterator Example**: `examples/iterators.nl`
+  - 10 comprehensive examples demonstrating all iterator patterns
+  - Basic iterators with yield
+  - Yield break for early termination
+  - Fibonacci sequence generator
+  - Infinite sequences with LINQ
+  - Generic iterators
+  - Tree traversal with iterators
+  - Composing iterators with LINQ
+  - Successfully compiles and runs with full functionality
+- [x] **Features Demonstrated**:
+  - C# iterator methods (func*)
+  - yield return for lazy value generation
+  - yield break for early termination
+  - Lazy evaluation benefits
+  - Memory efficiency
+  - Infinite sequence support
+  - LINQ composition with iterators
+- [x] All 429 tests passing, 0 skipped (28 lexer + 55 parser + 63 analyzer + 41 transpiler + 242 other)
+- [x] Build successful with no errors
+

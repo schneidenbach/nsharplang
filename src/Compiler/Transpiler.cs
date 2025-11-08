@@ -909,7 +909,14 @@ public class Transpiler
                     WriteLine("return;");
                 break;
             case YieldStatement yieldStmt:
-                WriteLine($"yield return {TranspileExpression(yieldStmt.Value)};");
+                if (yieldStmt.Value != null)
+                {
+                    WriteLine($"yield return {TranspileExpression(yieldStmt.Value)};");
+                }
+                else
+                {
+                    WriteLine("yield break;");
+                }
                 break;
             case BreakStatement:
                 WriteLine("break;");

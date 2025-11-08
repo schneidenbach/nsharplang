@@ -704,6 +704,39 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestYieldBreak()
+    {
+        var source = @"
+            func* GetNumbers(): IEnumerable<int> {
+                yield 1
+                yield break
+                yield 2
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Generator));
+        Assert.Equal(3, funcDecl.Body!.Statements.Count);
+
+        // First yield has value
+        var yield1 = funcDecl.Body.Statements[0] as YieldStatement;
+        Assert.NotNull(yield1);
+        Assert.NotNull(yield1.Value);
+
+        // Second is yield break (no value)
+        var yieldBreak = funcDecl.Body.Statements[1] as YieldStatement;
+        Assert.NotNull(yieldBreak);
+        Assert.Null(yieldBreak.Value);
+
+        // Third yield has value
+        var yield2 = funcDecl.Body.Statements[2] as YieldStatement;
+        Assert.NotNull(yield2);
+        Assert.NotNull(yield2.Value);
+    }
+
+    [Fact]
     public void TestUsingStatement()
     {
         var source = @"

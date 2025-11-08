@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.51 - Generic Method Calls with Explicit Type Arguments
-**Tests:** 427 passing ✅
+**Version:** v1.52 - Yield Break and Iterators
+**Tests:** 429 passing ✅
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
