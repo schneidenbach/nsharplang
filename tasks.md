@@ -25,7 +25,7 @@
 - [x] Integration with CLI build pipeline
 - [x] 47 analyzer tests, all passing (94 total tests)
 
-### Phase 4: External Type Resolution (NEW!)
+### Phase 4: External Type Resolution
 - [x] Using statement tracking in analyzer
 - [x] .NET reflection-based type resolution
 - [x] External type lookup (System.Console, System.Linq, etc.)
@@ -33,6 +33,14 @@
 - [x] Method overload resolution (basic, by argument count)
 - [x] Lambda parameter type inference (var → unknown → compatible)
 - [x] 4 new tests for external types (98 total tests)
+
+### Phase 5: Transpiler Enhancements (NEW!)
+- [x] Indexer transpilation support (CRITICAL - was missing)
+- [x] Immutable array syntax and transpilation
+- [x] Parser fix: indexer detection before function parsing
+- [x] Collection expression syntax for immutable arrays (C# 12+)
+- [x] Comprehensive transpiler test suite (7 tests)
+- [x] All 105 tests passing (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
 
 ## 🚧 In Progress
 
@@ -100,6 +108,8 @@ The compiler successfully:
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
 - String enum values use const fields instead of traditional enums
-- All 98 unit tests passing (27 lexer + 20 parser + 51 analyzer)
-- **External type resolution now working via .NET reflection (v1.1)**
+- **All 105 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
+- **External type resolution working via .NET reflection (v1.1)**
+- **Indexer transpilation now fully supported (v1.2)**
+- **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

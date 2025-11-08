@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (20 tests), Analyzer (51 tests)
-- **Total**: 98 tests, all passing
+- **Unit tests**: Lexer (27 tests), Parser (21 tests), Analyzer (51 tests), Transpiler (6 tests)
+- **Total**: 105 tests, all passing
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
-- **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`
-- **New analyzer tests**: External type resolution, method overloading, lambda inference
+- **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
+- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, transpiler output validation
 
 ## Build & Run
 
@@ -144,13 +144,24 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 5. **No project.yml support**: Dependency management not implemented
 6. **Limited overload resolution**: Method overload resolution based only on argument count, not types
 
-## Recent Changes (v1.1)
+## Recent Changes
 
+### v1.2 (Latest)
+1. **Indexer transpilation**: ✅ CRITICAL missing feature now implemented
+   - Parser fixed to detect indexers before regular functions
+   - Transpiler generates correct C# `this[...]` syntax with get/set blocks
+2. **Immutable arrays**: ✅ Full support for `immutable [...]` syntax
+   - Parser recognizes immutable keyword before array literals
+   - Transpiles to C# 12+ collection expression syntax `[...]`
+   - Mutable arrays continue using `new[] { ... }`
+3. **Transpiler tests**: ✅ Added comprehensive test suite with 6 tests
+4. **Test coverage**: ✅ 105 tests total (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
+
+### v1.1
 1. **External type resolution**: ✅ Analyzer now resolves types from using statements via reflection
 2. **Member resolution**: ✅ Properties, fields, and methods on external types are resolved
 3. **Method overloading**: ✅ Handles overloaded methods (basic resolution by arg count)
 4. **Lambda parameters**: ✅ Lambda parameters without explicit types use `var` → `Unknown` → compatible with arithmetic
-5. **Test coverage**: ✅ Added 4 new tests for external type features (98 tests total)
 
 ## Next Implementation Priority
 
