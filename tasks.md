@@ -364,7 +364,29 @@
 
 ## 🚧 In Progress
 
-None currently - v1.18 complete!
+### Phase 22: Advanced Pattern Matching (v1.20 - WIP)
+- [~] **Relational Patterns**: Pattern matching with comparison operators (`< 13`, `>= 65`)
+  - AST nodes implemented (RelationalPattern)
+  - Parser support implemented
+  - Analyzer support implemented
+  - Transpiler support implemented
+  - **Issue**: Conflicts with binary expression operators when multiple relational patterns used
+  - **Status**: Needs debugging of expression vs pattern parsing
+- [~] **Logical Patterns**: Combining patterns with and/or/not
+  - AST nodes implemented (AndPattern, OrPattern, NotPattern)
+  - Keywords added (and, or, not)
+  - Parser with correct precedence implemented
+  - Analyzer support implemented
+  - Transpiler support implemented
+  - **Status**: Dependent on relational pattern fix
+- [~] **Positional Patterns**: Tuple deconstruction in patterns
+  - AST node implemented (PositionalPattern)
+  - Parser support implemented
+  - Analyzer support implemented
+  - Transpiler support implemented
+  - **Status**: Dependent on relational pattern fix
+- [x] **12 new tests added** (6 parser + 6 transpiler)
+- [ ] **Tests currently failing**: 4 failures, 239 passing (243 total)
 
 ## 📋 Next Steps
 
