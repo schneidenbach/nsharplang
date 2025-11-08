@@ -974,6 +974,9 @@ public class Transpiler
             case PreprocessorDirective preprocessor:
                 WriteLine(preprocessor.Directive);
                 break;
+            case LocalFunctionStatement localFunc:
+                TranspileLocalFunction(localFunc);
+                break;
             case EmptyStatement:
                 WriteLine(";");
                 break;
@@ -1062,6 +1065,54 @@ public class Transpiler
                 };
                 WriteLine($"Assert.True({left} {defaultOp} {right});");
                 break;
+        }
+    }
+
+    private void TranspileLocalFunction(LocalFunctionStatement localFunc)
+    {
+        var func = localFunc.Function;
+
+        // Build modifiers for local function (only 'static' and 'async' are valid for local functions)
+        var modifiers = new List<string>();
+        if (func.Modifiers.HasFlag(Modifiers.Static))
+            modifiers.Add("static");
+        if (func.Modifiers.HasFlag(Modifiers.Async))
+            modifiers.Add("async");
+
+        var modifierString = modifiers.Count > 0 ? string.Join(" ", modifiers) + " " : "";
+
+        var typeParams = func.TypeParameters != null && func.TypeParameters.Count > 0
+            ? $"<{string.Join(", ", func.TypeParameters.Select(tp => tp.Name))}>"
+            : "";
+
+        var parameters = string.Join(", ", func.Parameters.Select(TranspileParameter));
+        var returnType = func.ReturnType != null ? TranspileTypeReference(func.ReturnType) : "void";
+
+        // Handle async implicit wrapping
+        if (func.Modifiers.HasFlag(Modifiers.Async))
+        {
+            returnType = WrapAsyncReturnType(returnType, func.ReturnType);
+        }
+
+        Write($"{modifierString}{returnType} {func.Name}{typeParams}({parameters})");
+
+        if (func.Constraints != null && func.Constraints.Count > 0)
+        {
+            foreach (var constraint in func.Constraints)
+            {
+                _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", constraint.Constraints.Select(TranspileTypeReference))}");
+            }
+        }
+
+        if (func.Body != null)
+        {
+            WriteLine();
+            TranspileBlockStatement(func.Body);
+        }
+        else if (func.ExpressionBody != null)
+        {
+            // Expression-bodied local function
+            WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
         }
     }
 

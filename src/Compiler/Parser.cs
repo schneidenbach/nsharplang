@@ -1224,6 +1224,12 @@ public class Parser
         if (Check(TokenType.LeftBrace))
             return ParseBlock();
 
+        // Local function (C# 7): [static] func Name(...) { }
+        if (Check(TokenType.Static) && LookAhead(1).Type == TokenType.Func)
+            return ParseLocalFunction();
+        if (Check(TokenType.Func))
+            return ParseLocalFunction();
+
         // Expression statement (or shorthand declaration with :=)
         return ParseExpressionStatement();
     }
@@ -1237,6 +1243,71 @@ public class Parser
         var condition = ParseExpression();
 
         return new AssertStatement(condition, line, column);
+    }
+
+    private LocalFunctionStatement ParseLocalFunction()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Handle optional 'static' modifier for local functions
+        Modifiers modifiers = Modifiers.None;
+        if (Check(TokenType.Static))
+        {
+            modifiers |= Modifiers.Static;
+            Advance();
+        }
+
+        Consume(TokenType.Func, "Expected 'func'");
+
+        // Check for generator: func*
+        if (Check(TokenType.Star))
+        {
+            modifiers |= Modifiers.Generator;
+            Advance();
+        }
+
+        // Check for async: func async
+        if (Check(TokenType.Async))
+        {
+            modifiers |= Modifiers.Async;
+            Advance();
+        }
+
+        var name = ConsumeIdentifier("Expected function name");
+        var typeParams = ParseTypeParameters();
+        var parameters = ParseParameterList();
+
+        TypeReference? returnType = null;
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            returnType = ParseTypeReference();
+        }
+
+        var constraints = ParseGenericConstraints();
+
+        BlockStatement? body = null;
+        Expression? expressionBody = null;
+
+        if (Check(TokenType.Arrow))  // Expression-bodied local function
+        {
+            Advance();
+            expressionBody = ParseExpression();
+        }
+        else if (Check(TokenType.LeftBrace))
+        {
+            body = ParseBlock();
+        }
+        else
+        {
+            throw new Exception($"Expected function body or '=>' for expression-bodied function at line {Current.Line}");
+        }
+
+        var functionDecl = new FunctionDeclaration(name, parameters, returnType, body, expressionBody,
+            typeParams, constraints, modifiers, new List<AttributeNode>(), false, null, line, column);
+
+        return new LocalFunctionStatement(functionDecl, line, column);
     }
 
     private Statement ParseVariableDeclaration(VariableKind kind)

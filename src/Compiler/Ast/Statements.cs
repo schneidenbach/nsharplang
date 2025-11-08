@@ -170,3 +170,9 @@ public record AssertStatement(
     Expression Condition,
     int Line,
     int Column) : Statement(Line, Column);
+
+// Local function statement (C# 7) - function declared inside another function
+public record LocalFunctionStatement(
+    FunctionDeclaration Function,
+    int Line,
+    int Column) : Statement(Line, Column);

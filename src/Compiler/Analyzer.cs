@@ -572,6 +572,9 @@ public class Analyzer
             case PreprocessorDirective:
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
+            case LocalFunctionStatement localFunc:
+                AnalyzeLocalFunction(localFunc);
+                break;
         }
     }
 
@@ -582,6 +585,55 @@ public class Analyzer
 
         // We don't strictly require boolean type because we support various comparison patterns
         // The transpiler will convert different expression types to appropriate Assert calls
+    }
+
+    private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)
+    {
+        var func = localFunc.Function;
+
+        // Register the local function in the current scope
+        // This allows it to be called later in the same scope (forward references work in C#)
+        var funcType = new FunctionTypeInfo(func);
+        DeclareSymbol(func.Name, funcType, localFunc.Line, localFunc.Column);
+
+        // Analyze the local function body in a new scope
+        PushScope(new Scope(ScopeKind.Function));
+
+        // Add parameters to scope
+        foreach (var param in func.Parameters)
+        {
+            var paramType = ResolveType(param.Type);
+            DeclareSymbol(param.Name, paramType, localFunc.Line, localFunc.Column);
+        }
+
+        // Save current function context
+        var previousReturnType = _currentReturnType;
+        TypeInfo? returnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        _currentReturnType = returnType;
+
+        // Analyze body
+        if (func.Body != null)
+        {
+            foreach (var stmt in func.Body.Statements)
+            {
+                AnalyzeStatement(stmt);
+            }
+        }
+        else if (func.ExpressionBody != null)
+        {
+            var exprType = AnalyzeExpression(func.ExpressionBody);
+            // Verify expression type matches return type
+            if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
+            {
+                Error($"Expression body type '{exprType}' is not assignable to return type '{returnType}'",
+                    localFunc.Line, localFunc.Column);
+            }
+        }
+
+        // Restore function context
+        _currentReturnType = previousReturnType;
+
+        PopScope();
     }
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
