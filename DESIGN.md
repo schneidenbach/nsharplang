@@ -4,14 +4,13 @@
 
 ## Core Philosophy
 
-A tight, pragmatic language targeting .NET/CLI that prioritizes:
-- **Simplicity**: Go-level tightness with minimal constructs
-- **Pragmatism**: Embraces .NET realities (including null)
-- **Interop**: First-class C# interoperability with sane type emissions
-- **Concreteness**: Encourages concrete implementations over abstractions
-- **Type System**: Improve .NET's type system while maintaining seamless C# interop
+**C# with discriminated unions, structural typing, and Go-inspired syntax**
 
-**Mental Model**: "Go for .NET" - avoiding C# complexity while staying practical
+N# is a pragmatic language targeting .NET/CLI that prioritizes:
+- **Expressive types**: Discriminated unions and structural typing that C# lacks
+- **Pragmatism**: Embraces .NET realities (including null)
+- **Perfect C# interop**: Generated code is idiomatic C# that C# consumers can't distinguish
+- **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
 
 ### The Type System Philosophy
 
@@ -51,22 +50,38 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 ## Language Features (Initial)
 
 ### Visibility
-- Default: Convention-based (Go-style)
-  - PascalCase = public
-  - camelCase = private
-- Explicit modifiers supported when needed:
-  - `internal` - assembly-level access
-  - `protected` - subclass access
-  - `file` - file-scoped access (C# 11)
-- Examples:
-  ```
-  class MyClass {
-      PublicField: string           // public (PascalCase)
-      privateField: string           // private (camelCase)
-      internal InternalField: string // explicit internal
-      protected ProtectedField: int  // explicit protected
-  }
-  ```
+
+**Rule: Convention with explicit override**
+
+1. **No modifier?** Use naming convention:
+   - `PascalCase` = public
+   - `camelCase` = private
+
+2. **Explicit modifier present?** Modifier wins, case is ignored:
+   - `public`, `private`, `internal`, `protected`, `file`
+
+3. **Conflict warning:** Analyzer warns if modifier conflicts with case convention
+   - Example: `public myField` triggers warning (public but camelCase)
+   - Suggestion: "Consider using PascalCase or removing public modifier"
+
+**Examples:**
+```
+class MyClass {
+    PublicField: string             // public (PascalCase convention)
+    privateField: string            // private (camelCase convention)
+    internal InternalField: string  // internal (explicit modifier)
+    protected ProtectedField: int   // protected (explicit modifier)
+
+    // Allowed but warned: modifier overrides case
+    public lowercasePublic: string  // public (explicit wins) ⚠️ warning
+    private UppercasePrivate: int   // private (explicit wins) ⚠️ warning
+}
+```
+
+**Why this approach:**
+- Simple default: just follow naming conventions
+- Flexibility: use explicit modifiers when needed (internal, protected)
+- Consistency: analyzer catches conflicts
 
 #### File-Scoped Types (C# 11)
 - Types marked with `file` modifier are only visible within the declaring file

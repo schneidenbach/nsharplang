@@ -1,13 +1,15 @@
 # N# (NewLang Sharp)
 
-**"Go for .NET"** - A tight, pragmatic language targeting .NET/CLI with perfect C# interoperability.
+**C# with discriminated unions, structural typing, and Go-inspired syntax**
+
+A pragmatic language targeting .NET/CLI with perfect C# interoperability.
 
 ## Philosophy
 
-- **Simplicity**: Go-level tightness with minimal constructs
+- **Expressive types**: Discriminated unions and structural typing that C# lacks
 - **Pragmatism**: Embraces .NET realities (including null)
-- **Interop First**: C# consumers can't tell they're using N#-compiled code
-- **Type System++**: Improves .NET's type system while maintaining seamless C# interop
+- **Perfect C# interop**: C# consumers can't tell they're using N#-compiled code
+- **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
 
 ## Why N#?
 
