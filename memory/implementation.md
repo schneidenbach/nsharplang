@@ -1,6 +1,6 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.52 - Yield Break and Iterators
+**Version:** v1.53 - Property Modifiers (Init/Readonly/Required) Fix
 **Tests:** 429 passing ✅
 **Status:** Production-ready for experimentation and learning
 
@@ -148,7 +148,36 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.50 (Extension Method Resolution) ✅ COMPLETE - LATEST!
+### v1.53 (Property Modifiers Fix) ✅ COMPLETE - LATEST!
+1. **Parser fix**: ✅ Removed init/readonly/required from ParseModifiers()
+   - These are field/property-specific modifiers, not general modifiers
+   - ParseModifiers was consuming them, then ParseFieldDeclaration tried to parse them again
+   - Result: PropertyModifier was always None!
+   - Fixed by removing lines 231-250 from ParseModifiers() (init/readonly/required handling)
+2. **Transpiler fix**: ✅ Remove readonly and required from Modifiers before GetModifierString
+   - Line 681: `var modifiersToEmit = field.Modifiers & ~(Modifiers.Readonly | Modifiers.Required);`
+   - Prevents double "required" in output
+   - Both readonly and required are handled via PropertyModifier flags instead
+3. **Auto-property transpilation**: ✅ Added handling for properties with no custom get/set
+   - TranspilePropertyDeclaration now checks if GetBody == null && SetBody == null
+   - Emits `{ get; init; }` for init-only properties
+   - Emits `{ get; set; }` for regular properties
+4. **Test status**: ✅ All 429 tests passing (3 tests fixed)
+   - TestInitOnlyPropertyTranspilation: Fixed
+   - TestRequiredInitPropertyTranspilation: Fixed
+   - TestReadonlyFieldTranspilation: Fixed
+   - TestRequiredPropertyTranspilation: Fixed
+
+**Impact:** CRITICAL bug fix! Property modifiers (init/readonly/required) now work correctly across all scenarios.
+
+**What works:**
+- `init Name: string` → `{ get; init; }` ✅
+- `readonly id: string` → `{ get; init; }` ✅
+- `required Email: string` → `required ... { get; set; }` ✅
+- `required init Id: string` → `required ... { get; init; }` ✅
+- Properties in records, classes, and structs ✅
+
+### v1.50 (Extension Method Resolution) ✅ COMPLETE
 1. **Analyzer enhancement**: ✅ Full extension method resolution
    - Tracks extension methods during compilation (functions with `this` first parameter)
    - Added `_extensionMethods` list to Analyzer class

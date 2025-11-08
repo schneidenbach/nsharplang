@@ -41,8 +41,14 @@ public class Transpiler
         // Check if we have test declarations to add Xunit using
         var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
 
-        // Always add System namespace (needed for Console, Exception, etc.)
-        WriteLine("using System;");
+        // Collect all using statements (deduplicate System if already present)
+        var hasSystemUsing = _compilationUnit.Usings.Any(u => u.Namespace == "System" && u.Alias == null);
+
+        // Always add System namespace (needed for Console, Exception, etc.) if not already present
+        if (!hasSystemUsing)
+        {
+            WriteLine("using System;");
+        }
 
         // Add Xunit using if we have test declarations
         if (hasTests)

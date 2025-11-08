@@ -31,7 +31,7 @@ func Main() {
 
     // Cast to specific type
     objects := items.Cast<object>().ToList()
-    print $"Cast {items.Count} items to object"
+    print $"Cast {items.Length} items to object"
 
     // OfType - filter by type
     mixed := new List<object>()
