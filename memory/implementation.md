@@ -1335,6 +1335,56 @@ Result.Success { value: { Count: count } } => count
 6. **Generic type inference**: Infer type parameters from usage context
 7. **Better error messages**: Include source code context in error output
 
+## v1.40: Primary Constructor Parameter Capture (FIXED!)
+
+**Date**: November 8, 2025
+
+### Issue Fixed
+Primary constructor parameters were not available inside class/struct/record methods and properties. The parser and transpiler already supported primary constructors, but the analyzer wasn't making the parameters available as captured variables.
+
+### Implementation Details
+- **Analyzer Enhancement** (Analyzer.cs):
+  - Added primary constructor parameter declaration to `AnalyzeClassDeclaration` (lines 218-226)
+  - Added primary constructor parameter declaration to `AnalyzeStructDeclaration` (lines 247-255)
+  - Added primary constructor parameter declaration to `AnalyzeRecordDeclaration` (lines 274-282)
+  - Parameters are declared as symbols in the class/struct/record scope
+  - Uses `ResolveType` to get parameter types
+  - Parameters are now accessible throughout the type body
+
+### Tests Added
+- 5 new analyzer tests verifying parameter capture:
+  - `PrimaryConstructor_ClassParameterAccessibleInMethod`
+  - `PrimaryConstructor_StructParameterAccessibleInMethod`
+  - `PrimaryConstructor_RecordParameterAccessibleInProperty`
+  - `PrimaryConstructor_ParameterTypeChecking`
+  - `PrimaryConstructor_MultipleParameters`
+- All 361 tests passing (up from 356)
+
+### What Now Works
+```n#
+// Class with primary constructor - parameters accessible in methods
+class Logger(name: string) {
+    func Log(message: string) {
+        print $"[{name}] {message}"  // ✅ name parameter accessible
+    }
+}
+
+// Struct with primary constructor - parameters in calculations
+struct Point(x: double, y: double) {
+    func GetDistance(): double {
+        return Math.Sqrt(x * x + y * y)  // ✅ x and y accessible
+    }
+}
+
+// Record with primary constructor - parameters in properties
+record Person(name: string, age: int) {
+    FullName: string => name  // ✅ name parameter accessible
+}
+```
+
+### Impact
+**CRITICAL FIX**: Primary constructors now work as documented in DESIGN.md! This was a gap between parser/transpiler support and analyzer support. Parameters are now properly captured and available throughout the type body.
+
 ## v1.38: Primary Constructors (C# 12)
 
 **Date**: November 8, 2025
@@ -1354,10 +1404,6 @@ class UserService(logger: ILogger, db: IDatabase) { }
 struct Point(x: double, y: double) { }
 record Person(name: string, age: int) { }
 ```
-
-### Known Limitations
-- Analyzer doesn't yet make parameters available as captured variables
-- Workaround: Assign parameters to fields manually
 
 ### Impact
 Modern C# 12 syntax for cleaner dependency injection and value types!

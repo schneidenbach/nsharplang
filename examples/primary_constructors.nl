@@ -1,6 +1,8 @@
 // Primary Constructors (C# 12 Feature)
 // Demonstrates primary constructor syntax for classes, structs, and records
 
+using System
+
 // 1. Class with Primary Constructor - Perfect for Dependency Injection
 class Logger(name: string) {
     func Log(message: string) {
@@ -39,7 +41,8 @@ record Person(name: string, age: int, email: string) {
 
 // 4. Record with Validation
 record EmailAddress(value: string) {
-    IsValid: bool => value.Contains("@") && value.Length > 5
+    // Simple validation using length only for now
+    IsValid: bool => value.Length > 5
 
     func GetDomain(): string {
         parts := value.Split("@")

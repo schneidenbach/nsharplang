@@ -1166,4 +1166,64 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void PrimaryConstructor_ClassParameterAccessibleInMethod()
+    {
+        AssertNoErrors(@"
+            class Logger(name: string) {
+                func Log(message: string) {
+                    result := name
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void PrimaryConstructor_StructParameterAccessibleInMethod()
+    {
+        AssertNoErrors(@"
+            struct Point(x: double, y: double) {
+                func GetDistance(): double {
+                    return x * x + y * y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void PrimaryConstructor_RecordParameterAccessibleInProperty()
+    {
+        AssertNoErrors(@"
+            record Person(name: string, age: int) {
+                FullName: string => name
+            }
+        ");
+    }
+
+    [Fact]
+    public void PrimaryConstructor_ParameterTypeChecking()
+    {
+        AssertNoErrors(@"
+            class Calculator(value: int) {
+                func GetDoubled(): int {
+                    return value * 2
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void PrimaryConstructor_MultipleParameters()
+    {
+        AssertNoErrors(@"
+            class Service(logger: string, db: string, cache: string) {
+                func DoWork() {
+                    a := logger
+                    b := db
+                    c := cache
+                }
+            }
+        ");
+    }
 }

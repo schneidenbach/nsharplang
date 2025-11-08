@@ -215,6 +215,16 @@ public class Analyzer
         var classType = new ClassTypeInfo(classDecl);
         DeclareSymbol("this", classType, classDecl.Line, classDecl.Column);
 
+        // Add primary constructor parameters to scope (C# 12 feature)
+        if (classDecl.PrimaryConstructorParameters != null)
+        {
+            foreach (var param in classDecl.PrimaryConstructorParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, classDecl.Line, classDecl.Column);
+            }
+        }
+
         // Analyze members
         foreach (var member in classDecl.Members)
         {
@@ -234,6 +244,16 @@ public class Analyzer
         var structType = new StructTypeInfo(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
 
+        // Add primary constructor parameters to scope (C# 12 feature)
+        if (structDecl.PrimaryConstructorParameters != null)
+        {
+            foreach (var param in structDecl.PrimaryConstructorParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, structDecl.Line, structDecl.Column);
+            }
+        }
+
         foreach (var member in structDecl.Members)
         {
             AnalyzeDeclaration(member);
@@ -250,6 +270,16 @@ public class Analyzer
 
         var recordType = new RecordTypeInfo(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
+
+        // Add primary constructor parameters to scope (C# 12 feature)
+        if (recordDecl.PrimaryConstructorParameters != null)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, recordDecl.Line, recordDecl.Column);
+            }
+        }
 
         foreach (var member in recordDecl.Members)
         {
