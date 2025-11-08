@@ -1,8 +1,8 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.65 - Language Server Protocol Phase 2 - VS Code Integration (Current)
+**Version:** v1.66 - Async Streams (IAsyncEnumerable) (Current)
 **Tests:** 482 passing ✅ (all existing tests passing)
-**Status:** Feature-complete! All DESIGN.md features implemented. Professional error messages complete. **LSP server integrated with VS Code!**
+**Status:** Feature-complete! All DESIGN.md features implemented. **Async streams support added!** LSP server integrated with VS Code!
 
 ## Architecture Overview
 
@@ -176,7 +176,70 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.54 (Duplicate Using Statement Fix) ✅ COMPLETE - LATEST!
+### v1.66 (Async Streams - IAsyncEnumerable) ✅ COMPLETE - LATEST!
+1. **AST additions**: ✅
+   - Added `IsAsyncIterator` computed property to `FunctionDeclaration`
+   - Returns true when both `Async` and `Generator` modifiers are set
+   - Added `AwaitForEachStatement` for async iteration syntax
+2. **Parser enhancements**: ✅
+   - `func async*` syntax now supported for async iterators
+   - Handles both `func async*` and `func* async` orderings
+   - `await foreach` statement parsing in `ParseAwaitForeachStatement()`
+   - Proper modifier combination for async + generator
+3. **Analyzer support**: ✅
+   - `AnalyzeAwaitForEachStatement()` for type checking await foreach loops
+   - Proper scope handling for iteration variables
+   - Similar to regular foreach but for async enumerables
+4. **Transpiler logic**: ✅
+   - Async iterators transpile to `async IAsyncEnumerable<T>` (NOT wrapped in Task/ValueTask)
+   - Check for `IsAsyncIterator` before applying async wrapping
+   - `await foreach` transpiles directly to C# `await foreach` syntax
+   - `TranspileAwaitForeachStatement()` emits correct C# code
+5. **Example created**: ✅ `examples/async_streams.nl`
+   - Demonstrates async iterator functions (`func async*`)
+   - Shows `await foreach` consumption patterns
+   - Real-world examples: data processing, infinite sequences, pagination
+6. **Tests**: ✅ All 482 existing tests still passing
+
+**Example:**
+```nsharp
+func async* GetNumbersAsync(): IAsyncEnumerable<int> {
+    for i := 0; i < 10; i++ {
+        await Task.Delay(100)
+        yield i
+    }
+}
+
+func async ProcessAsync() {
+    await foreach num in GetNumbersAsync() {
+        print $"Received: {num}"
+    }
+}
+```
+
+**Transpiles to:**
+```csharp
+internal static async IAsyncEnumerable<int> GetNumbersAsync()
+{
+    for (var i = 0; (i < 10); i++)
+    {
+        await Task.Delay(100);
+        yield return i;
+    }
+}
+
+internal static async ValueTask ProcessAsync()
+{
+    await foreach (var num in GetNumbersAsync())
+    {
+        Console.WriteLine($"Received: {num}");
+    }
+}
+```
+
+**Impact:** Modern C# 8+ async streams feature now available in N#! Enables efficient async iteration patterns.
+
+### v1.54 (Duplicate Using Statement Fix) ✅ COMPLETE
 1. **Transpiler enhancement**: ✅ Deduplicate 'using System;' statement
    - Check if user already has 'using System' in their using statements
    - Only add 'using System;' if not already present

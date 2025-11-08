@@ -3,7 +3,7 @@
 **Priority:** High (Modern C# feature that's very useful)
 **Dependencies:** None
 **Estimated Effort:** Small (1-2 days)
-**Status:** 🔥 IN PROGRESS (v1.66)
+**Status:** ✅ COMPLETE (v1.66)
 
 ## Goal
 Add support for async streams using `async*` syntax to enable asynchronous iteration patterns.
