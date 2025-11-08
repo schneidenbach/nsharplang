@@ -945,10 +945,38 @@ public class Analyzer
         // Resolve return type from function type
         if (calleeType is FunctionTypeInfo funcType)
         {
-            // If we have the function declaration, get its return type
-            if (funcType.Declaration != null && funcType.Declaration.ReturnType != null)
+            // If we have the function declaration, check parameter types
+            if (funcType.Declaration != null)
             {
-                return ResolveType(funcType.Declaration.ReturnType);
+                var parameters = funcType.Declaration.Parameters;
+
+                // Check argument count
+                if (argTypes.Count != parameters.Count)
+                {
+                    Error($"Function '{funcType.Declaration.Name}' expects {parameters.Count} arguments but got {argTypes.Count}",
+                        call.Line, call.Column);
+                }
+                else
+                {
+                    // Check each parameter type
+                    for (int i = 0; i < parameters.Count; i++)
+                    {
+                        var paramType = ResolveType(parameters[i].Type);
+                        var argType = argTypes[i];
+
+                        if (!IsAssignable(paramType, argType))
+                        {
+                            Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[i].Name}' of type '{paramType}'",
+                                call.Line, call.Column);
+                        }
+                    }
+                }
+
+                // Return the declared return type
+                if (funcType.Declaration.ReturnType != null)
+                {
+                    return ResolveType(funcType.Declaration.ReturnType);
+                }
             }
             return funcType.ReturnType ?? BuiltInTypes.Void;
         }
@@ -1326,6 +1354,12 @@ public class Analyzer
         // Same type name
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
 
+        // Duck interface structural typing
+        if (resolvedTarget is InterfaceTypeInfo iface && iface.Declaration.IsDuckInterface)
+        {
+            return ImplementsDuckInterface(resolvedSource, iface);
+        }
+
         // TODO: More sophisticated type compatibility checking
         return false;
     }
@@ -1340,6 +1374,79 @@ public class Analyzer
             return ResolveTypeAlias(resolved);
         }
         return type;
+    }
+
+    private bool ImplementsDuckInterface(TypeInfo source, InterfaceTypeInfo duckInterface)
+    {
+        // Get the source type's members
+        List<Declaration>? sourceMembers = null;
+
+        if (source is ClassTypeInfo classType)
+            sourceMembers = classType.Declaration.Members;
+        else if (source is StructTypeInfo structType)
+            sourceMembers = structType.Declaration.Members;
+        else if (source is RecordTypeInfo recordType)
+            sourceMembers = recordType.Declaration.Members;
+        else
+            return false; // Can't check structural compatibility for other types
+
+        // For each method in the duck interface, check if source has a matching method
+        foreach (var interfaceMember in duckInterface.Declaration.Members)
+        {
+            if (interfaceMember is not FunctionDeclaration interfaceMethod)
+                continue; // Skip non-method members
+
+            // Look for a matching method in the source type
+            var found = false;
+            foreach (var sourceMember in sourceMembers)
+            {
+                if (sourceMember is not FunctionDeclaration sourceMethod)
+                    continue;
+
+                // Check if method signatures match
+                if (MethodSignaturesMatch(sourceMethod, interfaceMethod))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                return false; // Source doesn't implement this interface method
+        }
+
+        return true; // Source implements all interface methods
+    }
+
+    private bool MethodSignaturesMatch(FunctionDeclaration method1, FunctionDeclaration method2)
+    {
+        // Must have same name
+        if (method1.Name != method2.Name)
+            return false;
+
+        // Must have same number of parameters
+        if (method1.Parameters.Count != method2.Parameters.Count)
+            return false;
+
+        // Check parameter types match
+        for (int i = 0; i < method1.Parameters.Count; i++)
+        {
+            var type1 = ResolveType(method1.Parameters[i].Type);
+            var type2 = ResolveType(method2.Parameters[i].Type);
+
+            // Simple type name comparison (could be more sophisticated)
+            if (type1.ToString() != type2.ToString())
+                return false;
+        }
+
+        // Check return types match
+        var returnType1 = method1.ReturnType != null ? ResolveType(method1.ReturnType) : BuiltInTypes.Void;
+        var returnType2 = method2.ReturnType != null ? ResolveType(method2.ReturnType) : BuiltInTypes.Void;
+
+        if (returnType1.ToString() != returnType2.ToString())
+            return false;
+
+        return true;
     }
 
     private bool IsNumericType(TypeInfo type)

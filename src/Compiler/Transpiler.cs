@@ -14,18 +14,27 @@ public class Transpiler
     private const string IndentString = "    ";
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
+    private List<InterfaceDeclaration> _duckInterfaces; // Track duck interfaces for automatic implementation
 
     public Transpiler(CompilationUnit compilationUnit)
     {
         _compilationUnit = compilationUnit;
         _output = new StringBuilder();
         _indentLevel = 0;
+        _duckInterfaces = new List<InterfaceDeclaration>();
     }
 
     public string Transpile()
     {
         _output.Clear();
         _indentLevel = 0;
+        _duckInterfaces.Clear();
+
+        // Collect all duck interfaces for automatic implementation
+        _duckInterfaces = _compilationUnit.Declarations
+            .OfType<InterfaceDeclaration>()
+            .Where(i => i.IsDuckInterface)
+            .ToList();
 
         // Usings
         foreach (var usingDirective in _compilationUnit.Usings)
@@ -204,6 +213,15 @@ public class Transpiler
             bases.Add(TranspileTypeReference(cls.BaseClass));
         bases.AddRange(cls.Interfaces.Select(TranspileTypeReference));
 
+        // Automatically add duck interfaces that this class implements
+        foreach (var duckInterface in _duckInterfaces)
+        {
+            if (ClassImplementsDuckInterface(cls.Members, duckInterface))
+            {
+                bases.Add(duckInterface.Name);
+            }
+        }
+
         if (bases.Count > 0)
         {
             _output.Append($" : {string.Join(", ", bases)}");
@@ -236,9 +254,21 @@ public class Transpiler
 
         Write($"{modifiers}struct {str.Name}{typeParams}");
 
-        if (str.Interfaces.Count > 0)
+        var bases = new List<string>();
+        bases.AddRange(str.Interfaces.Select(TranspileTypeReference));
+
+        // Automatically add duck interfaces that this struct implements
+        foreach (var duckInterface in _duckInterfaces)
         {
-            _output.Append($" : {string.Join(", ", str.Interfaces.Select(TranspileTypeReference))}");
+            if (ClassImplementsDuckInterface(str.Members, duckInterface))
+            {
+                bases.Add(duckInterface.Name);
+            }
+        }
+
+        if (bases.Count > 0)
+        {
+            _output.Append($" : {string.Join(", ", bases)}");
         }
 
         WriteLine();
@@ -268,9 +298,21 @@ public class Transpiler
 
         Write($"{modifiers}record {rec.Name}{typeParams}");
 
-        if (rec.Interfaces.Count > 0)
+        var bases = new List<string>();
+        bases.AddRange(rec.Interfaces.Select(TranspileTypeReference));
+
+        // Automatically add duck interfaces that this record implements
+        foreach (var duckInterface in _duckInterfaces)
         {
-            _output.Append($" : {string.Join(", ", rec.Interfaces.Select(TranspileTypeReference))}");
+            if (ClassImplementsDuckInterface(rec.Members, duckInterface))
+            {
+                bases.Add(duckInterface.Name);
+            }
+        }
+
+        if (bases.Count > 0)
+        {
+            _output.Append($" : {string.Join(", ", bases)}");
         }
 
         WriteLine();
@@ -291,13 +333,12 @@ public class Transpiler
 
     private void TranspileInterfaceDeclaration(InterfaceDeclaration iface)
     {
-        // Duck interfaces are not emitted to C#
-        if (iface.IsDuckInterface)
-            return;
-
         TranspileAttributes(iface.Attributes);
 
-        var modifiers = GetModifierString(iface.Modifiers);
+        // Duck interfaces are emitted as internal interfaces
+        var modifiers = iface.IsDuckInterface
+            ? "internal "
+            : GetModifierString(iface.Modifiers);
         var typeParams = iface.TypeParameters != null && iface.TypeParameters.Count > 0
             ? $"<{string.Join(", ", iface.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -1213,5 +1254,63 @@ public class Transpiler
     private string GetIndent()
     {
         return string.Concat(Enumerable.Repeat(IndentString, _indentLevel));
+    }
+
+    private bool ClassImplementsDuckInterface(List<Declaration> members, InterfaceDeclaration duckInterface)
+    {
+        // Check if all methods in the duck interface are implemented by the class
+        foreach (var interfaceMember in duckInterface.Members)
+        {
+            if (interfaceMember is not FunctionDeclaration interfaceMethod)
+                continue;
+
+            var found = false;
+            foreach (var classMember in members)
+            {
+                if (classMember is not FunctionDeclaration classMethod)
+                    continue;
+
+                if (MethodSignaturesMatch(classMethod, interfaceMethod))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool MethodSignaturesMatch(FunctionDeclaration method1, FunctionDeclaration method2)
+    {
+        // Must have same name
+        if (method1.Name != method2.Name)
+            return false;
+
+        // Must have same number of parameters
+        if (method1.Parameters.Count != method2.Parameters.Count)
+            return false;
+
+        // Check parameter types match (by string comparison - simple but works for now)
+        for (int i = 0; i < method1.Parameters.Count; i++)
+        {
+            var type1Str = TranspileTypeReference(method1.Parameters[i].Type);
+            var type2Str = TranspileTypeReference(method2.Parameters[i].Type);
+
+            if (type1Str != type2Str)
+                return false;
+        }
+
+        // Check return types match
+        var returnType1Str = method1.ReturnType != null ? TranspileTypeReference(method1.ReturnType) : "void";
+        var returnType2Str = method2.ReturnType != null ? TranspileTypeReference(method2.ReturnType) : "void";
+
+        if (returnType1Str != returnType2Str)
+            return false;
+
+        return true;
     }
 }

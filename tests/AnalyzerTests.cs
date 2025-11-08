@@ -657,4 +657,260 @@ public class AnalyzerTests
             }
         ");
     }
+
+    // Duck Interface Tests
+    [Fact]
+    public void DuckInterface_ClassImplementsInterface_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface IReader {
+                func Read(): string
+            }
+
+            class FileReader {
+                func Read(): string {
+                    return ""data""
+                }
+            }
+
+            func DoWork(r: IReader) {
+            }
+
+            func Main() {
+                reader := new FileReader()
+                DoWork(reader)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DuckInterface_StructImplementsInterface_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface ICounter {
+                func GetCount(): int
+                func Increment()
+            }
+
+            struct Counter {
+                count: int
+
+                func GetCount(): int {
+                    return count
+                }
+
+                func Increment() {
+                    count = count + 1
+                }
+            }
+
+            func Process(c: ICounter) {
+            }
+
+            func Main() {
+                counter := new Counter { count: 0 }
+                Process(counter)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DuckInterface_RecordImplementsInterface_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface IPrintable {
+                func ToString(): string
+            }
+
+            record Person {
+                Name: string
+                Age: int
+
+                func ToString(): string {
+                    return Name
+                }
+            }
+
+            func Print(p: IPrintable) {
+            }
+
+            func Main() {
+                person := new Person { Name: ""John"", Age: 30 }
+                Print(person)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DuckInterface_ClassMissingMethod_Error()
+    {
+        AssertHasError(@"
+            duck interface IReader {
+                func Read(): string
+                func Close()
+            }
+
+            class FileReader {
+                func Read(): string {
+                    return ""data""
+                }
+                // Missing Close() method
+            }
+
+            func DoWork(r: IReader) {
+            }
+
+            func Main() {
+                reader := new FileReader()
+                DoWork(reader)
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void DuckInterface_MethodWrongReturnType_Error()
+    {
+        AssertHasError(@"
+            duck interface IReader {
+                func Read(): string
+            }
+
+            class FileReader {
+                func Read(): int {  // Wrong return type
+                    return 42
+                }
+            }
+
+            func DoWork(r: IReader) {
+            }
+
+            func Main() {
+                reader := new FileReader()
+                DoWork(reader)
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void DuckInterface_MethodWrongParameterCount_Error()
+    {
+        AssertHasError(@"
+            duck interface IWriter {
+                func Write(data: string)
+            }
+
+            class FileWriter {
+                func Write(data: string, append: bool) {  // Wrong parameter count
+                }
+            }
+
+            func DoWork(w: IWriter) {
+            }
+
+            func Main() {
+                writer := new FileWriter()
+                DoWork(writer)
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void DuckInterface_MethodWrongParameterType_Error()
+    {
+        AssertHasError(@"
+            duck interface IProcessor {
+                func Process(value: int): string
+            }
+
+            class DataProcessor {
+                func Process(value: string): string {  // Wrong parameter type
+                    return value
+                }
+            }
+
+            func DoWork(p: IProcessor) {
+            }
+
+            func Main() {
+                processor := new DataProcessor()
+                DoWork(processor)
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void DuckInterface_MultipleMethodsAllImplemented_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface IDataStore {
+                func Save(data: string)
+                func Load(): string
+                func Delete()
+            }
+
+            class MemoryStore {
+                data: string
+
+                func Save(d: string) {
+                    data = d
+                }
+
+                func Load(): string {
+                    return data
+                }
+
+                func Delete() {
+                    data = """"
+                }
+            }
+
+            func UseStore(store: IDataStore) {
+            }
+
+            func Main() {
+                store := new MemoryStore { data: """" }
+                UseStore(store)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DuckInterface_VariableAssignment_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface IReader {
+                func Read(): string
+            }
+
+            class FileReader {
+                func Read(): string {
+                    return ""data""
+                }
+            }
+
+            func Main() {
+                let reader: IReader = new FileReader()
+            }
+        ");
+    }
+
+    [Fact]
+    public void DuckInterface_ReturnValue_Valid()
+    {
+        AssertNoErrors(@"
+            duck interface IReader {
+                func Read(): string
+            }
+
+            class FileReader {
+                func Read(): string {
+                    return ""data""
+                }
+            }
+
+            func CreateReader(): IReader {
+                return new FileReader()
+            }
+        ");
+    }
 }
