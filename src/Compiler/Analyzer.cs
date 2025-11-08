@@ -522,6 +522,9 @@ public class Analyzer
             case ForeachStatement foreachStmt:
                 AnalyzeForeachStatement(foreachStmt);
                 break;
+            case AwaitForEachStatement awaitForeachStmt:
+                AnalyzeAwaitForeachStatement(awaitForeachStmt);
+                break;
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
                 if (!IsBoolType(condType))
@@ -796,6 +799,35 @@ public class Analyzer
         var wasInLoop = _inLoop;
         _inLoop = true;
         AnalyzeStatement(foreachStmt.Body);
+        _inLoop = wasInLoop;
+
+        PopScope();
+    }
+
+    private void AnalyzeAwaitForeachStatement(AwaitForEachStatement awaitForeachStmt)
+    {
+        var collectionType = AnalyzeExpression(awaitForeachStmt.Collection);
+
+        // Check if collection is IAsyncEnumerable<T>
+        // For now, similar to regular foreach, we'll check for async enumerable types
+        // TODO: More sophisticated async enumerable checking
+
+        PushScope(new Scope(ScopeKind.Block));
+
+        // Infer element type (simplified)
+        // For IAsyncEnumerable<T>, we need to extract T
+        TypeInfo elementType = BuiltInTypes.Unknown;
+        if (collectionType is ArrayTypeInfo arrayType)
+        {
+            elementType = arrayType.ElementType;
+        }
+        // TODO: Handle IAsyncEnumerable<T> type extraction
+
+        DeclareSymbol(awaitForeachStmt.VariableName, elementType, awaitForeachStmt.Line, awaitForeachStmt.Column);
+
+        var wasInLoop = _inLoop;
+        _inLoop = true;
+        AnalyzeStatement(awaitForeachStmt.Body);
         _inLoop = wasInLoop;
 
         PopScope();

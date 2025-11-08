@@ -44,7 +44,11 @@ public record FunctionDeclaration(
     bool IsConversionOperator,     // For implicit/explicit conversion operators
     bool IsImplicitConversion,     // true = implicit, false = explicit
     int Line,
-    int Column) : Declaration(Line, Column);
+    int Column) : Declaration(Line, Column)
+{
+    // Convenience property: true if both Async and Generator modifiers are set (async*)
+    public bool IsAsyncIterator => Modifiers.HasFlag(Modifiers.Async) && Modifiers.HasFlag(Modifiers.Generator);
+};
 
 public enum ParameterModifier
 {

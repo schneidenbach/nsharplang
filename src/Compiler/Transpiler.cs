@@ -307,8 +307,9 @@ public class Transpiler
         var parameters = string.Join(", ", func.Parameters.Select(TranspileParameter));
         var returnType = func.ReturnType != null ? TranspileTypeReference(func.ReturnType) : "void";
 
-        // Handle async implicit wrapping
-        if (func.Modifiers.HasFlag(Modifiers.Async))
+        // Handle async implicit wrapping (but NOT for async iterators)
+        // Async iterators return IAsyncEnumerable<T>, which should not be wrapped in Task/ValueTask
+        if (func.Modifiers.HasFlag(Modifiers.Async) && !func.IsAsyncIterator)
         {
             returnType = WrapAsyncReturnType(returnType, func.ReturnType);
         }
@@ -937,6 +938,9 @@ public class Transpiler
             case ForeachStatement foreachStmt:
                 TranspileForeachStatement(foreachStmt);
                 break;
+            case AwaitForEachStatement awaitForeachStmt:
+                TranspileAwaitForeachStatement(awaitForeachStmt);
+                break;
             case WhileStatement whileStmt:
                 WriteLine($"while ({TranspileExpression(whileStmt.Condition)})");
                 TranspileStatement(whileStmt.Body);
@@ -1277,6 +1281,12 @@ public class Transpiler
     {
         WriteLine($"foreach (var {foreachStmt.VariableName} in {TranspileExpression(foreachStmt.Collection)})");
         TranspileStatement(foreachStmt.Body);
+    }
+
+    private void TranspileAwaitForeachStatement(AwaitForEachStatement awaitForeachStmt)
+    {
+        WriteLine($"await foreach (var {awaitForeachStmt.VariableName} in {TranspileExpression(awaitForeachStmt.Collection)})");
+        TranspileStatement(awaitForeachStmt.Body);
     }
 
     private void TranspileTryStatement(TryStatement tryStmt)

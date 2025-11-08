@@ -66,6 +66,14 @@ public record ForeachStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Await foreach loop (async iteration - C# 8+)
+public record AwaitForEachStatement(
+    string VariableName,
+    Expression Collection,
+    Statement Body,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // While loop
 public record WhileStatement(
     Expression Condition,

@@ -276,10 +276,25 @@ public class Parser
             // Regular function or operator overload - starts with 'func'
             Consume(TokenType.Func, "Expected 'func'");
 
+            // Check for generator: func*
             if (Check(TokenType.Star))
             {
                 modifiers |= Modifiers.Generator;
                 Advance();
+            }
+
+            // Check for async: func async or func async* (async iterator)
+            if (Check(TokenType.Async))
+            {
+                modifiers |= Modifiers.Async;
+                Advance();
+
+                // Check for async iterator: func async*
+                if (Check(TokenType.Star))
+                {
+                    modifiers |= Modifiers.Generator;
+                    Advance();
+                }
             }
 
             if (Check(TokenType.Operator))
@@ -1232,6 +1247,9 @@ public class Parser
             return ParseForStatement();
         if (Check(TokenType.Foreach))
             return ParseForeachStatement();
+        // Handle "await foreach" for async iteration (C# 8+)
+        if (Check(TokenType.Await) && LookAhead(1).Type == TokenType.Foreach)
+            return ParseAwaitForeachStatement();
         if (Check(TokenType.While))
             return ParseWhileStatement();
         if (Check(TokenType.Return))
@@ -1502,6 +1520,21 @@ public class Parser
         var body = ParseStatement();
 
         return new ForeachStatement(varName, collection, body, line, column);
+    }
+
+    private AwaitForEachStatement ParseAwaitForeachStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Await, "Expected 'await'");
+        Consume(TokenType.Foreach, "Expected 'foreach'");
+
+        var varName = ConsumeIdentifier("Expected variable name");
+        Consume(TokenType.In, "Expected 'in'");
+        var collection = ParseExpression();
+        var body = ParseStatement();
+
+        return new AwaitForEachStatement(varName, collection, body, line, column);
     }
 
     private WhileStatement ParseWhileStatement()
