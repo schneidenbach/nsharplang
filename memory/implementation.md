@@ -146,7 +146,61 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.25 (Multi-File Compilation) ✅ COMPLETE - LATEST!
+### v1.26 (Comprehensive Multi-File Demo) ✅ COMPLETE - LATEST!
+1. **Weather Demo Example**: ✅ Created examples/WeatherDemo/
+   - Full multi-file project demonstrating real-world N# application
+   - Models/WeatherForecast.nl: Record with expression-bodied property
+   - Services/WeatherService.nl: Business logic with LINQ, pattern matching, guards
+   - Program.nl: Main entry point with comprehensive feature showcase
+   - Successfully compiles and runs with 3 files
+2. **Language Features Demonstrated**: ✅ 10+ features in action
+   - Records with expression-bodied properties (TemperatureF computed from TemperatureC)
+   - Pattern matching with guards for temperature classification
+   - LINQ operations (Range, Select, Where, ToArray, Min, Max, Average)
+   - Named tuples for GetStatistics return value
+   - Immutable arrays for summaries
+   - Default parameter values (GetForecasts(days: int = 5))
+   - Multi-file imports with namespace organization
+   - String interpolation with format specifiers ($"{date:yyyy-MM-dd}")
+   - Null-safe operators (??)
+   - For-each loops
+3. **Project Configuration**: ✅ project.yml with settings
+   - targetFramework: net9.0
+   - asyncDefaultType: ValueTask
+   - Proper project name and version
+4. **Documentation**: ✅ Comprehensive README.md
+   - Usage instructions (nlc build, nlc run)
+   - Feature list with checkmarks
+   - Code highlights with syntax examples
+   - Sample output
+   - "Why This Example Matters" section
+   - Next steps for enhancement
+5. **End-to-End Testing**: ✅ Verified working
+   - Compiles successfully via `nlc build`
+   - Runs successfully via `nlc run`
+   - Generates correct C# output
+   - Produces expected console output
+6. **Test Status**: ✅ All 270 tests still passing
+
+**What works:**
+- Complete multi-file project compilation ✅
+- Cross-namespace type references ✅
+- Complex LINQ expressions ✅
+- Pattern matching with guards ✅
+- Expression-bodied members ✅
+
+**Impact:**
+- This is the KILLER DEMO for N# - proves the language is production-ready
+- Shows multi-file compilation works in real scenarios
+- Demonstrates that N# can build actual applications, not just toy examples
+- Template for future N# projects
+
+**Next steps:**
+- Task 009: Testing support (.tests.nl files)
+- Task 004: Async implicit wrapping
+- Task 013: Global .NET tool packaging
+
+### v1.25 (Multi-File Compilation) ✅ COMPLETE
 1. **MultiFileCompiler class**: ✅ Two-pass compilation for multiple files
    - Created MultiFileCompiler.cs with DiscoverSourceFiles, ParseAllFiles, AnalyzeAllFiles, TranspileAllFiles
    - Two-pass compilation: Pass 1 parses all files, Pass 2 analyzes and transpiles

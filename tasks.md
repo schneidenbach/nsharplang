@@ -362,7 +362,7 @@
 - [x] All 215 tests passing, 0 skipped (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
 - [x] Build successful with warnings (same nullability warnings as before)
 
-### Phase 24: Multi-File Compilation (v1.25 - LATEST!)
+### Phase 24: Multi-File Compilation (v1.25)
 - [x] **Multi-File Compiler**: Created MultiFileCompiler class
   - Two-pass compilation: parse all files, then analyze/transpile
   - Discovers all .nl files in project directory
@@ -382,6 +382,34 @@
   - Files use `import "Models/Person"` for cross-file references
   - Requires `using` statements for .NET namespaces
   - Analyzer resolves imported symbols correctly
+- [x] All 270 tests passing, 0 skipped
+
+### Phase 25: Comprehensive Multi-File Demo (v1.26 - LATEST!)
+- [x] **Weather Demo Example**: Created examples/WeatherDemo/
+  - Full multi-file project with Models, Services, and Program
+  - Demonstrates 10+ language features in real-world scenario
+  - Records with expression-bodied properties (TemperatureF)
+  - Pattern matching with guards for temperature classification
+  - LINQ operations (Range, Select, Where, ToArray)
+  - Named tuples for statistics
+  - Immutable arrays for summaries
+  - Default parameters (GetForecasts, GetStatistics)
+  - Multi-file imports with namespace organization
+  - String interpolation for formatted output
+  - Null-safe operators (??)
+- [x] **Project Configuration**: project.yml with language settings
+  - targetFramework: net9.0
+  - asyncDefaultType: ValueTask
+- [x] **Comprehensive Documentation**: README.md with code highlights
+  - Usage instructions
+  - Sample output
+  - Feature showcase
+  - Code examples
+- [x] **End-to-End Testing**: Successfully compiles and runs
+  - Multi-file compilation works perfectly
+  - Cross-file type references resolve correctly
+  - Generated C# compiles and executes
+  - Output demonstrates all features working
 - [x] All 270 tests passing, 0 skipped
 
 **What works:**
@@ -529,6 +557,7 @@ The compiler successfully:
 **Working Examples:**
 - `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops, external types ✅
 - `examples/simple.nl` - Basic functions and type inference ✅
+- `examples/WeatherDemo/` - **KILLER DEMO** - Multi-file project with Models/Services/Program showcasing 10+ features ✅
 - `examples/error_handling.nl` - Automatic exception capture with `result, err := Function()` ✅
 - `examples/unions_and_match.nl` - Discriminated unions, enums (int and string), type aliases ✅
 - `examples/records_and_interfaces.nl` - Records, interfaces, structs, readonly fields, with expressions ✅
