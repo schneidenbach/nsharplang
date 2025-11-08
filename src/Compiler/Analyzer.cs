@@ -18,6 +18,7 @@ public class Analyzer
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
     private readonly Dictionary<string, List<string>> _importedSymbols = new(); // symbol -> [source paths]
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
+    private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private bool _inConstructor;
@@ -39,6 +40,7 @@ public class Analyzer
         _usingAliases.Clear();
         _importedSymbols.Clear();
         _importedSymbolsByAlias.Clear();
+        _extensionMethods.Clear();
         _currentReturnType = null;
         _inLoop = false;
         _inConstructor = false;
@@ -164,6 +166,12 @@ public class Analyzer
         // Declare function in current scope
         var funcType = new FunctionTypeInfo(func);
         DeclareSymbol(func.Name, funcType, func.Line, func.Column);
+
+        // Track extension methods (first parameter has IsThis = true)
+        if (func.Parameters.Count > 0 && func.Parameters[0].IsThis)
+        {
+            _extensionMethods.Add(func);
+        }
 
         // Check visibility convention (skip for operator overloads - they must be public static)
         if (!func.IsOperatorOverload)
@@ -1357,8 +1365,8 @@ public class Analyzer
                 return new ReflectionMethodGroupInfo(methods);
             }
 
-            // Also check extension methods (simplified - just return Unknown for now)
-            return BuiltInTypes.Unknown;
+            // No member found on reflection type, try extension methods
+            return TryResolveExtensionMethod(objectType, memberName);
         }
 
         // Handle declared types
@@ -1405,7 +1413,47 @@ public class Analyzer
                 return BuiltInTypes.Int;
         }
 
-        return BuiltInTypes.Unknown;
+        // Member not found on type, try extension methods
+        return TryResolveExtensionMethod(objectType, memberName);
+    }
+
+    private TypeInfo TryResolveExtensionMethod(TypeInfo targetType, string methodName)
+    {
+        // Find all extension methods with matching name
+        var matchingExtensions = _extensionMethods
+            .Where(em => em.Name == methodName)
+            .ToList();
+
+        if (matchingExtensions.Count == 0)
+            return BuiltInTypes.Unknown;
+
+        // Filter by matching this parameter type
+        var applicableExtensions = new List<FunctionDeclaration>();
+        foreach (var ext in matchingExtensions)
+        {
+            if (ext.Parameters.Count == 0)
+                continue;
+
+            var thisParamType = ResolveType(ext.Parameters[0].Type);
+
+            // Check if targetType is assignable to the extension method's this parameter type
+            if (IsAssignable(thisParamType, targetType))
+            {
+                applicableExtensions.Add(ext);
+            }
+        }
+
+        if (applicableExtensions.Count == 0)
+            return BuiltInTypes.Unknown;
+
+        // If only one match, return it
+        if (applicableExtensions.Count == 1)
+            return new FunctionTypeInfo(applicableExtensions[0]);
+
+        // Multiple matches - return method group (for overload resolution)
+        // For now, just return the first one
+        // TODO: Implement proper method group resolution
+        return new FunctionTypeInfo(applicableExtensions[0]);
     }
 
     private TypeInfo ConvertReflectionType(Type type)
@@ -1458,40 +1506,49 @@ public class Analyzer
             {
                 var parameters = funcType.Declaration.Parameters;
 
+                // Check if this is an extension method (first param has IsThis = true)
+                var isExtensionMethod = parameters.Count > 0 && parameters[0].IsThis;
+
+                // For extension methods, skip the first parameter (the "this" parameter)
+                var paramStartIndex = isExtensionMethod ? 1 : 0;
+                var effectiveParamCount = parameters.Count - paramStartIndex;
+
                 // Check if last parameter is params
                 var hasParamsParameter = parameters.Count > 0 &&
                                         parameters[^1].Modifier == Ast.ParameterModifier.Params;
 
-                // Check argument count
-                int minArgs = hasParamsParameter ? parameters.Count - 1 : parameters.Count;
+                // Check argument count (excluding the "this" parameter for extension methods)
+                int minArgs = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
                 if (argTypes.Count < minArgs)
                 {
                     Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
                         call.Line, call.Column);
                 }
-                else if (!hasParamsParameter && argTypes.Count > parameters.Count)
+                else if (!hasParamsParameter && argTypes.Count > effectiveParamCount)
                 {
-                    Error($"Function '{funcType.Declaration.Name}' expects {parameters.Count} arguments but got {argTypes.Count}",
+                    Error($"Function '{funcType.Declaration.Name}' expects {effectiveParamCount} arguments but got {argTypes.Count}",
                         call.Line, call.Column);
                 }
                 else
                 {
                     // Check each parameter type (non-params parameters)
-                    int regularParamCount = hasParamsParameter ? parameters.Count - 1 : parameters.Count;
+                    int regularParamCount = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
                     for (int i = 0; i < regularParamCount && i < argTypes.Count; i++)
                     {
-                        var paramType = ResolveType(parameters[i].Type);
+                        // For extension methods, parameter index in declaration is i + paramStartIndex
+                        int paramIndex = i + paramStartIndex;
+                        var paramType = ResolveType(parameters[paramIndex].Type);
                         var argType = argTypes[i];
 
                         if (!IsAssignable(paramType, argType))
                         {
-                            Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[i].Name}' of type '{paramType}'",
+                            Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
                                 call.Line, call.Column);
                         }
                     }
 
                     // Check params arguments (if any)
-                    if (hasParamsParameter && argTypes.Count >= parameters.Count)
+                    if (hasParamsParameter && argTypes.Count >= effectiveParamCount)
                     {
                         var paramsParam = parameters[^1];
                         var paramsArrayType = ResolveType(paramsParam.Type);

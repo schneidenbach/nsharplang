@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.48 - Spread Operator in Function Calls
-**Tests:** 406 passing ✅
+**Version:** v1.50 - Extension Method Resolution
+**Tests:** 413 passing ✅
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
@@ -142,15 +142,64 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 ## Known Limitations
 
 1. **Lambda type inference from context**: Lambda parameters with `var` work but type isn't inferred from LINQ method context
-2. **Extension method resolution**: Extension methods not yet resolved (e.g., LINQ on arrays works via IEnumerable)
-3. **Generic type inference**: Generic type parameters not fully inferred
-4. **No multi-file compilation**: Only single-file programs work
-5. **No project.yml support**: Dependency management not implemented
-6. **Limited overload resolution**: Method overload resolution based only on argument count, not types
+2. **Generic type inference**: Generic type parameters not fully inferred
+3. **Limited overload resolution**: Method overload resolution based only on argument count, not types
+4. **Extension methods on literals**: Extension methods work on variables but not directly on numeric literals (e.g., `count.Times(...)` works, but `5.Times(...)` doesn't transpile correctly)
 
 ## Recent Changes
 
-### v1.45 (Type Patterns in Match Expressions) ✅ COMPLETE - LATEST!
+### v1.50 (Extension Method Resolution) ✅ COMPLETE - LATEST!
+1. **Analyzer enhancement**: ✅ Full extension method resolution
+   - Tracks extension methods during compilation (functions with `this` first parameter)
+   - Added `_extensionMethods` list to Analyzer class
+   - Automatically detects extension methods during function analysis
+   - New `TryResolveExtensionMethod()` resolves extension methods when member not found on type
+2. **Member resolution**: ✅ Seamless extension method lookup
+   - Modified `ResolveMember()` to fall back to extension methods when member not found
+   - Checks if target type is assignable to extension method's `this` parameter type
+   - Supports extension methods on built-in types, arrays, and custom classes
+   - Works with both top-level and static class extension methods
+3. **Call expression analysis**: ✅ Extension method argument checking
+   - Modified `AnalyzeCall()` to skip `this` parameter for extension methods
+   - Correctly validates argument count excluding the implicit `this` parameter
+   - Proper type checking for extension method parameters
+   - Supports params arrays in extension methods
+4. **Test coverage**: ✅ 7 new tests (all passing) = 413 total
+   - ExtensionMethod_BasicResolution_NoError
+   - ExtensionMethod_OnVariableType_NoError
+   - ExtensionMethod_WithParameters_NoError
+   - ExtensionMethod_GenericType_NoError
+   - ExtensionMethod_OnCustomType_NoError
+   - ExtensionMethod_InStaticClass_NoError
+   - ExtensionMethod_MultipleExtensions_NoError
+5. **Example**: ✅ examples/extension_methods.nl
+   - String extensions (IsEmpty, Truncate, Repeat, Capitalize, WordCount)
+   - Integer extensions (IsEven, IsPositive, Times)
+   - Array extensions (First, Last, Sum, Average)
+   - Custom type extensions (Person.Greet, Person.IsAdult, Person.CelebrateBirthday)
+   - Demonstrates LINQ-style fluent APIs
+   - Successfully compiles and runs
+6. **Build status**: ✅ All 413 tests passing
+
+**Impact:** CRITICAL feature for .NET ecosystem integration! Extension methods enable LINQ-style APIs and fluent method chaining. This unblocks modern .NET patterns that were previously impossible.
+
+**What works:**
+- Extension methods on strings, integers, arrays ✅
+- Extension methods on custom classes ✅
+- Extension methods in static classes (exposed to C#) ✅
+- Top-level extension methods (internal) ✅
+- Multiple extension methods on same type ✅
+- Extension methods with parameters ✅
+- Seamless C# interop - generated code uses standard C# extension method syntax ✅
+
+**Use cases:**
+- LINQ-style operations on collections
+- String manipulation utilities
+- Fluent API design
+- Adding behavior to types you don't own
+- Creating domain-specific method chains
+
+### v1.45 (Type Patterns in Match Expressions) ✅ COMPLETE
 1. **AST enhancement**: ✅ Added TypePattern record
    - New pattern type for type checking and variable binding
    - Supports SimpleTypeReference for type names

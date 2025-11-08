@@ -1334,4 +1334,119 @@ public class AnalyzerTests
             }
         ", "params parameter must be an array type");
     }
+
+    // Extension Method Resolution Tests
+
+    [Fact]
+    public void ExtensionMethod_BasicResolution_NoError()
+    {
+        AssertNoErrors(@"
+            func IsEmpty(this s: string): bool {
+                return s.Length == 0
+            }
+
+            func Main() {
+                let result: bool = ""hello"".IsEmpty()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnVariableType_NoError()
+    {
+        AssertNoErrors(@"
+            func Double(this x: int): int {
+                return x * 2
+            }
+
+            func Main() {
+                let num: int = 5
+                let result: int = num.Double()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_WithParameters_NoError()
+    {
+        AssertNoErrors(@"
+            func Repeat(this s: string, count: int): string {
+                return s
+            }
+
+            func Main() {
+                let result: string = ""hello"".Repeat(3)
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_GenericType_NoError()
+    {
+        AssertNoErrors(@"
+            func First(this arr: int[]): int {
+                return arr[0]
+            }
+
+            func Main() {
+                let numbers: int[] = [1, 2, 3]
+                let first: int = numbers.First()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnCustomType_NoError()
+    {
+        AssertNoErrors(@"
+            class Person {
+                Name: string
+            }
+
+            func Greet(this p: Person): string {
+                return ""Hello""
+            }
+
+            func Main() {
+                let person: Person = new Person { Name: ""Alice"" }
+                let greeting: string = person.Greet()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_InStaticClass_NoError()
+    {
+        AssertNoErrors(@"
+            static class StringExtensions {
+                static func Truncate(this s: string, maxLength: int): string {
+                    return s
+                }
+            }
+
+            func Main() {
+                let result: string = ""hello world"".Truncate(5)
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_MultipleExtensions_NoError()
+    {
+        AssertNoErrors(@"
+            func IsEmpty(this s: string): bool {
+                return s.Length == 0
+            }
+
+            func IsLong(this s: string): bool {
+                return s.Length > 10
+            }
+
+            func Main() {
+                let s: string = ""test""
+                let empty: bool = s.IsEmpty()
+                let long: bool = s.IsLong()
+            }
+        ");
+    }
 }
