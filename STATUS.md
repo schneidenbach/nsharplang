@@ -1,8 +1,8 @@
 # N# Language - Current Status
 
 **Last Updated:** 2025-11-08
-**Version:** v1.60
-**Status:** 🚀 Feature-Complete + Professional Error Messages
+**Version:** v1.61
+**Status:** 🚀 Feature-Complete + Analyzer Improvements
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.60 |
-| **Tests Passing** | 463 / 463 (100%) |
+| **Language Version** | v1.61 |
+| **Tests Passing** | 466 / 466 (100%) |
 | **Example Files** | 55+ .nl files |
-| **Compiler LOC** | ~9,900 lines |
+| **Compiler LOC** | ~10,000 lines |
 | **Features Implemented** | All from DESIGN.md ✅ |
 
 ---
@@ -203,11 +203,17 @@
 - Foundation for LSP
 - Professional appearance
 
-### v1.60: Professional Error Messages (Current)
+### v1.60: Professional Error Messages
 - Error codes (NL001-NL999) ✅
 - Rust-quality error formatting ✅
 - Context-aware suggestions ✅
 - Enhanced developer experience ✅
+
+### v1.61: User-Defined Conversion Operators in Analyzer (Current)
+- Implicit conversion operator type checking ✅
+- Proper validation of conversion assignments ✅
+- 3 new analyzer tests for conversions ✅
+- Fixed conversion_operators.nl example ✅
 
 ---
 
@@ -313,6 +319,7 @@ The language has achieved all its design goals:
 - ✅ Comprehensive test coverage
 - ✅ IDE support (VS Code syntax highlighting)
 - ✅ Professional error messages (Rust-quality)
+- ✅ User-defined conversion operator type checking
 
 **Next mission: Full IDE experience**
 - Full Language Server Protocol
