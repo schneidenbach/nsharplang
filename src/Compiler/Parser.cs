@@ -172,7 +172,13 @@ public class Parser
         while (Check(TokenType.LeftBracket))
         {
             Advance();
+            // Support qualified attribute names (e.g., System.Runtime.CompilerServices.InlineArray)
             var name = ConsumeIdentifier("Expected attribute name");
+            while (Check(TokenType.Dot))
+            {
+                Advance(); // consume '.'
+                name += "." + ConsumeIdentifier("Expected identifier after '.'");
+            }
             var args = new List<Argument>();
 
             if (Check(TokenType.LeftParen))

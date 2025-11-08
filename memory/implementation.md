@@ -2764,3 +2764,31 @@ All 497 tests passing ✅ (482 existing + 15 new)
 ### Earlier Versions
 See git history for complete version details.
 
+
+## Version 1.65: Qualified Attribute Names
+
+### What Was Implemented
+
+1. **Parser Enhancement** ✅
+   - Modified `ParseAttributes()` to support fully-qualified attribute names
+   - Parses dotted names: `System.Serializable`, `System.Runtime.CompilerServices.InlineArray`
+   - Simple loop: consume identifier, then consume `.identifier` while dots are present
+   - Fully backward compatible with simple attribute names
+
+2. **Test Coverage** ✅
+   - Added `TestQualifiedAttributes` parser test
+   - Added `TestQualifiedAttributeTranspilation` transpiler test
+   - Tests verify parsing and transpilation of multi-level qualified names
+
+3. **Example** ✅
+   - Created `examples/qualified_attributes.nl`
+   - Demonstrates System.*, System.Runtime.CompilerServices.*, System.Diagnostics.CodeAnalysis.*
+   - Shows mix of qualified and simple names
+
+### Benefits
+
+- ✅ Eliminates namespace conflicts for attributes
+- ✅ Clearer code - explicit about which attribute is used
+- ✅ No need for `using` statements just for disambiguation
+- ✅ Essential for code analysis attributes with long namespace paths
+- ✅ All 508 tests passing

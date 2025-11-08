@@ -1051,6 +1051,46 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestQualifiedAttributes()
+    {
+        var source = @"
+            [System.Serializable]
+            class Person {
+                Name: string
+            }
+
+            [System.Runtime.CompilerServices.InlineArray(10)]
+            struct Buffer {
+                element: int
+            }
+
+            [System.Diagnostics.CodeAnalysis.SuppressMessage(""Category"", ""CheckId"")]
+            func DoWork() {
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(3, cu.Declarations.Count);
+
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Single(classDecl.Attributes);
+        Assert.Equal("System.Serializable", classDecl.Attributes[0].Name);
+
+        var structDecl = cu.Declarations[1] as StructDeclaration;
+        Assert.NotNull(structDecl);
+        Assert.Single(structDecl.Attributes);
+        Assert.Equal("System.Runtime.CompilerServices.InlineArray", structDecl.Attributes[0].Name);
+        Assert.Single(structDecl.Attributes[0].Arguments);
+
+        var funcDecl = cu.Declarations[2] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Single(funcDecl.Attributes);
+        Assert.Equal("System.Diagnostics.CodeAnalysis.SuppressMessage", funcDecl.Attributes[0].Name);
+        Assert.Equal(2, funcDecl.Attributes[0].Arguments.Count);
+    }
+
+    [Fact]
     public void TestExtensionMethod()
     {
         var source = @"

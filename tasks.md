@@ -1047,7 +1047,7 @@ The compiler successfully:
 - [x] Build successful
 
 
-### Phase 64: Language Server Protocol - Phase 1 MVP (v1.64 - LATEST!)
+### Phase 64: Language Server Protocol - Phase 1 MVP (v1.64)
 - [x] **LSP Server API Compatibility**: Fixed all compilation errors
   - Fixed DocumentManager.cs to use correct Compiler API:
     - `Parser.ParseCompilationUnit()` instead of `Parse()`
@@ -1072,6 +1072,41 @@ The compiler successfully:
   - Diagnostic publishing for errors/warnings
 - [x] All 482 tests passing, 0 skipped
 - [x] Build successful with warnings only (async, threading)
+
+### Phase 65: Qualified Attribute Names (v1.65 - LATEST!)
+- [x] **Parser Enhancement**: Support for fully-qualified attribute names
+  - Modified `ParseAttributes()` to parse dotted attribute names
+  - Syntax: `[System.Serializable]`, `[System.Runtime.CompilerServices.InlineArray(10)]`
+  - Parses identifier followed by zero or more `.identifier` sequences
+  - Fully backward compatible - simple names still work: `[Serializable]`
+  - Parser.cs:175-181 implements qualified name parsing
+- [x] **Transpiler Support**: Automatic preservation of qualified names
+  - Qualified attribute names pass through unchanged to C# output
+  - No special transpiler logic needed - names stored as strings in AST
+  - Works with any .NET attribute from any namespace
+- [x] **Test Coverage**: 2 new tests (508 total, up from 506)
+  - **Parser test**: TestQualifiedAttributes
+    - Verifies parsing of `System.Serializable` on class
+    - Verifies parsing of `System.Runtime.CompilerServices.InlineArray(10)` on struct
+    - Verifies parsing of `System.Diagnostics.CodeAnalysis.SuppressMessage(...)` on function
+  - **Transpiler test**: TestQualifiedAttributeTranspilation
+    - Verifies qualified names preserved in C# output
+    - Tests three different qualified attribute depths
+- [x] **Comprehensive Example**: `examples/qualified_attributes.nl`
+  - System.Serializable for serialization
+  - System.Runtime.CompilerServices.InlineArray for C# 12 inline arrays
+  - System.Runtime.CompilerServices.CompilerGenerated
+  - System.Diagnostics.CodeAnalysis.SuppressMessage with multiple levels
+  - Shows mix of qualified and simple names in same file
+  - Successfully compiles and generates correct C# attributes
+- [x] **Benefits**:
+  - Eliminates namespace conflicts when multiple namespaces have same attribute name
+  - Clearer code - readers know exactly which attribute is used
+  - No need for `using` statements just to disambiguate attributes
+  - Works seamlessly with .NET BCL attributes and third-party libraries
+  - Particularly useful for code analysis attributes (SuppressMessage, ExcludeFromCodeCoverage, etc.)
+- [x] All 508 tests passing, 0 skipped
+- [x] Build successful with warnings only (existing nullability warnings)
 
 ### Phase 63: Params Collections (C# 13) - v1.63
 - [x] **Analyzer Enhancement**: Expanded params validation beyond arrays

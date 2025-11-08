@@ -702,6 +702,35 @@ func GetUsers(): User[] {
     }
 
     [Fact]
+    public void TestQualifiedAttributeTranspilation()
+    {
+        var source = @"
+[System.Serializable]
+class Person {
+    Name: string
+}
+
+[System.Runtime.CompilerServices.InlineArray(10)]
+struct Buffer {
+    element: int
+}
+
+[System.Diagnostics.CodeAnalysis.SuppressMessage(""Category"", ""CheckId"")]
+func DoWork() {
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Qualified attributes should be preserved in C# output
+        Assert.Contains("[System.Serializable]", result);
+        Assert.Contains("class Person", result);
+        Assert.Contains("[System.Runtime.CompilerServices.InlineArray(10)]", result);
+        Assert.Contains("struct Buffer", result);
+        Assert.Contains("[System.Diagnostics.CodeAnalysis.SuppressMessage(\"Category\", \"CheckId\")]", result);
+    }
+
+    [Fact]
     public void TestExtensionMethodTranspilation()
     {
         var source = @"
