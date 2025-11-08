@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (41 tests), Analyzer (53 tests), Transpiler (30 tests)
-- **Total**: 151 tests (151 passing, 0 skipped)
+- **Unit tests**: Lexer (27 tests), Parser (53 tests), Analyzer (53 tests), Transpiler (40 tests)
+- **Total**: 173 tests (173 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings
 
 ## Build & Run
 
@@ -146,7 +146,39 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.11 (Latest - Readonly Field Improvements)
+### v1.12 (Latest - Comprehensive Test Coverage)
+1. **Added 22 new tests for improved coverage**: ✅ Comprehensive testing of existing features
+   - Added 12 new parser tests for indexer usage, safe cast, is pattern, ??=, this/base, multiple interfaces, constraints, overloading, multi-line strings
+   - Added 10 new transpiler tests for matching features
+   - All features were already implemented and working - tests document and verify behavior
+   - Total test count increased from 151 to 173 (27 lexer + 53 parser + 53 analyzer + 40 transpiler)
+2. **Parser tests added**:
+   - TestIndexerUsage: Array and dictionary indexer access (`arr[0]`, `dict["key"]`)
+   - TestIndexAccessWithConditional: Basic indexer usage verification
+   - TestSafeCastOperator: Safe cast operator `as` for type conversion
+   - TestIsPattern: Type checking with `is` operator and pattern matching
+   - TestNullCoalescingAssignment: `??=` operator for conditional assignment
+   - TestThisKeyword: `this.field` member access and `return this`
+   - TestBaseKeyword: `base.Method()` calls to parent class
+   - TestConstructorDeclaration: Constructor parameter parsing
+   - TestMultipleInterfaceImplementation: Class with base class + multiple interfaces
+   - TestGenericConstraints: `where T : IComparable` constraint syntax
+   - TestMethodOverloading: Multiple methods with same name, different signatures
+   - TestMultiLineTemplateString: Triple-quoted string literals
+3. **Transpiler tests added**:
+   - TestIndexerUsageTranspilation: Verify C# indexer output
+   - TestSafeCastTranspilation: Verify `as` operator in C#
+   - TestIsPatternTranspilation: Verify `is` pattern in C#
+   - TestNullCoalescingAssignmentTranspilation: Verify `??=` in C#
+   - TestThisKeywordTranspilation: Verify `this` keyword in C#
+   - TestBaseKeywordTranspilation: Verify `base` keyword in C#
+   - TestMultipleInterfaceImplementationTranspilation: Verify inheritance list
+   - TestGenericConstraintsTranspilation: Verify `where` clause
+   - TestMethodOverloadingTranspilation: Verify multiple methods
+   - TestMultiLineTemplateStringTranspilation: Verify multi-line string output
+4. **Build status**: ✅ All 173 tests passing, build successful with no warnings
+
+### v1.11 (Readonly Field Improvements)
 1. **Readonly field assignment validation**: ✅ Analyzer now enforces readonly semantics
    - Added `_inConstructor` flag to track constructor context
    - `CheckReadonlyFieldAssignment` method validates assignment target

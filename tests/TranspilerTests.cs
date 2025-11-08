@@ -618,4 +618,189 @@ class MyClass {
         Assert.Contains("public MyClass()", result);
         Assert.Contains("id = Guid.NewGuid().ToString()", result);
     }
+
+    [Fact]
+    public void TestIndexerUsageTranspilation()
+    {
+        var source = @"
+func Test() {
+    arr := [1, 2, 3]
+    x := arr[0]
+    dict := new Dictionary<string, int>()
+    dict[""key""] = 42
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("arr[0]", result);
+        Assert.Contains("dict[\"key\"] = 42", result);
+    }
+
+    [Fact]
+    public void TestSafeCastTranspilation()
+    {
+        var source = @"
+func Test() {
+    let obj = GetObject()
+    str := obj as string
+    person := obj as Person
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("obj as string", result);
+        Assert.Contains("obj as Person", result);
+    }
+
+    [Fact]
+    public void TestIsPatternTranspilation()
+    {
+        var source = @"
+func Test() {
+    if obj is string s {
+        Console.WriteLine(s)
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("if (obj is string s)", result);
+        Assert.Contains("Console.WriteLine(s)", result);
+    }
+
+    [Fact]
+    public void TestNullCoalescingAssignmentTranspilation()
+    {
+        var source = @"
+func Test() {
+    let cache = null
+    cache ??= ExpensiveOperation()
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("cache ??= ExpensiveOperation()", result);
+    }
+
+    [Fact]
+    public void TestThisKeywordTranspilation()
+    {
+        var source = @"
+class MyClass {
+    name: string
+
+    func SetName(name: string) {
+        this.name = name
+    }
+
+    func GetThis(): MyClass {
+        return this
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("this.name = name", result);
+        Assert.Contains("return this", result);
+    }
+
+    [Fact]
+    public void TestBaseKeywordTranspilation()
+    {
+        var source = @"
+class Animal {
+    virtual func MakeSound() {
+        Console.WriteLine(""Sound"")
+    }
+}
+
+class Dog : Animal {
+    func MakeSound() {
+        base.MakeSound()
+        Console.WriteLine(""Bark"")
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("base.MakeSound()", result);
+        Assert.Contains("class Dog : Animal", result);
+    }
+
+    [Fact]
+    public void TestMultipleInterfaceImplementationTranspilation()
+    {
+        var source = @"
+class MyClass : BaseClass, IFoo, IBar {
+    Name: string
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("class MyClass : BaseClass, IFoo, IBar", result);
+    }
+
+    [Fact]
+    public void TestGenericConstraintsTranspilation()
+    {
+        var source = @"
+func Process<T>(item: T): T where T : IComparable {
+    return item
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("T Process<T>(T item) where T : IComparable", result);
+        Assert.Contains("return item", result);
+    }
+
+    [Fact]
+    public void TestMethodOverloadingTranspilation()
+    {
+        var source = @"
+class Calculator {
+    func Add(x: int): int {
+        return x + 1
+    }
+
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Both methods should be present
+        Assert.Contains("int Add(int x)", result);
+        Assert.Contains("int Add(int x, int y)", result);
+    }
+
+    [Fact]
+    public void TestMultiLineTemplateStringTranspilation()
+    {
+        var source = @"
+func Test() {
+    template := """"""
+    This is a multi-line
+    string literal
+    """"""
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Triple-quoted strings should transpile to C# @"" verbatim strings or triple-quoted strings
+        Assert.Contains("template", result);
+        // The multi-line content should be preserved
+        Assert.Contains("multi-line", result);
+    }
 }

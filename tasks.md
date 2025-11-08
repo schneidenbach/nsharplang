@@ -106,7 +106,7 @@
 - [x] All 150 tests passing, 1 skipped (27 lexer + 41 parser + 52 analyzer + 30 transpiler)
 - [x] Features tested: type aliases, attributes, extension methods, static classes, struct transpilation, readonly fields
 
-### Phase 14: Readonly Field Improvements (v1.11 - LATEST!)
+### Phase 14: Readonly Field Improvements (v1.11)
 - [x] Implemented readonly field assignment validation in analyzer
 - [x] Readonly fields can only be assigned in constructors (enforced at compile-time)
 - [x] Fixed readonly transpilation to use C# `init` accessors instead of invalid `readonly` modifier on properties
@@ -117,9 +117,39 @@
 - [x] Created comprehensive example: examples/records_and_interfaces.nl
 - [x] All 151 tests passing, 0 skipped (27 lexer + 41 parser + 53 analyzer + 30 transpiler)
 
+### Phase 15: Comprehensive Test Coverage (v1.12 - LATEST!)
+- [x] Added 12 new parser tests for previously untested features
+- [x] Added 10 new transpiler tests for matching features
+- [x] **New Parser Tests**:
+  - TestIndexerUsage: Array and dictionary indexer access
+  - TestIndexAccessWithConditional: Basic indexer usage
+  - TestSafeCastOperator: `as` operator for safe casting
+  - TestIsPattern: `is` operator with pattern matching
+  - TestNullCoalescingAssignment: `??=` operator
+  - TestThisKeyword: `this.field` and `return this`
+  - TestBaseKeyword: `base.Method()` calls
+  - TestConstructorDeclaration: Constructor parsing
+  - TestMultipleInterfaceImplementation: Class with base class + interfaces
+  - TestGenericConstraints: `where T : IComparable` syntax
+  - TestMethodOverloading: Multiple methods with same name
+  - TestMultiLineTemplateString: Triple-quoted strings
+- [x] **New Transpiler Tests**:
+  - TestIndexerUsageTranspilation: Verify indexer C# output
+  - TestSafeCastTranspilation: Verify `as` operator output
+  - TestIsPatternTranspilation: Verify `is` pattern output
+  - TestNullCoalescingAssignmentTranspilation: Verify `??=` output
+  - TestThisKeywordTranspilation: Verify `this` keyword output
+  - TestBaseKeywordTranspilation: Verify `base` keyword output
+  - TestMultipleInterfaceImplementationTranspilation: Verify inheritance output
+  - TestGenericConstraintsTranspilation: Verify `where` clause output
+  - TestMethodOverloadingTranspilation: Verify multiple methods output
+  - TestMultiLineTemplateStringTranspilation: Verify multi-line strings
+- [x] All 173 tests passing, 0 skipped (27 lexer + 53 parser + 53 analyzer + 40 transpiler)
+- [x] Build successful with no warnings
+
 ## 🚧 In Progress
 
-None currently - v1.11 complete!
+None currently - v1.12 complete!
 
 ## 📋 Next Steps
 
@@ -190,7 +220,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 151 unit tests passing, 0 skipped** (27 lexer + 41 parser + 53 analyzer + 30 transpiler)
+- **All 173 unit tests passing, 0 skipped** (27 lexer + 53 parser + 53 analyzer + 40 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -213,4 +243,7 @@ The compiler successfully:
 - **Readonly fields transpile to init accessors { get; init; } (v1.11)**
 - **Interface methods transpile without modifiers (implicitly public) (v1.11)**
 - **Class methods get visibility from naming convention (PascalCase = public) (v1.11)**
+- **Comprehensive test coverage for indexer usage, safe cast, is pattern, ??=, this, base keywords (v1.12)**
+- **Test coverage for multiple interface implementation, generic constraints, method overloading (v1.12)**
+- **Test coverage for multi-line template strings (v1.12)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

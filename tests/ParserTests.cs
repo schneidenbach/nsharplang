@@ -1030,4 +1030,390 @@ public class ParserTests
         Assert.Equal("id", field.Name);
         Assert.True(field.Modifiers.HasFlag(Modifiers.Readonly));
     }
+
+    [Fact]
+    public void TestIndexerUsage()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3]
+                x := arr[0]
+                dict := new Dictionary<string, int>()
+                dict[""key""] = 42
+                y := dict[""key""]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Equal(5, funcDecl.Body!.Statements.Count);
+
+        // Check arr[0] indexer
+        var xDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(xDecl);
+        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+        var arrIdent = indexAccess.Object as IdentifierExpression;
+        Assert.NotNull(arrIdent);
+        Assert.Equal("arr", arrIdent.Name);
+
+        // Check dict["key"] = 42 assignment
+        var dictAssign = funcDecl.Body.Statements[3] as ExpressionStatement;
+        Assert.NotNull(dictAssign);
+        var assignExpr = dictAssign.Expression as AssignmentExpression;
+        Assert.NotNull(assignExpr);
+        var dictIndexAccess = assignExpr.Target as IndexAccessExpression;
+        Assert.NotNull(dictIndexAccess);
+    }
+
+    [Fact]
+    public void TestIndexAccessWithConditional()
+    {
+        var source = @"
+            func Test() {
+                let arr = [1, 2, 3]
+                x := arr[0]
+                y := arr[1]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // Check arr[0]
+        var xDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(xDecl);
+        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+        Assert.False(indexAccess.IsNullConditional);
+    }
+
+    [Fact]
+    public void TestSafeCastOperator()
+    {
+        var source = @"
+            func Test() {
+                let obj = GetObject()
+                str := obj as string
+                person := obj as Person
+                num := value as int
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // Check obj as string
+        var strDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(strDecl);
+        var safeCast = strDecl.Initializer as CastExpression;
+        Assert.NotNull(safeCast);
+        Assert.Equal(CastKind.Safe, safeCast.Kind);
+        var simpleType = safeCast.TargetType as SimpleTypeReference;
+        Assert.NotNull(simpleType);
+        Assert.Equal("string", simpleType.Name);
+    }
+
+    [Fact]
+    public void TestIsPattern()
+    {
+        var source = @"
+            func Test() {
+                if obj is string s {
+                    Console.WriteLine(s)
+                }
+
+                if value is int {
+                    Console.WriteLine(""is int"")
+                }
+
+                result := obj is Person
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // Check if obj is string s
+        var ifStmt1 = funcDecl.Body!.Statements[0] as IfStatement;
+        Assert.NotNull(ifStmt1);
+        var isExpr1 = ifStmt1.Condition as IsExpression;
+        Assert.NotNull(isExpr1);
+        var objIdent = isExpr1.Expression as IdentifierExpression;
+        Assert.NotNull(objIdent);
+        Assert.Equal("obj", objIdent.Name);
+        Assert.NotNull(isExpr1.VariableName);
+        Assert.Equal("s", isExpr1.VariableName);
+
+        // Check if value is int (no variable)
+        var ifStmt2 = funcDecl.Body.Statements[1] as IfStatement;
+        Assert.NotNull(ifStmt2);
+        var isExpr2 = ifStmt2.Condition as IsExpression;
+        Assert.NotNull(isExpr2);
+        Assert.NotNull(isExpr2.Type);
+    }
+
+    [Fact]
+    public void TestNullCoalescingAssignment()
+    {
+        var source = @"
+            func Test() {
+                let cache = null
+                cache ??= ExpensiveOperation()
+
+                let dict = null
+                dict ??= new Dictionary<string, int>()
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // Check cache ??= ExpensiveOperation()
+        var assignStmt = funcDecl.Body!.Statements[1] as ExpressionStatement;
+        Assert.NotNull(assignStmt);
+        var assignExpr = assignStmt.Expression as AssignmentExpression;
+        Assert.NotNull(assignExpr);
+        Assert.Equal(AssignmentOperator.NullCoalesceAssign, assignExpr.Operator);
+        var cacheIdent = assignExpr.Target as IdentifierExpression;
+        Assert.NotNull(cacheIdent);
+        Assert.Equal("cache", cacheIdent.Name);
+    }
+
+    [Fact]
+    public void TestThisKeyword()
+    {
+        var source = @"
+            class MyClass {
+                name: string
+
+                func SetName(name: string) {
+                    this.name = name
+                }
+
+                func GetThis(): MyClass {
+                    return this
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        // Check this.name = name
+        var setNameMethod = classDecl.Members[1] as FunctionDeclaration;
+        Assert.NotNull(setNameMethod);
+        var assignStmt = setNameMethod.Body!.Statements[0] as ExpressionStatement;
+        Assert.NotNull(assignStmt);
+        var assignExpr = assignStmt.Expression as AssignmentExpression;
+        Assert.NotNull(assignExpr);
+        var memberAccess = assignExpr.Target as MemberAccessExpression;
+        Assert.NotNull(memberAccess);
+        var thisExpr = memberAccess.Object as ThisExpression;
+        Assert.NotNull(thisExpr);
+
+        // Check return this
+        var getThisMethod = classDecl.Members[2] as FunctionDeclaration;
+        Assert.NotNull(getThisMethod);
+        var returnStmt = getThisMethod.Body!.Statements[0] as ReturnStatement;
+        Assert.NotNull(returnStmt);
+        var returnThis = returnStmt.Value as ThisExpression;
+        Assert.NotNull(returnThis);
+    }
+
+    [Fact]
+    public void TestBaseKeyword()
+    {
+        var source = @"
+            class Animal {
+                virtual func MakeSound() {
+                    Console.WriteLine(""Sound"")
+                }
+            }
+
+            class Dog : Animal {
+                func MakeSound() {
+                    base.MakeSound()
+                    Console.WriteLine(""Bark"")
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var dogClass = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(dogClass);
+
+        var makeSoundMethod = dogClass.Members[0] as FunctionDeclaration;
+        Assert.NotNull(makeSoundMethod);
+
+        // Check base.MakeSound()
+        var baseCallStmt = makeSoundMethod.Body!.Statements[0] as ExpressionStatement;
+        Assert.NotNull(baseCallStmt);
+        var callExpr = baseCallStmt.Expression as CallExpression;
+        Assert.NotNull(callExpr);
+        var baseMemberAccess = callExpr.Callee as MemberAccessExpression;
+        Assert.NotNull(baseMemberAccess);
+        var baseExpr = baseMemberAccess.Object as BaseExpression;
+        Assert.NotNull(baseExpr);
+    }
+
+    [Fact]
+    public void TestConstructorDeclaration()
+    {
+        var source = @"
+            class Person {
+                Name: string
+                Age: int
+
+                constructor(name: string, age: int) {
+                    Name = name
+                    Age = age
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+
+        var personClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(personClass);
+        var ctor = personClass.Members[2] as ConstructorDeclaration;
+        Assert.NotNull(ctor);
+        Assert.Equal(2, ctor.Parameters.Count);
+        Assert.Equal("name", ctor.Parameters[0].Name);
+        Assert.Equal("age", ctor.Parameters[1].Name);
+    }
+
+    [Fact]
+    public void TestMultipleInterfaceImplementation()
+    {
+        var source = @"
+            class MyClass : BaseClass, IFoo, IBar, IBaz {
+                Name: string
+            }
+
+            class SimpleClass : IFoo, IBar {
+                Id: int
+            }
+        ";
+
+        var cu = Parse(source);
+
+        // Check class with base class and interfaces
+        var myClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(myClass);
+        Assert.Equal("MyClass", myClass.Name);
+        Assert.NotNull(myClass.BaseClass);
+        Assert.Equal("BaseClass", ((SimpleTypeReference)myClass.BaseClass).Name);
+        Assert.Equal(3, myClass.Interfaces.Count);
+        Assert.Equal("IFoo", ((SimpleTypeReference)myClass.Interfaces[0]).Name);
+        Assert.Equal("IBar", ((SimpleTypeReference)myClass.Interfaces[1]).Name);
+        Assert.Equal("IBaz", ((SimpleTypeReference)myClass.Interfaces[2]).Name);
+
+        // Check class with interfaces (parser treats first as base class since it can't tell)
+        var simpleClass = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(simpleClass);
+        // Parser puts IFoo as base class (can't distinguish without type info)
+        Assert.NotNull(simpleClass.BaseClass);
+        Assert.Equal("IFoo", ((SimpleTypeReference)simpleClass.BaseClass).Name);
+        Assert.Single(simpleClass.Interfaces);
+        Assert.Equal("IBar", ((SimpleTypeReference)simpleClass.Interfaces[0]).Name);
+    }
+
+    [Fact]
+    public void TestGenericConstraints()
+    {
+        var source = @"
+            func Process<T>(item: T): T where T : IComparable {
+                return item
+            }
+
+            func Transform<K, V>(key: K, value: V): V where K : IKey where V : IValue {
+                return value
+            }
+        ";
+
+        var cu = Parse(source);
+
+        // Check function with single constraint
+        var processFunc = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(processFunc);
+        Assert.Single(processFunc.TypeParameters);
+        Assert.Single(processFunc.Constraints);
+        var constraint1 = processFunc.Constraints[0];
+        Assert.Equal("T", constraint1.TypeParameter);
+        Assert.Single(constraint1.Constraints);
+
+        // Check function with multiple type parameters and constraints
+        var transformFunc = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(transformFunc);
+        Assert.Equal(2, transformFunc.TypeParameters.Count);
+        Assert.Equal(2, transformFunc.Constraints.Count);
+    }
+
+    [Fact]
+    public void TestMethodOverloading()
+    {
+        var source = @"
+            class Calculator {
+                func Add(x: int): int {
+                    return x + 1
+                }
+
+                func Add(x: int, y: int): int {
+                    return x + y
+                }
+
+                func Add(x: double, y: double): double {
+                    return x + y
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var calcClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(calcClass);
+        Assert.Equal(3, calcClass.Members.Count);
+
+        var method1 = calcClass.Members[0] as FunctionDeclaration;
+        var method2 = calcClass.Members[1] as FunctionDeclaration;
+        var method3 = calcClass.Members[2] as FunctionDeclaration;
+
+        Assert.Equal("Add", method1!.Name);
+        Assert.Equal("Add", method2!.Name);
+        Assert.Equal("Add", method3!.Name);
+
+        Assert.Single(method1.Parameters);
+        Assert.Equal(2, method2.Parameters.Count);
+        Assert.Equal(2, method3.Parameters.Count);
+    }
+
+    [Fact]
+    public void TestMultiLineTemplateString()
+    {
+        var source = @"
+            func Test() {
+                template := """"""
+                This is a multi-line
+                string literal
+                with multiple lines
+                """"""
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body!.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+        var stringLiteral = varDecl.Initializer as StringLiteralExpression;
+        Assert.NotNull(stringLiteral);
+        Assert.Contains("multi-line", stringLiteral.Value);
+    }
 }
