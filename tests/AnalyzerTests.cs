@@ -1449,4 +1449,75 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void ImplicitConversion_ClassToClass()
+    {
+        AssertNoErrors(@"
+            class Celsius {
+                Value: double
+
+                implicit operator Fahrenheit(c: Celsius) {
+                    return new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+                }
+            }
+
+            class Fahrenheit {
+                Value: double
+            }
+
+            func Main() {
+                let c: Celsius = new Celsius { Value: 20.0 }
+                let f: Fahrenheit = c  // Implicit conversion should work
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExplicitConversion_DoesNotAllowImplicitAssignment()
+    {
+        AssertHasError(@"
+            class Fraction {
+                Numerator: int
+                Denominator: int
+
+                explicit operator double(f: Fraction) {
+                    return f.Numerator / (double)f.Denominator
+                }
+            }
+
+            func Main() {
+                let frac: Fraction = new Fraction { Numerator: 3, Denominator: 4 }
+                let value: double = frac  // Should error - explicit conversion required
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void ImplicitConversion_BidirectionalConversions()
+    {
+        AssertNoErrors(@"
+            class Meters {
+                Value: double
+
+                implicit operator Centimeters(m: Meters) {
+                    return new Centimeters { Value: m.Value * 100.0 }
+                }
+            }
+
+            class Centimeters {
+                Value: double
+
+                implicit operator Meters(cm: Centimeters) {
+                    return new Meters { Value: cm.Value / 100.0 }
+                }
+            }
+
+            func Main() {
+                let m: Meters = new Meters { Value: 5.0 }
+                let cm: Centimeters = m  // Meters -> Centimeters
+                let m2: Meters = cm      // Centimeters -> Meters
+            }
+        ");
+    }
 }

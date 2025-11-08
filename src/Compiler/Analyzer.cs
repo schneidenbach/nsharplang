@@ -2210,7 +2210,52 @@ public class Analyzer
             return IsAssignable(collectionElementType, arrayType.ElementType);
         }
 
+        // User-defined implicit conversions: Check if source has an implicit conversion operator to target
+        if (HasImplicitConversion(resolvedSource, resolvedTarget))
+        {
+            return true;
+        }
+
         // TODO: More sophisticated type compatibility checking
+        return false;
+    }
+
+    private bool HasImplicitConversion(TypeInfo source, TypeInfo target)
+    {
+        // Get the members of the source type
+        List<Declaration>? sourceMembers = null;
+
+        if (source is ClassTypeInfo classType)
+            sourceMembers = classType.Declaration.Members;
+        else if (source is StructTypeInfo structType)
+            sourceMembers = structType.Declaration.Members;
+        else if (source is RecordTypeInfo recordType)
+            sourceMembers = recordType.Declaration.Members;
+        else
+            return false; // No conversion operators for other types
+
+        // Look for implicit conversion operators
+        foreach (var member in sourceMembers)
+        {
+            if (member is not FunctionDeclaration func)
+                continue;
+
+            // Check if this is an implicit conversion operator
+            if (!func.IsConversionOperator || !func.IsImplicitConversion)
+                continue;
+
+            // Check if it converts to the target type
+            // The return type of the conversion operator is the target type
+            if (func.ReturnType == null)
+                continue;
+
+            var returnType = ResolveType(func.ReturnType);
+            if (IsAssignable(target, returnType))
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 

@@ -89,15 +89,15 @@ class Centimeters {
 
 // Main demonstration
 func Main() {
-    print "=== Temperature Conversions ===\"
+    print "=== Temperature Conversions ==="
 
     // Implicit conversion (no cast needed)
     celsius := new Celsius { Value: 20.0 }
-    fahrenheit: Fahrenheit = celsius  // Implicit conversion
+    let fahrenheit: Fahrenheit = celsius  // Implicit conversion
     print $"20°C = {fahrenheit.Value:F1}°F"
 
     // Conversion chain
-    c2: Celsius = fahrenheit  // Implicit conversion back
+    let c2: Celsius = fahrenheit  // Implicit conversion back
     print $"{fahrenheit.Value:F1}°F = {c2.Value:F1}°C"
 
     // Explicit conversion (requires cast)
@@ -115,7 +115,7 @@ func Main() {
     print "=== Money Conversions ==="
 
     usd := new Money { Amount: 100.50, Currency: "USD" }
-    amount: double = usd  // Implicit conversion to double
+    let amount: double = usd  // Implicit conversion to double
     print $"Money: {usd.ToString()}"
     print $"Amount only: {amount}"
 
@@ -123,7 +123,7 @@ func Main() {
     print "=== Distance Conversions ==="
 
     meters := new Meters { Value: 5.0 }
-    cm: Centimeters = meters  // Implicit conversion
+    let cm: Centimeters = meters  // Implicit conversion
     print $"5 meters = {cm.Value} centimeters"
 
     cm2 := new Centimeters { Value: 250.0 }
@@ -134,7 +134,7 @@ func Main() {
     print "=== Practical Use Case ==="
 
     // Temperature calculation using implicit conversions
-    temps := [
+    let temps: Celsius[] = [
         new Celsius { Value: 0.0 },
         new Celsius { Value: 20.0 },
         new Celsius { Value: 30.0 },
@@ -142,7 +142,7 @@ func Main() {
     ]
 
     for temp in temps {
-        f: Fahrenheit = temp  // Implicit conversion
+        let f: Fahrenheit = temp  // Implicit conversion
         print $"{temp.Value}°C = {f.Value:F1}°F"
     }
 }
