@@ -1,0 +1,8 @@
+name: MultiFileProject
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net9.0
+
+language:
+  asyncDefaultType: ValueTask
