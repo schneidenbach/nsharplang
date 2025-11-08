@@ -314,7 +314,7 @@ public class ParserTests
         var source = @"
             func Test() {
                 for i := 0; i < 10; i++ {
-                    print(i)
+                    Console.WriteLine(i)
                 }
             }
         ";
@@ -336,7 +336,7 @@ public class ParserTests
         var source = @"
             func Test() {
                 foreach item in items {
-                    print(item)
+                    Console.WriteLine(item)
                 }
             }
         ";
@@ -359,7 +359,7 @@ public class ParserTests
                 try {
                     DoSomething()
                 } catch (Exception ex) {
-                    print(ex)
+                    Console.WriteLine(ex)
                 } finally {
                     Cleanup()
                 }
@@ -1672,5 +1672,88 @@ public class ParserTests
         var thirdCase = matchExpr.Cases[2];
         Assert.IsType<UnionCasePattern>(thirdCase.Pattern);
         Assert.Null(thirdCase.Guard);
+    }
+
+    [Fact]
+    public void TestPrintStatement()
+    {
+        var source = @"
+func main() {
+    print ""Hello""
+    print $""Value: {x}""
+}
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.Single(cu.Declarations.OfType<FunctionDeclaration>());
+        var block = Assert.IsType<BlockStatement>(func.Body);
+        Assert.Equal(2, block.Statements.Count);
+
+        var printStmt1 = Assert.IsType<PrintStatement>(block.Statements[0]);
+        Assert.IsType<StringLiteralExpression>(printStmt1.Value);
+
+        var printStmt2 = Assert.IsType<PrintStatement>(block.Statements[1]);
+        Assert.IsType<StringLiteralExpression>(printStmt2.Value);
+    }
+
+    [Fact]
+    public void TestNameofExpression()
+    {
+        var source = @"
+func main() {
+    name := nameof(myVariable)
+    prop := nameof(person.Name)
+}
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.Single(cu.Declarations.OfType<FunctionDeclaration>());
+        var block = Assert.IsType<BlockStatement>(func.Body);
+        Assert.Equal(2, block.Statements.Count);
+
+        // Test nameof(myVariable)
+        var varDecl1 = Assert.IsType<VariableDeclarationStatement>(block.Statements[0]);
+        var nameof1 = Assert.IsType<NameofExpression>(varDecl1.Initializer);
+        Assert.IsType<IdentifierExpression>(nameof1.Target);
+
+        // Test nameof(person.Name)
+        var varDecl2 = Assert.IsType<VariableDeclarationStatement>(block.Statements[1]);
+        var nameof2 = Assert.IsType<NameofExpression>(varDecl2.Initializer);
+        Assert.IsType<MemberAccessExpression>(nameof2.Target);
+    }
+
+    [Fact]
+    public void TestTypeofExpression()
+    {
+        var source = @"
+func main() {
+    t1 := typeof(int)
+    t2 := typeof(Person)
+    t3 := typeof(List<string>)
+}
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.Single(cu.Declarations.OfType<FunctionDeclaration>());
+        var block = Assert.IsType<BlockStatement>(func.Body);
+        Assert.Equal(3, block.Statements.Count);
+
+        // Test typeof(int)
+        var varDecl1 = Assert.IsType<VariableDeclarationStatement>(block.Statements[0]);
+        var typeof1 = Assert.IsType<TypeOfExpression>(varDecl1.Initializer);
+        var simpleType1 = Assert.IsType<SimpleTypeReference>(typeof1.Type);
+        Assert.Equal("int", simpleType1.Name);
+
+        // Test typeof(Person)
+        var varDecl2 = Assert.IsType<VariableDeclarationStatement>(block.Statements[1]);
+        var typeof2 = Assert.IsType<TypeOfExpression>(varDecl2.Initializer);
+        var simpleType2 = Assert.IsType<SimpleTypeReference>(typeof2.Type);
+        Assert.Equal("Person", simpleType2.Name);
+
+        // Test typeof(List<string>)
+        var varDecl3 = Assert.IsType<VariableDeclarationStatement>(block.Statements[2]);
+        var typeof3 = Assert.IsType<TypeOfExpression>(varDecl3.Initializer);
+        var genericType = Assert.IsType<GenericTypeReference>(typeof3.Type);
+        Assert.Equal("List", genericType.Name);
     }
 }

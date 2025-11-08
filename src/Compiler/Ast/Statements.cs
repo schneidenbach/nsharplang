@@ -131,3 +131,9 @@ public record SwitchCase(
 
 // Empty statement
 public record EmptyStatement(int Line, int Column) : Statement(Line, Column);
+
+// Print statement
+public record PrintStatement(
+    Expression Value,
+    int Line,
+    int Column) : Statement(Line, Column);

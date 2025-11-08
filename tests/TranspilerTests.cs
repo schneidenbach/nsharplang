@@ -989,4 +989,55 @@ func Test() {
         Assert.Contains("=> \"big\"", result);
         Assert.Contains("=> \"small\"", result);
     }
+
+    [Fact]
+    public void TestPrintStatementTranspilation()
+    {
+        var source = @"
+func main() {
+    print ""Hello, world!""
+    print $""Value: {x}""
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify transpiles to Console.WriteLine
+        Assert.Contains("Console.WriteLine(\"Hello, world!\");", result);
+        Assert.Contains("Console.WriteLine($\"Value: {x}\");", result);
+    }
+
+    [Fact]
+    public void TestNameofTranspilation()
+    {
+        var source = @"
+func main() {
+    name := nameof(myVariable)
+    prop := nameof(person.Name)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify transpiles to C# nameof
+        Assert.Contains("nameof(myVariable)", result);
+        Assert.Contains("nameof(Name)", result);
+    }
+
+    [Fact]
+    public void TestTypeofTranspilation()
+    {
+        var source = @"
+func main() {
+    t1 := typeof(int)
+    t2 := typeof(Person)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify transpiles to C# typeof
+        Assert.Contains("typeof(int)", result);
+        Assert.Contains("typeof(Person)", result);
+    }
 }

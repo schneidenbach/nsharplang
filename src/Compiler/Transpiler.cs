@@ -696,6 +696,9 @@ public class Transpiler
             case SwitchStatement switchStmt:
                 TranspileSwitchStatement(switchStmt);
                 break;
+            case PrintStatement printStmt:
+                WriteLine($"Console.WriteLine({TranspileExpression(printStmt.Value)});");
+                break;
             case EmptyStatement:
                 WriteLine(";");
                 break;
@@ -979,6 +982,7 @@ public class Transpiler
             ThisExpression => "this",
             BaseExpression => "base",
             TypeOfExpression typeOf => $"typeof({TranspileTypeReference(typeOf.Type)})",
+            NameofExpression nameOf => TranspileNameofExpression(nameOf),
             SizeOfExpression sizeOf => $"sizeof({TranspileTypeReference(sizeOf.Type)})",
             TupleExpression tuple => TranspileTupleExpression(tuple),
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
@@ -1166,6 +1170,25 @@ public class Transpiler
         }
 
         return $"{expr} is {type}";
+    }
+
+    private string TranspileNameofExpression(NameofExpression nameofExpr)
+    {
+        // Extract the final identifier name from the target expression
+        // For member access like obj.Property, we want just "Property"
+        // For simple identifiers like variable, we want "variable"
+        string targetName = ExtractNameofTarget(nameofExpr.Target);
+        return $"nameof({targetName})";
+    }
+
+    private string ExtractNameofTarget(Expression expr)
+    {
+        return expr switch
+        {
+            IdentifierExpression ident => ident.Name,
+            MemberAccessExpression member => member.MemberName,
+            _ => TranspileExpression(expr) // Fallback to full expression
+        };
     }
 
     private string TranspileMatchExpression(MatchExpression match)

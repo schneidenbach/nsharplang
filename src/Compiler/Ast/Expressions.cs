@@ -213,6 +213,12 @@ public record TypeOfExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
+// Nameof expression
+public record NameofExpression(
+    Expression Target,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // Sizeof expression
 public record SizeOfExpression(
     TypeReference Type,

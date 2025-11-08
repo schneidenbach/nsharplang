@@ -446,6 +446,9 @@ public class Analyzer
             case SwitchStatement switchStmt:
                 AnalyzeSwitchStatement(switchStmt);
                 break;
+            case PrintStatement printStmt:
+                AnalyzeExpression(printStmt.Value);
+                break;
         }
     }
 
@@ -820,6 +823,8 @@ public class Analyzer
             ThrowExpression => BuiltInTypes.Never,
             ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
             MatchExpression match => AnalyzeMatchExpression(match),
+            TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
+            NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1259,6 +1264,22 @@ public class Analyzer
         var exprType = AnalyzeExpression(await.Expression);
         // TODO: Unwrap Task<T> to get T
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeTypeofExpression(TypeOfExpression typeofExpr)
+    {
+        // Validate the type exists
+        ResolveType(typeofExpr.Type);
+        // typeof always returns System.Type
+        return new ReflectionTypeInfo(typeof(Type));
+    }
+
+    private TypeInfo AnalyzeNameofExpression(NameofExpression nameofExpr)
+    {
+        // Analyze the target expression to ensure it's valid
+        AnalyzeExpression(nameofExpr.Target);
+        // nameof always returns string
+        return BuiltInTypes.String;
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)

@@ -880,6 +880,8 @@ public class Parser
             return ParseUsingStatement();
         if (Check(TokenType.Switch))
             return ParseSwitchStatement();
+        if (Check(TokenType.Print))
+            return ParsePrintStatement();
         if (Check(TokenType.LeftBrace))
             return ParseBlock();
 
@@ -1079,6 +1081,16 @@ public class Parser
 
         var value = ParseExpression();
         return new YieldStatement(value, line, column);
+    }
+
+    private PrintStatement ParsePrintStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Print, "Expected 'print'");
+
+        var value = ParseExpression();
+        return new PrintStatement(value, line, column);
     }
 
     private BreakStatement ParseBreakStatement()
@@ -1879,7 +1891,7 @@ public class Parser
             return new BaseExpression(line, column);
         }
 
-        // Typeof and Sizeof
+        // Typeof, Nameof and Sizeof
         if (Check(TokenType.Typeof))
         {
             Advance();
@@ -1887,6 +1899,15 @@ public class Parser
             var type = ParseTypeReference();
             Consume(TokenType.RightParen, "Expected ')'");
             return new TypeOfExpression(type, line, column);
+        }
+
+        if (Check(TokenType.Nameof))
+        {
+            Advance();
+            Consume(TokenType.LeftParen, "Expected '('");
+            var target = ParseExpression();
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new NameofExpression(target, line, column);
         }
 
         if (Check(TokenType.Sizeof))

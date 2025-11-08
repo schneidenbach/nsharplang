@@ -5,30 +5,18 @@ You are an expert .NET developer who is tasked with something really interesting
 - **Pragmatism**: Embraces .NET realities (including null)
 - **Interop**: First-class C# interoperability with sane type emissions
 - **Concreteness**: Encourages concrete implementations over abstractions
+- **Type System**: Improve .NET's type system while maintaining seamless C# interop
 
-Your goal is to read DESIGN.md and implement the language, continuously adding new language features to make it more powerful and expressive.
+Your goal is to read the tasks/ directory and implement the language and its tooling.
 
-## Primary Goals
-
-1. **Continue Adding Language Features** - Continuously enhance the language by implementing features from DESIGN.md. The language has many features already - focus on adding the next ones and improving what exists.
-
-2. **Global .NET Tool** - Make the CLI run as a global .NET tool (installable via `dotnet tool install -g nlc`) so developers can use the `nlc` command globally.
-
-3. **Project File Support** - Implement `project.yml` file format (NOT .nlproj - we use YAML!) that supports:
-   - Package dependencies (NuGet packages) - simple name: version format
-   - Project name and version metadata
-   - Minimal configuration (defaults to directory structure)
-   - NO .csproj files needed!
-
-4. **Multi-File Compilation** - Support compiling multiple `.nl` source files together into a single assembly, with proper cross-file type resolution and reference handling.
-
-5. **Full Sample Project** - Create a complete example ASP.NET Core API project written in `.nl` files across multiple directories to demonstrate real-world usage and multi-file compilation capabilities.
+Read DESIGN.md and the memory folder for more information about this project.
 
 ## Your working process
 1. First, review tasks.md and the memory/ folder to see what's already been done. Reorganize and combine aspects of this folder as you see fit.
 2. Second, GET TO WORK and make sure you write tests!
-3. Review your work and think about what needs doing next, and write that into tasks.md.
+3. Review your work and think about what needs doing next, and write that into the tasks/ directory.
 4. Focus on incrementally adding language features that make the language more expressive and powerful.
+5. If there is a conflict, resolve it OR put a task down for a HUMAN to answer the question.
 9999. Update the memory/ folder with information about what you did. Feel free to clean it up and update it as necessary. Keep your memory simple so we don't blow up your context window.
 
 ## Project structure
@@ -72,64 +60,6 @@ Here is your project structure:
   │           └── WeatherService.nl
   │
   └── DESIGN.md             # Complete language specification
-
-## Key Features to Implement
-
-### Language Features (from DESIGN.md)
-The language already has many features implemented. Focus on:
-- Reviewing what's implemented vs what's in DESIGN.md
-- Adding missing features one at a time with tests
-- Improving existing features (better error messages, edge cases)
-- Key features include: discriminated unions, pattern matching, properties, duck interfaces, async/await, generics, records, etc.
-
-### Global .NET Tool Setup
-- Configure Cli.csproj with:
-  - `<PackAsTool>true</PackAsTool>`
-  - `<ToolCommandName>nlc</ToolCommandName>`
-  - Proper package metadata (version, description, authors)
-- Enable installation via `dotnet tool install -g nlc`
-- Local testing: `dotnet pack` then `dotnet tool install --global --add-source ./nupkg nlc`
-- Command: `nlc build`, `nlc run`, `nlc new`, `nlc restore`
-
-### Project File (project.yml) Format
-- **YAML format** (NOT XML!) - minimal and clean like Go
-- Simple structure:
-  ```yaml
-  name: MyApp  # optional, defaults to directory name
-  version: 1.0.0
-  dependencies:
-    Newtonsoft.Json: 13.0.3
-    Microsoft.AspNetCore.App: 8.0.0
-  ```
-- Implement `nlc new <name>` to scaffold new project with project.yml
-- Implement `nlc restore` to restore NuGet packages
-- Default namespace follows directory structure (Go-style)
-
-### Multi-File Compilation
-- Compiler must accept multiple `.nl` source files
-- Build symbol table across ALL files before type checking (two-pass)
-- Support forward references between files (type defined in file B, used in file A)
-- Namespace resolution across files (using statements + directory-based namespaces)
-- Generate single assembly (.dll or .exe) from all source files
-- Proper handling of partial classes across files
-
-### ASP.NET Core Sample Project (examples/AspNetCoreApi/)
-The project should demonstrate REAL-WORLD .nl code:
-- **project.yml** with ASP.NET Core dependencies
-- **Minimal API** style (modern .NET approach) or controllers
-- **Dependency injection** (services registered and injected)
-- **Multiple files**:
-  - `Program.nl` - Entry point, app builder, DI registration
-  - `Models/WeatherForecast.nl` - Record or class definition
-  - `Services/WeatherService.nl` - Service class with business logic
-  - `Controllers/WeatherController.nl` - API endpoints (if using controllers)
-- **Showcase language features**:
-  - Properties with PascalCase/camelCase visibility
-  - Pattern matching in endpoints
-  - Null safety with `?` types
-  - LINQ/collections operations
-  - Async/await
-  - Attributes (`[HttpGet]`, `[FromServices]`, etc.)
 
 ## Compilation Strategy
 

@@ -9,20 +9,44 @@ A tight, pragmatic language targeting .NET/CLI that prioritizes:
 - **Pragmatism**: Embraces .NET realities (including null)
 - **Interop**: First-class C# interoperability with sane type emissions
 - **Concreteness**: Encourages concrete implementations over abstractions
+- **Type System**: Improve .NET's type system while maintaining seamless C# interop
 
 **Mental Model**: "Go for .NET" - avoiding C# complexity while staying practical
+
+### The Type System Philosophy
+
+N# aims to **improve the .NET type system** by adding features C# lacks:
+- Discriminated unions (proper ADTs, not just inheritance)
+- Exhaustive pattern matching (compiler-enforced)
+- Duck typing / structural interfaces (Go-style)
+- Cleaner syntax for common patterns
+
+**CRITICAL**: Unlike F#, all N# types must interop seamlessly with C#:
+
+| Feature | N# | F# (Poor Interop) | Why N# is Better |
+|---------|----|--------------------|------------------|
+| **Unions** | Emit as C# classes with inheritance | F# discriminated unions are opaque | C# can `new Result.Success { }` |
+| **Records** | Emit as C# records | F# records have weird constructors | Natural C# syntax |
+| **Properties** | C# auto-properties | F# properties need explicit getters | No ceremony |
+| **Functions** | C# methods (static or instance) | F# functions aren't methods | C# can call directly |
+| **Async** | C# async/await (Task/ValueTask) | F# Async is different type | Same async model |
+| **Nullability** | C# nullable reference types | F# uses Option (not null) | C# understands nulls |
+| **Duck interfaces** | Internal only, regular interfaces exposed | F# has no duck typing | Best of both worlds |
+
+**Goal**: C# consumers should not know they're using N#-compiled code. It should look and feel like idiomatic C#.
 
 ## Key Constraints
 
 ### What We're NOT
-- NOT F# (poor C# interop, null denial, OCaml heritage)
+- **NOT F#** - F# has **trash interop** with C#. F# types (discriminated unions, records, options, async) don't map cleanly to C#. F# chooses functional purity over practicality.
 - NOT based on OCaml syntax
 
 ### What We ARE
 - C-esque syntax
-- Functional-first paradigm
-- .NET/CLI native
-- Null-aware by design
+- Pragmatic multi-paradigm (functional support, not functional-first)
+- .NET/CLI native with **perfect** C# interop
+- Null-aware by design (embraces C# nullable reference types)
+- Type system improvements that C# can actually use
 
 ## Language Features (Initial)
 
@@ -926,12 +950,36 @@ import Newtonsoft.Json as Json  // with alias
 
 ## Philosophy Notes
 
-N# is a **focused subset of C#**, not a replacement:
-- C# has become a "junk heap" of backwards compatibility features
-- N# provides a tight, clean grammar for modern .NET development
-- **Not trying to be F#** - F# has poor C# interop and OCaml heritage
-- **Not functional-first** - pragmatic, multi-paradigm with functional support
-- Goal: "Go for .NET" with better type system and pattern matching
+N# is a **focused subset of C#** with **type system improvements**:
+
+### What N# Is
+- Clean, tight grammar for modern .NET development (removes C#'s "junk heap" of legacy features)
+- **Improved type system**: Adds discriminated unions, exhaustive pattern matching, duck typing
+- **Seamless C# interop**: All N# types are consumable as idiomatic C# types
+- Pragmatic, multi-paradigm (functional support, but not dogmatic)
+- "Go for .NET" with better type system and pattern matching
+
+### What N# Is NOT
+- **NOT F#** - F# has **absolute trash interop** with C#:
+  - F# discriminated unions are opaque to C#
+  - F# `option` type doesn't map to C# nullability
+  - F# `Async<T>` is incompatible with C# `Task<T>`
+  - F# records have weird constructors from C# perspective
+  - F# modules don't map cleanly to C# static classes
+  - F# chooses functional purity over .NET ecosystem compatibility
+- NOT a functional-first language (functional features, not functional ideology)
+- NOT based on OCaml syntax
+
+### The Key Differentiator
+**N# improves .NET's type system while maintaining perfect C# interop.**
+
+When you compile N# code to a library, C# consumers should:
+- Use your types naturally (no weird wrappers)
+- Call your functions like normal C# methods
+- Work with your unions as if they were hand-written C# class hierarchies
+- Never know the difference
+
+This is **critical** for .NET ecosystem adoption. F# failed at this. N# will succeed.
 
 ## Open Design Questions
 
