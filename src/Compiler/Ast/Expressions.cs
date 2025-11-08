@@ -168,7 +168,7 @@ public record MatchExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
-public record MatchCase(Pattern Pattern, Expression Expression);
+public record MatchCase(Pattern Pattern, Expression? Guard, Expression Expression);
 
 // Pattern base class
 public abstract record Pattern(int Line, int Column);

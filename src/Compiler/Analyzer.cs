@@ -1276,6 +1276,17 @@ public class Analyzer
             // Analyze pattern and bind variables
             AnalyzePattern(matchCase.Pattern, valueType);
 
+            // Analyze guard expression if present
+            if (matchCase.Guard != null)
+            {
+                var guardType = AnalyzeExpression(matchCase.Guard);
+                if (!IsAssignable(BuiltInTypes.Bool, guardType))
+                {
+                    Error($"Guard expression must be of type 'bool', but got '{guardType}'",
+                        matchCase.Guard.Line, matchCase.Guard.Column);
+                }
+            }
+
             // Analyze the case expression
             var caseType = AnalyzeExpression(matchCase.Expression);
 
@@ -1294,7 +1305,8 @@ public class Analyzer
         }
 
         // Check exhaustiveness for union types (after analyzing patterns to report specific errors first)
-        if (valueType is UnionTypeInfo unionType)
+        // Note: Skip exhaustiveness check if any guards are present, as guards can make patterns conditional
+        if (valueType is UnionTypeInfo unionType && !match.Cases.Any(c => c.Guard != null))
         {
             CheckMatchExhaustiveness(match, unionType);
         }

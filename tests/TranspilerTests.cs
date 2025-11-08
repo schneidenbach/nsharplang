@@ -938,4 +938,55 @@ class Service {
         Assert.Contains("int Port", result);
         Assert.Contains("Config CurrentConfig", result);
     }
+
+    [Fact]
+    public void TestMatchExpressionWithGuardTranspilation()
+    {
+        var source = @"
+func Test() {
+    result := match x {
+        n when n > 0 => ""positive"",
+        n when n < 0 => ""negative"",
+        _ => ""zero""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# switch expression with when clauses
+        Assert.Contains("switch", result);
+        Assert.Contains("when", result);
+        Assert.Contains("=> \"positive\"", result);
+        Assert.Contains("=> \"negative\"", result);
+        Assert.Contains("=> \"zero\"", result);
+    }
+
+    [Fact]
+    public void TestMatchExpressionWithUnionPatternAndGuardTranspilation()
+    {
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+
+func Test() {
+    msg := match r {
+        Result.Success { value } when value > 10 => ""big"",
+        Result.Success { value } => ""small"",
+        Result.Failure { error } => error
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# switch expression with pattern and guard
+        Assert.Contains("switch", result);
+        Assert.Contains("when", result);
+        Assert.Contains("value", result);
+        Assert.Contains("=> \"big\"", result);
+        Assert.Contains("=> \"small\"", result);
+    }
 }

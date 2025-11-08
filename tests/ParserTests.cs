@@ -1591,4 +1591,86 @@ public class ParserTests
         Assert.NotNull(stringLiteral);
         Assert.Contains("multi-line", stringLiteral.Value);
     }
+
+    [Fact]
+    public void TestMatchExpressionWithGuard()
+    {
+        var source = @"
+            func Test() {
+                result := match x {
+                    n when n > 0 => ""positive"",
+                    n when n < 0 => ""negative"",
+                    _ => ""zero""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(3, matchExpr.Cases.Count);
+
+        // First case: n when n > 0
+        var firstCase = matchExpr.Cases[0];
+        Assert.IsType<IdentifierPattern>(firstCase.Pattern);
+        Assert.NotNull(firstCase.Guard);
+        Assert.IsType<BinaryExpression>(firstCase.Guard);
+
+        // Second case: n when n < 0
+        var secondCase = matchExpr.Cases[1];
+        Assert.IsType<IdentifierPattern>(secondCase.Pattern);
+        Assert.NotNull(secondCase.Guard);
+        Assert.IsType<BinaryExpression>(secondCase.Guard);
+
+        // Third case: _ (no guard)
+        var thirdCase = matchExpr.Cases[2];
+        Assert.IsType<IdentifierPattern>(thirdCase.Pattern);
+        Assert.Null(thirdCase.Guard);
+    }
+
+    [Fact]
+    public void TestMatchExpressionWithUnionPatternAndGuard()
+    {
+        var source = @"
+            func Test() {
+                msg := match result {
+                    Result.Success { value } when value > 10 => ""big success"",
+                    Result.Success { value } => ""small success"",
+                    Result.Failure { error } => ""fail""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(3, matchExpr.Cases.Count);
+
+        // First case has guard
+        var firstCase = matchExpr.Cases[0];
+        Assert.IsType<UnionCasePattern>(firstCase.Pattern);
+        Assert.NotNull(firstCase.Guard);
+
+        // Second case has no guard
+        var secondCase = matchExpr.Cases[1];
+        Assert.IsType<UnionCasePattern>(secondCase.Pattern);
+        Assert.Null(secondCase.Guard);
+
+        // Third case has no guard
+        var thirdCase = matchExpr.Cases[2];
+        Assert.IsType<UnionCasePattern>(thirdCase.Pattern);
+        Assert.Null(thirdCase.Guard);
+    }
 }

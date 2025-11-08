@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (28 tests), Parser (59 tests), Analyzer (63 tests), Transpiler (46 tests)
-- **Total**: 206 tests (206 passing, 0 skipped)
+- **Unit tests**: Lexer (29 tests), Parser (61 tests), Analyzer (67 tests), Transpiler (48 tests)
+- **Total**: 215 tests (215 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, **null-conditional indexing (?[]) (NEW!)**
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, null-conditional indexing (?[]), **pattern matching guards (when clauses) (NEW!)**
 
 ## Build & Run
 
@@ -146,7 +146,46 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.16 (Latest - Null-Conditional Indexing Operator)
+### v1.17 (Latest - Pattern Matching Guards)
+1. **Lexer enhancement**: ✅ Added When keyword token
+   - Added `When` token type to recognize `when` keyword (Token.cs:55)
+   - Lexer now tokenizes `when` for guard clauses in match expressions
+2. **AST enhancement**: ✅ Added Guard field to MatchCase
+   - Updated `MatchCase` record to include optional `Expression? Guard` field
+   - Allows patterns to have additional boolean conditions
+   - Syntax: `pattern when condition => expression`
+3. **Parser enhancement**: ✅ Support for guard clauses
+   - Updated `ParseMatchExpression` to parse guard after pattern (Parser.cs:2014-2019)
+   - Guard expression parsed as normal expression between pattern and arrow
+   - Checks for `when` keyword after pattern, before `=>`
+4. **Analyzer enhancement**: ✅ Guard expression validation
+   - Guards must be boolean type (type checked in Analyzer.cs:1279-1288)
+   - Guard expressions have access to pattern-bound variables
+   - Exhaustiveness checking conservatively skipped when guards present
+   - Reports error if guard expression is not boolean
+5. **Transpiler enhancement**: ✅ C# when clause generation
+   - Guard expressions transpile to C# `when` clauses in switch expressions
+   - Updated `TranspileMatchExpression` to include guard in output (Transpiler.cs:1171-1184)
+   - Fixed `IdentifierPattern` transpilation to emit `var` prefix for variable capture
+   - Qualified names (e.g., Result.Success) don't get `var` prefix (Transpiler.cs:1215-1227)
+6. **Comprehensive test coverage**: ✅ 9 new tests (1 lexer + 2 parser + 4 analyzer + 2 transpiler)
+   - `TestWhenKeyword` (Lexer): Verifies `when` keyword recognition
+   - `TestMatchExpressionWithGuard` (Parser): Guards with identifier patterns
+   - `TestMatchExpressionWithUnionPatternAndGuard` (Parser): Guards with union patterns
+   - `MatchExpression_WithGuard_Valid` (Analyzer): Integer matching with guards
+   - `MatchExpression_GuardNotBool_Error` (Analyzer): Non-boolean guards rejected
+   - `MatchExpression_GuardWithPatternVariable_Valid` (Analyzer): Pattern variables in guards
+   - `MatchExpression_WithGuard_SkipsExhaustivenessCheck` (Analyzer): Conservative checking
+   - `TestMatchExpressionWithGuardTranspilation`: C# when clause output
+   - `TestMatchExpressionWithUnionPatternAndGuardTranspilation`: Union + guard output
+7. **End-to-end example**: ✅ `examples/guards_simple.nl`
+   - Number classification with range-based guards
+   - FizzBuzz implementation using match with guards
+   - Grade calculator demonstrating guard patterns
+   - Successfully compiles and runs
+8. **Test count**: ✅ 215 tests total, all passing (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
+
+### v1.16 (Null-Conditional Indexing Operator)
 1. **Lexer enhancement**: ✅ Added QuestionBracket token type
    - Added `QuestionBracket` token type to recognize `?[` (Token.cs:100)
    - Lexer tokenizes `?[` as distinct operator (Lexer.cs:341-345)

@@ -258,7 +258,7 @@
 - [x] All 203 tests passing, 0 skipped (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
 - [x] Build successful with no warnings
 
-### Phase 19: Null-Conditional Indexing Operator (v1.16 - LATEST!)
+### Phase 19: Null-Conditional Indexing Operator (v1.16)
 - [x] **Lexer Enhancement**: Added QuestionBracket token type
   - Added `QuestionBracket` token type to Token.cs (line 100)
   - Lexer now recognizes `?[` as a distinct token (Lexer.cs:341-345)
@@ -279,9 +279,51 @@
 - [x] All 206 tests passing, 0 skipped (28 lexer + 59 parser + 63 analyzer + 46 transpiler)
 - [x] Build successful with warnings (same nullability warnings as before)
 
+### Phase 20: Pattern Matching Guards (v1.17 - LATEST!)
+- [x] **AST Enhancement**: Added Guard field to MatchCase
+  - Updated MatchCase record to include optional Expression? Guard field
+  - Allows patterns to have additional boolean conditions
+  - Syntax: `pattern when condition => expression`
+- [x] **Lexer Enhancement**: Added When keyword
+  - Added `When` token type to Token.cs (line 55)
+  - Lexer recognizes `when` keyword for guard clauses
+- [x] **Parser Enhancement**: Parse guard clauses in match expressions
+  - Updated ParseMatchExpression to check for `when` after pattern
+  - Guard expression parsed as normal expression (must be boolean)
+  - Parser.cs:2014-2019 implements guard parsing
+- [x] **Analyzer Enhancement**: Validate guard expressions
+  - Guards must be boolean type (type checked)
+  - Guard expressions have access to pattern-bound variables
+  - Exhaustiveness checking skipped when guards present (conservative approach)
+  - Analyzer.cs:1279-1288 implements guard validation
+- [x] **Transpiler Enhancement**: Emit C# when clauses
+  - Guard expressions transpile to C# `when` clauses in switch expressions
+  - IdentifierPattern now correctly emits `var` prefix for variable capture
+  - Qualified names (e.g., Result.Success) don't get `var` prefix
+  - Transpiler.cs:1171-1184 implements guard transpilation
+  - Transpiler.cs:1215-1227 implements smart identifier pattern transpilation
+- [x] **Comprehensive Test Coverage**: 9 new tests
+  - TestWhenKeyword (Lexer): Verifies `when` keyword recognition
+  - TestMatchExpressionWithGuard (Parser): Verifies guard parsing with identifier patterns
+  - TestMatchExpressionWithUnionPatternAndGuard (Parser): Verifies guards with union patterns
+  - MatchExpression_WithGuard_Valid (Analyzer): Guards work with integer matching
+  - MatchExpression_GuardNotBool_Error (Analyzer): Non-boolean guards rejected
+  - MatchExpression_GuardWithPatternVariable_Valid (Analyzer): Guards can use pattern variables
+  - MatchExpression_WithGuard_SkipsExhaustivenessCheck (Analyzer): Exhaustiveness check skipped
+  - TestMatchExpressionWithGuardTranspilation (Transpiler): Verifies C# when clause output
+  - TestMatchExpressionWithUnionPatternAndGuardTranspilation (Transpiler): Verifies union + guard
+- [x] **End-to-End Example**: `examples/guards_simple.nl`
+  - Demonstrates number classification with guards
+  - Shows FizzBuzz implementation using match with guards
+  - Proves grade calculator with range-based guards
+  - Successfully compiles and runs with full functionality
+- [x] Added 9 new tests (1 lexer + 2 parser + 4 analyzer + 2 transpiler) = 215 tests total
+- [x] All 215 tests passing, 0 skipped (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
+- [x] Build successful with warnings (same nullability warnings as before)
+
 ## 🚧 In Progress
 
-None currently - v1.16 complete!
+None currently - v1.17 complete!
 
 ## 📋 Next Steps
 
@@ -293,8 +335,8 @@ None currently - v1.16 complete!
    - Nullable reference type tracking
 
 2. **Enhanced Language Features**
-   - Pattern matching improvements (nested patterns, guards)
-   - Nested classes/types
+   - Pattern matching improvements (nested patterns)
+   - More complex guard expressions (compound conditions)
 
 3. **Testing & Quality**
    - More end-to-end tests with complex examples
@@ -342,7 +384,8 @@ The compiler successfully:
 - `examples/records_and_interfaces.nl` - Records, interfaces, structs, readonly fields, with expressions ✅
 - `examples/duck_interfaces.nl` - Duck interfaces with structural typing ✅
 - `examples/match_exhaustiveness.nl` - Exhaustive pattern matching on unions ✅
-- `examples/properties_and_nested_types.nl` - Custom properties, nested types (NEW!) ✅
+- `examples/properties_and_nested_types.nl` - Custom properties, nested types ✅
+- `examples/guards_simple.nl` - Pattern matching guards (NEW!) ✅
 
 ## 📝 Notes
 
@@ -353,7 +396,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 206 unit tests passing, 0 skipped** (28 lexer + 59 parser + 63 analyzer + 46 transpiler)
+- **All 215 unit tests passing, 0 skipped** (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -388,4 +431,7 @@ The compiler successfully:
 - **Properties with custom get/set support (v1.15)**
 - **Nested types fully supported (classes, structs, records, enums inside other types) (v1.15)**
 - **Null-conditional indexing operator (?[]) fully implemented (v1.16)**
+- **Pattern matching guards (when clauses) fully implemented (v1.17)**
+- **Guards allow additional boolean conditions on match patterns (v1.17)**
+- **Identifier patterns correctly transpile with var prefix for variable capture (v1.17)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

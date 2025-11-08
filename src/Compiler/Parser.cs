@@ -2010,9 +2010,17 @@ public class Parser
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             var pattern = ParsePattern();
+
+            // Check for guard clause (when expression)
+            Expression? guard = null;
+            if (Match(TokenType.When))
+            {
+                guard = ParseExpression();
+            }
+
             Consume(TokenType.Arrow, "Expected '=>'");
             var caseExpr = ParseExpression();
-            cases.Add(new MatchCase(pattern, caseExpr));
+            cases.Add(new MatchCase(pattern, guard, caseExpr));
 
             if (!Check(TokenType.RightBrace))
                 Match(TokenType.Comma);

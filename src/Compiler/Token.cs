@@ -52,6 +52,7 @@ public enum TokenType
     Typeof,
     Sizeof,
     Where,
+    When,
     Virtual,
     Abstract,
     Sealed,

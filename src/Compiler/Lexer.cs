@@ -56,6 +56,7 @@ public class Lexer
         { "typeof", TokenType.Typeof },
         { "sizeof", TokenType.Sizeof },
         { "where", TokenType.Where },
+        { "when", TokenType.When },
         { "virtual", TokenType.Virtual },
         { "abstract", TokenType.Abstract },
         { "sealed", TokenType.Sealed },

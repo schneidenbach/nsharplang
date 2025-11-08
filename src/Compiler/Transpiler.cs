@@ -1173,7 +1173,12 @@ public class Transpiler
         // Match expressions transpile to switch expressions in C#
         var value = TranspileExpression(match.Value);
         var cases = string.Join(",\n" + GetIndent(), match.Cases.Select(c =>
-            $"{TranspilePattern(c.Pattern)} => {TranspileExpression(c.Expression)}"));
+        {
+            var pattern = TranspilePattern(c.Pattern);
+            var guard = c.Guard != null ? $" when {TranspileExpression(c.Guard)}" : "";
+            var expression = TranspileExpression(c.Expression);
+            return $"{pattern}{guard} => {expression}";
+        }));
 
         return $"{value} switch {{\n{GetIndent()}{cases}\n{GetIndent()}}}";
     }
@@ -1201,10 +1206,24 @@ public class Transpiler
         return pattern switch
         {
             LiteralPattern lit => TranspileExpression(lit.Literal),
-            IdentifierPattern ident => ident.Name,
+            IdentifierPattern ident => TranspileIdentifierPattern(ident),
             UnionCasePattern unionCase => TranspileUnionCasePattern(unionCase),
             _ => throw new Exception($"Unsupported pattern type: {pattern.GetType().Name}")
         };
+    }
+
+    private string TranspileIdentifierPattern(IdentifierPattern pattern)
+    {
+        // Wildcard pattern
+        if (pattern.Name == "_")
+            return "_";
+
+        // Qualified name (e.g., Result.Success without properties) - no var prefix
+        if (pattern.Name.Contains('.'))
+            return pattern.Name;
+
+        // Simple identifier - needs var prefix to capture the variable
+        return $"var {pattern.Name}";
     }
 
     private string TranspileUnionCasePattern(UnionCasePattern pattern)

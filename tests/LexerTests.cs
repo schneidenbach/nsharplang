@@ -413,4 +413,14 @@ public class LexerTests
         var source = "@";
         Assert.Throws<Exception>(() => Tokenize(source));
     }
+
+    [Fact]
+    public void TestWhenKeyword()
+    {
+        var source = "when";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // when + EOF
+        Assert.Equal(TokenType.When, tokens[0].Type);
+        Assert.Equal("when", tokens[0].Value);
+    }
 }

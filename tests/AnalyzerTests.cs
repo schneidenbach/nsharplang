@@ -1096,4 +1096,74 @@ public class AnalyzerTests
             }
         ", "incompatible type");
     }
+
+    [Fact]
+    public void MatchExpression_WithGuard_Valid()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x := 5
+                result := match x {
+                    n when n > 0 => ""positive"",
+                    n when n < 0 => ""negative"",
+                    _ => ""zero""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_GuardNotBool_Error()
+    {
+        AssertHasError(@"
+            func Main() {
+                x := 5
+                result := match x {
+                    n when ""not a bool"" => ""value""
+                }
+            }
+        ", "must be of type 'bool'");
+    }
+
+    [Fact]
+    public void MatchExpression_GuardWithPatternVariable_Valid()
+    {
+        AssertNoErrors(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                msg := match r {
+                    Result.Success { value } when value > 10 => ""big success"",
+                    Result.Success { value } => ""small success"",
+                    Result.Failure { error } => error
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_WithGuard_SkipsExhaustivenessCheck()
+    {
+        // When guards are present, exhaustiveness checking is skipped
+        // This should not report a missing case error
+        AssertNoErrors(@"
+            union Status {
+                Active
+                Inactive
+                Pending
+            }
+
+            func Main() {
+                s := new Status.Active { }
+                msg := match s {
+                    Status.Active when true => ""active"",
+                    _ => ""other""
+                }
+            }
+        ");
+    }
 }
