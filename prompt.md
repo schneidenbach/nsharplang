@@ -9,5 +9,5 @@ N# is a pragmatic language targeting .NET/CLI that prioritizes:
 - **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
 - **Multi-paradigm**: Use the right tool for the job (OOP, functional, procedural)
 
-Your goal is to read the tasks/ directory and implement the language, its tooling, and its examples.
+Your goal is to read the tasks/ directory and implement the language, its tooling, and its examples from those tasks. Read the task files in order and start doing the tasks one at a time. DO NOT CHANGE THE TASK NUMBERS!
 Completed tasks should be moved to the completed-tasks/ directory.

@@ -15,7 +15,6 @@ public class Transpiler
     private const string IndentString = "    ";
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
-    private List<InterfaceDeclaration> _duckInterfaces; // Track duck interfaces for automatic implementation
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null)
@@ -24,20 +23,12 @@ public class Transpiler
         _projectConfig = projectConfig;
         _output = new StringBuilder();
         _indentLevel = 0;
-        _duckInterfaces = new List<InterfaceDeclaration>();
     }
 
     public string Transpile()
     {
         _output.Clear();
         _indentLevel = 0;
-        _duckInterfaces.Clear();
-
-        // Collect all duck interfaces for automatic implementation
-        _duckInterfaces = _compilationUnit.Declarations
-            .OfType<InterfaceDeclaration>()
-            .Where(i => i.IsDuckInterface)
-            .ToList();
 
         // Check if we have test declarations to add Xunit using
         var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
@@ -390,15 +381,6 @@ public class Transpiler
             bases.Add(TranspileTypeReference(cls.BaseClass));
         bases.AddRange(cls.Interfaces.Select(TranspileTypeReference));
 
-        // Automatically add duck interfaces that this class implements
-        foreach (var duckInterface in _duckInterfaces)
-        {
-            if (ClassImplementsDuckInterface(cls.Members, duckInterface))
-            {
-                bases.Add(duckInterface.Name);
-            }
-        }
-
         if (bases.Count > 0)
         {
             _output.Append($" : {string.Join(", ", bases)}");
@@ -453,15 +435,6 @@ public class Transpiler
 
         var bases = new List<string>();
         bases.AddRange(str.Interfaces.Select(TranspileTypeReference));
-
-        // Automatically add duck interfaces that this struct implements
-        foreach (var duckInterface in _duckInterfaces)
-        {
-            if (ClassImplementsDuckInterface(str.Members, duckInterface))
-            {
-                bases.Add(duckInterface.Name);
-            }
-        }
 
         if (bases.Count > 0)
         {
@@ -520,15 +493,6 @@ public class Transpiler
         var bases = new List<string>();
         bases.AddRange(rec.Interfaces.Select(TranspileTypeReference));
 
-        // Automatically add duck interfaces that this record implements
-        foreach (var duckInterface in _duckInterfaces)
-        {
-            if (ClassImplementsDuckInterface(rec.Members, duckInterface))
-            {
-                bases.Add(duckInterface.Name);
-            }
-        }
-
         if (bases.Count > 0)
         {
             _output.Append($" : {string.Join(", ", bases)}");
@@ -553,12 +517,13 @@ public class Transpiler
 
     private void TranspileInterfaceDeclaration(InterfaceDeclaration iface)
     {
+        // Duck interfaces are type-erased - skip entirely
+        if (iface.IsDuckInterface)
+            return;
+
         TranspileAttributes(iface.Attributes);
 
-        // Duck interfaces are emitted as internal interfaces
-        var modifiers = iface.IsDuckInterface
-            ? "internal "
-            : GetModifierString(iface.Modifiers);
+        var modifiers = GetModifierString(iface.Modifiers);
         var typeParams = iface.TypeParameters != null && iface.TypeParameters.Count > 0
             ? $"<{string.Join(", ", iface.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -1939,7 +1904,7 @@ public class Transpiler
     {
         return typeRef switch
         {
-            SimpleTypeReference simple => simple.Name,
+            SimpleTypeReference simple => TranspileSimpleTypeReference(simple),
             GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
             ArrayTypeReference array => $"{TranspileTypeReference(array.ElementType)}[]",
             NullableTypeReference nullable => $"{TranspileTypeReference(nullable.InnerType)}?",
@@ -1947,6 +1912,23 @@ public class Transpiler
             FunctionTypeReference func => TranspileFunctionType(func),
             _ => throw new Exception($"Unsupported type reference: {typeRef.GetType().Name}")
         };
+    }
+
+    private string TranspileSimpleTypeReference(SimpleTypeReference simple)
+    {
+        // Check if this references a duck interface - if so, type-erase to dynamic
+        var duckInterface = _compilationUnit.Declarations
+            .OfType<InterfaceDeclaration>()
+            .FirstOrDefault(i => i.IsDuckInterface && i.Name == simple.Name);
+
+        if (duckInterface != null)
+        {
+            // Duck interfaces are type-erased to dynamic in C#
+            // This allows method calls to work at runtime with duck typing
+            return "dynamic";
+        }
+
+        return simple.Name;
     }
 
     private string TranspileTupleType(TupleTypeReference tuple)
@@ -2035,64 +2017,6 @@ public class Transpiler
     private string GetIndent()
     {
         return string.Concat(Enumerable.Repeat(IndentString, _indentLevel));
-    }
-
-    private bool ClassImplementsDuckInterface(List<Declaration> members, InterfaceDeclaration duckInterface)
-    {
-        // Check if all methods in the duck interface are implemented by the class
-        foreach (var interfaceMember in duckInterface.Members)
-        {
-            if (interfaceMember is not FunctionDeclaration interfaceMethod)
-                continue;
-
-            var found = false;
-            foreach (var classMember in members)
-            {
-                if (classMember is not FunctionDeclaration classMethod)
-                    continue;
-
-                if (MethodSignaturesMatch(classMethod, interfaceMethod))
-                {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found)
-                return false;
-        }
-
-        return true;
-    }
-
-    private bool MethodSignaturesMatch(FunctionDeclaration method1, FunctionDeclaration method2)
-    {
-        // Must have same name
-        if (method1.Name != method2.Name)
-            return false;
-
-        // Must have same number of parameters
-        if (method1.Parameters.Count != method2.Parameters.Count)
-            return false;
-
-        // Check parameter types match (by string comparison - simple but works for now)
-        for (int i = 0; i < method1.Parameters.Count; i++)
-        {
-            var type1Str = TranspileTypeReference(method1.Parameters[i].Type);
-            var type2Str = TranspileTypeReference(method2.Parameters[i].Type);
-
-            if (type1Str != type2Str)
-                return false;
-        }
-
-        // Check return types match
-        var returnType1Str = method1.ReturnType != null ? TranspileTypeReference(method1.ReturnType) : "void";
-        var returnType2Str = method2.ReturnType != null ? TranspileTypeReference(method2.ReturnType) : "void";
-
-        if (returnType1Str != returnType2Str)
-            return false;
-
-        return true;
     }
 
     /// <summary>
