@@ -1,8 +1,8 @@
 # N# Language - Current Status
 
 **Last Updated:** 2025-11-08
-**Version:** v1.63
-**Status:** 🚀 Feature-Complete + Modern C# Features
+**Version:** v1.64 (WIP - LSP Server)
+**Status:** 🚧 Adding Language Server Protocol Support
 
 ---
 
@@ -10,11 +10,12 @@
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.63 |
+| **Language Version** | v1.64 (WIP) |
 | **Tests Passing** | 482 / 482 (100%) |
 | **Example Files** | 57 .nl files |
 | **Compiler LOC** | ~10,000 lines |
 | **Features Implemented** | All from DESIGN.md ✅ |
+| **LSP Server** | 🚧 40% complete (In Progress) |
 
 ---
 
@@ -165,15 +166,22 @@
   - Helpful suggestions with context
   - Professional appearance
 
-### Priority 2: Game Changer
-- 🚀 **Task 018**: Language Server Protocol (20-30 hours)
-  - Real-time diagnostics
-  - IntelliSense / Auto-completion
-  - Go to definition
-  - Find all references
-  - Rename refactoring
-  - Signature help
-  - Full IDE experience
+### Priority 2: Game Changer 🚧 IN PROGRESS
+- 🚧 **Task 018**: Language Server Protocol (~40% complete, v1.64)
+  - ✅ Project structure complete
+  - ✅ DocumentManager service
+  - ✅ TextDocumentHandler (document sync)
+  - ✅ CompletionHandler (auto-completion)
+  - ✅ HoverHandler (type information)
+  - ⏳ Fix API compatibility issues (BLOCKED)
+  - ⏳ Test and debug LSP server
+  - ⏳ VS Code extension integration
+  - ⏳ Go to definition
+  - ⏳ Find all references
+  - ⏳ Rename refactoring
+  - ⏳ Signature help
+
+  **Current Status**: Core handlers implemented but blocked on API compatibility with Compiler project. Need to fix Parser/Analyzer API usage.
 
 ---
 
@@ -217,7 +225,7 @@
 - 3 new analyzer tests for conversions ✅
 - Fixed conversion_operators.nl example ✅
 
-### v1.62: Record Structs (C# 10) - Current
+### v1.62: Record Structs (C# 10)
 - Added `IsStruct` field to RecordDeclaration AST ✅
 - Parser support for `record struct` keyword ✅
 - Transpiler emits C# 10 `record struct` syntax ✅
@@ -232,6 +240,25 @@
   * With expressions for non-destructive mutation
   * Value equality built-in
   * Perfect for small immutable data (points, colors, coordinates)
+
+### v1.63: Params Collections (C# 13)
+- Enhanced params validation beyond arrays ✅
+- Supports: arrays, Span<T>, ReadOnlySpan<T>, IEnumerable<T>, List<T>, etc. ✅
+- 10 new tests (5 parser + 5 transpiler) = 482 total tests ✅
+- Comprehensive example: examples/params_collections.nl ✅
+- Benefits: Zero-allocation performance with Span types ✅
+
+### v1.64: Language Server Protocol (WIP) - Current 🚧
+- Created src/LanguageServer/ project with OmniSharp dependency ✅
+- Implemented DocumentManager service ✅
+- Implemented core LSP handlers:
+  * TextDocumentHandler (document sync) ✅
+  * CompletionHandler (auto-completion) ✅
+  * HoverHandler (type information) ✅
+- Added Serilog logging to ~/.nsharp/lsp.log ✅
+- **Status**: ~40% complete, blocked on API compatibility issues
+- **Next**: Fix Parser/Analyzer API usage, test LSP server, VS Code integration
+- All 482 compiler tests still passing ✅
 
 ---
 
