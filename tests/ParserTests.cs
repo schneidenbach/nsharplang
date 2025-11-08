@@ -1756,4 +1756,106 @@ func main() {
         var genericType = Assert.IsType<GenericTypeReference>(typeof3.Type);
         Assert.Equal("List", genericType.Name);
     }
+
+    [Fact]
+    public void TestExpressionBodiedProperty()
+    {
+        var source = @"
+            class Person {
+                FirstName: string
+                LastName: string
+                FullName: string => FirstName + "" "" + LastName
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal(3, classDecl.Members.Count);
+
+        // FullName should be a PropertyDeclaration with ExpressionBody
+        var prop = classDecl.Members[2] as PropertyDeclaration;
+        Assert.NotNull(prop);
+        Assert.Equal("FullName", prop.Name);
+        Assert.NotNull(prop.Type);  // Explicit type required
+        var simpleType = Assert.IsType<SimpleTypeReference>(prop.Type);
+        Assert.Equal("string", simpleType.Name);
+        Assert.Null(prop.GetBody);
+        Assert.Null(prop.SetBody);
+        Assert.NotNull(prop.ExpressionBody);
+
+        var binaryExpr = Assert.IsType<BinaryExpression>(prop.ExpressionBody);
+        Assert.Equal(BinaryOperator.Add, binaryExpr.Operator);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedPropertyWithExplicitType()
+    {
+        var source = @"
+            class Calculator {
+                Value: int
+                DoubleValue: int => Value * 2
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal(2, classDecl.Members.Count);
+
+        var prop = classDecl.Members[1] as PropertyDeclaration;
+        Assert.NotNull(prop);
+        Assert.Equal("DoubleValue", prop.Name);
+        Assert.NotNull(prop.Type);  // Explicit type
+        var simpleType = Assert.IsType<SimpleTypeReference>(prop.Type);
+        Assert.Equal("int", simpleType.Name);
+        Assert.NotNull(prop.ExpressionBody);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedMethod()
+    {
+        var source = @"
+            class Calculator {
+                func Add(a: int, b: int): int => a + b
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Single(classDecl.Members);
+
+        var func = classDecl.Members[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Add", func.Name);
+        Assert.Equal(2, func.Parameters.Count);
+        Assert.NotNull(func.ReturnType);
+        Assert.Null(func.Body);  // No block body
+        Assert.NotNull(func.ExpressionBody);
+
+        var binaryExpr = Assert.IsType<BinaryExpression>(func.ExpressionBody);
+        Assert.Equal(BinaryOperator.Add, binaryExpr.Operator);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedMethodWithComplexExpression()
+    {
+        var source = @"
+            class Calculator {
+                func Square(x: int): int => x * x
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Single(classDecl.Members);
+
+        var func = classDecl.Members[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Square", func.Name);
+        Assert.NotNull(func.ReturnType);
+        Assert.NotNull(func.ExpressionBody);
+    }
 }

@@ -1040,4 +1040,69 @@ func main() {
         Assert.Contains("typeof(int)", result);
         Assert.Contains("typeof(Person)", result);
     }
+
+    [Fact]
+    public void TestExpressionBodiedPropertyTranspilation()
+    {
+        var source = @"
+            class Person {
+                FirstName: string
+                LastName: string
+                FullName: string => FirstName + "" "" + LastName
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should use explicit type with => syntax
+        Assert.Contains("string FullName =>", result);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedPropertyWithTypeTranspilation()
+    {
+        var source = @"
+            class Calculator {
+                Value: int
+                DoubleValue: int => Value * 2
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should use explicit type with => syntax (note: binary expressions are wrapped in parens)
+        Assert.Contains("int DoubleValue => (Value * 2);", result);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedMethodTranspilation()
+    {
+        var source = @"
+            class Calculator {
+                func Add(a: int, b: int): int => a + b
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# expression-bodied method (binary expressions wrapped in parens)
+        Assert.Contains("int Add(int a, int b)", result);
+        Assert.Contains("=> (a + b);", result);
+    }
+
+    [Fact]
+    public void TestExpressionBodiedMethodComplexTranspilation()
+    {
+        var source = @"
+            class Calculator {
+                func Square(x: int): int => x * x
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to expression-bodied method
+        Assert.Contains("int Square(int x)", result);
+        Assert.Contains("=> (x * x);", result);
+    }
 }

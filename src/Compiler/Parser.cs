@@ -217,12 +217,19 @@ public class Parser
         var constraints = ParseGenericConstraints();
 
         BlockStatement? body = null;
-        if (Check(TokenType.LeftBrace))
+        Expression? expressionBody = null;
+
+        if (Check(TokenType.Arrow))  // Expression-bodied method: func Foo() => expr
+        {
+            Advance();
+            expressionBody = ParseExpression();
+        }
+        else if (Check(TokenType.LeftBrace))
         {
             body = ParseBlock();
         }
 
-        return new FunctionDeclaration(name, parameters, returnType, body, typeParams, constraints, modifiers, attributes, line, column);
+        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, line, column);
     }
 
     private List<TypeParameter>? ParseTypeParameters()
@@ -674,6 +681,14 @@ public class Parser
         Consume(TokenType.Colon, "Expected ':'");
         var type = ParseTypeReference();
 
+        // Check for expression-bodied property: name: type => expr
+        if (Check(TokenType.Arrow))
+        {
+            Advance();
+            var expressionBody = ParseExpression();
+            return new PropertyDeclaration(name, type, null, null, expressionBody, modifiers, attributes, line, column);
+        }
+
         // Check if this is a property with get/set
         if (Check(TokenType.LeftBrace))
         {
@@ -709,7 +724,7 @@ public class Parser
             }
 
             Consume(TokenType.RightBrace, "Expected '}' after property accessors");
-            return new PropertyDeclaration(name, type, getBody, setBody, modifiers, attributes, line, column);
+            return new PropertyDeclaration(name, type, getBody, setBody, null, modifiers, attributes, line, column);
         }
 
         // Otherwise it's a field

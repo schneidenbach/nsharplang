@@ -140,6 +140,15 @@ public class Analyzer
         {
             AnalyzeStatement(func.Body);
         }
+        else if (func.ExpressionBody != null)
+        {
+            // Expression-bodied method: check expression type matches return type
+            var exprType = AnalyzeExpression(func.ExpressionBody);
+            if (_currentReturnType != BuiltInTypes.Void && !IsAssignable(_currentReturnType, exprType))
+            {
+                Error($"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
+            }
+        }
 
         _currentReturnType = null;
         PopScope();
@@ -281,8 +290,18 @@ public class Analyzer
     {
         CheckVisibilityConvention(prop.Name, prop.Modifiers, prop.Line, prop.Column);
 
-        var propType = ResolveType(prop.Type);
+        var propType = ResolveType(prop.Type!);
         DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
+
+        // Expression-bodied property: validate expression type matches property type
+        if (prop.ExpressionBody != null)
+        {
+            var exprType = AnalyzeExpression(prop.ExpressionBody);
+            if (!IsAssignable(propType, exprType))
+            {
+                Error($"Cannot assign '{exprType}' to '{propType}' in expression-bodied property", prop.Line, prop.Column);
+            }
+        }
 
         // Analyze getter
         if (prop.GetBody != null)

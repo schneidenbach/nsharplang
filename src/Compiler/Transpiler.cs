@@ -191,6 +191,11 @@ public class Transpiler
             WriteLine();
             TranspileBlockStatement(func.Body);
         }
+        else if (func.ExpressionBody != null)
+        {
+            // Expression-bodied method
+            WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
+        }
         else
         {
             WriteLine(";");
@@ -535,7 +540,6 @@ public class Transpiler
         TranspileAttributes(prop.Attributes);
 
         var modifiers = GetModifierString(prop.Modifiers);
-        var type = TranspileTypeReference(prop.Type);
 
         // Apply convention-based visibility if no explicit modifier
         if (!prop.Modifiers.HasFlag(Modifiers.Public) && !prop.Modifiers.HasFlag(Modifiers.Private) &&
@@ -544,24 +548,35 @@ public class Transpiler
             modifiers = char.IsUpper(prop.Name[0]) ? "public " + modifiers : "private " + modifiers;
         }
 
-        WriteLine($"{modifiers}{type} {prop.Name}");
-        WriteLine("{");
-        _indentLevel++;
-
-        if (prop.GetBody != null)
+        // Expression-bodied property
+        if (prop.ExpressionBody != null)
         {
-            WriteLine("get");
-            TranspileBlockStatement(prop.GetBody);
+            var type = TranspileTypeReference(prop.Type!);
+            WriteLine($"{modifiers}{type} {prop.Name} => {TranspileExpression(prop.ExpressionBody)};");
         }
-
-        if (prop.SetBody != null)
+        else
         {
-            WriteLine("set");
-            TranspileBlockStatement(prop.SetBody);
-        }
+            // Regular property with get/set blocks
+            var type = TranspileTypeReference(prop.Type!); // Type is required for non-expression-bodied properties
+            WriteLine($"{modifiers}{type} {prop.Name}");
+            WriteLine("{");
+            _indentLevel++;
 
-        _indentLevel--;
-        WriteLine("}");
+            if (prop.GetBody != null)
+            {
+                WriteLine("get");
+                TranspileBlockStatement(prop.GetBody);
+            }
+
+            if (prop.SetBody != null)
+            {
+                WriteLine("set");
+                TranspileBlockStatement(prop.SetBody);
+            }
+
+            _indentLevel--;
+            WriteLine("}");
+        }
     }
 
     private void TranspileConstructorDeclaration(ConstructorDeclaration ctor)

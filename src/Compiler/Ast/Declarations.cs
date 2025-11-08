@@ -33,6 +33,7 @@ public record FunctionDeclaration(
     List<Parameter> Parameters,
     TypeReference? ReturnType,
     BlockStatement? Body,
+    Expression? ExpressionBody,  // For expression-bodied methods (func Foo() => expr)
     List<TypeParameter>? TypeParameters,
     List<GenericConstraint>? Constraints,
     Modifiers Modifiers,
@@ -151,6 +152,7 @@ public record PropertyDeclaration(
     TypeReference Type,
     BlockStatement? GetBody,
     BlockStatement? SetBody,
+    Expression? ExpressionBody,  // For expression-bodied properties (Prop: type => expr)
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,
