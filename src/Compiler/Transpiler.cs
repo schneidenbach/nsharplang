@@ -1269,6 +1269,7 @@ public class Transpiler
             LiteralPattern lit => TranspileExpression(lit.Literal),
             IdentifierPattern ident => TranspileIdentifierPattern(ident),
             UnionCasePattern unionCase => TranspileUnionCasePattern(unionCase),
+            ObjectPattern obj => TranspileObjectPattern(obj),
             RelationalPattern relational => TranspileRelationalPattern(relational),
             AndPattern and => TranspileAndPattern(and),
             OrPattern or => TranspileOrPattern(or),
@@ -1299,13 +1300,33 @@ public class Transpiler
             return pattern.CaseName;
         }
 
-        var props = string.Join(", ", pattern.Properties.Select(p =>
-        {
-            var binding = p.BindingName ?? p.Name;
-            return $"{p.Name}: var {binding}";
-        }));
-
+        var props = TranspilePropertyPatterns(pattern.Properties);
         return $"{pattern.CaseName} {{ {props} }}";
+    }
+
+    private string TranspileObjectPattern(ObjectPattern pattern)
+    {
+        var props = TranspilePropertyPatterns(pattern.Properties);
+        return $"{{ {props} }}";
+    }
+
+    private string TranspilePropertyPatterns(List<PropertyPattern> propertyPatterns)
+    {
+        return string.Join(", ", propertyPatterns.Select(p =>
+        {
+            // If there's a nested pattern, recursively transpile it
+            if (p.Pattern != null)
+            {
+                var nestedPattern = TranspilePattern(p.Pattern);
+                return $"{p.Name}: {nestedPattern}";
+            }
+            else
+            {
+                // Simple binding: { Name } or { Name: var name }
+                var binding = p.BindingName ?? p.Name;
+                return $"{p.Name}: var {binding}";
+            }
+        }));
     }
 
     private string TranspileRelationalPattern(RelationalPattern pattern)

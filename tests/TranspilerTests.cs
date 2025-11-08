@@ -1246,4 +1246,83 @@ func main() {
         Assert.Contains("using Collections = System.Collections.Generic;", result);
         Assert.Contains("using Json = Newtonsoft.Json;", result);
     }
+
+    [Fact]
+    public void TestNestedPropertyPatternTranspilation()
+    {
+        var source = @"
+            func Test() {
+                result := match person {
+                    { Address: { City: ""NYC"" } } => ""New Yorker"",
+                    _ => ""Other""
+                }
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# nested property pattern
+        Assert.Contains("{ Address: { City: \"NYC\" } } => \"New Yorker\"", result);
+    }
+
+    [Fact]
+    public void TestNestedPropertyPatternWithBindingTranspilation()
+    {
+        var source = @"
+            func Test() {
+                result := match person {
+                    { Address: { City: city, State: ""NY"" } } => city,
+                    _ => """"
+                }
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile with var binding for city
+        Assert.Contains("{ Address: { City: var city, State: \"NY\" } } => city", result);
+    }
+
+    [Fact]
+    public void TestThreeLevelNestedPropertyPatternTranspilation()
+    {
+        var source = @"
+            func Test() {
+                result := match company {
+                    { HQ: { Address: { City: ""NYC"" } } } => ""NYC HQ"",
+                    _ => ""Other""
+                }
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to deeply nested pattern
+        Assert.Contains("{ HQ: { Address: { City: \"NYC\" } } } => \"NYC HQ\"", result);
+    }
+
+    [Fact]
+    public void TestUnionCaseWithNestedPropertyPatternTranspilation()
+    {
+        var source = @"
+            union Result {
+                Success { value: Data }
+                Failure
+            }
+            class Data {
+                Count: int
+            }
+            func Test() {
+                result := match res {
+                    Result.Success { value: { Count: count } } => count,
+                    _ => 0
+                }
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile union case with nested property pattern
+        Assert.Contains("Result.Success { value: { Count: var count } } => count", result);
+    }
 }

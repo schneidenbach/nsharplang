@@ -812,6 +812,7 @@ public class Analyzer
                         }
                         else
                         {
+                            // Analyze each property pattern (supports nested patterns)
                             foreach (var propPattern in unionPattern.Properties)
                             {
                                 var caseProperty = matchingCase.Properties
@@ -820,8 +821,18 @@ public class Analyzer
                                 if (caseProperty != null)
                                 {
                                     var propType = ResolveType(caseProperty.Type);
-                                    var bindingName = propPattern.BindingName ?? propPattern.Name;
-                                    DeclareSymbol(bindingName, propType, pattern.Line, pattern.Column);
+
+                                    // If there's a nested pattern, analyze it recursively
+                                    if (propPattern.Pattern != null)
+                                    {
+                                        AnalyzePattern(propPattern.Pattern, propType);
+                                    }
+                                    else
+                                    {
+                                        // Simple binding
+                                        var bindingName = propPattern.BindingName ?? propPattern.Name;
+                                        DeclareSymbol(bindingName, propType, pattern.Line, pattern.Column);
+                                    }
                                 }
                                 else
                                 {
@@ -866,6 +877,86 @@ public class Analyzer
                     AnalyzePattern(p, valueType);
                 }
                 break;
+
+            case ObjectPattern objectPattern:
+                // Object pattern matches properties on any type (not just unions)
+                AnalyzePropertyPatterns(objectPattern.Properties, valueType, pattern.Line, pattern.Column);
+                break;
+        }
+    }
+
+    private void AnalyzePropertyPatterns(List<PropertyPattern> propertyPatterns, TypeInfo valueType, int line, int column)
+    {
+        // For each property pattern, validate the property exists and analyze nested patterns
+        foreach (var propPattern in propertyPatterns)
+        {
+            // Try to resolve the property on the value type
+            TypeInfo? propType = null;
+
+            // Handle different type kinds
+            if (valueType is ClassTypeInfo classType)
+            {
+                // Check for both field and property declarations
+                var member = classType.Declaration.Members.FirstOrDefault(m =>
+                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
+                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
+
+                if (member is FieldDeclaration field)
+                    propType = ResolveType(field.Type);
+                else if (member is PropertyDeclaration property)
+                    propType = ResolveType(property.Type);
+            }
+            else if (valueType is StructTypeInfo structType)
+            {
+                // Check for both field and property declarations
+                var member = structType.Declaration.Members.FirstOrDefault(m =>
+                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
+                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
+
+                if (member is FieldDeclaration field)
+                    propType = ResolveType(field.Type);
+                else if (member is PropertyDeclaration property)
+                    propType = ResolveType(property.Type);
+            }
+            else if (valueType is RecordTypeInfo recordType)
+            {
+                // Check for both field and property declarations
+                var member = recordType.Declaration.Members.FirstOrDefault(m =>
+                    (m is FieldDeclaration fd && fd.Name == propPattern.Name) ||
+                    (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
+
+                if (member is FieldDeclaration field)
+                    propType = ResolveType(field.Type);
+                else if (member is PropertyDeclaration property)
+                    propType = ResolveType(property.Type);
+            }
+            else if (valueType is ReflectionTypeInfo reflectionType)
+            {
+                // Use reflection to find the property
+                var prop = reflectionType.Type.GetProperty(propPattern.Name);
+                if (prop != null)
+                {
+                    propType = new ReflectionTypeInfo(prop.PropertyType);
+                }
+            }
+
+            if (propType == null)
+            {
+                Error($"Type '{valueType}' does not have property '{propPattern.Name}'", line, column);
+                continue;
+            }
+
+            // If there's a nested pattern, analyze it recursively
+            if (propPattern.Pattern != null)
+            {
+                AnalyzePattern(propPattern.Pattern, propType);
+            }
+            else
+            {
+                // Simple binding - use BindingName if provided, otherwise use property Name
+                var bindingName = propPattern.BindingName ?? propPattern.Name;
+                DeclareSymbol(bindingName, propType, line, column);
+            }
         }
     }
 

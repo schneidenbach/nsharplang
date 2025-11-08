@@ -180,7 +180,15 @@ public record UnionCasePattern(
     List<PropertyPattern>? Properties,
     int Line,
     int Column) : Pattern(Line, Column);
-public record PropertyPattern(string Name, string? BindingName);
+// Property pattern for nested property matching
+// Examples:
+//   { Name: "John" }           -> Pattern = LiteralPattern("John"), BindingName = null
+//   { Name: name }             -> Pattern = null, BindingName = "name"
+//   { Address: { City: "NYC" } } -> Pattern = UnionCasePattern with nested properties
+public record PropertyPattern(
+    string Name,
+    Pattern? Pattern,      // Nested pattern (literal, identifier, or nested properties)
+    string? BindingName);  // Variable binding (if Pattern is null)
 
 // Relational pattern (< value, >= value, etc.)
 public record RelationalPattern(
@@ -210,6 +218,13 @@ public record NotPattern(
 // Positional pattern for tuples/deconstructable types
 public record PositionalPattern(
     List<Pattern> Patterns,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+// Object property pattern for matching arbitrary types (not just unions)
+// Example: { Address: { City: "NYC", State: "NY" } }
+public record ObjectPattern(
+    List<PropertyPattern> Properties,
     int Line,
     int Column) : Pattern(Line, Column);
 

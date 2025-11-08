@@ -2141,4 +2141,178 @@ func main() {
         Assert.Equal("Services/Auth", fileImport2.Path);
         Assert.Equal("AuthService", fileImport2.Alias);
     }
+
+    [Fact]
+    public void TestNestedPropertyPatternWithLiteral()
+    {
+        var source = @"
+            func Test() {
+                result := match person {
+                    { Address: { City: ""NYC"" } } => ""New Yorker""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Single(matchExpr.Cases);
+
+        var matchCase = matchExpr.Cases[0];
+        var objectPattern = matchCase.Pattern as ObjectPattern;
+        Assert.NotNull(objectPattern);
+        Assert.Single(objectPattern.Properties);
+
+        // Verify Address property has nested pattern
+        var addressProp = objectPattern.Properties[0];
+        Assert.Equal("Address", addressProp.Name);
+        Assert.NotNull(addressProp.Pattern);
+        Assert.Null(addressProp.BindingName);
+
+        // Verify nested object pattern
+        var nestedObj = addressProp.Pattern as ObjectPattern;
+        Assert.NotNull(nestedObj);
+        Assert.Single(nestedObj.Properties);
+
+        // Verify City property has literal pattern
+        var cityProp = nestedObj.Properties[0];
+        Assert.Equal("City", cityProp.Name);
+        Assert.NotNull(cityProp.Pattern);
+
+        var cityLiteral = cityProp.Pattern as LiteralPattern;
+        Assert.NotNull(cityLiteral);
+    }
+
+    [Fact]
+    public void TestNestedPropertyPatternWithBinding()
+    {
+        var source = @"
+            func Test() {
+                result := match person {
+                    { Address: { City: city, State: ""NY"" } } => city
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var objectPattern = matchExpr.Cases[0].Pattern as ObjectPattern;
+        Assert.NotNull(objectPattern);
+
+        var addressProp = objectPattern.Properties[0];
+        var nestedObj = addressProp.Pattern as ObjectPattern;
+        Assert.NotNull(nestedObj);
+        Assert.Equal(2, nestedObj.Properties.Count);
+
+        // City property with identifier binding
+        var cityProp = nestedObj.Properties[0];
+        Assert.Equal("City", cityProp.Name);
+        Assert.NotNull(cityProp.Pattern);
+        var cityIdent = cityProp.Pattern as IdentifierPattern;
+        Assert.NotNull(cityIdent);
+        Assert.Equal("city", cityIdent.Name);
+
+        // State property with literal
+        var stateProp = nestedObj.Properties[1];
+        Assert.Equal("State", stateProp.Name);
+        Assert.NotNull(stateProp.Pattern);
+        var stateLiteral = stateProp.Pattern as LiteralPattern;
+        Assert.NotNull(stateLiteral);
+    }
+
+    [Fact]
+    public void TestThreeLevelNestedPropertyPattern()
+    {
+        var source = @"
+            func Test() {
+                result := match company {
+                    { HQ: { Address: { City: ""NYC"" } } } => ""NYC HQ""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var objectPattern = matchExpr.Cases[0].Pattern as ObjectPattern;
+        Assert.NotNull(objectPattern);
+
+        // Level 1: HQ property
+        var hqProp = objectPattern.Properties[0];
+        Assert.Equal("HQ", hqProp.Name);
+        var level2 = hqProp.Pattern as ObjectPattern;
+        Assert.NotNull(level2);
+
+        // Level 2: Address property
+        var addressProp = level2.Properties[0];
+        Assert.Equal("Address", addressProp.Name);
+        var level3 = addressProp.Pattern as ObjectPattern;
+        Assert.NotNull(level3);
+
+        // Level 3: City property
+        var cityProp = level3.Properties[0];
+        Assert.Equal("City", cityProp.Name);
+        var cityLiteral = cityProp.Pattern as LiteralPattern;
+        Assert.NotNull(cityLiteral);
+    }
+
+    [Fact]
+    public void TestUnionCaseWithNestedPropertyPattern()
+    {
+        var source = @"
+            func Test() {
+                result := match result {
+                    Result.Success { value: { Count: count } } => count,
+                    _ => 0
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var unionPattern = matchExpr.Cases[0].Pattern as UnionCasePattern;
+        Assert.NotNull(unionPattern);
+        Assert.Equal("Result.Success", unionPattern.CaseName);
+        Assert.Single(unionPattern.Properties);
+
+        // Verify value property has nested pattern
+        var valueProp = unionPattern.Properties[0];
+        Assert.Equal("value", valueProp.Name);
+        Assert.NotNull(valueProp.Pattern);
+
+        var nestedObj = valueProp.Pattern as ObjectPattern;
+        Assert.NotNull(nestedObj);
+        Assert.Single(nestedObj.Properties);
+
+        var countProp = nestedObj.Properties[0];
+        Assert.Equal("Count", countProp.Name);
+        var countIdent = countProp.Pattern as IdentifierPattern;
+        Assert.NotNull(countIdent);
+        Assert.Equal("count", countIdent.Name);
+    }
 }

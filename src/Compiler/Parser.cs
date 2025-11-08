@@ -1420,6 +1420,13 @@ public class Parser
             return new LiteralPattern(literal, line, column);
         }
 
+        // Object pattern without type name: { Prop: pattern, ... }
+        if (Check(TokenType.LeftBrace))
+        {
+            var props = ParsePropertyPatterns();
+            return new ObjectPattern(props, line, column);
+        }
+
         // Union case or identifier pattern
         if (Check(TokenType.Identifier))
         {
@@ -1435,26 +1442,7 @@ public class Parser
             // Union case pattern with properties
             if (Check(TokenType.LeftBrace))
             {
-                Advance();
-                var props = new List<PropertyPattern>();
-
-                while (!Check(TokenType.RightBrace))
-                {
-                    var propName = ConsumeIdentifier("Expected property name");
-                    string? bindingName = null;
-
-                    if (Check(TokenType.Identifier))
-                    {
-                        bindingName = Advance().Value;
-                    }
-
-                    props.Add(new PropertyPattern(propName, bindingName));
-
-                    if (!Check(TokenType.RightBrace))
-                        Match(TokenType.Comma);
-                }
-
-                Consume(TokenType.RightBrace, "Expected '}'");
+                var props = ParsePropertyPatterns();
                 return new UnionCasePattern(name, props, line, column);
             }
 
@@ -1463,6 +1451,41 @@ public class Parser
         }
 
         throw new Exception($"Invalid pattern at {line}:{column}");
+    }
+
+    private List<PropertyPattern> ParsePropertyPatterns()
+    {
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var props = new List<PropertyPattern>();
+
+        while (!Check(TokenType.RightBrace))
+        {
+            var propName = ConsumeIdentifier("Expected property name");
+
+            // Check for colon to distinguish pattern vs simple binding
+            // { Name: "John" } -> pattern is literal
+            // { Name: name } -> pattern is identifier (explicit binding)
+            // { Name: { City: "NYC" } } -> pattern is nested object
+            // { Name } -> simple binding (BindingName = null, uses Name)
+            if (Check(TokenType.Colon))
+            {
+                Advance(); // consume ':'
+                var pattern = ParsePattern();
+                props.Add(new PropertyPattern(propName, pattern, null));
+            }
+            else
+            {
+                // Just property name, implicit binding: { value } -> bind property 'value' to variable 'value'
+                // BindingName is null, Analyzer will use Name as binding
+                props.Add(new PropertyPattern(propName, null, null));
+            }
+
+            if (!Check(TokenType.RightBrace))
+                Match(TokenType.Comma);
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+        return props;
     }
 
     private Statement ParseExpressionStatement()
