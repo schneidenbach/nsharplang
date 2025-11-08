@@ -186,6 +186,9 @@ public class Analyzer
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
 
+        // Validate default parameters
+        ValidateDefaultParameters(func.Parameters, func.Line, func.Column);
+
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
@@ -1605,8 +1608,22 @@ public class Analyzer
                 var hasParamsParameter = parameters.Count > 0 &&
                                         parameters[^1].Modifier == Ast.ParameterModifier.Params;
 
+                // Count required parameters (those without default values)
+                // Skip 'this' parameter for extension methods and 'params' parameter
+                int requiredParamCount = 0;
+                for (int i = paramStartIndex; i < parameters.Count; i++)
+                {
+                    var param = parameters[i];
+                    // Skip params parameter
+                    if (param.Modifier == Ast.ParameterModifier.Params)
+                        continue;
+                    // Count if no default value
+                    if (param.DefaultValue == null)
+                        requiredParamCount++;
+                }
+
                 // Check argument count (excluding the "this" parameter for extension methods)
-                int minArgs = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
+                int minArgs = requiredParamCount;
                 if (argTypes.Count < minArgs)
                 {
                     Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
@@ -2557,6 +2574,94 @@ public class Analyzer
                 }
             }
         }
+    }
+
+    private void ValidateDefaultParameters(List<Parameter> parameters, int line, int column)
+    {
+        bool foundOptional = false;
+
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var param = parameters[i];
+
+            // Skip 'this' and 'params' parameters - they have special rules
+            if (param.IsThis || param.Modifier == Ast.ParameterModifier.Params)
+                continue;
+
+            bool hasDefault = param.DefaultValue != null;
+
+            if (hasDefault)
+            {
+                foundOptional = true;
+
+                // Validate that default value is a compile-time constant
+                if (!IsValidDefaultValue(param.DefaultValue!))
+                {
+                    Error(ErrorCode.InvalidDefaultParameterValue,
+                        $"Default parameter value for '{param.Name}' must be a compile-time constant (literal, null, or simple constant expression)",
+                        line, column);
+                }
+            }
+            else
+            {
+                // Required parameter found after optional parameter
+                if (foundOptional)
+                {
+                    Error(ErrorCode.RequiredParameterAfterOptional,
+                        $"Required parameter '{param.Name}' cannot appear after optional parameters",
+                        line, column);
+                }
+            }
+        }
+    }
+
+    private bool IsValidDefaultValue(Expression expr)
+    {
+        // Valid default values are compile-time constants
+        // We check for common literal types and allow the C# compiler to validate more complex cases
+        return expr switch
+        {
+            // Literals are always valid
+            IntLiteralExpression => true,
+            FloatLiteralExpression => true,
+            BoolLiteralExpression => true,
+            StringLiteralExpression => true,
+            NullLiteralExpression => true,
+
+            // Unary expressions with literal operands (e.g., -5, +3.14)
+            UnaryExpression unary when IsValidDefaultValue(unary.Operand) => true,
+
+            // Binary expressions with literal operands (e.g., 2 + 3)
+            BinaryExpression binary when IsValidDefaultValue(binary.Left) && IsValidDefaultValue(binary.Right) => true,
+
+            // Allow identifiers and member access - C# compiler will validate if they're const
+            // This covers: enum values, const fields, etc.
+            IdentifierExpression => true,
+            MemberAccessExpression => true,
+
+            // Allow new expressions - C# compiler will validate compile-time constructibility
+            NewExpression newExpr when HasConstantArguments(newExpr) => true,
+
+            // Array literals with constant elements
+            ArrayLiteralExpression arrayLit => arrayLit.Elements.All(IsValidDefaultValue),
+
+            _ => false
+        };
+    }
+
+    private bool HasConstantArguments(NewExpression newExpr)
+    {
+        // Check if all constructor arguments are valid default values
+        if (newExpr.ConstructorArguments != null)
+        {
+            foreach (var arg in newExpr.ConstructorArguments)
+            {
+                if (!IsValidDefaultValue(arg.Value))
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     private bool IsValidParamsType(TypeReference typeRef)

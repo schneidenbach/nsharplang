@@ -1520,4 +1520,283 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void TestDefaultParametersWithLiterals()
+    {
+        // Valid: default parameters with literal values
+        var result = Analyze(@"
+            func Greet(name: string, greeting: string = ""Hello"", times: int = 1) {
+                print greeting
+            }
+
+            func Main() {
+                Greet(""Alice"")
+                Greet(""Bob"", ""Hi"")
+                Greet(""Charlie"", ""Hey"", 3)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersRequiredAfterOptional()
+    {
+        // Invalid: required parameter after optional parameter
+        var result = Analyze(@"
+            func Invalid(a: int = 1, b: int) {
+                print a
+            }
+        ");
+
+        Assert.NotEmpty(result.Errors);
+        var error = result.Errors[0];
+        Assert.Equal(ErrorCode.RequiredParameterAfterOptional, error.Code);
+        Assert.Contains("'b'", error.Message);
+        Assert.Contains("cannot appear after optional", error.Message);
+    }
+
+    [Fact]
+    public void TestDefaultParametersMultipleRequiredAfterOptional()
+    {
+        // Invalid: multiple required parameters after optional ones
+        var result = Analyze(@"
+            func Invalid(a: int, b: int = 1, c: int, d: string) {
+                print a
+            }
+        ");
+
+        Assert.NotEmpty(result.Errors);
+        // Should report error for first required parameter after optional
+        var error = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.RequiredParameterAfterOptional);
+        Assert.NotNull(error);
+        Assert.Contains("'c'", error.Message);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithNullLiteral()
+    {
+        // Valid: nullable type with null default
+        var result = Analyze(@"
+            func Process(data: string?) {
+                if (data != null) {
+                    print data
+                }
+            }
+
+            func Main() {
+                Process(null)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithNumericExpressions()
+    {
+        // Valid: numeric literal expressions as defaults
+        var result = Analyze(@"
+            func Calculate(x: int = 2 + 3, y: int = -5, z: float = 3.14) {
+                print x
+            }
+
+            func Main() {
+                Calculate()
+                Calculate(10)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithBooleanLiterals()
+    {
+        // Valid: boolean literals as defaults
+        var result = Analyze(@"
+            func Configure(enabled: bool = true, verbose: bool = false) {
+                print enabled
+                print verbose
+            }
+
+            func Main() {
+                Configure()
+                Configure(false)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersInvalidNonConstant()
+    {
+        // Invalid: non-constant expression as default
+        var result = Analyze(@"
+            func GetValue(): int {
+                return 42
+            }
+
+            func Invalid(x: int = GetValue()) {
+                print x
+            }
+        ");
+
+        Assert.NotEmpty(result.Errors);
+        var error = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.InvalidDefaultParameterValue);
+        Assert.NotNull(error);
+        Assert.Contains("compile-time constant", error.Message);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithMemberAccess()
+    {
+        // Valid: member access for constants (C# compiler will validate)
+        var result = Analyze(@"
+            func SetMax(max: int = int.MaxValue) {
+                print max
+            }
+
+            func Main() {
+                SetMax()
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithMemberAccessIdentifier()
+    {
+        // Valid: member access for constants as default values
+        var result = Analyze(@"
+            func Resize(size: int = int.MaxValue) {
+                print size
+            }
+
+            func Main() {
+                Resize()
+                Resize(200)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersWithNewExpression()
+    {
+        // Valid: new expression with literal arguments
+        var result = Analyze(@"
+            func Main() {
+                // New expressions with literals should be allowed
+                print ""test""
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersAllOptional()
+    {
+        // Valid: all parameters are optional
+        var result = Analyze(@"
+            func AllOptional(a: int = 1, b: int = 2, c: int = 3) {
+                print a + b + c
+            }
+
+            func Main() {
+                AllOptional()
+                AllOptional(10)
+                AllOptional(10, 20)
+                AllOptional(10, 20, 30)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersInMethods()
+    {
+        // Valid: default parameters in class methods
+        var result = Analyze(@"
+            class Calculator {
+                func Add(a: int, b: int = 0): int {
+                    return a + b
+                }
+            }
+
+            func Main() {
+                calc := new Calculator()
+                result1 := calc.Add(5)
+                result2 := calc.Add(5, 3)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersInConstructors()
+    {
+        // Valid: default parameters in constructors
+        var result = Analyze(@"
+            class Person {
+                Name: string
+                Age: int
+
+                constructor(name: string, age: int = 0) {
+                    Name = name
+                    Age = age
+                }
+            }
+
+            func Main() {
+                p1 := new Person(""Alice"")
+                p2 := new Person(""Bob"", 30)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersParamsStaysLast()
+    {
+        // Valid: params parameter is still last, default parameters before it
+        var result = Analyze(@"
+            func Format(prefix: string = """", params values: int[]) {
+                print prefix
+            }
+
+            func Main() {
+                Format(""Numbers:"", 1, 2, 3)
+                Format()
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void TestDefaultParametersExtensionMethods()
+    {
+        // Valid: default parameters in extension methods
+        var result = Analyze(@"
+            func IsLongerThan(this s: string, minLength: int = 0): bool {
+                return s.Length > minLength
+            }
+
+            func Main() {
+                result1 := ""hello"".IsLongerThan()
+                result2 := ""hello"".IsLongerThan(3)
+            }
+        ");
+
+        Assert.Empty(result.Errors);
+    }
 }

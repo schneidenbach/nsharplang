@@ -52,6 +52,8 @@ public enum ErrorCode
     RefOutMismatch = 406,
     ParamsNotLast = 407,
     MultipleParams = 408,
+    RequiredParameterAfterOptional = 409,
+    InvalidDefaultParameterValue = 410,
 
     // Pattern matching errors (500-599)
     NonExhaustiveMatch = 501,
