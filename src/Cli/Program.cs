@@ -351,6 +351,27 @@ class Program
         // Semantic analysis
         var analyzer = new Analyzer();
         var projectRoot = Path.GetDirectoryName(Path.GetFullPath(fileName)) ?? Directory.GetCurrentDirectory();
+
+        // Load system assemblies
+        analyzer.LoadSystemAssemblies();
+
+        // Load references from project config
+        if (config?.References != null)
+        {
+            foreach (var reference in config.References)
+            {
+                // Check if it's a file path or assembly name
+                if (File.Exists(reference))
+                {
+                    analyzer.LoadReferencedAssembly(reference);
+                }
+                else
+                {
+                    analyzer.LoadReferencedAssemblyByName(reference);
+                }
+            }
+        }
+
         var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot, source);
 
         // Report errors and warnings with rich formatting

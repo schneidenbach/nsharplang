@@ -97,6 +97,27 @@ public class MultiFileCompiler
             try
             {
                 var analyzer = new Analyzer();
+
+                // Load system assemblies
+                analyzer.LoadSystemAssemblies();
+
+                // Load references from project config
+                if (_config?.References != null)
+                {
+                    foreach (var reference in _config.References)
+                    {
+                        // Check if it's a file path or assembly name
+                        if (File.Exists(reference))
+                        {
+                            analyzer.LoadReferencedAssembly(reference);
+                        }
+                        else
+                        {
+                            analyzer.LoadReferencedAssemblyByName(reference);
+                        }
+                    }
+                }
+
                 var result = analyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
 
                 // Collect errors

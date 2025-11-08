@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using NewCLILang.Compiler.Ast;
@@ -27,6 +28,8 @@ public class Analyzer
     private string? _projectRoot;
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string[]? _sourceLines;  // Source code lines for error snippets
+    private readonly List<Assembly> _referencedAssemblies = new(); // External assemblies for type resolution
+    private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -60,6 +63,9 @@ public class Analyzer
             {
                 _usingNamespaces.Add(importDirective.Namespace);
             }
+
+            // Load assemblies for type resolution
+            ProcessImportForAssemblyLoading(importDirective);
         }
 
         // Validate package declaration if present
@@ -2142,30 +2148,50 @@ public class Analyzer
 
     private TypeInfo? TryResolveExternalType(string name)
     {
+        // Check cache first
+        if (_externalTypeCache.TryGetValue(name, out var cachedType))
+            return new ReflectionTypeInfo(cachedType);
+
         // Try direct type lookup in common assemblies
         var type = Type.GetType(name);
         if (type != null)
+        {
+            _externalTypeCache[name] = type;
             return new ReflectionTypeInfo(type);
+        }
 
         // Try with using namespaces
         foreach (var ns in _usingNamespaces)
         {
             var fullName = $"{ns}.{name}";
 
+            // Check cache for full name
+            if (_externalTypeCache.TryGetValue(fullName, out cachedType))
+                return new ReflectionTypeInfo(cachedType);
+
             // Try core library
             type = Type.GetType($"{fullName}, System.Runtime");
             if (type != null)
+            {
+                _externalTypeCache[fullName] = type;
                 return new ReflectionTypeInfo(type);
+            }
 
             // Try System.Private.CoreLib
             type = Type.GetType($"{fullName}, System.Private.CoreLib");
             if (type != null)
+            {
+                _externalTypeCache[fullName] = type;
                 return new ReflectionTypeInfo(type);
+            }
 
             // Try without assembly qualification
             type = Type.GetType(fullName);
             if (type != null)
+            {
+                _externalTypeCache[fullName] = type;
                 return new ReflectionTypeInfo(type);
+            }
 
             // Try common assemblies
             var assemblies = new[]
@@ -2180,7 +2206,42 @@ public class Analyzer
             {
                 type = assembly.GetType(fullName);
                 if (type != null)
+                {
+                    _externalTypeCache[fullName] = type;
                     return new ReflectionTypeInfo(type);
+                }
+            }
+
+            // Try referenced assemblies (NEW)
+            foreach (var assembly in _referencedAssemblies)
+            {
+                type = assembly.GetType(fullName);
+                if (type != null)
+                {
+                    _externalTypeCache[fullName] = type;
+                    return new ReflectionTypeInfo(type);
+                }
+            }
+        }
+
+        // Try without namespace in referenced assemblies (NEW)
+        foreach (var assembly in _referencedAssemblies)
+        {
+            // Search all exported types in the assembly
+            try
+            {
+                var matchingType = assembly.GetExportedTypes()
+                    .FirstOrDefault(t => t.Name == name || t.FullName == name);
+                if (matchingType != null)
+                {
+                    _externalTypeCache[name] = matchingType;
+                    return new ReflectionTypeInfo(matchingType);
+                }
+            }
+            catch
+            {
+                // Some assemblies may not expose all types
+                continue;
             }
         }
 
@@ -3037,6 +3098,117 @@ public class Analyzer
             if (sources.Count > 1)
             {
                 Error($"Symbol '{symbol}' imported from multiple sources: {string.Join(", ", sources)}. Use aliasing to resolve the conflict.", 0, 0);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Load a .NET assembly by file path for type resolution
+    /// </summary>
+    public void LoadReferencedAssembly(string assemblyPath)
+    {
+        try
+        {
+            var assembly = Assembly.LoadFrom(assemblyPath);
+            if (!_referencedAssemblies.Contains(assembly))
+            {
+                _referencedAssemblies.Add(assembly);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail - assembly might not be needed
+            Console.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution
+    /// </summary>
+    public void LoadReferencedAssemblyByName(string assemblyName)
+    {
+        try
+        {
+            var assembly = Assembly.Load(assemblyName);
+            if (!_referencedAssemblies.Contains(assembly))
+            {
+                _referencedAssemblies.Add(assembly);
+            }
+        }
+        catch (FileNotFoundException)
+        {
+            // Assembly not found - this is expected for some references
+        }
+        catch (Exception ex)
+        {
+            // Log but don't fail
+            Console.WriteLine($"Warning: Could not load assembly {assemblyName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Load system assemblies that are commonly used
+    /// </summary>
+    public void LoadSystemAssemblies()
+    {
+        var commonAssemblies = new[]
+        {
+            "System.Runtime",
+            "System.Console",
+            "System.Collections",
+            "System.Linq",
+            "System.Net.Http",
+            "System.Text.Json",
+            "System.Threading.Tasks"
+        };
+
+        foreach (var assemblyName in commonAssemblies)
+        {
+            LoadReferencedAssemblyByName(assemblyName);
+        }
+    }
+
+    /// <summary>
+    /// Process an import directive and attempt to load the corresponding assembly
+    /// </summary>
+    public void ProcessImportForAssemblyLoading(ImportDirective import)
+    {
+        // Common namespace -> assembly mappings
+        var assemblyMappings = new Dictionary<string, string[]>
+        {
+            ["System"] = new[] { "System.Runtime" },
+            ["System.Collections.Generic"] = new[] { "System.Collections" },
+            ["System.Collections"] = new[] { "System.Collections" },
+            ["System.Threading.Tasks"] = new[] { "System.Runtime" },
+            ["System.Linq"] = new[] { "System.Linq" },
+            ["System.IO"] = new[] { "System.Runtime" },
+            ["System.Text"] = new[] { "System.Runtime" },
+            ["System.Net.Http"] = new[] { "System.Net.Http" },
+            ["System.Text.Json"] = new[] { "System.Text.Json" },
+            ["Microsoft.AspNetCore.Builder"] = new[] { "Microsoft.AspNetCore", "Microsoft.AspNetCore.Http.Abstractions" },
+            ["Microsoft.AspNetCore.Mvc"] = new[] { "Microsoft.AspNetCore.Mvc.Core", "Microsoft.AspNetCore.Mvc.Abstractions" },
+            ["Microsoft.AspNetCore.Http"] = new[] { "Microsoft.AspNetCore.Http", "Microsoft.AspNetCore.Http.Abstractions" },
+            ["Microsoft.EntityFrameworkCore"] = new[] { "Microsoft.EntityFrameworkCore", "Microsoft.EntityFrameworkCore.Abstractions" }
+        };
+
+        if (assemblyMappings.TryGetValue(import.Namespace, out var assemblies))
+        {
+            foreach (var assemblyName in assemblies)
+            {
+                LoadReferencedAssemblyByName(assemblyName);
+            }
+        }
+        else
+        {
+            // Try the namespace as assembly name (common pattern)
+            var baseNamespace = import.Namespace.Split('.')[0];
+            if (baseNamespace.Length > 0)
+            {
+                LoadReferencedAssemblyByName(import.Namespace);
+                if (import.Namespace.Contains('.'))
+                {
+                    LoadReferencedAssemblyByName(baseNamespace);
+                }
             }
         }
     }

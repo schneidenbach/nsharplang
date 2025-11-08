@@ -1998,6 +1998,7 @@ public class Transpiler
         if (modifiers.HasFlag(Modifiers.Internal)) parts.Add("internal");
         if (modifiers.HasFlag(Modifiers.Static)) parts.Add("static");
         if (modifiers.HasFlag(Modifiers.Virtual)) parts.Add("virtual");
+        if (modifiers.HasFlag(Modifiers.Override)) parts.Add("override");
         if (modifiers.HasFlag(Modifiers.Abstract)) parts.Add("abstract");
         if (modifiers.HasFlag(Modifiers.Sealed)) parts.Add("sealed");
         if (modifiers.HasFlag(Modifiers.Partial)) parts.Add("partial");

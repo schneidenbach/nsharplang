@@ -231,6 +231,11 @@ public class Parser
                 modifiers |= Modifiers.Virtual;
                 Advance();
             }
+            else if (Check(TokenType.Override))
+            {
+                modifiers |= Modifiers.Override;
+                Advance();
+            }
             else if (Check(TokenType.Abstract))
             {
                 modifiers |= Modifiers.Abstract;

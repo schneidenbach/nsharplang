@@ -62,6 +62,7 @@ public enum TokenType
     OrKeyword,   // 'or' keyword for pattern matching
     NotKeyword,  // 'not' keyword for pattern matching
     Virtual,
+    Override,
     Abstract,
     Sealed,
     Partial,

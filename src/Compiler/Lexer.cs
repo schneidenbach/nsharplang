@@ -65,6 +65,7 @@ public class Lexer
         { "or", TokenType.OrKeyword },
         { "not", TokenType.NotKeyword },
         { "virtual", TokenType.Virtual },
+        { "override", TokenType.Override },
         { "abstract", TokenType.Abstract },
         { "sealed", TokenType.Sealed },
         { "partial", TokenType.Partial },

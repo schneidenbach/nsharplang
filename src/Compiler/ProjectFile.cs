@@ -42,6 +42,12 @@ public class ProjectConfig
     public Dictionary<string, string> Dependencies { get; set; } = new();
 
     /// <summary>
+    /// Assembly references (for external type resolution)
+    /// Can be assembly names (e.g., "Microsoft.AspNetCore") or file paths
+    /// </summary>
+    public List<string> References { get; set; } = new();
+
+    /// <summary>
     /// Language-specific configuration
     /// </summary>
     public LanguageConfig Language { get; set; } = new();
@@ -179,6 +185,11 @@ targetFramework: net9.0
 # Add NuGet package dependencies here:
 # dependencies:
 #   Newtonsoft.Json: 13.0.3
+
+# Add assembly references for type resolution:
+# references:
+#   - Microsoft.AspNetCore
+#   - Microsoft.EntityFrameworkCore
 
 language:
   asyncDefaultType: ValueTask

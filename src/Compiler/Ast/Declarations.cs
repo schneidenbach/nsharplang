@@ -253,6 +253,7 @@ public enum Modifiers
     Required = 1 << 13,  // C# 11 required properties
     Init = 1 << 14,      // C# 9 init-only properties
     File = 1 << 15,      // C# 11 file-scoped types
+    Override = 1 << 16,  // C# override methods
 }
 
 // Attributes
