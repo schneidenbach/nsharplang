@@ -10,6 +10,7 @@ public abstract record Declaration(int Line, int Column) : AstNode(Line, Column)
 public record CompilationUnit(
     NamespaceDeclaration? Namespace,
     List<UsingDirective> Usings,
+    List<Statement> Imports,
     List<Declaration> Declarations,
     int Line,
     int Column) : AstNode(Line, Column);

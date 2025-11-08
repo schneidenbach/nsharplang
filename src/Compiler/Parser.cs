@@ -36,6 +36,13 @@ public class Parser
             usings.Add(ParseUsing());
         }
 
+        // Parse import statements
+        var imports = new List<Statement>();
+        while (Check(TokenType.Import))
+        {
+            imports.Add(ParseImport());
+        }
+
         // Parse top-level declarations
         var declarations = new List<Declaration>();
         while (!IsAtEnd())
@@ -43,7 +50,7 @@ public class Parser
             declarations.Add(ParseDeclaration());
         }
 
-        return new CompilationUnit(namespaceDecl, usings, declarations, line, column);
+        return new CompilationUnit(namespaceDecl, usings, imports, declarations, line, column);
     }
 
     private NamespaceDeclaration ParseNamespace()
@@ -72,6 +79,41 @@ public class Parser
 
         var namespaceName = ParseQualifiedName();
         return new UsingDirective(namespaceName, null, line, column);
+    }
+
+    private Statement ParseImport()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Import, "Expected 'import'");
+
+        // File-based import: import "path/to/file" [as Alias]
+        if (Check(TokenType.StringLiteral))
+        {
+            var pathToken = Advance();
+            var path = pathToken.Value.Trim('"');
+            string? alias = null;
+
+            if (Check(TokenType.As))
+            {
+                Advance();
+                alias = ConsumeIdentifier("Expected alias name after 'as'");
+            }
+
+            return new FileImport(path, alias, line, column);
+        }
+
+        // Namespace import: import System.Collections.Generic [as Alias]
+        var namespaceName = ParseQualifiedName();
+        string? nsAlias = null;
+
+        if (Check(TokenType.As))
+        {
+            Advance();
+            nsAlias = ConsumeIdentifier("Expected alias name after 'as'");
+        }
+
+        return new NamespaceImport(namespaceName, nsAlias, line, column);
     }
 
     private string ParseQualifiedName()

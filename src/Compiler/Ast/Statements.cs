@@ -137,3 +137,17 @@ public record PrintStatement(
     Expression Value,
     int Line,
     int Column) : Statement(Line, Column);
+
+// File-based import: import "path/to/file" [as Alias]
+public record FileImport(
+    string Path,
+    string? Alias,
+    int Line,
+    int Column) : Statement(Line, Column);
+
+// Namespace import: import System.Collections.Generic [as Alias]
+public record NamespaceImport(
+    string Namespace,
+    string? Alias,
+    int Line,
+    int Column) : Statement(Line, Column);

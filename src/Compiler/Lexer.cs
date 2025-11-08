@@ -24,6 +24,7 @@ public class Lexer
         { "enum", TokenType.Enum },
         { "namespace", TokenType.Namespace },
         { "using", TokenType.Using },
+        { "import", TokenType.Import },
         { "let", TokenType.Let },
         { "const", TokenType.Const },
         { "readonly", TokenType.Readonly },

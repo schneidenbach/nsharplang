@@ -146,6 +146,37 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
+### v1.21 (Import System - Phase 1: Syntax and Parsing) 🚧 IN PROGRESS
+1. **Import keyword**: ✅ Added `Import` token type
+   - Added to Token.cs (line 23) and Lexer keywords dictionary
+   - Lexer recognizes "import" keyword
+2. **Import AST nodes**: ✅ Created FileImport and NamespaceImport statements
+   - FileImport for file-based imports: `import "path/to/file" [as Alias]`
+   - NamespaceImport for .NET namespace imports: `import System.Linq [as Alias]`
+   - Both support optional aliasing with `as` keyword
+3. **Parser support**: ✅ Implemented ParseImport() method
+   - Detects file imports (string literal) vs namespace imports (qualified name)
+   - Handles optional `as Alias` syntax for both types
+   - Imports parsed after using directives, before declarations
+4. **CompilationUnit updated**: ✅ Added Imports list
+   - CompilationUnit now contains: Namespace, Usings, **Imports**, Declarations
+   - Imports stored as List<Statement> (can be FileImport or NamespaceImport)
+5. **Test coverage**: ✅ 6 new tests (1 lexer + 5 parser) = 249 total
+   - `TestImportKeyword` (Lexer): Verifies import keyword recognition
+   - `TestFileImport` (Parser): Simple file import
+   - `TestFileImportWithAlias` (Parser): File import with alias
+   - `TestNamespaceImport` (Parser): Namespace import
+   - `TestNamespaceImportWithAlias` (Parser): Namespace import with alias
+   - `TestMultipleImports` (Parser): Multiple mixed imports
+6. **Status**: ✅ Syntax and parsing complete, all tests passing
+7. **Next steps** (Phase 2):
+   - Create FileResolver class for path resolution
+   - Implement symbol import logic in Analyzer
+   - Add collision detection for imported symbols
+   - Implement circular import detection
+   - Update Transpiler to emit C# using statements for namespace imports
+   - Write integration tests with actual multi-file scenarios
+
 ### v1.20 (Advanced Pattern Matching) ✅
 1. **Relational Patterns**: ✅ Pattern matching with comparison operators
    - Added `RelationalPattern` AST node (Expressions.cs:186-190)

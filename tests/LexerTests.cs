@@ -443,4 +443,14 @@ public class LexerTests
         Assert.Equal(TokenType.Nameof, tokens[0].Type);
         Assert.Equal("nameof", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestImportKeyword()
+    {
+        var source = "import";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // import + EOF
+        Assert.Equal(TokenType.Import, tokens[0].Type);
+        Assert.Equal("import", tokens[0].Value);
+    }
 }

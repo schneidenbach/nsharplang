@@ -20,6 +20,7 @@ public enum TokenType
     Enum,
     Namespace,
     Using,
+    Import,
     Let,
     Const,
     Readonly,

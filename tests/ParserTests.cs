@@ -2051,4 +2051,94 @@ func main() {
         var notPattern = Assert.IsType<NotPattern>(secondCase.Pattern);
         Assert.IsType<PositionalPattern>(notPattern.Pattern);
     }
+
+    [Fact]
+    public void TestFileImport()
+    {
+        var source = @"
+            import ""Models/Person""
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Imports);
+
+        var fileImport = cu.Imports[0] as FileImport;
+        Assert.NotNull(fileImport);
+        Assert.Equal("Models/Person", fileImport.Path);
+        Assert.Null(fileImport.Alias);
+    }
+
+    [Fact]
+    public void TestFileImportWithAlias()
+    {
+        var source = @"
+            import ""Services/Auth"" as AuthService
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Imports);
+
+        var fileImport = cu.Imports[0] as FileImport;
+        Assert.NotNull(fileImport);
+        Assert.Equal("Services/Auth", fileImport.Path);
+        Assert.Equal("AuthService", fileImport.Alias);
+    }
+
+    [Fact]
+    public void TestNamespaceImport()
+    {
+        var source = @"
+            import System.Collections.Generic
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Imports);
+
+        var nsImport = cu.Imports[0] as NamespaceImport;
+        Assert.NotNull(nsImport);
+        Assert.Equal("System.Collections.Generic", nsImport.Namespace);
+        Assert.Null(nsImport.Alias);
+    }
+
+    [Fact]
+    public void TestNamespaceImportWithAlias()
+    {
+        var source = @"
+            import System.Text.Json as Json
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Imports);
+
+        var nsImport = cu.Imports[0] as NamespaceImport;
+        Assert.NotNull(nsImport);
+        Assert.Equal("System.Text.Json", nsImport.Namespace);
+        Assert.Equal("Json", nsImport.Alias);
+    }
+
+    [Fact]
+    public void TestMultipleImports()
+    {
+        var source = @"
+            import ""Models/Person""
+            import System.Linq
+            import ""Services/Auth"" as AuthService
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(3, cu.Imports.Count);
+
+        var fileImport1 = cu.Imports[0] as FileImport;
+        Assert.NotNull(fileImport1);
+        Assert.Equal("Models/Person", fileImport1.Path);
+
+        var nsImport = cu.Imports[1] as NamespaceImport;
+        Assert.NotNull(nsImport);
+        Assert.Equal("System.Linq", nsImport.Namespace);
+
+        var fileImport2 = cu.Imports[2] as FileImport;
+        Assert.NotNull(fileImport2);
+        Assert.Equal("Services/Auth", fileImport2.Path);
+        Assert.Equal("AuthService", fileImport2.Alias);
+    }
 }
