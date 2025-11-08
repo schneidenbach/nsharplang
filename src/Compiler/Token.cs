@@ -22,6 +22,7 @@ public enum TokenType
     Namespace,
     Using,
     Import,
+    Package,
     Let,
     Const,
     Readonly,

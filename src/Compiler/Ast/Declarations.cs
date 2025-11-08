@@ -11,6 +11,7 @@ public record CompilationUnit(
     NamespaceDeclaration? Namespace,
     List<UsingDirective> Usings,
     List<Statement> Imports,
+    PackageDeclaration? Package,
     List<Declaration> Declarations,
     int Line,
     int Column) : AstNode(Line, Column);
@@ -19,6 +20,12 @@ public record CompilationUnit(
 public record UsingDirective(
     string Namespace,
     string? Alias,
+    int Line,
+    int Column);
+
+// Package declaration
+public record PackageDeclaration(
+    string Name,
     int Line,
     int Column);
 

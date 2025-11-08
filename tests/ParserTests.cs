@@ -4436,5 +4436,54 @@ func Helper(): int {
         Assert.Null(inferredProp.Type);
         Assert.NotNull(inferredProp.Initializer);
     }
+
+    [Fact]
+    public void TestPackageDeclaration()
+    {
+        var source = @"
+            package MathUtils
+
+            func Add(a: int, b: int): int {
+                return a + b
+            }
+        ";
+
+        var cu = Parse(source);
+
+        Assert.NotNull(cu.Package);
+        Assert.Equal("MathUtils", cu.Package.Name);
+        Assert.Single(cu.Declarations);
+    }
+
+    [Fact]
+    public void TestDottedPackageName()
+    {
+        var source = @"
+            package MyCompany.Utils.Math
+
+            func Multiply(a: int, b: int): int {
+                return a * b
+            }
+        ";
+
+        var cu = Parse(source);
+
+        Assert.NotNull(cu.Package);
+        Assert.Equal("MyCompany.Utils.Math", cu.Package.Name);
+    }
+
+    [Fact]
+    public void TestNoPackageDeclaration()
+    {
+        var source = @"
+            func Add(a: int, b: int): int {
+                return a + b
+            }
+        ";
+
+        var cu = Parse(source);
+
+        Assert.Null(cu.Package);
+    }
 }
 

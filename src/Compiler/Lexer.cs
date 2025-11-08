@@ -25,6 +25,7 @@ public class Lexer
         { "namespace", TokenType.Namespace },
         { "using", TokenType.Using },
         { "import", TokenType.Import },
+        { "package", TokenType.Package },
         { "let", TokenType.Let },
         { "const", TokenType.Const },
         { "readonly", TokenType.Readonly },

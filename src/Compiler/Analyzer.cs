@@ -62,6 +62,12 @@ public class Analyzer
             }
         }
 
+        // Validate package declaration if present
+        if (unit.Package != null)
+        {
+            ValidatePackageName(unit.Package);
+        }
+
         // Create global scope first (needed for adding imported symbols)
         PushScope(new Scope(ScopeKind.Global));
 
@@ -2842,6 +2848,38 @@ public class Analyzer
         }
 
         _errors.Add(warning);
+    }
+
+    // Package validation
+    private void ValidatePackageName(PackageDeclaration package)
+    {
+        var parts = package.Name.Split('.');
+        foreach (var part in parts)
+        {
+            if (!IsValidIdentifier(part))
+            {
+                Error($"Invalid package name: '{part}' is not a valid identifier", package.Line, package.Column);
+            }
+        }
+    }
+
+    private bool IsValidIdentifier(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        // First character must be letter or underscore
+        if (!char.IsLetter(name[0]) && name[0] != '_')
+            return false;
+
+        // Rest must be letters, digits, or underscores
+        for (int i = 1; i < name.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(name[i]) && name[i] != '_')
+                return false;
+        }
+
+        return true;
     }
 
     // Import processing

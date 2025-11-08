@@ -43,6 +43,13 @@ public class Parser
             imports.Add(ParseImport());
         }
 
+        // Parse package declaration (optional)
+        PackageDeclaration? packageDecl = null;
+        if (Check(TokenType.Package))
+        {
+            packageDecl = ParsePackage();
+        }
+
         // Parse top-level declarations
         var declarations = new List<Declaration>();
         while (!IsAtEnd())
@@ -50,7 +57,7 @@ public class Parser
             declarations.Add(ParseDeclaration());
         }
 
-        return new CompilationUnit(namespaceDecl, usings, imports, declarations, line, column);
+        return new CompilationUnit(namespaceDecl, usings, imports, packageDecl, declarations, line, column);
     }
 
     private NamespaceDeclaration ParseNamespace()
@@ -60,6 +67,15 @@ public class Parser
         Consume(TokenType.Namespace, "Expected 'namespace'");
         var name = ParseQualifiedName();
         return new NamespaceDeclaration(name, line, column);
+    }
+
+    private PackageDeclaration ParsePackage()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Package, "Expected 'package'");
+        var name = ParseQualifiedName();
+        return new PackageDeclaration(name, line, column);
     }
 
     private UsingDirective ParseUsing()

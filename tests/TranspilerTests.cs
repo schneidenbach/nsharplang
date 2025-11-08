@@ -2932,4 +2932,46 @@ func Test() {
         Assert.Contains("public int[] Numbers { get; set; } = [1, 2, 3, 4, 5]", result);
         Assert.Contains("public object[] EmptyArray { get; set; } = []", result);
     }
+
+    [Fact]
+    public void TestPackageTranspilation()
+    {
+        var source = @"
+            package MathUtils
+
+            func Add(a: int, b: int): int => a + b
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("public static partial class MathUtils", result);
+        Assert.Contains("public static int Add(int a, int b)", result);
+    }
+
+    [Fact]
+    public void TestNoPackageUsesTopLevel()
+    {
+        var source = @"
+            func Add(a: int, b: int): int => a + b
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("internal static class _TopLevel", result);
+        Assert.Contains("internal static int Add(int a, int b)", result);
+    }
+
+    [Fact]
+    public void TestDottedPackageName()
+    {
+        var source = @"
+            package MyCompany.Utils
+
+            func Helper(): string => ""test""
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("public static partial class MyCompany.Utils", result);
+    }
 }

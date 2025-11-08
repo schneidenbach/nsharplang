@@ -88,22 +88,39 @@ public class Transpiler
             WriteLine();
         }
 
-        // Wrap top-level functions in a generated internal static class
+        // Wrap top-level functions in a generated static class
         if (topLevelFunctions.Count > 0)
         {
-            var className = _compilationUnit.Namespace != null
-                ? $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel"
-                : "_TopLevel";
+            string className;
+            string visibility;
+            string partial = "";
 
-            WriteLine($"internal static class {className}");
+            // Use package name if available, otherwise use _TopLevel
+            if (_compilationUnit.Package != null)
+            {
+                className = _compilationUnit.Package.Name;
+                visibility = "public";
+                partial = "partial "; // Always make package classes partial
+            }
+            else
+            {
+                className = _compilationUnit.Namespace != null
+                    ? $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel"
+                    : "_TopLevel";
+                visibility = "internal";
+            }
+
+            WriteLine($"{visibility} static {partial}class {className}");
             WriteLine("{");
             _indentLevel++;
 
             foreach (var func in topLevelFunctions)
             {
-                // Top-level functions are always internal static
+                // Package functions are public static, others are internal static
                 var originalModifiers = func.Modifiers;
-                var modifiedFunc = func with { Modifiers = originalModifiers | Modifiers.Internal | Modifiers.Static };
+                var staticModifier = Modifiers.Static;
+                var visibilityModifier = _compilationUnit.Package != null ? Modifiers.Public : Modifiers.Internal;
+                var modifiedFunc = func with { Modifiers = originalModifiers | staticModifier | visibilityModifier };
                 TranspileFunctionDeclaration(modifiedFunc);
                 WriteLine();
             }
