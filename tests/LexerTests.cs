@@ -495,6 +495,16 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestLockKeyword()
+    {
+        var source = "lock";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // lock + EOF
+        Assert.Equal(TokenType.Lock, tokens[0].Type);
+        Assert.Equal("lock", tokens[0].Value);
+    }
+
+    [Fact]
     public void TestInterpolatedRawString()
     {
         var source = @"$""""""

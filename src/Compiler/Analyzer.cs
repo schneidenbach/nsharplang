@@ -546,6 +546,9 @@ public class Analyzer
             case UsingStatement usingStmt:
                 AnalyzeUsingStatement(usingStmt);
                 break;
+            case LockStatement lockStmt:
+                AnalyzeLockStatement(lockStmt);
+                break;
             case SwitchStatement switchStmt:
                 AnalyzeSwitchStatement(switchStmt);
                 break;
@@ -807,6 +810,17 @@ public class Analyzer
             AnalyzeStatement(usingStmt.Body);
         }
 
+        PopScope();
+    }
+
+    private void AnalyzeLockStatement(LockStatement lockStmt)
+    {
+        // Analyze the lock object expression
+        AnalyzeExpression(lockStmt.LockObject);
+
+        // Analyze the body with a new scope
+        PushScope(new Scope(ScopeKind.Block));
+        AnalyzeStatement(lockStmt.Body);
         PopScope();
     }
 

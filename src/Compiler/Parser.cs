@@ -1084,6 +1084,8 @@ public class Parser
             return ParseTryStatement();
         if (Check(TokenType.Using))
             return ParseUsingStatement();
+        if (Check(TokenType.Lock))
+            return ParseLockStatement();
         if (Check(TokenType.Switch))
             return ParseSwitchStatement();
         if (Check(TokenType.Print))
@@ -1438,6 +1440,28 @@ public class Parser
         }
 
         return new UsingStatement(null, expr, usingBody, line, column);
+    }
+
+    private LockStatement ParseLockStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Lock, "Expected 'lock'");
+
+        // lock obj { ... } or lock (obj) { ... }
+        var hasParens = Check(TokenType.LeftParen);
+        if (hasParens)
+            Consume(TokenType.LeftParen, "Expected '('");
+
+        var lockObject = ParseExpression();
+
+        if (hasParens)
+            Consume(TokenType.RightParen, "Expected ')'");
+
+        var body = ParseBlock() as BlockStatement
+            ?? throw new Exception("Expected block statement after lock");
+
+        return new LockStatement(lockObject, body, line, column);
     }
 
     private SwitchStatement ParseSwitchStatement()

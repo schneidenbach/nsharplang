@@ -183,7 +183,24 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
-### Phase 34: Ref/Out Parameters (v1.34 - LATEST!)
+### Phase 41: Lock Statements (v1.41 - LATEST!)
+- [x] **Lock statement support**: Thread synchronization for concurrent programming
+  - Added Lock keyword to lexer
+  - Created LockStatement AST node (LockObject and Body)
+  - Parser handles `lock obj { }` and `lock (obj) { }` syntax (parentheses optional)
+  - Analyzer validates lock object and body with new scope
+  - Transpiler emits C# `lock (object) { }` syntax
+  - 5 new tests (1 lexer + 2 parser + 2 transpiler) = 366 total tests passing
+  - Example: examples/lock_statement.nl demonstrates thread-safe Counter and BankAccount
+- [x] **Features**:
+  - Thread-safe shared state with mutual exclusion
+  - Protection against race conditions
+  - Optional parentheses around lock object
+  - Full C# lock statement compatibility
+- [x] **Documentation**: Updated DESIGN.md with lock statement section
+- [x] All 366 tests passing, 0 skipped
+
+### Phase 34: Ref/Out Parameters (v1.34)
 - [x] **Ref/Out parameter support**: Critical .NET interop feature
   - Added `Ref` and `Out` keywords to lexer
   - Created `ParameterModifier` and `ArgumentModifier` enums in AST

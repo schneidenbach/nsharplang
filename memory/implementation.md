@@ -1335,6 +1335,66 @@ Result.Success { value: { Count: count } } => count
 6. **Generic type inference**: Infer type parameters from usage context
 7. **Better error messages**: Include source code context in error output
 
+## v1.41: Lock Statements (Thread Synchronization)
+
+**Date**: November 8, 2025
+
+### Feature
+Implemented lock statements for thread-safe concurrent programming (essential C# feature).
+
+### Implementation Details
+- **Token** (Token.cs): Added `Lock` keyword token
+- **Lexer** (Lexer.cs): Added "lock" to keywords dictionary
+- **AST** (Statements.cs): Created `LockStatement` record with LockObject and Body
+- **Parser** (Parser.cs:1087-1088, 1445-1465):
+  - Added lock detection in ParseStatement
+  - Implemented ParseLockStatement method
+  - Supports both `lock obj { }` and `lock (obj) { }` syntax (parentheses optional)
+- **Analyzer** (Analyzer.cs:549-551, 816-825):
+  - Added lock statement case in AnalyzeStatement
+  - Implemented AnalyzeLockStatement method
+  - Analyzes lock object expression and body with new scope
+- **Transpiler** (Transpiler.cs:927-929, 1249-1253):
+  - Added lock statement case in TranspileStatement
+  - Implemented TranspileLockStatement method
+  - Emits C# `lock (object) { }` syntax
+
+### Tests Added
+- 5 new tests (1 lexer + 2 parser + 2 transpiler) = 366 total tests passing
+  - TestLockKeyword (Lexer): Verifies lock keyword recognition
+  - TestLockStatement (Parser): Basic lock statement parsing
+  - TestLockStatementWithParens (Parser): Lock with optional parentheses
+  - TestLockStatementTranspilation: Verifies C# lock output
+  - TestLockStatementWithParensTranspilation: Verifies parentheses handling
+
+### Example File
+Created `examples/lock_statement.nl` demonstrating:
+- Thread-safe Counter class with lock-protected increment/decrement
+- BankAccount class with lock-protected deposit/withdraw
+- Concurrent operations with Task.Run and Task.WaitAll
+- Proper mutual exclusion ensuring thread safety
+
+### Impact
+**ESSENTIAL C# FEATURE**: Lock statements are fundamental for thread synchronization in concurrent .NET applications. This enables:
+- Thread-safe shared state
+- Mutual exclusion for critical sections
+- Protection against race conditions
+- Proper concurrent programming patterns
+
+### What Works
+```n#
+class Counter {
+    _lock: object = new object()
+    _value: int = 0
+
+    func Increment() {
+        lock _lock {  // or lock (_lock)
+            _value++
+        }
+    }
+}
+```
+
 ## v1.40: Primary Constructor Parameter Capture (FIXED!)
 
 **Date**: November 8, 2025

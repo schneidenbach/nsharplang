@@ -82,6 +82,7 @@ public class Lexer
         { "init", TokenType.Init },
         { "ref", TokenType.Ref },
         { "out", TokenType.Out },
+        { "lock", TokenType.Lock },
     };
 
     public Lexer(string source, string? fileName = null)

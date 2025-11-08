@@ -375,6 +375,42 @@ func Test() {
     }
 
     [Fact]
+    public void TestLockStatementTranspilation()
+    {
+        var source = @"
+func Increment() {
+    lock _lockObject {
+        _counter++
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate lock statement
+        Assert.Contains("lock (_lockObject)", result);
+        Assert.Contains("_counter++", result);
+    }
+
+    [Fact]
+    public void TestLockStatementWithParensTranspilation()
+    {
+        var source = @"
+func Increment() {
+    lock (_lockObject) {
+        _counter++
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate lock statement
+        Assert.Contains("lock (_lockObject)", result);
+        Assert.Contains("_counter++", result);
+    }
+
+    [Fact]
     public void TestSwitchStatementTranspilation()
     {
         var source = @"

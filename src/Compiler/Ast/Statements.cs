@@ -118,6 +118,13 @@ public record UsingStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Lock statement for thread synchronization
+public record LockStatement(
+    Expression LockObject,
+    BlockStatement Body,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // Switch statement (non-exhaustive)
 public record SwitchStatement(
     Expression Value,

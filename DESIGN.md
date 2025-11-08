@@ -786,6 +786,32 @@ if obj.GetType() == typeof(string) { }
   // stream disposed at end of scope
   ```
 
+#### Lock Statements
+- Thread synchronization for concurrent code
+- Acquires mutual-exclusion lock on object
+- Examples:
+  ```
+  class Counter {
+      _value: int = 0
+      _lock: object = new object()
+
+      func Increment() {
+          lock _lock {
+              _value++
+          }
+      }
+  }
+
+  // Parentheses optional
+  lock (_lockObject) {
+      // critical section
+  }
+
+  lock lockObject {
+      // critical section
+  }
+  ```
+
 #### Indexers
 - Custom indexer syntax supported (C# style)
 - Examples:

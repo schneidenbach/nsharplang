@@ -730,6 +730,52 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestLockStatement()
+    {
+        var source = @"
+            func Increment() {
+                lock _lockObject {
+                    _counter++
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var lockStmt = funcDecl.Body.Statements[0] as LockStatement;
+        Assert.NotNull(lockStmt);
+        Assert.NotNull(lockStmt.LockObject);
+        Assert.NotNull(lockStmt.Body);
+
+        var blockStmt = lockStmt.Body as BlockStatement;
+        Assert.NotNull(blockStmt);
+        Assert.Single(blockStmt.Statements);
+    }
+
+    [Fact]
+    public void TestLockStatementWithParens()
+    {
+        var source = @"
+            func Increment() {
+                lock (_lockObject) {
+                    _counter++
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var lockStmt = funcDecl.Body.Statements[0] as LockStatement;
+        Assert.NotNull(lockStmt);
+        Assert.NotNull(lockStmt.LockObject);
+        Assert.NotNull(lockStmt.Body);
+    }
+
+    [Fact]
     public void TestSwitchStatement()
     {
         var source = @"

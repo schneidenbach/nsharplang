@@ -924,6 +924,9 @@ public class Transpiler
             case UsingStatement usingStmt:
                 TranspileUsingStatement(usingStmt);
                 break;
+            case LockStatement lockStmt:
+                TranspileLockStatement(lockStmt);
+                break;
             case SwitchStatement switchStmt:
                 TranspileSwitchStatement(switchStmt);
                 break;
@@ -1241,6 +1244,12 @@ public class Transpiler
                 WriteLine(";");
             }
         }
+    }
+
+    private void TranspileLockStatement(LockStatement lockStmt)
+    {
+        WriteLine($"lock ({TranspileExpression(lockStmt.LockObject)})");
+        TranspileStatement(lockStmt.Body);
     }
 
     private void TranspileSwitchStatement(SwitchStatement switchStmt)

@@ -79,6 +79,7 @@ public enum TokenType
     Init,
     Ref,
     Out,
+    Lock,
 
     // Operators
     Plus,           // +
