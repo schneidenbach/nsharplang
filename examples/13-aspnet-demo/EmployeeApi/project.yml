@@ -1,9 +1,17 @@
 name: EmployeeApi
 version: 1.0.0
 target: net9.0
+sdk: Microsoft.NET.Sdk.Web
 entry: Program.nl
+output_type: exe
 
 files:
   - Program.nl
   - Database.nl
   - Employees.nl
+
+dependencies:
+  Microsoft.EntityFrameworkCore.Sqlite: "9.0.0"
+  Microsoft.EntityFrameworkCore.Design: "9.0.0"
+  Swashbuckle.AspNetCore: "7.2.0"
+  Microsoft.AspNetCore.OpenApi: "9.0.0"

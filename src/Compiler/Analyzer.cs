@@ -86,7 +86,7 @@ public class Analyzer
         // Check for import collisions
         CheckImportCollisions();
 
-        // First pass: collect all type declarations
+        // First pass: collect all type declarations and function signatures
         foreach (var decl in unit.Declarations)
         {
             if (decl is ClassDeclaration classDecl)
@@ -103,6 +103,12 @@ public class Analyzer
                 DeclareType(enumDecl.Name, new EnumTypeInfo(enumDecl), decl.Line, decl.Column);
             else if (decl is TypeAliasDeclaration aliasDecl)
                 DeclareType(aliasDecl.Name, new AliasTypeInfo(aliasDecl.Type), decl.Line, decl.Column);
+            else if (decl is FunctionDeclaration func)
+            {
+                // Add function signatures to enable forward references
+                var funcTypeInfo = new FunctionTypeInfo(func);
+                DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
+            }
         }
 
         // Second pass: analyze all declarations
@@ -180,9 +186,13 @@ public class Analyzer
             ValidateOperatorOverload(func);
         }
 
-        // Declare function in current scope
+        // Declare function in current scope (if not already declared in first pass)
         var funcType = new FunctionTypeInfo(func);
-        DeclareSymbol(func.Name, funcType, func.Line, func.Column);
+        var existingSymbol = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
+        if (existingSymbol == null)
+        {
+            DeclareSymbol(func.Name, funcType, func.Line, func.Column);
+        }
 
         // Track extension methods (first parameter has IsThis = true)
         if (func.Parameters.Count > 0 && func.Parameters[0].IsThis)
@@ -256,7 +266,24 @@ public class Analyzer
             }
         }
 
-        // Analyze members
+        // Two-pass analysis for forward references
+        // First pass: Collect all function signatures
+        foreach (var member in classDecl.Members)
+        {
+            if (member is FunctionDeclaration func)
+            {
+                // Add function to scope so it can be referenced by other members
+                var funcTypeInfo = new FunctionTypeInfo(func);
+                // Only declare if not already declared (avoid duplicates)
+                var existingType = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
+                if (existingType == null)
+                {
+                    DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
+                }
+            }
+        }
+
+        // Second pass: Analyze all members
         foreach (var member in classDecl.Members)
         {
             AnalyzeDeclaration(member);
@@ -784,7 +811,8 @@ public class Analyzer
     private void AnalyzeIfStatement(IfStatement ifStmt)
     {
         var condType = AnalyzeExpression(ifStmt.Condition);
-        if (!IsBoolType(condType))
+        // Allow unknown types (they might be boolean from external methods we can't fully resolve)
+        if (!IsBoolType(condType) && condType != BuiltInTypes.Unknown)
         {
             Error(ErrorCode.TypeMismatch, $"If condition must be boolean, got '{condType}'", ifStmt.Line, ifStmt.Column);
         }
@@ -1512,6 +1540,15 @@ public class Analyzer
                 return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
             if (member is FunctionDeclaration func)
                 return new FunctionTypeInfo(func);
+
+            // If member not found, check base class
+            if (classType.Declaration.BaseClass != null)
+            {
+                var baseType = ResolveType(classType.Declaration.BaseClass);
+                var baseMember = ResolveMember(baseType, memberName);
+                if (baseMember != BuiltInTypes.Unknown)
+                    return baseMember;
+            }
         }
 
         if (objectType is StructTypeInfo structType)
@@ -2276,6 +2313,15 @@ public class Analyzer
         var typeInfo = LookupType(name);
         if (typeInfo != null)
             return typeInfo;
+
+        // Check if it's an instance member of the current class or base class
+        var currentType = GetCurrentTypeScope();
+        if (currentType != null)
+        {
+            var memberType = ResolveMember(currentType, name);
+            if (memberType != BuiltInTypes.Unknown)
+                return memberType;
+        }
 
         Error($"Undefined identifier '{name}'", line, column);
         return BuiltInTypes.Unknown;

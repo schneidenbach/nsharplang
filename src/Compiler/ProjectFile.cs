@@ -37,6 +37,11 @@ public class ProjectConfig
     public string TargetFramework { get; set; } = "net9.0";
 
     /// <summary>
+    /// SDK type: "Microsoft.NET.Sdk" or "Microsoft.NET.Sdk.Web"
+    /// </summary>
+    public string Sdk { get; set; } = "Microsoft.NET.Sdk";
+
+    /// <summary>
     /// NuGet package dependencies (package name -> version)
     /// </summary>
     public Dictionary<string, string> Dependencies { get; set; } = new();

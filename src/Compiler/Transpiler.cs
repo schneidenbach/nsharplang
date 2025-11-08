@@ -60,19 +60,31 @@ public class Transpiler
         if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests)
             _output.AppendLine();
 
-        // Namespace
-        if (_compilationUnit.Namespace != null)
-        {
-            WriteLine($"namespace {_compilationUnit.Namespace.Name};");
-            WriteLine();
-        }
-
         // Separate top-level functions and tests from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
         var otherDeclarations = _compilationUnit.Declarations
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
             .ToList();
+
+        // Namespace (from either 'namespace' or 'package' keyword)
+        if (_compilationUnit.Namespace != null)
+        {
+            WriteLine($"namespace {_compilationUnit.Namespace.Name};");
+            WriteLine();
+        }
+        else if (_compilationUnit.Package != null)
+        {
+            WriteLine($"namespace {_compilationUnit.Package.Name};");
+            WriteLine();
+
+            // If there are top-level functions in a package, add using static to bring them into scope
+            if (topLevelFunctions.Count > 0 || testDeclarations.Count > 0)
+            {
+                WriteLine($"using static {_compilationUnit.Package.Name};");
+                WriteLine();
+            }
+        }
 
         // Transpile non-function/non-test declarations first
         foreach (var declaration in otherDeclarations)
@@ -350,8 +362,8 @@ public class Transpiler
 
         var modifiers = GetModifierString(cls.Modifiers);
 
-        // Infer visibility for nested types (PascalCase = public)
-        if (_currentTypeName != null && !cls.Modifiers.HasFlag(Modifiers.Public) &&
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!cls.Modifiers.HasFlag(Modifiers.Public) &&
             !cls.Modifiers.HasFlag(Modifiers.Private) && !cls.Modifiers.HasFlag(Modifiers.Protected) &&
             !cls.Modifiers.HasFlag(Modifiers.Internal))
         {
@@ -359,6 +371,12 @@ public class Transpiler
             {
                 modifiers = "public " + modifiers;
             }
+            else if (_currentTypeName != null)
+            {
+                // Nested type with camelCase gets private
+                modifiers = "private " + modifiers;
+            }
+            // Top-level camelCase types get internal (default in C#)
         }
         var typeParams = cls.TypeParameters != null && cls.TypeParameters.Count > 0
             ? $"<{string.Join(", ", cls.TypeParameters.Select(tp => tp.Name))}>"
@@ -407,14 +425,18 @@ public class Transpiler
 
         var modifiers = GetModifierString(str.Modifiers);
 
-        // Infer visibility for nested types (PascalCase = public)
-        if (_currentTypeName != null && !str.Modifiers.HasFlag(Modifiers.Public) &&
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!str.Modifiers.HasFlag(Modifiers.Public) &&
             !str.Modifiers.HasFlag(Modifiers.Private) && !str.Modifiers.HasFlag(Modifiers.Protected) &&
             !str.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(str.Name[0]))
             {
                 modifiers = "public " + modifiers;
+            }
+            else if (_currentTypeName != null)
+            {
+                modifiers = "private " + modifiers;
             }
         }
         var typeParams = str.TypeParameters != null && str.TypeParameters.Count > 0
@@ -462,14 +484,18 @@ public class Transpiler
 
         var modifiers = GetModifierString(rec.Modifiers);
 
-        // Infer visibility for nested types (PascalCase = public)
-        if (_currentTypeName != null && !rec.Modifiers.HasFlag(Modifiers.Public) &&
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!rec.Modifiers.HasFlag(Modifiers.Public) &&
             !rec.Modifiers.HasFlag(Modifiers.Private) && !rec.Modifiers.HasFlag(Modifiers.Protected) &&
             !rec.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(rec.Name[0]))
             {
                 modifiers = "public " + modifiers;
+            }
+            else if (_currentTypeName != null)
+            {
+                modifiers = "private " + modifiers;
             }
         }
         var typeParams = rec.TypeParameters != null && rec.TypeParameters.Count > 0
@@ -555,14 +581,18 @@ public class Transpiler
 
         var modifiers = GetModifierString(enm.Modifiers);
 
-        // Infer visibility for nested types (PascalCase = public)
-        if (_currentTypeName != null && !enm.Modifiers.HasFlag(Modifiers.Public) &&
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!enm.Modifiers.HasFlag(Modifiers.Public) &&
             !enm.Modifiers.HasFlag(Modifiers.Private) && !enm.Modifiers.HasFlag(Modifiers.Protected) &&
             !enm.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(enm.Name[0]))
             {
                 modifiers = "public " + modifiers;
+            }
+            else if (_currentTypeName != null)
+            {
+                modifiers = "private " + modifiers;
             }
         }
 

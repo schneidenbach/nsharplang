@@ -420,7 +420,7 @@ class Program
             config.Dependencies.Select(kvp =>
                 $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
 
-        return $@"<Project Sdk=""Microsoft.NET.Sdk"">
+        return $@"<Project Sdk=""{config.Sdk}"">
   <PropertyGroup>
     <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
     <TargetFramework>{config.TargetFramework}</TargetFramework>
