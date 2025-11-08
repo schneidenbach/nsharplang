@@ -1,391 +1,145 @@
-# N# Language - Current Status
+# N# Language Status
 
-**Last Updated:** 2025-11-08
-**Version:** v1.65 (LSP Phase 2 Complete!)
-**Status:** ✅ Language Server Protocol Integration Complete
+**Version:** v1.69
+**Tests:** 506 / 506 passing (100%)
+**Status:** Feature-complete
 
----
-
-## 📊 Quick Stats
+## Quick Stats
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.65 (LSP Phase 2) |
-| **Tests Passing** | 482 / 482 (100%) |
-| **Example Files** | 57 .nl files |
-| **Compiler LOC** | ~10,000 lines |
-| **Features Implemented** | All from DESIGN.md ✅ |
-| **LSP Server** | ✅ Phase 2 Complete (VS Code Integration) |
+| Tests Passing | 506 / 506 (100%) |
+| Example Files | 57 .nl files |
+| Features | All from DESIGN.md ✅ |
 
----
+## Feature Completion
 
-## ✅ Completed Features
+### Core Language ✅
+- Pattern matching (unions, relational, logical, list, type, property patterns)
+- Discriminated unions with exhaustiveness checking
+- Duck interfaces (structural typing)
+- Records with `with` expressions
+- Type inference
+- Generics with constraints
+- Type aliases
+- Async/await with ValueTask support
+- Iterators (yield)
 
-### Core Language Features
-- ✅ **Pattern Matching** (F#-level)
-  - Union case patterns
-  - Relational patterns (`< 13`, `>= 65`)
-  - Logical patterns (`and`, `or`, `not`)
-  - Nested property patterns
-  - Positional patterns (tuples)
-  - List patterns (C# 11: `[first, .., last]`)
-  - Type patterns
-  - Guards (when clauses)
+### Modern C# Features ✅
+- Primary constructors (C# 12)
+- Collection expressions (C# 12)
+- Params collections (C# 13)
+- List patterns (C# 11)
+- File-scoped types (C# 11)
+- Raw string literals (C# 11)
+- Record structs (C# 10)
+- Target-typed new (C# 9)
+- Init-only properties (C# 9)
+- Required properties (C# 11)
+- Inline out variables (C# 7)
+- Range/index operators (C# 8)
 
-- ✅ **Type System**
-  - Discriminated unions with exhaustiveness checking
-  - Records with value equality
-  - With expressions (non-destructive mutation)
-  - Duck interfaces (structural typing)
-  - Regular interfaces with default implementations
-  - Classes, structs, enums
-  - Generics with constraints
-  - Type aliases
-  - Partial classes
-
-- ✅ **Modern C# Features**
-  - Primary constructors (C# 12)
-  - Record structs (C# 10) - Value-type records
-  - Required properties (C# 11)
-  - Init-only properties (C# 9)
-  - Target-typed new (C# 9)
-  - File-scoped types (C# 11)
-  - File-scoped namespaces
-  - Collection expressions (C# 12)
-  - Collection initializers with indexers (C# 6)
-  - Inline out variable declarations (C# 7)
-  - Local functions (C# 7)
-  - Raw string literals (C# 11)
-  - Interpolated raw strings (C# 11)
-  - Params collections (C# 13) - Span<T>, IEnumerable<T>, etc.
-
-- ✅ **Operators**
-  - Operator overloading (all types)
-  - Implicit/explicit conversion operators
-  - Null-conditional (`?.`, `?[]`)
-  - Null-coalescing (`??`, `??=`)
-  - Range operators (`..`, `^`)
-  - Spread operator (`...`)
-  - Checked/unchecked expressions
-
-- ✅ **Functions & Methods**
-  - Expression-bodied members
-  - Extension methods
-  - Async/await with configurable Task/ValueTask
-  - Iterator functions (yield return/break)
-  - Ref/out/params parameters
-  - Default parameters
-  - Named arguments
-  - Method overloading
-  - Generic methods
-
-- ✅ **Control Flow**
-  - If/else (no parentheses required)
-  - For/foreach/while loops
-  - Match expressions (exhaustive)
-  - Switch statements
-  - Try/catch/finally
-  - Using statements
-  - Lock statements
-  - Ternary operator
-
-- ✅ **Other Features**
-  - String interpolation
-  - Attributes
-  - Inheritance (virtual/override/abstract/sealed)
-  - Indexers
-  - Properties (auto, custom get/set)
-  - Readonly fields
-  - Const values
-  - Preprocessor directives
-  - Comments (line, block, documentation)
-  - Reflection operators (typeof, nameof)
-  - Built-in print function
-
-### Tooling & Infrastructure
-- ✅ **Compiler**
-  - Lexer, Parser, Analyzer, Transpiler
-  - Multi-pass compilation
-  - **Professional error messages** with error codes (NL001-NL999)
-  - Rust-quality error formatting with suggestions
-  - External type resolution via reflection
-  - Full semantic analysis
-
-- ✅ **CLI Tool**
-  - `nlc build` - Compile projects
-  - `nlc run` - Build and execute
-  - `nlc transpile` - View generated C#
-  - `nlc new` - Scaffold new projects
-  - Single-file and multi-file modes
-
-- ✅ **Project System**
-  - project.yml for configuration
-  - Multi-file compilation
-  - Import system (file-based and namespace)
-  - Cross-file type references
-  - NuGet dependency management
-  - Auto-generated .csproj files
-
-- ✅ **Testing**
-  - 463 comprehensive unit tests
-  - Lexer, Parser, Analyzer, Transpiler tests
-  - Error reporting and formatting tests
-  - Multi-file compilation tests
-  - Project configuration tests
-  - End-to-end integration tests
-  - All tests passing
-
-- ✅ **Examples**
-  - 55+ example .nl files
-  - Covers every language feature
-  - Multi-file example project (WeatherDemo)
-  - Error demonstration (test_errors.nl)
-  - Real-world patterns demonstrated
-
-- ✅ **VS Code Extension** (NEW!)
-  - Syntax highlighting for .nl files
-  - Bracket matching and auto-closing
-  - Comment toggling
-  - Code folding
-  - Language configuration
-  - Ready for packaging and distribution
-
----
-
-## 🎯 Next Steps - Developer Experience
-
-### Priority 1: Quick Wins ✅ DONE
-- ✅ **Task 019**: VS Code Syntax Highlighting (COMPLETE v1.59)
-  - Full TextMate grammar
-  - Professional appearance
-  - Foundation for LSP
-
-- ✅ **Task 017**: Better Error Messages (COMPLETE v1.60)
-  - Error codes (NL001-NL999)
-  - Rust-quality error formatting
-  - Helpful suggestions with context
-  - Professional appearance
-
-### Priority 2: Game Changer ✅ COMPLETE
-- ✅ **Task 018**: Language Server Protocol - Phase 2 Complete! (v1.65)
-  - ✅ Project structure complete
-  - ✅ DocumentManager service
-  - ✅ TextDocumentHandler (document sync)
-  - ✅ CompletionHandler (auto-completion)
-  - ✅ HoverHandler (type information)
-  - ✅ VS Code extension with LSP client integration
-  - ✅ TypeScript extension code (extension.ts)
-  - ✅ Package.json with LSP dependencies
-  - ✅ Configuration settings for server path and tracing
-  - ✅ Documentation updated (README, CHANGELOG)
-  - ✅ Extension packages successfully (nsharp-0.2.0.vsix)
-  - ⏳ Phase 3: Advanced handlers (go-to-definition, find references, rename)
-
-  **Current Status**: Phase 2 MVP complete! N# now has a working LSP server that integrates with VS Code, providing IntelliSense, diagnostics, and hover information.
-
----
-
-## 📈 Progress Timeline
-
-### v1.0 - v1.20: Core Language (Early Development)
-- Basic syntax, lexer, parser
-- Classes, functions, variables
-- Basic pattern matching
-- Initial transpilation
-
-### v1.20 - v1.40: Advanced Features
-- F#-level pattern matching
-- Discriminated unions
-- Records and interfaces
-- Property modifiers
+### Operators ✅
+- Null-conditional (`?.`, `?[]`)
+- Null-coalescing (`??`, `??=`)
+- Range (`..`, `^`)
+- Spread (`...`)
 - Operator overloading
-
-### v1.40 - v1.58: Modern C# Features
-- Collection expressions
-- File-scoped types
-- Local functions
-- Params arrays
+- Conversion operators (implicit/explicit)
 - Checked/unchecked
-- Conversion operators
 
-### v1.59: Tooling Begins
-- VS Code syntax highlighting ✅
-- Foundation for LSP
-- Professional appearance
+### Advanced Features ✅
+- Ref/out parameters
+- Extension methods
+- Attributes (including qualified names)
+- Method overloading
+- Default parameters
+- Named arguments
+- Expression-bodied members
+- Lock statements
+- Partial classes
+- Preprocessor directives
+- Local functions
+- Constructor chaining
 
-### v1.60: Professional Error Messages
-- Error codes (NL001-NL999) ✅
-- Rust-quality error formatting ✅
-- Context-aware suggestions ✅
-- Enhanced developer experience ✅
+## Compiler Status
 
-### v1.61: User-Defined Conversion Operators in Analyzer
-- Implicit conversion operator type checking ✅
-- Proper validation of conversion assignments ✅
-- 3 new analyzer tests for conversions ✅
-- Fixed conversion_operators.nl example ✅
+### Lexer ✅
+- All keywords and operators
+- String interpolation
+- Raw strings
+- Comments
+- 33 tests passing
 
-### v1.62: Record Structs (C# 10)
-- Added `IsStruct` field to RecordDeclaration AST ✅
-- Parser support for `record struct` keyword ✅
-- Transpiler emits C# 10 `record struct` syntax ✅
-- 6 new tests (3 parser + 3 transpiler) = 472 total tests ✅
-- Comprehensive example: examples/record_structs.nl ✅
-- Updated DESIGN.md with record struct documentation ✅
-- Features demonstrated:
-  * Value-type records with value semantics
-  * Primary constructors for record structs
-  * Computed properties (expression-bodied)
-  * Static factory methods
-  * With expressions for non-destructive mutation
-  * Value equality built-in
-  * Perfect for small immutable data (points, colors, coordinates)
+### Parser ✅
+- All language constructs
+- Operator precedence
+- Pattern syntax
+- 86 tests passing
 
-### v1.63: Params Collections (C# 13)
-- Enhanced params validation beyond arrays ✅
-- Supports: arrays, Span<T>, ReadOnlySpan<T>, IEnumerable<T>, List<T>, etc. ✅
-- 10 new tests (5 parser + 5 transpiler) = 482 total tests ✅
-- Comprehensive example: examples/params_collections.nl ✅
-- Benefits: Zero-allocation performance with Span types ✅
+### Analyzer ✅
+- Type checking and inference
+- External type resolution (.NET reflection)
+- Pattern exhaustiveness checking
+- Scope management
+- Duck interface validation
+- 78 tests passing
 
-### v1.64: Language Server Protocol Phase 1
-- Created src/LanguageServer/ project with OmniSharp dependency ✅
-- Implemented DocumentManager service ✅
-- Implemented core LSP handlers:
-  * TextDocumentHandler (document sync) ✅
-  * CompletionHandler (auto-completion) ✅
-  * HoverHandler (type information) ✅
-- Added Serilog logging to ~/.nsharp/lsp.log ✅
-- All 482 compiler tests passing ✅
+### Transpiler ✅
+- C# code generation
+- All features supported
+- Clean, idiomatic output
+- 71 tests passing
 
-### v1.65: Language Server Protocol Phase 2 - VS Code Integration ✅
-- **VS Code Extension with LSP Client**:
-  * Added TypeScript extension code (extension.ts) ✅
-  * Integrated vscode-languageclient for LSP communication ✅
-  * Auto-detection of language server from workspace ✅
-  * Configuration settings (server path, tracing) ✅
-- **Extension Packaging**:
-  * Updated package.json with LSP support ✅
-  * Added TypeScript compilation (tsconfig.json) ✅
-  * Successfully packaged extension (nsharp-0.2.0.vsix) ✅
-- **Documentation**:
-  * Updated VS Code extension README with LSP features ✅
-  * Updated CHANGELOG with v0.2.0 release notes ✅
-  * Installation and configuration instructions ✅
-- **Status**: Phase 2 MVP complete! N# has working LSP with VS Code integration
-- **Features**: IntelliSense, diagnostics, hover information
-- **Next**: Phase 3 - Advanced handlers (go-to-definition, find references, rename)
-- All 482 compiler tests still passing ✅
+### CLI ✅
+- Build, run, transpile commands
+- Multi-file compilation
+- Project configuration (project.yml)
+- Error reporting with codes
 
----
+## Known Limitations
 
-## 💪 Strengths
+See `memory/limitations.md` for details:
 
-1. **Feature-Complete** - All DESIGN.md features implemented
-2. **Well-Tested** - 472 passing tests, comprehensive coverage
-3. **Clean Architecture** - Modular, maintainable codebase
-4. **Perfect C# Interop** - N# code looks like idiomatic C#
-5. **Modern Syntax** - Go-inspired simplicity
-6. **Rich Type System** - Better than C# (unions, exhaustive matching)
-7. **Pragmatic** - Embraces .NET realities, not dogmatic
-8. **Multi-file Projects** - Real-world project support
-9. **IDE Support** - VS Code extension ready
-10. **Professional Errors** - Rust-quality error messages with codes and suggestions
-11. **Documentation** - Excellent examples and specs
+1. **Lambda type inference** - Parameters typed as Unknown without context
+2. **Generic type inference** - Type parameters must be explicit
+3. **Overload resolution** - By argument count only (not types)
+4. **Extension methods on literals** - Work on variables, not literals
+5. **Circular imports** - No detection yet
 
----
+## What's Working
 
-## 🎓 What Makes N# Special
+- ✅ Single-file compilation
+- ✅ Multi-file compilation
+- ✅ External .NET type resolution
+- ✅ Duck interface structural typing
+- ✅ Pattern matching exhaustiveness
+- ✅ Error messages with codes and suggestions
+- ✅ VS Code syntax highlighting (editors/vscode/)
+- ✅ All DESIGN.md features
 
-### vs C#
-- **Cleaner syntax** - No semicolons, no parentheses in control flow
-- **Better types** - Discriminated unions with exhaustiveness checking
-- **Duck interfaces** - Structural typing when you need it
-- **Simpler** - Removes C#'s legacy cruft
-- **Modern** - Only the good parts of C# 12+
+## Next Steps
 
-### vs F#
-- **Perfect C# interop** - All types consumable from C#
-- **Pragmatic** - Not functional-first, multi-paradigm
-- **Familiar syntax** - C-esque, not OCaml
-- **Better .NET fit** - Task-based async, nullable reference types
+See `tasks/020-next-steps.md` for future roadmap:
 
-### The Sweet Spot
-N# is **"Go for .NET"** with a **better type system**:
-- Simplicity of Go
-- Power of F# pattern matching
-- Interop of C#
-- Practicality for real projects
+**High Priority:**
+- LSP Phase 3 (go-to-definition, find references, rename)
+- Improved method overload resolution (by type)
+- Extension methods on literals
 
----
+**Medium Priority:**
+- Generic type inference
+- Circular import detection
+- Incremental compilation
 
-## 📚 Documentation
+**Low Priority:**
+- REPL
+- Code formatter
+- API doc generator
 
-- **DESIGN.md** - Complete language specification
-- **memory/implementation.md** - Implementation notes and history
-- **tasks/** - Feature task definitions and status
-- **examples/** - 54+ working code examples
-- **editors/vscode/README.md** - VS Code extension docs
+## Documentation
 
----
-
-## 🔨 How to Use
-
-### Install
-```bash
-# Build the compiler
-dotnet build
-
-# Run tests
-dotnet test
-
-# Try an example
-dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
-```
-
-### VS Code Extension
-```bash
-# Package extension
-cd editors/vscode
-npx vsce package
-
-# Install
-code --install-extension nsharp-0.1.0.vsix
-```
-
-### Create a Project
-```bash
-# Create new project
-dotnet run --project src/Cli/Cli.csproj new MyProject
-
-# Build it
-cd MyProject
-dotnet run --project ../src/Cli/Cli.csproj build
-
-# Run it
-dotnet run --project ../src/Cli/Cli.csproj run Program.nl
-```
-
----
-
-## 🎉 Conclusion
-
-**N# is feature-complete and developer-friendly!**
-
-The language has achieved all its design goals:
-- ✅ Simpler syntax than C#
-- ✅ Better type system (unions, exhaustive matching)
-- ✅ Perfect C# interop
-- ✅ Multi-file project support
-- ✅ Production-quality transpilation
-- ✅ Comprehensive test coverage
-- ✅ IDE support (VS Code syntax highlighting)
-- ✅ Professional error messages (Rust-quality)
-- ✅ User-defined conversion operator type checking
-
-**Next mission: Full IDE experience**
-- Full Language Server Protocol
-- Rich IDE experience
-- World-class developer tooling
-
-N# is no longer just a transpiler - it's becoming a **professional development platform** for .NET! 🚀
+- **DESIGN.md** - Language specification
+- **README.md** - Project overview
+- **memory/** - Implementation details
+- **CLAUDE.md** - AI agent instructions
