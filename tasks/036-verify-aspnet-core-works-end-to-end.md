@@ -3,7 +3,59 @@
 **Priority:** Critical (Production readiness verification)
 **Dependencies:** Task 030 (Assembly Resolution) - Completed
 **Estimated Effort:** Medium (3-5 hours)
-**Status:** Not started
+**Status:** In Progress - Blocked by compiler limitations
+
+## Progress Log (2025-11-08)
+
+### Completed
+1. ✅ Updated EmployeeApi (renamed from TaskManagementApi in Task 032)
+2. ✅ Fixed object initializer syntax (N# uses `:` not `=` in all object initializers)
+3. ✅ Updated project.yml with correct file names
+4. ✅ Added ASP.NET framework references to Cli.csproj for type resolution
+5. ✅ Added namespace-to-assembly mappings for:
+   - Microsoft.Extensions.DependencyInjection
+   - Microsoft.Extensions.Hosting
+   - System.ComponentModel.DataAnnotations
+
+### Issues Found (BLOCKERS)
+
+The build command now resolves `WebApplication` and other external types from ASP.NET, but faces critical analyzer limitations:
+
+**Issue 1: Controller Base Methods Not Resolved**
+- Error: `Undefined identifier 'Ok'`, `NotFound()`, `BadRequest()`, etc.
+- Root Cause: Analyzer doesn't recognize inherited instance methods from base classes
+- `EmployeesController : ControllerBase` should have access to `Ok()`, `NotFound()`, etc.
+- The analyzer sees the inheritance but doesn't resolve member access to base class methods
+
+**Issue 2: Same-File Function Resolution**
+- Error: `Undefined identifier 'ValidateCreateEmployee'`
+- Root Cause: Analyzer processes files top-down and doesn't do forward declaration
+- Functions defined later in the same file aren't visible to earlier code
+- Workaround: Define all functions before they're used (not ideal)
+
+**Issue 3: Return Type Inference from Unknown Methods**
+- Error: `If condition must be boolean, got 'unknown'` for `app.Environment.IsDevelopment()`
+- Root Cause: When a method can't be resolved, its return type is `unknown`
+- This cascades to type checking errors downstream
+
+### Next Steps
+
+These are fundamental analyzer limitations that need to be fixed before the ASP.NET demo can work. Options:
+
+1. **Fix the analyzer** (recommended but complex):
+   - Implement proper base class method resolution
+   - Add two-pass analysis for same-file forward references
+   - Better handling of unknown external types (assume they're valid)
+
+2. **Workaround for now** (faster):
+   - Manually transpile to C# and verify the generated code is correct
+   - Document these known limitations
+   - Mark task as "partially complete" pending analyzer improvements
+
+3. **Create Task 037**: Fix Analyzer Limitations
+   - Base class member resolution
+   - Forward references
+   - Better unknown type handling
 
 ## Goal
 
@@ -13,7 +65,7 @@ Verify that the TaskManagementApi ASP.NET Core demo actually works end-to-end. T
 
 This task is **NOT COMPLETE** until ALL of the following work:
 
-- [ ] All .nl files transpile to valid C# without errors
+- [ ] All .nl files transpile to valid C# without errors WITHOUT BUILD SCRIPTS - two commands - `nsharp build` and `nsharp run` ONLY!!!!
 - [ ] `dotnet build` succeeds with zero errors
 - [ ] `dotnet run` starts the web server successfully
 - [ ] Swagger UI loads at https://localhost:5001/swagger
@@ -356,7 +408,7 @@ To (once Task 031 is done):
 ```markdown
 ### Step 2: Build and Run
 ```bash
-nsharp build  # Transpiles all .nl files automatically
+nsharp build  # Transpiles all .nl files automatically, WITH NO EXTERNAL SCRIPTS!!!!
 dotnet run
 ```
 ```

@@ -146,27 +146,27 @@ class EmployeesController : ControllerBase {
         // Validate
         errors := ValidateCreateEmployee(dto)
         if errors.Length > 0 {
-            return BadRequest(new { errors = errors })
+            return BadRequest(new { errors: errors })
         }
 
         // Create entity
         employee := new EmployeeEntity {
-            Id = Guid.NewGuid(),
-            FirstName = dto.FirstName,
-            LastName = dto.LastName,
-            Email = dto.Email,
-            Department = dto.Department,
-            Status = dto.Status,
-            HireDate = dto.HireDate,
-            Salary = dto.Salary,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            Id: Guid.NewGuid(),
+            FirstName: dto.FirstName,
+            LastName: dto.LastName,
+            Email: dto.Email,
+            Department: dto.Department,
+            Status: dto.Status,
+            HireDate: dto.HireDate,
+            Salary: dto.Salary,
+            CreatedAt: DateTime.UtcNow,
+            UpdatedAt: DateTime.UtcNow
         }
 
         db.Employees.Add(employee)
         await db.SaveChangesAsync()
 
-        return CreatedAtAction(nameof(GetById), new { id = employee.Id }, employee)
+        return CreatedAtAction(nameof(GetById), new { id: employee.Id }, employee)
     }
 
     // PUT /api/employees/{id} - Update an employee
@@ -180,7 +180,7 @@ class EmployeesController : ControllerBase {
         // Validate
         errors := ValidateUpdateEmployee(dto)
         if errors.Length > 0 {
-            return BadRequest(new { errors = errors })
+            return BadRequest(new { errors: errors })
         }
 
         // Update properties (only if provided)

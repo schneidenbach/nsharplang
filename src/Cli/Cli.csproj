@@ -26,4 +26,10 @@
     <ProjectReference Include="..\Compiler\Compiler.csproj" />
   </ItemGroup>
 
+  <!-- Add references for external type resolution -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+  </ItemGroup>
+
 </Project>

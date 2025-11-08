@@ -1,13 +1,9 @@
-name: TaskManagementApi
+name: EmployeeApi
 version: 1.0.0
 target: net9.0
-
-references:
-  - Microsoft.AspNetCore.App
-  - Microsoft.EntityFrameworkCore
-  - Microsoft.EntityFrameworkCore.Sqlite
+entry: Program.nl
 
 files:
   - Program.nl
   - Database.nl
-  - Tasks.nl
+  - Employees.nl
