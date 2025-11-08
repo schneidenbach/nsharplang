@@ -2690,5 +2690,101 @@ func TestFunc() {
         Assert.Null(rangeExpr.Start);  // Fully open
         Assert.Null(rangeExpr.End);     // Fully open
     }
+
+    [Fact]
+    public void TestPreprocessorDirectiveTopLevel()
+    {
+        var source = @"
+#if DEBUG
+class DebugHelper {
+    DebugFlag: bool = true
+}
+#endif
+";
+
+        var cu = Parse(source);
+        Assert.Equal(3, cu.Declarations.Count);
+
+        var preprocessor1 = cu.Declarations[0] as PreprocessorDeclaration;
+        Assert.NotNull(preprocessor1);
+        Assert.Equal("#if DEBUG", preprocessor1.Directive);
+
+        var classDecl = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("DebugHelper", classDecl.Name);
+
+        var preprocessor2 = cu.Declarations[2] as PreprocessorDeclaration;
+        Assert.NotNull(preprocessor2);
+        Assert.Equal("#endif", preprocessor2.Directive);
+    }
+
+    [Fact]
+    public void TestPreprocessorDirectiveInFunction()
+    {
+        var source = @"
+func TestFunc() {
+    #if DEBUG
+    print ""Debug mode""
+    #endif
+}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+        Assert.Equal(3, funcDecl.Body.Statements.Count);
+
+        var preprocessor1 = funcDecl.Body.Statements[0] as PreprocessorDirective;
+        Assert.NotNull(preprocessor1);
+        Assert.Equal("#if DEBUG", preprocessor1.Directive);
+
+        var printStmt = funcDecl.Body.Statements[1] as PrintStatement;
+        Assert.NotNull(printStmt);
+
+        var preprocessor2 = funcDecl.Body.Statements[2] as PreprocessorDirective;
+        Assert.NotNull(preprocessor2);
+        Assert.Equal("#endif", preprocessor2.Directive);
+    }
+
+    [Fact]
+    public void TestPreprocessorRegion()
+    {
+        var source = @"
+#region Helper Functions
+func Helper(): int {
+    return 42
+}
+#endregion
+";
+
+        var cu = Parse(source);
+        Assert.Equal(3, cu.Declarations.Count);
+
+        var preprocessor1 = cu.Declarations[0] as PreprocessorDeclaration;
+        Assert.NotNull(preprocessor1);
+        Assert.Equal("#region Helper Functions", preprocessor1.Directive);
+
+        var funcDecl = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var preprocessor2 = cu.Declarations[2] as PreprocessorDeclaration;
+        Assert.NotNull(preprocessor2);
+        Assert.Equal("#endregion", preprocessor2.Directive);
+    }
+
+    [Fact]
+    public void TestPreprocessorDefine()
+    {
+        var source = @"
+#define FEATURE_X
+";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Declarations);
+
+        var preprocessor = cu.Declarations[0] as PreprocessorDeclaration;
+        Assert.NotNull(preprocessor);
+        Assert.Equal("#define FEATURE_X", preprocessor.Directive);
+    }
 }
 

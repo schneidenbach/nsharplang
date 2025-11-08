@@ -193,6 +193,9 @@ public class Transpiler
             case TypeAliasDeclaration alias:
                 TranspileTypeAlias(alias);
                 break;
+            case PreprocessorDeclaration preprocessor:
+                TranspilePreprocessorDeclaration(preprocessor);
+                break;
             case FieldDeclaration field:
                 TranspileFieldDeclaration(field);
                 break;
@@ -636,6 +639,12 @@ public class Transpiler
         WriteLine($"// type {alias.Name} = {TranspileTypeReference(alias.Type)}");
     }
 
+    private void TranspilePreprocessorDeclaration(PreprocessorDeclaration preprocessor)
+    {
+        // Pass-through to C# - preprocessor directives are emitted as-is
+        WriteLine(preprocessor.Directive);
+    }
+
     private void TranspileFieldDeclaration(FieldDeclaration field)
     {
         TranspileAttributes(field.Attributes);
@@ -847,6 +856,9 @@ public class Transpiler
                 break;
             case AssertStatement assertStmt:
                 TranspileAssertStatement(assertStmt);
+                break;
+            case PreprocessorDirective preprocessor:
+                WriteLine(preprocessor.Directive);
                 break;
             case EmptyStatement:
                 WriteLine(";");

@@ -199,7 +199,50 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Task 014: ASP.NET Core example project
 - Additional language features as needed
 
-### v1.31 (Open-Ended Ranges) ✅ COMPLETE - LATEST!
+### v1.32 (Preprocessor Directives) ✅ COMPLETE - LATEST!
+1. **AST nodes**: ✅ Two new AST nodes for preprocessor directives
+   - Created `PreprocessorDirective` statement (for inline directives within functions/blocks)
+   - Created `PreprocessorDeclaration` declaration (for top-level and class member directives)
+   - Both store full directive text including `#` (e.g., "#if DEBUG", "#region Helpers")
+2. **Parser support**: ✅ Complete preprocessor directive parsing
+   - ParseStatement handles preprocessor directives within function bodies
+   - ParseDeclaration handles preprocessor directives at top level
+   - ParseMemberDeclaration handles preprocessor directives within classes/structs/interfaces
+   - Directives can appear anywhere in code (statements, declarations, class members)
+3. **Analyzer support**: ✅ Pass-through handling
+   - Preprocessor directives don't need semantic analysis
+   - Added cases to AnalyzeStatement and AnalyzeDeclaration for pass-through
+   - No validation performed - C# compiler handles all preprocessor logic
+4. **Transpiler support**: ✅ Direct pass-through to C#
+   - TranspileStatement emits preprocessor directives as-is
+   - TranspileDeclaration emits preprocessor directives as-is (via TranspilePreprocessorDeclaration)
+   - Preserves exact directive text with proper indentation
+   - C# compiler processes all preprocessor directives natively
+5. **Test coverage**: ✅ 8 new tests (4 parser + 4 transpiler) = 308 total
+   - TestPreprocessorDirectiveTopLevel: Top-level #if/#endif parsing
+   - TestPreprocessorDirectiveInFunction: Inline preprocessor in function body
+   - TestPreprocessorRegion: #region/#endregion parsing
+   - TestPreprocessorDefine: #define parsing
+   - Corresponding transpiler tests verify correct C# output
+6. **Example**: ✅ examples/preprocessor_directives.nl
+   - Demonstrates #region/#endregion for code organization
+   - Shows #if DEBUG/#else/#endif for conditional compilation
+   - Works at top level, in classes, and in function bodies
+   - Successfully compiles and runs
+7. **Build status**: ✅ All 308 tests passing
+
+**Impact:** N# now supports full C# preprocessor directive syntax for conditional compilation and code organization!
+
+**Supported directives:**
+- `#if`, `#else`, `#elif`, `#endif`: Conditional compilation
+- `#define`, `#undef`: Symbol definition
+- `#region`, `#endregion`: Code organization and folding
+- `#warning`, `#error`: Custom compiler messages
+- `#line`, `#nullable`, `#pragma`: Advanced directives
+
+**Key design decision:** Pass-through approach - N# parser recognizes directives but doesn't interpret them. This ensures 100% C# compatibility and lets the C# compiler handle all preprocessor logic natively.
+
+### v1.31 (Open-Ended Ranges) ✅ COMPLETE
 1. **AST enhancement**: ✅ New RangeExpression node
    - Created dedicated `RangeExpression` record with optional `Start` and `End` fields
    - Replaces BinaryExpression.Range for cleaner handling of open-ended ranges

@@ -138,6 +138,12 @@ public record PrintStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Preprocessor directive (pass-through to C#)
+public record PreprocessorDirective(
+    string Directive,  // Full directive text including # (e.g., "#if DEBUG", "#region Helpers")
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // File-based import: import "path/to/file" [as Alias]
 public record FileImport(
     string Path,

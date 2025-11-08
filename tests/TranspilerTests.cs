@@ -1616,4 +1616,66 @@ class Test {
         var result = Transpile(source);
         Assert.Contains("arr[..]", result);
     }
+
+    [Fact]
+    public void TestPreprocessorDirectiveTopLevelTranspilation()
+    {
+        var source = @"
+#if DEBUG
+class DebugHelper {
+    DebugFlag: bool = true
+}
+#endif
+";
+
+        var result = Transpile(source);
+        Assert.Contains("#if DEBUG", result);
+        Assert.Contains("class DebugHelper", result);
+        Assert.Contains("bool DebugFlag", result);
+        Assert.Contains("#endif", result);
+    }
+
+    [Fact]
+    public void TestPreprocessorDirectiveInFunctionTranspilation()
+    {
+        var source = @"
+func TestFunc() {
+    #if DEBUG
+    print ""Debug mode""
+    #endif
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("#if DEBUG", result);
+        Assert.Contains("Console.WriteLine", result);
+        Assert.Contains("#endif", result);
+    }
+
+    [Fact]
+    public void TestPreprocessorRegionTranspilation()
+    {
+        var source = @"
+#region Helper Functions
+func Helper(): int {
+    return 42
+}
+#endregion
+";
+
+        var result = Transpile(source);
+        Assert.Contains("#region Helper Functions", result);
+        Assert.Contains("internal static int Helper()", result);
+        Assert.Contains("#endregion", result);
+    }
+
+    [Fact]
+    public void TestPreprocessorDefineTranspilation()
+    {
+        var source = @"
+#define FEATURE_X
+";
+
+        var result = Transpile(source);
+        Assert.Contains("#define FEATURE_X", result);
+    }
 }

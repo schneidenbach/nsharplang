@@ -133,6 +133,16 @@ public class Parser
         if (Check(TokenType.Test))
             return ParseTestDeclaration();
 
+        // Preprocessor directives can appear at top level
+        if (Check(TokenType.PreprocessorDirective))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            var directive = Current.Value;
+            Advance();
+            return new PreprocessorDeclaration(directive, line, column);
+        }
+
         var attributes = ParseAttributes();
         var modifiers = ParseModifiers();
 
@@ -639,6 +649,16 @@ public class Parser
 
     private Declaration ParseMemberDeclaration()
     {
+        // Preprocessor directives can appear in class members
+        if (Check(TokenType.PreprocessorDirective))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            var directive = Current.Value;
+            Advance();
+            return new PreprocessorDeclaration(directive, line, column);
+        }
+
         var attributes = ParseAttributes();
         var modifiers = ParseModifiers();
 
@@ -982,6 +1002,8 @@ public class Parser
             return ParsePrintStatement();
         if (Check(TokenType.Assert))
             return ParseAssertStatement();
+        if (Check(TokenType.PreprocessorDirective))
+            return ParsePreprocessorDirective();
         if (Check(TokenType.LeftBrace))
             return ParseBlock();
 
@@ -1202,6 +1224,16 @@ public class Parser
 
         var value = ParseExpression();
         return new PrintStatement(value, line, column);
+    }
+
+    private PreprocessorDirective ParsePreprocessorDirective()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        var directive = Current.Value;
+        Consume(TokenType.PreprocessorDirective, "Expected preprocessor directive");
+
+        return new PreprocessorDirective(directive, line, column);
     }
 
     private BreakStatement ParseBreakStatement()

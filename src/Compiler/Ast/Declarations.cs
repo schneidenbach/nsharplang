@@ -188,6 +188,12 @@ public record TypeAliasDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
+// Preprocessor directive wrapper (for top-level preprocessor directives)
+public record PreprocessorDeclaration(
+    string Directive,  // Full directive text including # (e.g., "#if DEBUG", "#region Helpers")
+    int Line,
+    int Column) : Declaration(Line, Column);
+
 // Modifiers
 [Flags]
 public enum Modifiers

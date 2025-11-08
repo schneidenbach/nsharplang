@@ -133,6 +133,9 @@ public class Analyzer
             case ConstructorDeclaration ctor:
                 AnalyzeConstructorDeclaration(ctor);
                 break;
+            case PreprocessorDeclaration:
+                // Preprocessor directives don't need analysis - they're pass-through
+                break;
         }
     }
 
@@ -514,6 +517,9 @@ public class Analyzer
                 break;
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
+                break;
+            case PreprocessorDirective:
+                // Preprocessor directives don't need analysis - they're pass-through
                 break;
         }
     }
