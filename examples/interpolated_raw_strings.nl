@@ -69,15 +69,6 @@ func Main() {
 
     print "\n=== Regex Pattern ==="
     print pattern
-
-    // 5. Multi-line string with complex formatting
-    table := GenerateTable(["Name", "Age", "Email"], [
-        ["Alice", "30", "alice@example.com"],
-        ["Bob", "25", "bob@example.com"]
-    ])
-
-    print "\n=== Table ==="
-    print table
 }
 
 func GenerateTable(headers: string[], rows: string[][]): string {
