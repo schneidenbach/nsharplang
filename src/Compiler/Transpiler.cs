@@ -673,11 +673,14 @@ public class Transpiler
     {
         TranspileAttributes(field.Attributes);
 
-        var modifiers = GetModifierString(field.Modifiers);
-        var type = TranspileTypeReference(field.Type);
         var hasReadonly = field.PropertyModifier.HasFlag(PropertyModifier.Readonly);
         var hasInit = field.PropertyModifier.HasFlag(PropertyModifier.Init);
         var hasRequired = field.PropertyModifier.HasFlag(PropertyModifier.Required);
+
+        // Remove readonly and required from modifiers - they'll be handled separately
+        var modifiersToEmit = field.Modifiers & ~(Modifiers.Readonly | Modifiers.Required);
+        var modifiers = GetModifierString(modifiersToEmit);
+        var type = TranspileTypeReference(field.Type);
 
         // Determine visibility based on naming convention if no explicit modifier
         if (!field.Modifiers.HasFlag(Modifiers.Public) && !field.Modifiers.HasFlag(Modifiers.Private) &&
@@ -732,9 +735,16 @@ public class Transpiler
             var type = TranspileTypeReference(prop.Type!);
             WriteLine($"{modifiers}{type} {prop.Name} => {TranspileExpression(prop.ExpressionBody)};");
         }
+        // Auto-property (no custom get/set bodies)
+        else if (prop.GetBody == null && prop.SetBody == null)
+        {
+            var type = TranspileTypeReference(prop.Type!);
+            var accessors = hasInit ? "{ get; init; }" : "{ get; set; }";
+            WriteLine($"{modifiers}{type} {prop.Name} {accessors}");
+        }
         else
         {
-            // Regular property with get/set blocks
+            // Regular property with custom get/set blocks
             var type = TranspileTypeReference(prop.Type!); // Type is required for non-expression-bodied properties
             WriteLine($"{modifiers}{type} {prop.Name}");
             WriteLine("{");

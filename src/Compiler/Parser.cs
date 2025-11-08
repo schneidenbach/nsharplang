@@ -228,24 +228,9 @@ public class Parser
                 modifiers |= Modifiers.Partial;
                 Advance();
             }
-            else if (Check(TokenType.Readonly))
-            {
-                modifiers |= Modifiers.Readonly;
-                Advance();
-            }
             else if (Check(TokenType.Async))
             {
                 modifiers |= Modifiers.Async;
-                Advance();
-            }
-            else if (Check(TokenType.Required))
-            {
-                modifiers |= Modifiers.Required;
-                Advance();
-            }
-            else if (Check(TokenType.Init))
-            {
-                modifiers |= Modifiers.Init;
                 Advance();
             }
             else if (Check(TokenType.File))
