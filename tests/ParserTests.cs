@@ -2018,6 +2018,151 @@ func main() {
     }
 
     [Fact]
+    public void TestListPatternEmpty()
+    {
+        var source = "func check(arr: int[]): bool {\n" +
+                     "    result := match arr {\n" +
+                     "        [] => true,\n" +
+                     "        _ => false\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
+        Assert.Empty(listPattern.Elements);
+    }
+
+    [Fact]
+    public void TestListPatternLiteral()
+    {
+        var source = "func check(arr: int[]): bool {\n" +
+                     "    result := match arr {\n" +
+                     "        [1, 2, 3] => true,\n" +
+                     "        _ => false\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
+        Assert.Equal(3, listPattern.Elements.Count);
+        Assert.All(listPattern.Elements, e => Assert.IsType<LiteralPattern>(e));
+    }
+
+    [Fact]
+    public void TestListPatternWithSlice()
+    {
+        var source = "func check(arr: int[]): int {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, ..] => first,\n" +
+                     "        _ => 0\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
+        Assert.Equal(2, listPattern.Elements.Count);
+
+        var firstElement = Assert.IsType<IdentifierPattern>(listPattern.Elements[0]);
+        Assert.Equal("first", firstElement.Name);
+
+        var slicePattern = Assert.IsType<SlicePattern>(listPattern.Elements[1]);
+        Assert.Null(slicePattern.BindingName);
+    }
+
+    [Fact]
+    public void TestListPatternWithNamedSlice()
+    {
+        var source = "func check(arr: int[]): int[] {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, .. rest] => rest,\n" +
+                     "        _ => []\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
+        Assert.Equal(2, listPattern.Elements.Count);
+
+        var slicePattern = Assert.IsType<SlicePattern>(listPattern.Elements[1]);
+        Assert.Equal("rest", slicePattern.BindingName);
+    }
+
+    [Fact]
+    public void TestListPatternWithMiddleSlice()
+    {
+        var source = "func check(arr: int[]): (int, int) {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, .. middle, last] => (first, last),\n" +
+                     "        _ => (0, 0)\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
+        Assert.Equal(3, listPattern.Elements.Count);
+
+        Assert.IsType<IdentifierPattern>(listPattern.Elements[0]);
+        var slicePattern = Assert.IsType<SlicePattern>(listPattern.Elements[1]);
+        Assert.Equal("middle", slicePattern.BindingName);
+        Assert.IsType<IdentifierPattern>(listPattern.Elements[2]);
+    }
+
+    [Fact]
     public void TestComplexCombinedPatterns()
     {
         var source = "func check(value: int): string {\n" +

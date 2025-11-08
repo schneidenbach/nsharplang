@@ -1547,6 +1547,41 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
 
+        // List pattern: [pattern1, pattern2, .., pattern3]
+        if (Check(TokenType.LeftBracket))
+        {
+            Advance(); // consume '['
+            var patterns = new List<Pattern>();
+
+            if (!Check(TokenType.RightBracket))
+            {
+                do
+                {
+                    // Check for slice pattern: .. or .. var name
+                    if (Check(TokenType.DotDot))
+                    {
+                        Advance(); // consume '..'
+                        string? bindingName = null;
+
+                        // Check for variable binding: .. var name or .. name
+                        if (Check(TokenType.Identifier))
+                        {
+                            bindingName = Advance().Value;
+                        }
+
+                        patterns.Add(new SlicePattern(bindingName, line, column));
+                    }
+                    else
+                    {
+                        patterns.Add(ParsePattern());
+                    }
+                } while (Match(TokenType.Comma));
+            }
+
+            Consume(TokenType.RightBracket, "Expected ']' after list pattern");
+            return new ListPattern(patterns, line, column);
+        }
+
         // Positional pattern (tuple pattern): (pattern1, pattern2, ...)
         if (Check(TokenType.LeftParen))
         {

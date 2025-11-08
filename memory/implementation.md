@@ -1334,3 +1334,51 @@ Result.Success { value: { Count: count } } => count
 5. **Extension method resolution**: Properly resolve extension methods like Select, Where
 6. **Generic type inference**: Infer type parameters from usage context
 7. **Better error messages**: Include source code context in error output
+
+## v1.37: List Patterns (C# 11)
+
+**Date**: November 8, 2025
+
+### Feature
+Implemented comprehensive list pattern matching for arrays and collections (C# 11 feature).
+
+### Implementation Details
+- **AST Nodes** (Expressions.cs):
+  - `ListPattern`: Matches arrays/lists with element patterns
+  - `SlicePattern`: Matches remaining elements (`..` or `.. name`)
+- **Parser** (Parser.cs:1550-1588):
+  - Detects `[` token and parses list patterns
+  - Handles slice patterns within lists
+  - Supports both named (`.. rest`) and unnamed (`..`) slices
+- **Analyzer** (Analyzer.cs:935-990):
+  - Validates list patterns against array/collection types
+  - Extracts element types from arrays and generic collections
+  - Binds slice variables to array types
+- **Transpiler** (Transpiler.cs:1648-1663):
+  - Emits C# 11 list pattern syntax: `[pattern1, pattern2, ..]`
+  - Transpiles slice patterns: `..` or `.. var name`
+
+### Syntax Examples
+```n#
+result := match arr {
+    [] => "empty",
+    [x] => "single",
+    [first, ..] => "first: \",
+    [.., last] => "last: \",
+    [first, .. middle, last] => "ends",
+    [1, 2, 3] => "exact match",
+    _ => "other"
+}
+```
+
+### Tests Added
+- 5 parser tests: empty, literal, slice patterns
+- 5 transpiler tests: verifying C# 11 output
+- All 344 tests passing
+
+### Notes
+- Slice patterns capture zero or more elements
+- Named slices (`.. rest`) bind to array type
+- Works with int[], string[], and other array types
+- Transpiles to clean C# 11 list pattern syntax
+

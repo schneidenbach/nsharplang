@@ -1203,6 +1203,91 @@ func main() {
     }
 
     [Fact]
+    public void TestListPatternEmptyTranspilation()
+    {
+        var source = "func check(arr: int[]): bool {\n" +
+                     "    result := match arr {\n" +
+                     "        [] => true,\n" +
+                     "        _ => false\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# 11 list pattern
+        Assert.Contains("[]", result);
+    }
+
+    [Fact]
+    public void TestListPatternLiteralTranspilation()
+    {
+        var source = "func check(arr: int[]): bool {\n" +
+                     "    result := match arr {\n" +
+                     "        [1, 2, 3] => true,\n" +
+                     "        _ => false\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# 11 list pattern
+        Assert.Contains("[1, 2, 3]", result);
+    }
+
+    [Fact]
+    public void TestListPatternWithSliceTranspilation()
+    {
+        var source = "func check(arr: int[]): int {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, ..] => first,\n" +
+                     "        _ => 0\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# 11 slice pattern
+        Assert.Contains("[var first, ..]", result);
+    }
+
+    [Fact]
+    public void TestListPatternWithNamedSliceTranspilation()
+    {
+        var source = "func check(arr: int[]): int[] {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, .. rest] => rest,\n" +
+                     "        _ => []\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# 11 slice pattern with binding
+        Assert.Contains("[var first, .. var rest]", result);
+    }
+
+    [Fact]
+    public void TestListPatternWithMiddleSliceTranspilation()
+    {
+        var source = "func check(arr: int[]): (int, int) {\n" +
+                     "    result := match arr {\n" +
+                     "        [first, .. middle, last] => (first, last),\n" +
+                     "        _ => (0, 0)\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# 11 list pattern with middle slice
+        Assert.Contains("[var first, .. var middle, var last]", result);
+    }
+
+    [Fact]
     public void TestComplexCombinedPatternsTranspilation()
     {
         var source = "func check(value: int): string {\n" +

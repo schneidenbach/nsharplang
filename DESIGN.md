@@ -133,6 +133,24 @@ result := match point {
 }
 ```
 
+**List Patterns** (C# 11 - arrays and collections):
+```
+result := match numbers {
+    [] => "empty",
+    [x] => $"single: {x}",
+    [x, y] => $"pair: {x}, {y}",
+    [first, ..] => $"starts with {first}",
+    [.., last] => $"ends with {last}",
+    [first, .. middle, last] => $"first: {first}, last: {last}",
+    [1, 2, 3] => "exact match",
+    _ => "other"
+}
+```
+- Slice pattern `..` matches zero or more elements
+- Named slices `.. rest` capture the middle elements as an array
+- Works with arrays, lists, and other collection types
+- Supports literal matching and variable binding
+
 **Guards** (additional conditions):
 ```
 result := match value {

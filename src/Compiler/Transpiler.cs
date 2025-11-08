@@ -1558,6 +1558,8 @@ public class Transpiler
             OrPattern or => TranspileOrPattern(or),
             NotPattern not => TranspileNotPattern(not),
             PositionalPattern positional => TranspilePositionalPattern(positional),
+            ListPattern list => TranspileListPattern(list),
+            SlicePattern slice => TranspileSlicePattern(slice),
             _ => throw new Exception($"Unsupported pattern type: {pattern.GetType().Name}")
         };
     }
@@ -1641,6 +1643,23 @@ public class Transpiler
         // C# positional pattern: (pattern1, pattern2, ...)
         var patterns = string.Join(", ", pattern.Patterns.Select(TranspilePattern));
         return $"({patterns})";
+    }
+
+    private string TranspileListPattern(ListPattern pattern)
+    {
+        // C# 11 list pattern: [pattern1, pattern2, .., pattern3]
+        var patterns = string.Join(", ", pattern.Elements.Select(TranspilePattern));
+        return $"[{patterns}]";
+    }
+
+    private string TranspileSlicePattern(SlicePattern pattern)
+    {
+        // C# 11 slice pattern: .. or .. var name
+        if (pattern.BindingName != null)
+        {
+            return $".. var {pattern.BindingName}";
+        }
+        return "..";
     }
 
     private string TranspileTypeReference(TypeReference typeRef)

@@ -242,6 +242,26 @@ public record ObjectPattern(
     int Line,
     int Column) : Pattern(Line, Column);
 
+// List pattern for array/list pattern matching (C# 11)
+// Examples:
+//   [1, 2, 3]           -> exact match with literal patterns
+//   [var first, ..]     -> capture first element, rest ignored
+//   [.., var last]      -> capture last element
+//   [var x, .. var rest, var y]  -> slice pattern with middle capture
+//   []                  -> empty list
+public record ListPattern(
+    List<Pattern> Elements,  // Element patterns (can include SlicePattern)
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+// Slice pattern for capturing remaining elements in list patterns
+// Used in list patterns: [first, .. middle, last]
+// The .. operator captures zero or more elements
+public record SlicePattern(
+    string? BindingName,  // Optional variable to bind the slice (null for discard ..)
+    int Line,
+    int Column) : Pattern(Line, Column);
+
 // Spread expression (for arrays and function calls)
 public record SpreadExpression(
     Expression Expression,

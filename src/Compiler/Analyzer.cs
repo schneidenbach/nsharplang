@@ -931,6 +931,65 @@ public class Analyzer
                 // Object pattern matches properties on any type (not just unions)
                 AnalyzePropertyPatterns(objectPattern.Properties, valueType, pattern.Line, pattern.Column);
                 break;
+
+            case ListPattern listPattern:
+                // List pattern matches arrays and IEnumerable<T> types
+                // Determine element type
+                TypeInfo? elementType = null;
+
+                if (valueType is ArrayTypeInfo arrayType)
+                {
+                    elementType = arrayType.ElementType;
+                }
+                else if (valueType is GenericTypeInfo genericType &&
+                         (genericType.Name == "IEnumerable" || genericType.Name == "List"))
+                {
+                    // Extract generic type parameter
+                    elementType = genericType.TypeArguments.Count > 0
+                        ? genericType.TypeArguments[0]
+                        : BuiltInTypes.Unknown;
+                }
+                else if (valueType is ReflectionTypeInfo reflType && reflType.Type.IsArray)
+                {
+                    elementType = new ReflectionTypeInfo(reflType.Type.GetElementType()!);
+                }
+                else
+                {
+                    Error($"List pattern cannot be used with type '{valueType}' (must be array or collection)",
+                        pattern.Line, pattern.Column);
+                    elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
+                }
+
+                // Analyze each element pattern
+                foreach (var elemPattern in listPattern.Elements)
+                {
+                    if (elemPattern is SlicePattern slicePattern)
+                    {
+                        // Slice pattern captures an array/list of elements
+                        if (slicePattern.BindingName != null)
+                        {
+                            // Bind the slice to an array of the element type
+                            var sliceType = new ArrayTypeInfo(elementType);
+                            DeclareSymbol(slicePattern.BindingName, sliceType, pattern.Line, pattern.Column);
+                        }
+                    }
+                    else
+                    {
+                        // Regular pattern - analyze with element type
+                        AnalyzePattern(elemPattern, elementType);
+                    }
+                }
+                break;
+
+            case SlicePattern slicePattern:
+                // Slice patterns should only appear within list patterns
+                // This case shouldn't be reached, but handle it gracefully
+                if (slicePattern.BindingName != null)
+                {
+                    // Bind to array type (best guess)
+                    DeclareSymbol(slicePattern.BindingName, new ArrayTypeInfo(valueType), pattern.Line, pattern.Column);
+                }
+                break;
         }
     }
 
