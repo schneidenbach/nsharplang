@@ -1,8 +1,8 @@
 # N# Language - Current Status
 
-**Last Updated:** 2024-11-08
-**Version:** v1.59
-**Status:** 🚀 Feature-Complete + VS Code Extension
+**Last Updated:** 2025-11-08
+**Version:** v1.60
+**Status:** 🚀 Feature-Complete + Professional Error Messages
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.59 |
-| **Tests Passing** | 454 / 454 (100%) |
-| **Example Files** | 54+ .nl files |
-| **Compiler LOC** | ~9,372 lines |
+| **Language Version** | v1.60 |
+| **Tests Passing** | 463 / 463 (100%) |
+| **Example Files** | 55+ .nl files |
+| **Compiler LOC** | ~9,900 lines |
 | **Features Implemented** | All from DESIGN.md ✅ |
 
 ---
@@ -103,7 +103,8 @@
 - ✅ **Compiler**
   - Lexer, Parser, Analyzer, Transpiler
   - Multi-pass compilation
-  - Excellent error reporting
+  - **Professional error messages** with error codes (NL001-NL999)
+  - Rust-quality error formatting with suggestions
   - External type resolution via reflection
   - Full semantic analysis
 
@@ -123,17 +124,19 @@
   - Auto-generated .csproj files
 
 - ✅ **Testing**
-  - 454 comprehensive unit tests
+  - 463 comprehensive unit tests
   - Lexer, Parser, Analyzer, Transpiler tests
+  - Error reporting and formatting tests
   - Multi-file compilation tests
   - Project configuration tests
   - End-to-end integration tests
   - All tests passing
 
 - ✅ **Examples**
-  - 54+ example .nl files
+  - 55+ example .nl files
   - Covers every language feature
   - Multi-file example project (WeatherDemo)
+  - Error demonstration (test_errors.nl)
   - Real-world patterns demonstrated
 
 - ✅ **VS Code Extension** (NEW!)
@@ -148,20 +151,19 @@
 
 ## 🎯 Next Steps - Developer Experience
 
-### Priority 1: Quick Win ✅ DONE
+### Priority 1: Quick Wins ✅ DONE
 - ✅ **Task 019**: VS Code Syntax Highlighting (COMPLETE v1.59)
   - Full TextMate grammar
   - Professional appearance
   - Foundation for LSP
 
-### Priority 2: Essential Improvements
-- 🔥 **Task 017**: Better Error Messages (4-6 hours)
+- ✅ **Task 017**: Better Error Messages (COMPLETE v1.60)
   - Error codes (NL001-NL999)
-  - Source code snippets with markers
-  - Helpful suggestions (Rust-quality)
-  - Multi-error display
+  - Rust-quality error formatting
+  - Helpful suggestions with context
+  - Professional appearance
 
-### Priority 3: Game Changer
+### Priority 2: Game Changer
 - 🚀 **Task 018**: Language Server Protocol (20-30 hours)
   - Real-time diagnostics
   - IntelliSense / Auto-completion
@@ -196,17 +198,23 @@
 - Checked/unchecked
 - Conversion operators
 
-### v1.59: Tooling Begins (Current)
+### v1.59: Tooling Begins
 - VS Code syntax highlighting ✅
 - Foundation for LSP
 - Professional appearance
+
+### v1.60: Professional Error Messages (Current)
+- Error codes (NL001-NL999) ✅
+- Rust-quality error formatting ✅
+- Context-aware suggestions ✅
+- Enhanced developer experience ✅
 
 ---
 
 ## 💪 Strengths
 
 1. **Feature-Complete** - All DESIGN.md features implemented
-2. **Well-Tested** - 454 passing tests, comprehensive coverage
+2. **Well-Tested** - 463 passing tests, comprehensive coverage
 3. **Clean Architecture** - Modular, maintainable codebase
 4. **Perfect C# Interop** - N# code looks like idiomatic C#
 5. **Modern Syntax** - Go-inspired simplicity
@@ -214,7 +222,8 @@
 7. **Pragmatic** - Embraces .NET realities, not dogmatic
 8. **Multi-file Projects** - Real-world project support
 9. **IDE Support** - VS Code extension ready
-10. **Documentation** - Excellent examples and specs
+10. **Professional Errors** - Rust-quality error messages with codes and suggestions
+11. **Documentation** - Excellent examples and specs
 
 ---
 
@@ -293,7 +302,7 @@ dotnet run --project ../src/Cli/Cli.csproj run Program.nl
 
 ## 🎉 Conclusion
 
-**N# is feature-complete and ready for the next phase!**
+**N# is feature-complete and developer-friendly!**
 
 The language has achieved all its design goals:
 - ✅ Simpler syntax than C#
@@ -303,9 +312,9 @@ The language has achieved all its design goals:
 - ✅ Production-quality transpilation
 - ✅ Comprehensive test coverage
 - ✅ IDE support (VS Code syntax highlighting)
+- ✅ Professional error messages (Rust-quality)
 
-**Next mission: Make N# a joy to use**
-- Better error messages
+**Next mission: Full IDE experience**
 - Full Language Server Protocol
 - Rich IDE experience
 - World-class developer tooling
