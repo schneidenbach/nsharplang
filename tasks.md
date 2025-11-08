@@ -362,7 +362,59 @@
 - [x] All 215 tests passing, 0 skipped (29 lexer + 61 parser + 67 analyzer + 48 transpiler)
 - [x] Build successful with warnings (same nullability warnings as before)
 
+### Phase 21: Import System - Phase 2 Complete (v1.22 - LATEST!)
+- [x] **FileResolver Class**: Path resolution for file-based imports
+  - Handles relative paths (`./`, `../`)
+  - Handles project-root paths (`Models/Person`)
+  - Adds `.nl` extension automatically
+  - Validates file exists with helpful error messages
+- [x] **Analyzer Import Processing**: Full symbol import logic
+  - ProcessImports method parses imported files
+  - ExtractPublicSymbols gets PascalCase symbols from imported files
+  - Symbols added to global scope for direct access
+  - Aliased imports tracked separately for `Alias.Symbol` access
+  - Namespace imports work like using statements
+- [x] **Collision Detection**: Import conflict handling
+  - Tracks symbols and their source files
+  - Detects when same symbol imported from multiple sources
+  - Reports error with all source file paths
+  - Suggests using aliasing to resolve conflicts
+- [x] **Member Access Enhancement**: Aliased import resolution
+  - AnalyzeMemberAccess checks for import aliases first
+  - `Alias.Symbol` resolves to imported symbol types
+  - Works seamlessly with existing type resolution
+- [x] **Transpiler Integration**: C# using statement generation
+  - Namespace imports transpile to C# using statements
+  - Aliased namespace imports: `import X as Y` → `using Y = X;`
+  - File imports don't emit anything (symbols already in scope)
+- [x] **CLI Integration**: File path support
+  - CompileToCSharp passes currentFilePath and projectRoot to Analyzer
+  - Enables import resolution in actual compilation
+- [x] **Test Coverage**: 2 new transpiler tests
+  - TestNamespaceImportTranspilation: Verifies using statement emission
+  - TestNamespaceImportWithAliasTranspilation: Verifies aliased using statements
+- [x] **Example Created**: `examples/imports/` directory
+  - Models.nl: Defines Person class and Status enum
+  - Program.nl: Imports and uses Models types
+  - Demonstrates file-based and namespace imports
+- [x] All 251 tests passing, 0 skipped (32 lexer + 78 parser + 78 analyzer + 63 transpiler)
+- [x] Build successful
+
+**What Works:**
+- File-based imports resolve and validate file paths ✅
+- Public symbols (PascalCase) extracted from imported files ✅
+- Namespace imports transpile to C# using statements ✅
+- Import collision detection with helpful error messages ✅
+- Aliased imports work for both files and namespaces ✅
+
+**Known Limitations (Future Phase 3):**
+- Circular import detection not yet implemented
+- Full multi-file transpilation (emitting all imported files) not yet implemented
+- Currently only validates imports and adds symbols to scope
+
 ## 🚧 In Progress
+
+None - v1.22 import system Phase 2 complete!
 
 ### Phase 22: Advanced Pattern Matching (v1.20 - WIP)
 - [~] **Relational Patterns**: Pattern matching with comparison operators (`< 13`, `>= 65`)

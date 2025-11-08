@@ -42,7 +42,17 @@ public class Transpiler
             TranspileUsing(usingDirective);
         }
 
-        if (_compilationUnit.Usings.Count > 0)
+        // Imports (namespace imports only - file imports are inlined)
+        foreach (var import in _compilationUnit.Imports)
+        {
+            if (import is NamespaceImport nsImport)
+            {
+                TranspileNamespaceImport(nsImport);
+            }
+            // FileImports are not emitted - their symbols are inlined
+        }
+
+        if (_compilationUnit.Usings.Count > 0 || _compilationUnit.Imports.Count > 0)
             _output.AppendLine();
 
         // Namespace
@@ -99,6 +109,19 @@ public class Transpiler
         else
         {
             WriteLine($"using {usingDirective.Namespace};");
+        }
+    }
+
+    private void TranspileNamespaceImport(NamespaceImport import)
+    {
+        // Namespace imports transpile to C# using statements
+        if (import.Alias != null)
+        {
+            WriteLine($"using {import.Alias} = {import.Namespace};");
+        }
+        else
+        {
+            WriteLine($"using {import.Namespace};");
         }
     }
 

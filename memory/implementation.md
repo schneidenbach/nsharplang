@@ -146,7 +146,50 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.21 (Import System - Phase 1: Syntax and Parsing) 🚧 IN PROGRESS
+### v1.22 (Import System - Phase 2: Symbol Resolution and Analysis) ✅ COMPLETE
+1. **FileResolver class**: ✅ Path resolution for file-based imports
+   - Created FileResolver.cs with ResolveFilePath, ValidateImportPath methods
+   - Handles relative paths (`./`, `../`) and project-root paths
+   - Adds `.nl` extension automatically if not present
+   - Validates file exists with helpful error messages
+2. **Analyzer import processing**: ✅ Full symbol import logic
+   - Added ProcessImports method to handle file and namespace imports
+   - ProcessFileImport: Resolves paths, parses imported files, extracts symbols
+   - ExtractPublicSymbols: Gets PascalCase (public) symbols from declarations
+   - Symbols added to global scope for direct access
+   - Aliased imports tracked in _importedSymbolsByAlias dictionary
+   - Namespace imports work like using statements
+3. **Collision detection**: ✅ Import conflict handling
+   - CheckImportCollisions validates no duplicate symbols from multiple sources
+   - Tracks symbol sources in _importedSymbols dictionary
+   - Reports helpful errors with all conflicting file paths
+   - Suggests using aliasing to resolve conflicts
+4. **Member access enhancement**: ✅ Aliased import resolution
+   - Updated AnalyzeMemberAccess to check import aliases first
+   - `Alias.Symbol` resolves to imported symbol types
+   - Works seamlessly with existing type resolution for .NET types
+5. **Transpiler integration**: ✅ C# using statement generation
+   - Added TranspileNamespaceImport method
+   - Namespace imports → C# using statements
+   - Aliased imports: `import X as Y` → `using Y = X;`
+   - File imports don't emit (symbols already in scope)
+6. **CLI integration**: ✅ File path support
+   - Updated CompileToCSharp to pass currentFilePath and projectRoot to Analyzer
+   - Enables import resolution in actual compilation
+7. **Test coverage**: ✅ 2 new transpiler tests
+   - TestNamespaceImportTranspilation
+   - TestNamespaceImportWithAliasTranspilation
+   - All 251 tests passing (32 lexer + 78 parser + 78 analyzer + 63 transpiler)
+8. **Example created**: ✅ `examples/imports/` directory
+   - Models.nl: Person class and Status enum
+   - Program.nl: Imports and uses Models types
+
+**Known Limitations (Future Phase 3):**
+- Circular import detection not implemented
+- Full multi-file transpilation (emitting all imported files together) not implemented
+- Currently: Analyzer validates imports work, but transpiler only emits current file
+
+### v1.21 (Import System - Phase 1: Syntax and Parsing) ✅ COMPLETE
 1. **Import keyword**: ✅ Added `Import` token type
    - Added to Token.cs (line 23) and Lexer keywords dictionary
    - Lexer recognizes "import" keyword

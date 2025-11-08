@@ -1218,4 +1218,32 @@ func main() {
         // Should transpile with proper pattern combinations
         Assert.Contains("(> 0 and < 10) or (> 90 and < 100)", result);
     }
+
+    [Fact]
+    public void TestNamespaceImportTranspilation()
+    {
+        var source = "import System.Collections.Generic\n" +
+                     "import System.Linq\n" +
+                     "class MyClass { }";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# using statements
+        Assert.Contains("using System.Collections.Generic;", result);
+        Assert.Contains("using System.Linq;", result);
+    }
+
+    [Fact]
+    public void TestNamespaceImportWithAliasTranspilation()
+    {
+        var source = "import System.Collections.Generic as Collections\n" +
+                     "import Newtonsoft.Json as Json\n" +
+                     "class MyClass { }";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# using alias statements
+        Assert.Contains("using Collections = System.Collections.Generic;", result);
+        Assert.Contains("using Json = Newtonsoft.Json;", result);
+    }
 }

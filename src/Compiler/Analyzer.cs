@@ -16,20 +16,33 @@ public class Analyzer
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
+    private readonly Dictionary<string, List<string>> _importedSymbols = new(); // symbol -> [source paths]
+    private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private bool _inConstructor;
     private ClassDeclaration? _currentClass;
+    private string? _currentFilePath;
+    private string? _projectRoot;
 
     public AnalysisResult Analyze(CompilationUnit unit)
+    {
+        return Analyze(unit, null, null);
+    }
+
+    public AnalysisResult Analyze(CompilationUnit unit, string? currentFilePath, string? projectRoot)
     {
         _errors.Clear();
         _scopes.Clear();
         _usingNamespaces.Clear();
         _usingAliases.Clear();
+        _importedSymbols.Clear();
+        _importedSymbolsByAlias.Clear();
         _currentReturnType = null;
         _inLoop = false;
         _inConstructor = false;
+        _currentFilePath = currentFilePath;
+        _projectRoot = projectRoot;
 
         // Process using statements
         foreach (var usingStmt in unit.Usings)
@@ -44,8 +57,14 @@ public class Analyzer
             }
         }
 
-        // Create global scope
+        // Create global scope first (needed for adding imported symbols)
         PushScope(new Scope(ScopeKind.Global));
+
+        // Process imports (adds symbols to global scope)
+        ProcessImports(unit.Imports);
+
+        // Check for import collisions
+        CheckImportCollisions();
 
         // First pass: collect all type declarations
         foreach (var decl in unit.Declarations)
@@ -962,6 +981,26 @@ public class Analyzer
 
     private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
     {
+        // Check if this is an aliased import access (Alias.Symbol)
+        if (member.Object is IdentifierExpression identifier)
+        {
+            var aliasName = identifier.Name;
+
+            // Check file import aliases
+            if (_importedSymbolsByAlias.TryGetValue(aliasName, out var symbols))
+            {
+                if (symbols.TryGetValue(member.MemberName, out var symbolType))
+                {
+                    return symbolType;
+                }
+                // Symbol not found in alias
+                Error($"Symbol '{member.MemberName}' not found in imported alias '{aliasName}'", member.Line, member.Column);
+                return BuiltInTypes.Unknown;
+            }
+
+            // Check namespace import aliases (handled by existing TryResolveExternalType)
+        }
+
         var objectType = AnalyzeExpression(member.Object);
 
         // Resolve member on type
@@ -1806,6 +1845,162 @@ public class Analyzer
     private void Warning(string message, int line, int column)
     {
         _errors.Add(new CompilerError(message, line, column, ErrorSeverity.Warning));
+    }
+
+    // Import processing
+    private void ProcessImports(List<Statement> imports)
+    {
+        if (_currentFilePath == null || _projectRoot == null)
+        {
+            // If file paths not provided, skip import processing
+            // This happens when Analyze() is called without paths (e.g., in tests)
+            return;
+        }
+
+        var fileResolver = new FileResolver(_projectRoot, _currentFilePath);
+
+        foreach (var import in imports)
+        {
+            if (import is FileImport fileImport)
+            {
+                ProcessFileImport(fileImport, fileResolver);
+            }
+            else if (import is NamespaceImport nsImport)
+            {
+                ProcessNamespaceImport(nsImport);
+            }
+        }
+    }
+
+    private void ProcessFileImport(FileImport import, FileResolver resolver)
+    {
+        // Resolve the file path
+        var resolvedPath = resolver.ValidateImportPath(import.Path, out var errorMessage);
+        if (resolvedPath == null)
+        {
+            Error(errorMessage!, import.Line, import.Column);
+            return;
+        }
+
+        // Parse the imported file
+        CompilationUnit importedUnit;
+        try
+        {
+            var source = System.IO.File.ReadAllText(resolvedPath);
+            var lexer = new Lexer(source, resolvedPath);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, resolvedPath);
+            importedUnit = parser.ParseCompilationUnit();
+        }
+        catch (Exception ex)
+        {
+            Error($"Failed to parse imported file '{import.Path}': {ex.Message}", import.Line, import.Column);
+            return;
+        }
+
+        // Extract public symbols from the imported file
+        var symbols = ExtractPublicSymbols(importedUnit);
+
+        // Add symbols to scope
+        if (import.Alias != null)
+        {
+            // With alias: symbols accessed via Alias.Symbol
+            if (!_importedSymbolsByAlias.ContainsKey(import.Alias))
+            {
+                _importedSymbolsByAlias[import.Alias] = new Dictionary<string, TypeInfo>();
+            }
+
+            foreach (var (name, type) in symbols)
+            {
+                _importedSymbolsByAlias[import.Alias][name] = type;
+            }
+        }
+        else
+        {
+            // Without alias: symbols directly available
+            foreach (var (name, type) in symbols)
+            {
+                // Track collision detection
+                if (!_importedSymbols.ContainsKey(name))
+                {
+                    _importedSymbols[name] = new List<string>();
+                }
+                _importedSymbols[name].Add(resolvedPath);
+
+                // Add to global scope
+                var globalScope = _scopes.Last(); // Global scope is at the bottom of stack
+                globalScope.Types[name] = type;
+            }
+        }
+    }
+
+    private void ProcessNamespaceImport(NamespaceImport import)
+    {
+        // Namespace imports work like using statements
+        if (import.Alias != null)
+        {
+            _usingAliases[import.Alias] = import.Namespace;
+        }
+        else
+        {
+            _usingNamespaces.Add(import.Namespace);
+        }
+    }
+
+    private Dictionary<string, TypeInfo> ExtractPublicSymbols(CompilationUnit unit)
+    {
+        var symbols = new Dictionary<string, TypeInfo>();
+
+        foreach (var decl in unit.Declarations)
+        {
+            var name = decl switch
+            {
+                ClassDeclaration c => c.Name,
+                StructDeclaration s => s.Name,
+                RecordDeclaration r => r.Name,
+                InterfaceDeclaration i => i.Name,
+                UnionDeclaration u => u.Name,
+                EnumDeclaration e => e.Name,
+                TypeAliasDeclaration a => a.Name,
+                FunctionDeclaration f => f.Name,
+                _ => null
+            };
+
+            if (name != null && !string.IsNullOrEmpty(name) && char.IsUpper(name[0]))
+            {
+                // Only export PascalCase (public) symbols
+                var typeInfo = decl switch
+                {
+                    ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
+                    StructDeclaration s => new StructTypeInfo(s),
+                    RecordDeclaration r => new RecordTypeInfo(r),
+                    InterfaceDeclaration i => new InterfaceTypeInfo(i),
+                    UnionDeclaration u => new UnionTypeInfo(u),
+                    EnumDeclaration e => new EnumTypeInfo(e),
+                    TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
+                    FunctionDeclaration f => new FunctionTypeInfo(f),
+                    _ => null
+                };
+
+                if (typeInfo != null)
+                {
+                    symbols[name] = typeInfo;
+                }
+            }
+        }
+
+        return symbols;
+    }
+
+    private void CheckImportCollisions()
+    {
+        foreach (var (symbol, sources) in _importedSymbols)
+        {
+            if (sources.Count > 1)
+            {
+                Error($"Symbol '{symbol}' imported from multiple sources: {string.Join(", ", sources)}. Use aliasing to resolve the conflict.", 0, 0);
+            }
+        }
     }
 }
 
