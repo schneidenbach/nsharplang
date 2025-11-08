@@ -1,8 +1,8 @@
 # N# Language - Current Status
 
 **Last Updated:** 2025-11-08
-**Version:** v1.61
-**Status:** 🚀 Feature-Complete + Analyzer Improvements
+**Version:** v1.62
+**Status:** 🚀 Feature-Complete + Modern C# Features
 
 ---
 
@@ -10,9 +10,9 @@
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.61 |
-| **Tests Passing** | 466 / 466 (100%) |
-| **Example Files** | 55+ .nl files |
+| **Language Version** | v1.62 |
+| **Tests Passing** | 472 / 472 (100%) |
+| **Example Files** | 56 .nl files |
 | **Compiler LOC** | ~10,000 lines |
 | **Features Implemented** | All from DESIGN.md ✅ |
 
@@ -44,6 +44,7 @@
 
 - ✅ **Modern C# Features**
   - Primary constructors (C# 12)
+  - Record structs (C# 10) - Value-type records
   - Required properties (C# 11)
   - Init-only properties (C# 9)
   - Target-typed new (C# 9)
@@ -209,18 +210,34 @@
 - Context-aware suggestions ✅
 - Enhanced developer experience ✅
 
-### v1.61: User-Defined Conversion Operators in Analyzer (Current)
+### v1.61: User-Defined Conversion Operators in Analyzer
 - Implicit conversion operator type checking ✅
 - Proper validation of conversion assignments ✅
 - 3 new analyzer tests for conversions ✅
 - Fixed conversion_operators.nl example ✅
+
+### v1.62: Record Structs (C# 10) - Current
+- Added `IsStruct` field to RecordDeclaration AST ✅
+- Parser support for `record struct` keyword ✅
+- Transpiler emits C# 10 `record struct` syntax ✅
+- 6 new tests (3 parser + 3 transpiler) = 472 total tests ✅
+- Comprehensive example: examples/record_structs.nl ✅
+- Updated DESIGN.md with record struct documentation ✅
+- Features demonstrated:
+  * Value-type records with value semantics
+  * Primary constructors for record structs
+  * Computed properties (expression-bodied)
+  * Static factory methods
+  * With expressions for non-destructive mutation
+  * Value equality built-in
+  * Perfect for small immutable data (points, colors, coordinates)
 
 ---
 
 ## 💪 Strengths
 
 1. **Feature-Complete** - All DESIGN.md features implemented
-2. **Well-Tested** - 463 passing tests, comprehensive coverage
+2. **Well-Tested** - 472 passing tests, comprehensive coverage
 3. **Clean Architecture** - Modular, maintainable codebase
 4. **Perfect C# Interop** - N# code looks like idiomatic C#
 5. **Modern Syntax** - Go-inspired simplicity

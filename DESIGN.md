@@ -1164,6 +1164,42 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   p2 := p1 with { Age: 31 }
   ```
 
+#### Record Structs (C# 10)
+- Value-type records combining struct performance with record immutability
+- Perfect for small, immutable data types (points, coordinates, colors)
+- Value semantics with value equality
+- Examples:
+  ```
+  // Basic record struct
+  record struct Point {
+      X: double
+      Y: double
+  }
+
+  // With primary constructor
+  record struct Vector2D(x: double, y: double) {
+      Length: double => Math.Sqrt(x * x + y * y)
+  }
+
+  // With expression support
+  v1 := new Vector2D(3.0, 4.0)
+  v2 := v1 with { x: 5.0 }  // Non-destructive mutation
+
+  // Usage
+  p1 := new Point { X: 3.0, Y: 4.0 }
+  p2 := new Point { X: 3.0, Y: 4.0 }
+  assert p1 == p2  // Value equality!
+  ```
+- Benefits:
+  - Stack allocation (no GC pressure)
+  - Value semantics (copy by value)
+  - Immutability by default
+  - Value equality (compares contents, not references)
+  - Perfect for DTOs, coordinates, small immutable data
+- When to use:
+  - **record struct**: Small immutable value types (< 16 bytes recommended)
+  - **record**: Reference types, larger data, when you need reference semantics
+
 #### Preprocessor Directives
 - Support C# style preprocessor directives
 - Conditional compilation, regions, etc.

@@ -979,7 +979,7 @@ The compiler successfully:
 - [x] All 463 tests passing, 0 skipped
 - [x] Build successful with no errors
 
-### Phase 61: User-Defined Conversion Operator Support in Analyzer (v1.61 - LATEST!)
+### Phase 61: User-Defined Conversion Operator Support in Analyzer (v1.61)
 - [x] **Analyzer Enhancement**: Implicit conversion operator recognition
   - Added `HasImplicitConversion` method to check if source type has conversion to target
   - Enhanced `IsAssignable` to validate user-defined implicit conversions
@@ -1000,4 +1000,49 @@ The compiler successfully:
   - Completes conversion operator feature (transpiler + analyzer)
 - [x] All 466 tests passing, 0 skipped
 - [x] Build successful with warnings only
+
+### Phase 62: Record Structs (C# 10) - v1.62 LATEST!
+- [x] **AST Enhancement**: Added `IsStruct` field to `RecordDeclaration`
+  - Records can now be value types (`record struct`) or reference types (`record`)
+  - Seamlessly integrates with existing record infrastructure
+- [x] **Parser Enhancement**: Support for `record struct` keyword
+  - Modified `ParseRecordDeclaration` to detect `struct` keyword after `record`
+  - Syntax: `record struct Point { ... }` creates value-type record
+  - Default remains `record` (reference type) for backward compatibility
+- [x] **Transpiler Enhancement**: C# 10 code generation
+  - Emits `record struct` when `IsStruct` is true
+  - Emits `record` (class) when `IsStruct` is false
+  - Works with primary constructors: `record struct Point(x: double, y: double)`
+- [x] **Analyzer**: Automatic support
+  - `RecordTypeInfo` wraps `RecordDeclaration` with `IsStruct` field
+  - Value semantics handled by C# runtime
+  - No special analyzer logic needed
+- [x] **Test Coverage**: 6 new tests (472 total, up from 466)
+  - **Parser tests (3)**:
+    * TestRecordStruct: Basic record struct parsing
+    * TestRecordStructWithPrimaryConstructor: Record struct with parameters
+    * TestRecordClass: Verify default is reference type
+  - **Transpiler tests (3)**:
+    * TestRecordStructTranspilation: Verify `record struct` output
+    * TestRecordStructWithPrimaryConstructorTranspilation: Full integration
+    * TestRecordClassTranspilation: Verify default behavior
+- [x] **Comprehensive Example**: `examples/record_structs.nl`
+  - Demonstrates value-type records for performance-critical scenarios
+  - Point, Vector2D, Color, Dimensions, Duration types
+  - Primary constructors, computed properties, static factory methods
+  - Value equality and with expressions
+  - Performance benefits explained (stack allocation, no GC pressure)
+- [x] **Documentation**: Updated DESIGN.md
+  - New "Record Structs (C# 10)" section
+  - When to use record struct vs record (class)
+  - Benefits: stack allocation, value equality, immutability
+  - Examples with primary constructors
+- [x] **Benefits**:
+  - Value semantics for small immutable data (< 16 bytes recommended)
+  - Stack allocation - no heap allocations, no GC pressure
+  - Value equality built-in (compares by value, not reference)
+  - Perfect for: Points, colors, coordinates, dimensions, DTOs
+  - Modern C# 10 feature aligned with language philosophy
+- [x] All 472 tests passing, 0 skipped
+- [x] Build successful
 

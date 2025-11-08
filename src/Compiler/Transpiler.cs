@@ -503,7 +503,9 @@ public class Transpiler
             ? $"<{string.Join(", ", rec.TypeParameters.Select(tp => tp.Name))}>"
             : "";
 
-        Write($"{modifiers}record {rec.Name}{typeParams}");
+        // C# 10: record struct for value-type records
+        var recordKeyword = rec.IsStruct ? "record struct" : "record";
+        Write($"{modifiers}{recordKeyword} {rec.Name}{typeParams}");
 
         // Emit primary constructor parameters (C# 12)
         if (rec.PrimaryConstructorParameters != null && rec.PrimaryConstructorParameters.Count > 0)

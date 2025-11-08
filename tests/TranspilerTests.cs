@@ -2213,6 +2213,60 @@ record Person(name: string, age: int) {
     }
 
     [Fact]
+    public void TestRecordStructTranspilation()
+    {
+        var source = @"
+record struct Point {
+    X: double
+    Y: double
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 10 record struct syntax
+        Assert.Contains("record struct Point", result);
+        Assert.Contains("public double X", result);
+        Assert.Contains("public double Y", result);
+    }
+
+    [Fact]
+    public void TestRecordStructWithPrimaryConstructorTranspilation()
+    {
+        var source = @"
+using System
+
+record struct Point(x: double, y: double) {
+    Length: double => Math.Sqrt(x * x + y * y)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 10 record struct with C# 12 primary constructor
+        Assert.Contains("record struct Point(double x, double y)", result);
+        Assert.Contains("public double Length => Math.Sqrt", result);  // Allow for parenthesis variations
+        Assert.Contains("x * x", result);
+        Assert.Contains("y * y", result);
+    }
+
+    [Fact]
+    public void TestRecordClassTranspilation()
+    {
+        var source = @"
+record Person {
+    Name: string
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify default record (class) syntax - no 'struct' keyword
+        Assert.Contains("record Person", result);
+        Assert.DoesNotContain("record struct", result);
+    }
+
+    [Fact]
     public void TestTargetTypedNewTranspilation()
     {
         var source = @"

@@ -92,13 +92,14 @@ public record StructDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
-// Record declaration
+// Record declaration (can be record class or record struct - C# 10)
 public record RecordDeclaration(
     string Name,
     List<TypeParameter>? TypeParameters,
     List<TypeReference> Interfaces,
     List<Declaration> Members,
     List<Parameter>? PrimaryConstructorParameters, // C# 12 primary constructor
+    bool IsStruct, // C# 10: record struct (value type) vs record class (reference type, default)
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,

@@ -541,6 +541,14 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.Record, "Expected 'record'");
 
+        // Check for 'struct' keyword after 'record' (C# 10: record struct)
+        bool isStruct = false;
+        if (Check(TokenType.Struct))
+        {
+            isStruct = true;
+            Advance();
+        }
+
         var name = ConsumeIdentifier("Expected record name");
         var typeParams = ParseTypeParameters();
 
@@ -571,7 +579,7 @@ public class Parser
 
         Consume(TokenType.RightBrace, "Expected '}'");
 
-        return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
+        return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, isStruct, modifiers, attributes, line, column);
     }
 
     private InterfaceDeclaration ParseInterfaceDeclaration(List<AttributeNode> attributes, Modifiers modifiers)

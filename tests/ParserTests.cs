@@ -3649,6 +3649,58 @@ func Helper(): int {
     }
 
     [Fact]
+    public void TestRecordStruct()
+    {
+        var source = @"
+            record struct Point {
+                X: double
+                Y: double
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Point", recordDecl.Name);
+        Assert.True(recordDecl.IsStruct);
+    }
+
+    [Fact]
+    public void TestRecordStructWithPrimaryConstructor()
+    {
+        var source = @"
+            record struct Point(x: double, y: double) {
+                Length: double => Math.Sqrt(x * x + y * y)
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Point", recordDecl.Name);
+        Assert.True(recordDecl.IsStruct);
+        Assert.NotNull(recordDecl.PrimaryConstructorParameters);
+        Assert.Equal(2, recordDecl.PrimaryConstructorParameters.Count);
+    }
+
+    [Fact]
+    public void TestRecordClass()
+    {
+        var source = @"
+            record Person {
+                Name: string
+                Age: int
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Person", recordDecl.Name);
+        Assert.False(recordDecl.IsStruct);  // Default is record class (reference type)
+    }
+
+    [Fact]
     public void TestTargetTypedNew()
     {
         var source = @"
