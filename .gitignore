@@ -1,8 +1,22 @@
+# Build outputs
 bin/
 obj/
-*.user
-*.suo
+*.g.cs
+
+# IDE
 .vs/
 .vscode/
 .idea/
-*.DotSettings.user
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NuGet
+packages/
+*.nupkg
+
+# Test results
+TestResults/

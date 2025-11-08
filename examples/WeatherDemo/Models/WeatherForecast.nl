@@ -1,17 +1,11 @@
-namespace AspNetCoreApi.Models
+namespace WeatherDemo.Models
 
-using System
-
-// Record demonstrating:
-// - Record syntax with value equality
-// - Expression-bodied property (TemperatureF)
-// - PascalCase = public visibility
-// - Nullable string type
+// Record with computed properties - demonstrates immutable data types
 record WeatherForecast {
     Date: DateTime
     TemperatureC: int
     Summary: string?
 
-    // Expression-bodied computed property
+    // Expression-bodied computed property (C# 6+)
     TemperatureF: int => 32 + (TemperatureC * 9 / 5)
 }

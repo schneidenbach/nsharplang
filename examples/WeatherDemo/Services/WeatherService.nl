@@ -1,26 +1,20 @@
-namespace AspNetCoreApi.Services
+namespace WeatherDemo.Services
 
 using System
 using System.Linq
-using AspNetCoreApi.Models
+using WeatherDemo.Models
 
-import "../Models/WeatherForecast"
-
-// Service class demonstrating:
-// - Class with private field (camelCase = private)
-// - Default parameter values
-// - LINQ operations (Range, Select, ToArray)
-// - Pattern matching with guards
-// - Null safety with nullable return type
-// - Object initialization syntax
+// Business logic service demonstrating N# features
 class WeatherService {
-    summaries: string[] = immutable [
+    // Private field (camelCase = private)
+    summaries: string[] = [
         "Freezing", "Bracing", "Chilly", "Cool", "Mild",
         "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
     ]
 
-    // Generate multiple forecasts using LINQ
+    // Default parameter values
     func GetForecasts(days: int = 5): WeatherForecast[] {
+        // LINQ with lambdas and collection expressions
         return Enumerable
             .Range(0, days)
             .Select(index => new WeatherForecast {
@@ -31,11 +25,11 @@ class WeatherService {
             .ToArray()
     }
 
-    // Get single forecast with pattern matching
+    // Pattern matching with guards for classification
     func GetForecast(day: int): WeatherForecast {
         temp := Random.Shared.Next(-20, 55)
 
-        // Pattern matching with guards to determine summary
+        // Pattern matching with guards - elegant!
         summary := match temp {
             t when t < 0 => "Freezing",
             t when t < 10 => "Cold",
@@ -45,22 +39,33 @@ class WeatherService {
         }
 
         return new WeatherForecast {
-            Date: DateTime.Now.AddDays(day + 1),
+            Date: DateTime.Now.AddDays(day),
             TemperatureC: temp,
             Summary: summary
         }
     }
 
-    // Get forecast summary statistics
-    func GetStatistics(days: int = 7): (avgTemp: int, minTemp: int, maxTemp: int) {
+    // Method with multiple return values
+    func GetMinMaxTemp(days: int = 7): (int, int) {
         forecasts := GetForecasts(days)
-
         temps := forecasts.Select(f => f.TemperatureC).ToArray()
 
-        avgTemp := (int)temps.Average()
         minTemp := temps.Min()
         maxTemp := temps.Max()
 
-        return (avgTemp, minTemp, maxTemp)
+        return (minTemp, maxTemp)
+    }
+
+    // Returns array with hot days
+    func GetHotDaysSummary(days: int = 7): string[] {
+        forecasts := GetForecasts(days)
+
+        // LINQ filtering and transformation
+        hotDays := forecasts
+            .Where(f => f.TemperatureC >= 25)
+            .Select(f => $"{f.Date:yyyy-MM-dd}: {f.TemperatureC}°C")
+            .ToArray()
+
+        return hotDays
     }
 }

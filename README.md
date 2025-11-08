@@ -306,7 +306,7 @@ Explore `examples/` for comprehensive demonstrations:
 
 ## 📊 Project Status
 
-### ✅ Fully Implemented (v1.48)
+### ✅ Fully Implemented (v1.49)
 
 - **406 tests passing** (27 lexer + 55 parser + 67 analyzer + 53 transpiler + more)
 - Full lexical analysis with all operators and keywords
@@ -484,6 +484,6 @@ Built with Claude Code to demonstrate modern language implementation on the CLR.
 
 ---
 
-**Current Version:** v1.48 - Spread Operator in Function Calls
+**Current Version:** v1.49 - WeatherDemo Multi-File Example
 **Status:** Production-ready for experimentation and learning
 **Tests:** 406 passing ✅

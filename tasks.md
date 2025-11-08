@@ -183,7 +183,7 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
-### Phase 41: Lock Statements (v1.41 - LATEST!)
+### Phase 41: Lock Statements (v1.41)
 - [x] **Lock statement support**: Thread synchronization for concurrent programming
   - Added Lock keyword to lexer
   - Created LockStatement AST node (LockObject and Body)
@@ -199,6 +199,38 @@
   - Full C# lock statement compatibility
 - [x] **Documentation**: Updated DESIGN.md with lock statement section
 - [x] All 366 tests passing, 0 skipped
+
+### Phase 49: WeatherDemo Multi-File Example (v1.49 - LATEST!)
+- [x] **Comprehensive multi-file demonstration project**: Real-world example showcasing N# features
+  - Created examples/WeatherDemo/ with proper project structure
+  - Models/WeatherForecast.nl: Record with expression-bodied computed properties
+  - Services/WeatherService.nl: Business logic class demonstrating multiple features
+  - Program.nl: Main entry point with service consumption
+  - project.yml: Project configuration with targetFramework net9.0
+- [x] **Language Features Demonstrated**:
+  - Records with computed properties (TemperatureF from TemperatureC)
+  - Pattern matching with guards (temperature classification)
+  - LINQ operations (Range, Select, Where, ToArray)
+  - String interpolation with complex expressions
+  - Default parameter values (days: int = 5)
+  - Tuple return types for multiple values
+  - Null-safe operators (??)
+  - For loops over collections
+  - Class visibility (PascalCase = public, camelCase = private)
+  - Multi-file compilation with namespace organization
+  - Using statements for .NET namespaces
+- [x] **Multi-File Compilation**:
+  - Three .nl files compile together seamlessly
+  - Proper namespace organization (WeatherDemo.Models, WeatherDemo.Services)
+  - Cross-namespace type references via using statements
+  - Generated C# maintains namespace structure
+- [x] **End-to-End Testing**:
+  - Successfully compiles with `nlc build`
+  - Successfully runs with `nlc run`
+  - Produces expected output with weather forecasts
+  - Demonstrates real-world application structure
+- [x] All 406 tests still passing
+- [x] Documentation in examples/WeatherDemo/README.md
 
 ### Phase 34: Ref/Out Parameters (v1.34)
 - [x] **Ref/Out parameter support**: Critical .NET interop feature
