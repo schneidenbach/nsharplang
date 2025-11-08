@@ -1,29 +1,50 @@
 # N# Language Support for VS Code
 
-Complete language support for N# (.nl files) with IntelliSense, diagnostics, and more powered by the N# Language Server.
+Complete language support for N# (.nl files) with comprehensive syntax highlighting, IntelliSense, and diagnostics powered by the N# Language Server.
 
-## Features
+## ✨ Features
 
-- **Syntax Highlighting** - Full syntax highlighting for N# language features
-- **IntelliSense** - Auto-completion for keywords, types, and symbols
-- **Diagnostics** - Real-time error and warning detection as you type
-- **Hover Information** - Type information and documentation on hover
-- **Bracket Matching** - Automatic bracket, parenthesis, and quote matching
-- **Comment Support** - Line comments (//) and block comments (/* */)
-- **Code Folding** - Fold code blocks and regions
-- **Language Server** - Full LSP support for rich IDE experience
+### Syntax Highlighting (v0.3.0 - Enhanced!)
+- **Comprehensive keyword coverage** - All N# keywords including `package`, `constructor`, `print`, `test`, `assert`
+- **Generic type parameters** - Full support for nested generics like `Dictionary<string, List<int>>`
+- **Enhanced string interpolation** - Distinct highlighting for `$`, `{`, `}`, and embedded expressions
+- **Declaration highlighting** - Special colors for class, function, type declarations
+- **Property type annotations** - Highlights `name: type` patterns
+- **Preprocessor directives** - `#region`, `#if`, `#define`, etc.
+- **Number literals** - Hexadecimal (`0xFF`), binary (`0b1010`), with type suffixes
+- **Import path highlighting** - Dotted namespace paths in imports
 
-## Supported Features
+### IntelliSense
+- Auto-completion for keywords, primitive types, and user-defined symbols
+- Common .NET types (Console, List, Task, etc.)
+- Trigger characters: `.`, `:`, `space`
 
-- Keywords: func, class, struct, record, union, interface, enum
-- Control flow: if, else, for, foreach, while, match, switch
-- Pattern matching with guards
-- Discriminated unions
-- Async/await
-- String interpolation (regular, raw, and interpolated raw strings)
-- Attributes
-- Operators: conversion (implicit/explicit), null-conditional, null-coalescing, spread
-- And more!
+### Diagnostics
+- Real-time error and warning detection
+- Compilation errors shown inline
+
+### Other Features
+- **Hover Information** - Type info on hover
+- **Bracket Matching** - Auto-pairing for `{}`, `[]`, `()`, `""`
+- **Comment Support** - Line (`//`), block (`/* */`), and doc (`///`) comments
+- **Code Folding** - Fold code blocks and `#region` sections
+- **Language Server** - Full LSP support
+
+## 🎯 Supported Language Features
+
+- **Type System**: class, struct, record, interface, enum, union, type aliases
+- **Control Flow**: if/else, for, foreach, while, match, switch
+- **Pattern Matching**: with guards, list patterns, nested property patterns
+- **Discriminated Unions**: with exhaustiveness checking
+- **Async/Await**: Full async support
+- **String Interpolation**: Regular (`$""`), raw (`"""`), and interpolated raw (`$"""`)
+- **Attributes**: `[HttpGet]`, `[Required]`, etc.
+- **Operators**:
+  - Conversion: `implicit`, `explicit`, `operator`
+  - Null-safety: `?.`, `??`, `!.`
+  - Assignment: `:=`, `=`
+  - Spread: `...`
+- **Testing**: Built-in `test` blocks and `assert` statements
 
 ## Installation
 
@@ -35,16 +56,28 @@ Complete language support for N# (.nl files) with IntelliSense, diagnostics, and
   dotnet build src/LanguageServer/LanguageServer.csproj
   ```
 
-### From VSIX (Local Development)
+### From VSIX (Recommended)
+```bash
+# Install the pre-built extension
+cd editors/vscode
+code --install-extension nsharp-0.3.0.vsix
+```
+
+Or manually in VS Code:
+1. Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
+2. Type "Extensions: Install from VSIX"
+3. Select `nsharp-0.3.0.vsix`
+
+### Build from Source
 ```bash
 # Build and package the extension
 cd editors/vscode
 npm install
 npm run compile
-npx vsce package
+npm run package
 
-# Install in VS Code
-code --install-extension nsharp-0.2.0.vsix
+# Install the packaged extension
+code --install-extension nsharp-0.3.0.vsix
 ```
 
 ### From Marketplace (coming soon)
@@ -61,29 +94,75 @@ The extension can be configured via VS Code settings:
 
 Open any `.nl` file and enjoy syntax highlighting!
 
-## Example
+## 📝 Example
 
 ```nsharp
-// Example N# code with syntax highlighting
-using System
+// Example N# code showcasing syntax highlighting
+package MyApp
 
+import System
+import System.Collections.Generic
+
+#region Type Definitions
+
+// Union with generics - fully highlighted!
+union Result<T> {
+    Success { value: T }
+    Failure { error: string, code: int }
+}
+
+// Class with properties and constructor
 class Person {
-    Name: string
-    Age: int
+    FirstName: string           // Property type annotation
+    LastName: string
+    age: int                    // Private field (camelCase)
 
-    func Greet() => print $"Hello, I'm {Name}!"
+    // Expression-bodied property with string interpolation
+    FullName: string => $"Hello, I'm {FirstName} {LastName}!"
+
+    constructor(first: string, last: string) {
+        FirstName = first
+        LastName = last
+        age = 0
+    }
 }
 
-union Result {
-    Success { value: int }
-    Failure { error: string }
-}
+// Type alias
+type UserId = int
 
-result := match someValue {
-    Success { value } => value * 2,
-    Failure { error } => 0
+#endregion
+
+func Main() {
+    // Variable declarations with type inference
+    x := 42
+    hex := 0xFF        // Hexadecimal literal
+    bin := 0b1010      // Binary literal
+    pi := 3.14
+
+    // String interpolation highlighting
+    message := $"x = {x}, hex = {hex}"
+    print message      // print keyword
+
+    // Pattern matching
+    result := new Result<int>.Success(100)
+    output := match result {
+        Result<int>.Success { value } when value > 50 => $"High: {value}",
+        Result<int>.Failure { error, code } => $"Error {code}: {error}",
+        _ => "Unknown"
+    }
+
+    // Generic method calls
+    list := new List<int>()
+    dict := new Dictionary<string, Person>()
+
+    // Test blocks
+    test "Math works" {
+        assert 2 + 2 == 4
+    }
 }
 ```
+
+See `/tmp/syntax-test.nl` for a comprehensive highlighting test file.
 
 ## Upcoming Features
 

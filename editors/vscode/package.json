@@ -2,7 +2,7 @@
   "name": "nsharp",
   "displayName": "N# Language Support",
   "description": "Language support for N# (.nl files) with IntelliSense, diagnostics, and more",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "nsharp",
   "repository": {
     "type": "git",

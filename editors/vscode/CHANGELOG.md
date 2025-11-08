@@ -2,6 +2,31 @@
 
 All notable changes to the "nsharp" extension will be documented in this file.
 
+## [0.3.0] - 2025-11-08
+
+### Added - Comprehensive Syntax Highlighting Improvements
+- **Missing keywords**: `package`, `constructor`, `print`, `test`, `assert`
+- **Generic type parameter highlighting** with full nesting support (e.g., `Dictionary<string, List<int>>`)
+- **Enhanced string interpolation** with distinct punctuation highlighting for `$`, `{`, `}`
+- **Declaration highlighting** for imports, packages, classes, functions, and type aliases
+- **Property/field type annotation** highlighting (e.g., `name: string`)
+- **Preprocessor directive support**: `#region`, `#endregion`, `#if`, `#define`, `#warning`, `#error`, etc.
+- **Binary literals**: `0b1010`, `0b11111111`
+- **Number literal suffixes**: `100L`, `50u`, `25ul`, `3.14f`, `2.5d`, `100m`
+- **Import path highlighting**: Dotted namespace paths now highlighted distinctly
+- **Better operator categorization**: Assignment, comparison, arithmetic, logical, nullable, lambda, spread
+
+### Changed
+- **Pattern ordering** optimized for better matching accuracy
+- **String interpolation** now uses more specific scopes for better theme support
+- **Generic type matching** improved to handle complex nested scenarios
+- **Number literal patterns** refined to handle all .NET numeric formats
+
+### Documentation
+- Added comprehensive `SYNTAX-HIGHLIGHTING-IMPROVEMENTS.md` with examples
+- Updated `README.md` with v0.3.0 features showcase
+- Enhanced code examples demonstrating new highlighting capabilities
+
 ## [0.2.0] - 2024-11-08
 
 ### Added
