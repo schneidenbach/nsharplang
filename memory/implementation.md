@@ -146,7 +146,43 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.17 (Latest - Pattern Matching Guards)
+### v1.18 (Latest - Print, Nameof, Typeof)
+1. **Print statement**: ✅ Built-in print function for console output
+   - Added `Print` keyword token (Token.cs:55)
+   - Added `PrintStatement` AST node (Statements.cs:135-139)
+   - Syntax: `print "Hello"` or `print $"Value: {x}"`
+   - No parentheses required
+   - Transpiles to `Console.WriteLine()`
+   - Parser support (Parser.cs:1086-1094)
+   - Analyzer validates expression (Analyzer.cs:449-451)
+   - Transpiler emits Console.WriteLine (Transpiler.cs:699-701)
+2. **Nameof operator**: ✅ Get identifier name as string
+   - Added `Nameof` keyword token (Token.cs:53)
+   - Added `NameofExpression` AST node (Expressions.cs:216-220)
+   - Syntax: `nameof(variable)` or `nameof(obj.Property)`
+   - Returns string name of identifier
+   - Parser support (Parser.cs:1904-1911)
+   - Analyzer returns string type (Analyzer.cs:1277-1283)
+   - Transpiler extracts final identifier name (Transpiler.cs:1175-1192)
+3. **Typeof operator**: ✅ Get Type object for reflection
+   - `Typeof` keyword already existed (Token.cs:52)
+   - `TypeOfExpression` already in AST (Expressions.cs:210-214)
+   - Enhanced analyzer support (Analyzer.cs:1269-1275)
+   - Returns System.Type via ReflectionTypeInfo
+   - Works with primitives, classes, generic types
+   - Transpiles to C# `typeof()`
+4. **Test coverage**: ✅ 8 new tests (2 lexer + 3 parser + 3 transpiler)
+   - `TestPrintKeyword`, `TestNameofKeyword` (Lexer)
+   - `TestPrintStatement`, `TestNameofExpression`, `TestTypeofExpression` (Parser)
+   - `TestPrintStatementTranspilation`, `TestNameofTranspilation`, `TestTypeofTranspilation` (Transpiler)
+5. **Example**: ✅ `examples/print_nameof_typeof.nl`
+   - Demonstrates print statements without parentheses
+   - Shows nameof usage for identifier names
+   - Shows typeof for type reflection
+   - Successfully compiles and runs
+6. **Test count**: ✅ 223 tests total, all passing (31 lexer + 64 parser + 67 analyzer + 51 transpiler)
+
+### v1.17 (Pattern Matching Guards)
 1. **Lexer enhancement**: ✅ Added When keyword token
    - Added `When` token type to recognize `when` keyword (Token.cs:55)
    - Lexer now tokenizes `when` for guard clauses in match expressions
