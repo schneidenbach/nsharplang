@@ -1,8 +1,9 @@
-# Task 010: Import System
+# Task 010: Import System 🚧 IN PROGRESS - Phase 1 Complete ✅
 
 **Priority:** CRITICAL (Required for multi-file projects)
 **Dependencies:** None
-**Estimated Effort:** Large (8-10 hours)
+**Estimated Effort:** Large (8-10 hours total, ~3 hours Phase 1 complete)
+**Status:** Phase 1 (Syntax & Parsing) complete in v1.21
 
 ## Goal
 Implement dual import system: file-based imports and namespace imports with aliasing support.
@@ -137,16 +138,78 @@ import Entities.Person as EntityPerson
   - Circular import detection
 
 ## Success Criteria
-- [x] `import "Models/Person"` resolves and imports symbols
-- [x] `import System.Linq` works for .NET namespaces
-- [x] `import X as Y` creates alias
-- [x] Collision detection works and suggests fixes
-- [x] Circular imports detected and reported
-- [x] All tests pass
+- [x] **Phase 1 (v1.21):** Import syntax parsing
+  - [x] `import "path"` and `import Namespace` syntax works
+  - [x] `import X as Y` creates alias (both file and namespace)
+  - [x] Lexer recognizes import keyword
+  - [x] Parser tests pass (6 new tests)
+- [ ] **Phase 2:** Symbol resolution and analysis
+  - [ ] `import "Models/Person"` resolves and imports symbols
+  - [ ] `import System.Linq` works for .NET namespaces
+  - [ ] Collision detection works and suggests fixes
+  - [ ] Circular imports detected and reported
+- [ ] **Phase 3:** Code generation
+  - [ ] Transpiler emits C# using statements for namespace imports
+  - [ ] Integration tests with multi-file scenarios
+  - [ ] All tests pass
+
+## Progress
+
+### Phase 1: Syntax and Parsing ✅ (v1.21)
+**Completed:**
+- Import keyword token added to Lexer
+- FileImport and NamespaceImport AST nodes created
+- ParseImport() method implemented in Parser
+- CompilationUnit updated with Imports list
+- 6 new tests (1 lexer + 5 parser), all passing
+- Total: 249 tests passing
+
+**What works:**
+- Parsing file imports: `import "path/to/file"`
+- Parsing namespace imports: `import System.Linq`
+- Aliasing support: `import X as Y`
+- Multiple imports in a file
+
+**Next phase:**
+See Phase 2 below.
+
+### Phase 2: Symbol Resolution and Analysis ⏭️ (Future)
+**TODO:**
+1. Create FileResolver class for path resolution
+   - Handle relative paths (./,  ../)
+   - Handle project-root paths (Models/Person)
+   - Add .nl extension if not present
+   - Validate file exists
+2. Implement symbol import logic in Analyzer
+   - Parse imported files (for file imports)
+   - Extract public symbols from imported files
+   - Add symbols to current file's scope
+   - Handle aliasing (direct vs alias.symbol access)
+   - Resolve .NET types for namespace imports
+3. Add collision detection
+   - Track imported symbols and their sources
+   - Detect duplicate symbol names
+   - Report error with source locations
+   - Suggest aliasing as fix
+4. Implement circular import detection
+   - Track import graph during compilation
+   - Detect cycles (A → B → A)
+   - Report error with import chain
+
+### Phase 3: Code Generation ⏭️ (Future)
+**TODO:**
+1. Update Transpiler to handle imports
+   - Namespace imports → emit as C# using statements
+   - File imports → don't emit (symbols inlined)
+2. Write integration tests
+   - Multi-file project compilation
+   - Symbol resolution across files
+   - Namespace imports working with .NET types
+   - Error cases (circular imports, collisions, missing files)
 
 ## Notes
 - Similar to Python import semantics
 - File imports enable code splitting
 - Namespace imports maintain .NET interop
-- Foundation for multi-file compilation
+- Foundation for multi-file compilation (Task 011)
 - Import order matters (dependencies first)
