@@ -362,6 +362,18 @@ public class Parser
         {
             do
             {
+                var modifier = ParameterModifier.None;
+                if (Check(TokenType.Ref))
+                {
+                    modifier = ParameterModifier.Ref;
+                    Advance();
+                }
+                else if (Check(TokenType.Out))
+                {
+                    modifier = ParameterModifier.Out;
+                    Advance();
+                }
+
                 var isThis = false;
                 if (Check(TokenType.This))
                 {
@@ -380,7 +392,7 @@ public class Parser
                     defaultValue = ParseExpression();
                 }
 
-                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis));
+                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier));
             } while (Match(TokenType.Comma));
         }
 
@@ -2115,6 +2127,20 @@ public class Parser
         {
             do
             {
+                var modifier = ArgumentModifier.None;
+
+                // Check for ref/out modifier
+                if (Check(TokenType.Ref))
+                {
+                    modifier = ArgumentModifier.Ref;
+                    Advance();
+                }
+                else if (Check(TokenType.Out))
+                {
+                    modifier = ArgumentModifier.Out;
+                    Advance();
+                }
+
                 string? argName = null;
 
                 // Check for named argument
@@ -2125,7 +2151,7 @@ public class Parser
                 }
 
                 var argValue = ParseExpression();
-                args.Add(new Argument(argName, argValue));
+                args.Add(new Argument(argName, argValue, modifier));
 
             } while (Match(TokenType.Comma));
         }

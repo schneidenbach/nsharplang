@@ -773,8 +773,14 @@ public class Transpiler
     {
         var result = "";
 
+        // Add ref/out modifier
+        if (param.Modifier == ParameterModifier.Ref)
+            result = "ref ";
+        else if (param.Modifier == ParameterModifier.Out)
+            result = "out ";
+
         if (param.IsThis)
-            result = "this ";
+            result += "this ";
 
         result += $"{TranspileTypeReference(param.Type)} {param.Name}";
 
@@ -1318,8 +1324,15 @@ public class Transpiler
         var callee = TranspileExpression(call.Callee);
         var args = string.Join(", ", call.Arguments.Select(arg =>
         {
+            var prefix = "";
+            if (arg.Modifier == ArgumentModifier.Ref)
+                prefix = "ref ";
+            else if (arg.Modifier == ArgumentModifier.Out)
+                prefix = "out ";
+
             var argValue = TranspileExpression(arg.Value);
-            return arg.Name != null ? $"{arg.Name}: {argValue}" : argValue;
+            var result = prefix + argValue;
+            return arg.Name != null ? $"{arg.Name}: {result}" : result;
         }));
         return $"{callee}({args})";
     }
@@ -1359,8 +1372,15 @@ public class Transpiler
         var type = TranspileTypeReference(newExpr.Type);
         var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
         {
+            var prefix = "";
+            if (arg.Modifier == ArgumentModifier.Ref)
+                prefix = "ref ";
+            else if (arg.Modifier == ArgumentModifier.Out)
+                prefix = "out ";
+
             var argValue = TranspileExpression(arg.Value);
-            return arg.Name != null ? $"{arg.Name}: {argValue}" : argValue;
+            var result = prefix + argValue;
+            return arg.Name != null ? $"{arg.Name}: {result}" : result;
         }));
 
         var result = $"new {type}({args})";

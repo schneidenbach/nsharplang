@@ -183,7 +183,24 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
-### Phase 30: Range and Index from End Operators (v1.30 - LATEST!)
+### Phase 34: Ref/Out Parameters (v1.34 - LATEST!)
+- [x] **Ref/Out parameter support**: Critical .NET interop feature
+  - Added `Ref` and `Out` keywords to lexer
+  - Created `ParameterModifier` and `ArgumentModifier` enums in AST
+  - Updated Parameter and Argument records with Modifier fields
+  - Parser handles `ref`/`out` in both parameter declarations and argument passing
+  - Transpiler emits correct C# `ref`/`out` syntax
+  - 10 new tests (2 lexer + 4 parser + 4 transpiler) = 326 total tests passing
+  - Example: examples/ref_out_parameters.nl demonstrates all patterns
+- [x] **Features**:
+  - ref parameters for pass-by-reference (read and modify)
+  - out parameters for output-only values
+  - Combining ref and out in same function
+  - Idiomatic .NET patterns (TryParse, TryGetValue, Swap)
+- [x] **Documentation**: Updated DESIGN.md with ref/out section
+- [x] All 326 tests passing, 0 skipped
+
+### Phase 30: Range and Index from End Operators (v1.30)
 - [x] **C# 8+ Range and Index operators**: Full support for modern array slicing
   - Added `UnaryOperator.IndexFromEnd` for `^n` syntax (index from end)
   - Reused `BinaryOperator.Range` for `start..end` syntax

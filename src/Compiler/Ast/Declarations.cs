@@ -44,11 +44,19 @@ public record FunctionDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
+public enum ParameterModifier
+{
+    None,
+    Ref,
+    Out
+}
+
 public record Parameter(
     string Name,
     TypeReference Type,
     Expression? DefaultValue,
-    bool IsThis); // For extension methods
+    bool IsThis, // For extension methods
+    ParameterModifier Modifier = ParameterModifier.None);
 
 public record TypeParameter(string Name);
 

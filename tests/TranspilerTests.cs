@@ -1727,4 +1727,46 @@ func Helper(): int {
         Assert.Contains("public required string Email { get; init; }", result);
         Assert.Contains("public string Name { get; set; } = \"\";", result);
     }
+
+    [Fact]
+    public void TestRefParameterTranspilation()
+    {
+        var source = "func Swap(ref a: int, ref b: int) { }";
+        var result = Transpile(source);
+        Assert.Contains("ref int a, ref int b", result);
+    }
+
+    [Fact]
+    public void TestOutParameterTranspilation()
+    {
+        var source = "func TryParse(input: string, out result: int): bool { }";
+        var result = Transpile(source);
+        Assert.Contains("string input, out int result", result);
+    }
+
+    [Fact]
+    public void TestRefArgumentTranspilation()
+    {
+        var source = @"
+            func Main() {
+                x := 5
+                Swap(ref x, ref x)
+            }
+        ";
+        var result = Transpile(source);
+        Assert.Contains("Swap(ref x, ref x)", result);
+    }
+
+    [Fact]
+    public void TestOutArgumentTranspilation()
+    {
+        var source = @"
+            func Main() {
+                let result: int
+                success := int.TryParse(""123"", out result)
+            }
+        ";
+        var result = Transpile(source);
+        Assert.Contains("int.TryParse(\"123\", out result)", result);
+    }
 }

@@ -146,7 +146,55 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.26 (Comprehensive Multi-File Demo) ✅ COMPLETE - LATEST!
+### v1.34 (Ref/Out Parameters) ✅ COMPLETE - LATEST!
+1. **New keywords**: ✅ Added `ref` and `out` keywords
+   - Added `Ref` and `Out` token types to Token.cs
+   - Added keyword mappings to Lexer.cs
+2. **AST enhancements**: ✅ ParameterModifier and ArgumentModifier enums
+   - Created `ParameterModifier` enum (None, Ref, Out) in Declarations.cs
+   - Created `ArgumentModifier` enum (None, Ref, Out) in Expressions.cs
+   - Updated Parameter record to include Modifier field
+   - Updated Argument record to include Modifier field
+3. **Parser support**: ✅ ParseParameterList and ParseArgumentList handle ref/out
+   - Parser checks for ref/out keywords before parameter name
+   - Parser checks for ref/out keywords before argument value
+   - Both modifiers correctly parsed and stored in AST
+4. **Transpiler support**: ✅ Correct C# code generation
+   - TranspileParameter emits `ref`/`out` modifiers before type
+   - TranspileCallExpression and TranspileNewExpression emit modifiers before arguments
+   - Generates idiomatic C# ref/out syntax
+5. **Test coverage**: ✅ 10 new tests (2 lexer + 4 parser + 4 transpiler) = 326 total
+   - Lexer: TestRefKeyword, TestOutKeyword
+   - Parser: TestRefParameter, TestOutParameter, TestRefArgument, TestOutArgument
+   - Transpiler: TestRefParameterTranspilation, TestOutParameterTranspilation, TestRefArgumentTranspilation, TestOutArgumentTranspilation
+6. **Example**: ✅ examples/ref_out_parameters.nl
+   - Demonstrates custom Swap function with ref parameters
+   - Shows TryParse pattern with out parameters (common .NET idiom)
+   - Demonstrates Dictionary TryGetValue pattern
+   - Proves in-place modification with ref
+   - Shows combining ref and out parameters in same function
+   - Successfully compiles and runs
+7. **Documentation**: ✅ Updated DESIGN.md
+   - Added ref/out parameter section under Function Definitions
+   - Removed from "Deferred Features" (now implemented!)
+   - Explained ref vs out semantics
+   - Provided practical examples with .NET interop
+8. **Build status**: ✅ All 326 tests passing
+
+**Impact:** Critical .NET interop feature! Enables using essential .NET APIs like `int.TryParse`, `Dictionary.TryGetValue`, etc.
+
+**What works:**
+- ref parameters for pass-by-reference (read and modify) ✅
+- out parameters for output-only values ✅
+- Combining ref and out in same function ✅
+- Full transpilation to C# ref/out syntax ✅
+- Idiomatic .NET patterns (TryParse, TryGetValue) ✅
+
+**Known limitations:**
+- Analyzer doesn't yet validate ref/out semantics (future enhancement)
+- No definite assignment checking for out parameters (future enhancement)
+
+### v1.26 (Comprehensive Multi-File Demo) ✅ COMPLETE
 1. **Weather Demo Example**: ✅ Created examples/WeatherDemo/
    - Full multi-file project demonstrating real-world N# application
    - Models/WeatherForecast.nl: Record with expression-bodied property

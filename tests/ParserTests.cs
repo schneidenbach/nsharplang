@@ -2879,5 +2879,89 @@ func Helper(): int {
         Assert.False(nameField.Modifiers.HasFlag(Modifiers.Required));
         Assert.False(nameField.Modifiers.HasFlag(Modifiers.Init));
     }
+
+    [Fact]
+    public void TestRefParameter()
+    {
+        var source = "func Swap(ref a: int, ref b: int) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Swap", func.Name);
+        Assert.Equal(2, func.Parameters.Count);
+
+        Assert.Equal("a", func.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Ref, func.Parameters[0].Modifier);
+
+        Assert.Equal("b", func.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Ref, func.Parameters[1].Modifier);
+    }
+
+    [Fact]
+    public void TestOutParameter()
+    {
+        var source = "func TryParse(input: string, out result: int): bool { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("TryParse", func.Name);
+        Assert.Equal(2, func.Parameters.Count);
+
+        Assert.Equal("input", func.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.None, func.Parameters[0].Modifier);
+
+        Assert.Equal("result", func.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Out, func.Parameters[1].Modifier);
+    }
+
+    [Fact]
+    public void TestRefArgument()
+    {
+        var source = @"
+            func Main() {
+                x := 5
+                Swap(ref x, ref x)
+            }
+        ";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        var block = func.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var callStmt = block.Statements[1] as ExpressionStatement;
+        Assert.NotNull(callStmt);
+        var call = callStmt.Expression as CallExpression;
+        Assert.NotNull(call);
+
+        Assert.Equal(2, call.Arguments.Count);
+        Assert.Equal(ArgumentModifier.Ref, call.Arguments[0].Modifier);
+        Assert.Equal(ArgumentModifier.Ref, call.Arguments[1].Modifier);
+    }
+
+    [Fact]
+    public void TestOutArgument()
+    {
+        var source = @"
+            func Main() {
+                let result: int
+                success := int.TryParse(""123"", out result)
+            }
+        ";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        var block = func.Body as BlockStatement;
+        Assert.NotNull(block);
+
+        var varStmt = block.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(varStmt);
+        var call = varStmt.Initializer as CallExpression;
+        Assert.NotNull(call);
+
+        Assert.Equal(2, call.Arguments.Count);
+        Assert.Equal(ArgumentModifier.None, call.Arguments[0].Modifier);
+        Assert.Equal(ArgumentModifier.Out, call.Arguments[1].Modifier);
+    }
 }
 

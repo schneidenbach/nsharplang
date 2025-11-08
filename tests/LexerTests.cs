@@ -473,4 +473,24 @@ public class LexerTests
         Assert.Equal(TokenType.Init, tokens[0].Type);
         Assert.Equal("init", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestRefKeyword()
+    {
+        var source = "ref";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // ref + EOF
+        Assert.Equal(TokenType.Ref, tokens[0].Type);
+        Assert.Equal("ref", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestOutKeyword()
+    {
+        var source = "out";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // out + EOF
+        Assert.Equal(TokenType.Out, tokens[0].Type);
+        Assert.Equal("out", tokens[0].Value);
+    }
 }

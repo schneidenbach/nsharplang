@@ -80,6 +80,8 @@ public class Lexer
         { "operator", TokenType.Operator },
         { "required", TokenType.Required },
         { "init", TokenType.Init },
+        { "ref", TokenType.Ref },
+        { "out", TokenType.Out },
     };
 
     public Lexer(string source, string? fileName = null)

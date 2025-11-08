@@ -76,6 +76,8 @@ public enum TokenType
     Operator,
     Required,
     Init,
+    Ref,
+    Out,
 
     // Operators
     Plus,           // +

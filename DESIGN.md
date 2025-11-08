@@ -882,6 +882,34 @@ func foo(x: int): int {
   func Process(x: string) { }
   func Process(x: int, y: int) { }
   ```
+- **Ref/Out parameters** for .NET interop:
+  ```
+  // ref - pass by reference (value can be read and modified)
+  func Swap(ref a: int, ref b: int) {
+      temp := a
+      a = b
+      b = temp
+  }
+
+  x := 10
+  y := 20
+  Swap(ref x, ref y)  // x = 20, y = 10
+
+  // out - output parameter (value must be assigned before returning)
+  func TryParse(input: string, out result: int): bool {
+      result = 42  // Must assign before returning
+      return true
+  }
+
+  let value: int
+  success := TryParse("123", out value)
+
+  // Enables .NET interop with APIs like int.TryParse, Dictionary.TryGetValue
+  let num: int
+  if int.TryParse("456", out num) {
+      print num
+  }
+  ```
 
 ### Variables
 - Multiple declaration styles supported
@@ -994,8 +1022,6 @@ import Newtonsoft.Json as Json  // with alias
 ## Deferred Features
 
 ### Future Consideration
-- Operator overloading (may add later)
-- ref/out parameters (use tuples for multiple returns; may add later for .NET interop)
 - Unsafe code and pointers (may add later for native interop)
 
 ### Explicitly NOT Supported

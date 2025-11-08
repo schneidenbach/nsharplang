@@ -84,7 +84,14 @@ public record CallExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
-public record Argument(string? Name, Expression Value);
+public enum ArgumentModifier
+{
+    None,
+    Ref,
+    Out
+}
+
+public record Argument(string? Name, Expression Value, ArgumentModifier Modifier = ArgumentModifier.None);
 
 // Assignment
 public record AssignmentExpression(
