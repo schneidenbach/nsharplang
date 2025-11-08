@@ -3408,6 +3408,79 @@ func Helper(): int {
         Assert.Equal(ParameterModifier.Params, func.Parameters[1].Modifier);
     }
 
+    // C# 13 Params Collections Tests
+    [Fact]
+    public void TestParamsWithReadOnlySpan()
+    {
+        var source = "func Process(params items: ReadOnlySpan<int>) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Process", func.Name);
+        Assert.Single(func.Parameters);
+        Assert.Equal("items", func.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+
+        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("ReadOnlySpan", genericType.Name);
+    }
+
+    [Fact]
+    public void TestParamsWithSpan()
+    {
+        var source = "func Process(params items: Span<string>) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Single(func.Parameters);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+
+        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("Span", genericType.Name);
+    }
+
+    [Fact]
+    public void TestParamsWithIEnumerable()
+    {
+        var source = "func Sum(params numbers: IEnumerable<int>): int { return 0 }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Single(func.Parameters);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+
+        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("IEnumerable", genericType.Name);
+    }
+
+    [Fact]
+    public void TestParamsWithList()
+    {
+        var source = "func Process(params items: List<string>) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Single(func.Parameters);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+
+        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("List", genericType.Name);
+    }
+
+    [Fact]
+    public void TestParamsWithIReadOnlyList()
+    {
+        var source = "func Process(params items: IReadOnlyList<int>) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Single(func.Parameters);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+
+        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("IReadOnlyList", genericType.Name);
+    }
+
     [Fact]
     public void TestRefArgument()
     {

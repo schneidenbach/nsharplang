@@ -2077,6 +2077,47 @@ func Helper(): int {
         Assert.Contains("string format, params object[] args", result);
     }
 
+    // C# 13 Params Collections Transpilation Tests
+    [Fact]
+    public void TestParamsWithReadOnlySpanTranspilation()
+    {
+        var source = "func Process(params items: ReadOnlySpan<int>) { }";
+        var result = Transpile(source);
+        Assert.Contains("params ReadOnlySpan<int> items", result);
+    }
+
+    [Fact]
+    public void TestParamsWithSpanTranspilation()
+    {
+        var source = "func Process(params items: Span<string>) { }";
+        var result = Transpile(source);
+        Assert.Contains("params Span<string> items", result);
+    }
+
+    [Fact]
+    public void TestParamsWithIEnumerableTranspilation()
+    {
+        var source = "func Sum(params numbers: IEnumerable<int>): int { return 0 }";
+        var result = Transpile(source);
+        Assert.Contains("params IEnumerable<int> numbers", result);
+    }
+
+    [Fact]
+    public void TestParamsWithListTranspilation()
+    {
+        var source = "func Process(params items: List<string>) { }";
+        var result = Transpile(source);
+        Assert.Contains("params List<string> items", result);
+    }
+
+    [Fact]
+    public void TestParamsWithIReadOnlyListTranspilation()
+    {
+        var source = "func Process(params items: IReadOnlyList<int>) { }";
+        var result = Transpile(source);
+        Assert.Contains("params IReadOnlyList<int> items", result);
+    }
+
     [Fact]
     public void TestRefArgumentTranspilation()
     {

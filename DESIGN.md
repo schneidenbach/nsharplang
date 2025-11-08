@@ -1309,9 +1309,9 @@ func foo(x: int): int {
       print num
   }
   ```
-- **Params arrays** for variable-length argument lists:
+- **Params collections** for variable-length argument lists (C# 13):
   ```
-  // Basic params array
+  // Basic params array (original C# behavior)
   func Sum(params numbers: int[]): int {
       total := 0
       for num in numbers {
@@ -1319,6 +1319,27 @@ func foo(x: int): int {
       }
       return total
   }
+
+  // C# 13: Params with ReadOnlySpan<T> (zero heap allocation!)
+  func SumSpan(params numbers: ReadOnlySpan<int>): int {
+      total := 0
+      for i := 0; i < numbers.Length; i++ {
+          total += numbers[i]
+      }
+      return total
+  }
+
+  // C# 13: Params with IEnumerable<T> (maximum flexibility)
+  func PrintAll(params items: IEnumerable<string>) {
+      for item in items {
+          print item
+      }
+  }
+
+  // C# 13: Params with collection types
+  func Process(params items: List<int>) { }          // List<T>
+  func Process(params items: IReadOnlyList<int>) { } // IReadOnlyList<T>
+  func Process(params items: ICollection<int>) { }   // ICollection<T>
 
   // Call with any number of arguments
   result1 := Sum(1, 2, 3, 4, 5)  // OK
@@ -1339,8 +1360,16 @@ func foo(x: int): int {
 
   // Rules:
   // 1. params must be last parameter
-  // 2. params must be array type
+  // 2. params can be: arrays, Span<T>, ReadOnlySpan<T>, or collection types (IEnumerable<T>, List<T>, etc.)
   // 3. Only one params parameter allowed
+
+  // Valid params types (C# 13):
+  // - T[] (arrays)
+  // - Span<T>, ReadOnlySpan<T>
+  // - IEnumerable<T>, IReadOnlyCollection<T>, IReadOnlyList<T>
+  // - ICollection<T>, IList<T>
+  // - List<T>, HashSet<T>, Queue<T>, Stack<T>
+  // - Memory<T>, ReadOnlyMemory<T>, ArraySegment<T>
   ```
 
 ### Variables

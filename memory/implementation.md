@@ -2410,3 +2410,36 @@ N# has achieved **feature parity** with its design goals. The language is:
 - Perfect C# interop
 - Modern IDE support
 - No F# weirdness
+
+## v1.63 - Params Collections (C# 13)
+**Date:** 2025-11-08
+
+### What Was Added
+Implemented C# 13 params collections feature - params modifier now works with Span<T>, ReadOnlySpan<T>, and collection types, not just arrays.
+
+### Key Changes
+1. **Analyzer.cs** (src/Compiler/Analyzer.cs:2505-2553):
+   - Modified `ValidateParamsParameters` to accept more types
+   - Added `IsValidParamsType` helper method with whitelist of valid types
+   - Supports: arrays, Span<T>, ReadOnlySpan<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T>, IList<T>, ICollection<T>, List<T>, HashSet<T>, Queue<T>, Stack<T>, Memory<T>, ReadOnlyMemory<T>, ArraySegment<T>
+   - Updated error message to list all valid types
+
+2. **Tests**:
+   - Added 10 new tests (5 parser + 5 transpiler)
+   - Total: 482 tests (up from 472)
+   - All passing
+
+3. **Documentation**:
+   - Updated DESIGN.md params section
+   - Updated STATUS.md to v1.63
+   - Updated tasks.md with Phase 63
+   - Created comprehensive example: examples/params_collections.nl
+
+### Benefits
+- **Performance**: ReadOnlySpan/Span params = zero heap allocation
+- **Flexibility**: IEnumerable params work with LINQ and any collection
+- **Modern**: C# 13 feature keeps language cutting-edge
+
+### Testing
+All 482 tests passing. Example compiles and runs successfully.
+

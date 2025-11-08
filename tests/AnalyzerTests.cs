@@ -1332,7 +1332,7 @@ public class AnalyzerTests
         AssertHasError(@"
             func Invalid(params value: int) {
             }
-        ", "params parameter must be an array type");
+        ", "params parameter must be an array, Span<T>, ReadOnlySpan<T>, or a collection type");
     }
 
     // Extension Method Resolution Tests

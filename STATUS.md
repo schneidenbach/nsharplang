@@ -1,7 +1,7 @@
 # N# Language - Current Status
 
 **Last Updated:** 2025-11-08
-**Version:** v1.62
+**Version:** v1.63
 **Status:** 🚀 Feature-Complete + Modern C# Features
 
 ---
@@ -10,9 +10,9 @@
 
 | Metric | Value |
 |--------|-------|
-| **Language Version** | v1.62 |
-| **Tests Passing** | 472 / 472 (100%) |
-| **Example Files** | 56 .nl files |
+| **Language Version** | v1.63 |
+| **Tests Passing** | 482 / 482 (100%) |
+| **Example Files** | 57 .nl files |
 | **Compiler LOC** | ~10,000 lines |
 | **Features Implemented** | All from DESIGN.md ✅ |
 
@@ -56,6 +56,7 @@
   - Local functions (C# 7)
   - Raw string literals (C# 11)
   - Interpolated raw strings (C# 11)
+  - Params collections (C# 13) - Span<T>, IEnumerable<T>, etc.
 
 - ✅ **Operators**
   - Operator overloading (all types)

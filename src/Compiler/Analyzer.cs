@@ -2516,13 +2516,40 @@ public class Analyzer
                     Error("A params parameter must be the last parameter in a parameter list", line, column);
                 }
 
-                // params must be an array type
-                if (param.Type is not ArrayTypeReference)
+                // C# 13: params can be array, Span<T>, ReadOnlySpan<T>, or collection types
+                if (!IsValidParamsType(param.Type))
                 {
-                    Error($"A params parameter must be an array type, got '{TranspileTypeReference(param.Type)}'", line, column);
+                    Error($"A params parameter must be an array, Span<T>, ReadOnlySpan<T>, or a collection type (IEnumerable<T>, IList<T>, etc.), got '{TranspileTypeReference(param.Type)}'", line, column);
                 }
             }
         }
+    }
+
+    private bool IsValidParamsType(TypeReference typeRef)
+    {
+        // Arrays are always valid (original C# behavior)
+        if (typeRef is ArrayTypeReference)
+            return true;
+
+        // Check for generic types (Span<T>, ReadOnlySpan<T>, List<T>, IEnumerable<T>, etc.)
+        if (typeRef is GenericTypeReference generic)
+        {
+            var typeName = generic.Name;
+
+            // C# 13 specifically allows these types
+            var validTypes = new HashSet<string>
+            {
+                "Span", "ReadOnlySpan",
+                "IEnumerable", "IReadOnlyCollection", "IReadOnlyList",
+                "ICollection", "IList",
+                "List", "HashSet", "Queue", "Stack",
+                "ArraySegment", "Memory", "ReadOnlyMemory"
+            };
+
+            return validTypes.Contains(typeName);
+        }
+
+        return false;
     }
 
     private string TranspileTypeReference(TypeReference typeRef)
