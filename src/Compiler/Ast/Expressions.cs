@@ -144,7 +144,14 @@ public record ObjectInitializerExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
-public record PropertyInitializer(string Name, Expression Value);
+// Property or indexer initializer
+public record PropertyInitializer(
+    string? Name,              // Property name (for property initializers)
+    Expression? IndexExpression, // Index expression (for indexer initializers like ["key"])
+    Expression Value
+) {
+    public bool IsIndexerInitializer => IndexExpression != null;
+};
 
 // New expression
 public record NewExpression(

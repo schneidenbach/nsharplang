@@ -1797,6 +1797,13 @@ public class Analyzer
         {
             foreach (var prop in newExpr.Initializer.Properties)
             {
+                // Analyze index expression if this is an indexer initializer
+                if (prop.IndexExpression != null)
+                {
+                    AnalyzeExpression(prop.IndexExpression);
+                }
+
+                // Analyze the value
                 AnalyzeExpression(prop.Value);
             }
         }

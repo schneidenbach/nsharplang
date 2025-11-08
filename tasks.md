@@ -772,7 +772,7 @@ The compiler successfully:
   - Cleaner pattern matching with .NET APIs
   - Full compatibility with C# 7+ features
 
-### Phase 52: Yield Break and Iterators (v1.52 - LATEST!)
+### Phase 52: Yield Break and Iterators (v1.52)
 - [x] **Yield Break Support**: Complete implementation
   - Made `YieldStatement.Value` optional (nullable Expression?)
   - Parser checks for `break` keyword after `yield`
@@ -808,5 +808,68 @@ The compiler successfully:
   - Infinite sequence support
   - LINQ composition with iterators
 - [x] All 429 tests passing, 0 skipped (28 lexer + 55 parser + 63 analyzer + 41 transpiler + 242 other)
+- [x] Build successful with no errors
+
+### Phase 53: Property Modifiers (v1.53)
+- [x] **Property Modifier Enhancement**: Enhanced property modifier transpilation
+  - Fixed transpilation of `required`, `init`, and `readonly` modifiers
+  - Ensured correct C# syntax generation for all property modifier combinations
+- [x] All tests passing
+- [x] Build successful with no errors
+
+### Phase 54: Duplicate Using Fix (v1.54)
+- [x] **Using Statement Deduplication**: Fixed duplicate `using System` statements
+  - Added deduplication logic to prevent duplicate using directives
+  - Improved code generation quality
+- [x] All tests passing
+- [x] Build successful with no errors
+
+### Phase 55: Collection Initializers with Indexers (v1.55 - LATEST!)
+- [x] **Collection Initializer Enhancement**: Full implementation of C# 6 indexer initializers
+  - Extended `PropertyInitializer` AST node to support both property and indexer initializers
+  - Added `IndexExpression` field for indexer syntax (`["key"] = value`)
+  - Added `IsIndexerInitializer` property for easy identification
+- [x] **Parser Enhancement**:
+  - Updated object initializer parsing to detect `[` token
+  - Parses indexer expressions: `["key"] = value`
+  - Supports mixed property and indexer initializers in same object
+  - Handles complex index expressions (variables, literals, etc.)
+- [x] **Analyzer Enhancement**:
+  - Added analysis for index expressions in initializers
+  - Type checks both index and value expressions
+  - Validates initializer semantics
+- [x] **Transpiler Enhancement**:
+  - Emits C# 6 indexer initializer syntax: `["key"] = value`
+  - Correctly handles both property and indexer initializers
+  - Generates clean, idiomatic C# code
+- [x] **Test Coverage**: 5 new tests (2 parser + 3 transpiler)
+  - TestCollectionInitializerWithIndexers: Validates parsing of indexer initializers
+  - TestMixedPropertyAndIndexerInitializers: Tests mixed initialization
+  - TestCollectionInitializerWithIndexersTranspilation: Verifies C# output
+  - TestMixedPropertyAndIndexerInitializersTranspilation: Verifies mixed output
+  - TestIndexerInitializerWithComplexExpressions: Tests variable index expressions
+- [x] **Comprehensive Example**: `examples/collection_initializers_with_indexers.nl`
+  - 7 comprehensive examples demonstrating all patterns
+  - Basic dictionary initialization with indexers
+  - Integer keys and various value types
+  - Pre-sized dictionaries with indexers
+  - Complex value types (tuples)
+  - Dynamic keys (variables in indexer expressions)
+  - SortedDictionary usage
+  - Nested dictionary structures
+  - Successfully compiles and runs with full functionality
+- [x] **Documentation**:
+  - Updated DESIGN.md with Collection Initializers with Indexers section
+  - Updated DESIGN.md to document Primary Constructors (C# 12)
+  - Added comprehensive examples and use cases
+  - Documented benefits over `.Add()` method calls
+- [x] **Features Demonstrated**:
+  - C# 6 indexer initializer syntax
+  - Clean dictionary initialization
+  - Mixed property and indexer initializers
+  - Type-safe collection initialization
+  - Variable expressions in indexers
+  - Nested dictionary initialization
+- [x] All 434 tests passing, 0 skipped (28 lexer + 57 parser + 63 analyzer + 44 transpiler + 242 other)
 - [x] Build successful with no errors
 

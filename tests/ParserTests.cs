@@ -3993,5 +3993,108 @@ func Helper(): int {
         Assert.NotNull(binaryExpr);
         Assert.Equal(BinaryOperator.Less, binaryExpr.Operator);
     }
+
+    [Fact]
+    public void TestCollectionInitializerWithIndexers()
+    {
+        var source = @"
+            func Test() {
+                dict := new Dictionary<string, int> {
+                    [""one""] = 1,
+                    [""two""] = 2,
+                    [""three""] = 3
+                }
+            }
+        ";
+
+        var ast = Parse(source);
+        var funcDecl = ast.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var newExpr = varDecl.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.NotNull(newExpr.Initializer);
+        Assert.Equal(3, newExpr.Initializer.Properties.Count);
+
+        // First property initializer should be an indexer
+        var prop1 = newExpr.Initializer.Properties[0];
+        Assert.True(prop1.IsIndexerInitializer);
+        Assert.NotNull(prop1.IndexExpression);
+        Assert.Null(prop1.Name);
+
+        var indexExpr1 = prop1.IndexExpression as StringLiteralExpression;
+        Assert.NotNull(indexExpr1);
+        Assert.Equal("\"one\"", indexExpr1.Value);
+
+        var valueExpr1 = prop1.Value as IntLiteralExpression;
+        Assert.NotNull(valueExpr1);
+        Assert.Equal("1", valueExpr1.Value);
+
+        // Second property initializer
+        var prop2 = newExpr.Initializer.Properties[1];
+        Assert.True(prop2.IsIndexerInitializer);
+        var indexExpr2 = prop2.IndexExpression as StringLiteralExpression;
+        Assert.NotNull(indexExpr2);
+        Assert.Equal("\"two\"", indexExpr2.Value);
+
+        // Third property initializer
+        var prop3 = newExpr.Initializer.Properties[2];
+        Assert.True(prop3.IsIndexerInitializer);
+        var indexExpr3 = prop3.IndexExpression as StringLiteralExpression;
+        Assert.NotNull(indexExpr3);
+        Assert.Equal("\"three\"", indexExpr3.Value);
+    }
+
+    [Fact]
+    public void TestMixedPropertyAndIndexerInitializers()
+    {
+        var source = @"
+            func Test() {
+                obj := new MyType {
+                    Name: ""test"",
+                    [""key1""] = 1,
+                    Age: 30,
+                    [""key2""] = 2
+                }
+            }
+        ";
+
+        var ast = Parse(source);
+        var funcDecl = ast.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var newExpr = varDecl.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.NotNull(newExpr.Initializer);
+        Assert.Equal(4, newExpr.Initializer.Properties.Count);
+
+        // First should be property initializer
+        var prop1 = newExpr.Initializer.Properties[0];
+        Assert.False(prop1.IsIndexerInitializer);
+        Assert.Equal("Name", prop1.Name);
+        Assert.Null(prop1.IndexExpression);
+
+        // Second should be indexer initializer
+        var prop2 = newExpr.Initializer.Properties[1];
+        Assert.True(prop2.IsIndexerInitializer);
+        Assert.NotNull(prop2.IndexExpression);
+        Assert.Null(prop2.Name);
+
+        // Third should be property initializer
+        var prop3 = newExpr.Initializer.Properties[2];
+        Assert.False(prop3.IsIndexerInitializer);
+        Assert.Equal("Age", prop3.Name);
+
+        // Fourth should be indexer initializer
+        var prop4 = newExpr.Initializer.Properties[3];
+        Assert.True(prop4.IsIndexerInitializer);
+        Assert.NotNull(prop4.IndexExpression);
+    }
 }
 

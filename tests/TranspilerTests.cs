@@ -2448,4 +2448,70 @@ func Test() {
         var csharp = Transpile(source);
         Assert.Contains("Method<Dictionary<string, int>>(dict)", csharp);
     }
+
+    [Fact]
+    public void TestCollectionInitializerWithIndexersTranspilation()
+    {
+        var source = @"
+func Test() {
+    dict := new Dictionary<string, int> {
+        [""one""] = 1,
+        [""two""] = 2,
+        [""three""] = 3
+    }
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("new Dictionary<string, int>() { [\"one\"] = 1, [\"two\"] = 2, [\"three\"] = 3 }", csharp);
+    }
+
+    [Fact]
+    public void TestMixedPropertyAndIndexerInitializersTranspilation()
+    {
+        var source = @"
+class MyType {
+    Name: string
+    Age: int
+}
+
+func Test() {
+    obj := new MyType {
+        Name: ""test"",
+        Age: 30
+    }
+
+    dict := new Dictionary<string, int> {
+        [""key1""] = 1,
+        [""key2""] = 2
+    }
+}
+";
+
+        var csharp = Transpile(source);
+        // Verify property initializers
+        Assert.Contains("Name = \"test\", Age = 30", csharp);
+        // Verify indexer initializers
+        Assert.Contains("[\"key1\"] = 1, [\"key2\"] = 2", csharp);
+    }
+
+    [Fact]
+    public void TestIndexerInitializerWithComplexExpressions()
+    {
+        var source = @"
+func Test() {
+    key := ""myKey""
+    value := 42
+    dict := new Dictionary<string, int> {
+        [key] = value,
+        [""literal""] = 100
+    }
+}
+";
+
+        var csharp = Transpile(source);
+        // Should handle variable references in indexer expressions
+        Assert.Contains("[key] = value", csharp);
+        Assert.Contains("[\"literal\"] = 100", csharp);
+    }
 }

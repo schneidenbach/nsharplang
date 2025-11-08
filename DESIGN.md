@@ -264,6 +264,43 @@ result := match value {
   - Works seamlessly with generics
   - Modern C# 9+ feature
 
+#### Primary Constructors (C# 12)
+- Compact syntax for declaring constructor parameters inline with type declaration
+- Parameters automatically become captured fields available throughout the type
+- Supported for classes, structs, and records
+- Perfect for dependency injection and reducing boilerplate
+- Examples:
+  ```
+  // Class with primary constructor
+  class Logger(name: string) {
+      func Log(message: string) {
+          print $"[{name}] {message}"  // name accessible throughout class
+      }
+  }
+
+  // Struct with primary constructor
+  struct Point(x: double, y: double) {
+      func GetDistance(): double {
+          return Math.Sqrt(x * x + y * y)
+      }
+  }
+
+  // Record with primary constructor (most common)
+  record Person(name: string, age: int, email: string) {
+      FullInfo: string => $"{name} ({age}) - {email}"
+  }
+
+  // Usage
+  logger := new Logger("MyApp")
+  point := new Point(3.0, 4.0)
+  person := new Person("Alice", 30, "alice@example.com")
+  ```
+- Benefits:
+  - Less boilerplate code
+  - Parameters available throughout the class/struct/record
+  - Clean syntax for value types and DTOs
+  - Natural for dependency injection patterns
+
 #### Definite Assignment
 - Compiler performs flow analysis on constructor bodies
 - Non-nullable properties must be assigned in all code paths before constructor exits
@@ -522,6 +559,57 @@ doWork(new MemoryReader())  // works via structural typing
 - Collection expressions are **target-typed** - the compiler creates the correct collection based on the variable's type
 - Supports: `List<T>`, `HashSet<T>`, `Queue<T>`, `Stack<T>`, `IEnumerable<T>`, `IList<T>`, `IReadOnlyList<T>`, and more
 - Transpiles to C# 12+ collection expression syntax: `List<int> numbers = [1, 2, 3];`
+
+#### Collection Initializers with Indexers (C# 6)
+- Dictionary and collection initialization using indexer syntax
+- Clean syntax for initializing collections with indexers
+- Works with any type that has an indexer (Dictionary, custom collections, etc.)
+- Can be mixed with regular property initializers
+- Examples:
+  ```
+  // Basic dictionary initialization
+  scores := new Dictionary<string, int> {
+      ["Alice"] = 95,
+      ["Bob"] = 87,
+      ["Charlie"] = 92
+  }
+
+  // Integer keys
+  idNames := new Dictionary<int, string> {
+      [1] = "First",
+      [2] = "Second",
+      [3] = "Third"
+  }
+
+  // Using variables in indexer expressions
+  key := "myKey"
+  value := 42
+  dict := new Dictionary<string, int> {
+      [key] = value,
+      ["literal"] = 100
+  }
+
+  // Nested dictionaries
+  config := new Dictionary<string, Dictionary<string, string>> {
+      ["database"] = new Dictionary<string, string> {
+          ["host"] = "localhost",
+          ["port"] = "5432"
+      }
+  }
+
+  // Can mix property and indexer initializers
+  obj := new MyType {
+      Name: "test",           // property initializer
+      ["key1"] = value1,      // indexer initializer
+      Age: 30,                // property initializer
+      ["key2"] = value2       // indexer initializer
+  }
+  ```
+- Benefits over `.Add()` method calls:
+  - More concise syntax
+  - All initialization in one expression
+  - Type-safe at compile time
+  - Natural syntax for dictionary initialization
 
 #### Lambdas and Closures
 - C# style lambda syntax, no parentheses on parameters
@@ -917,17 +1005,31 @@ if obj.GetType() == typeof(string) { }
 
 #### Records
 - Immutable data types with value equality
-- NO primary constructors (use regular class syntax)
+- Support both property-based and primary constructor syntax
 - Generates constructor, equality, hash code, etc.
 - Examples:
   ```
+  // Property-based syntax
   record Person {
       Name: string
       Age: int
   }
 
+  // Primary constructor syntax (preferred for simple records)
+  record PersonCompact(name: string, age: int)
+
+  // Primary constructor with additional members
+  record PersonWithMethods(name: string, age: int) {
+      FullName: string => $"{name} (Age: {age})"
+
+      func Greet(): string {
+          return $"Hello, I'm {name}!"
+      }
+  }
+
   // Creates immutable type with:
   // - Constructor: new Person { Name: "John", Age: 30 }
+  // - Or: new PersonCompact("John", 30)
   // - Value equality
   // - ToString, GetHashCode, etc.
 

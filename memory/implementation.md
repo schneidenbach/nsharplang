@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.54 - Duplicate Using Statement Fix
-**Tests:** 429 passing ✅
+**Version:** v1.55 - Collection Initializers with Indexers
+**Tests:** 434 passing ✅
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview

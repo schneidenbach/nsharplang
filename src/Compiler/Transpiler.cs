@@ -1560,7 +1560,18 @@ public class Transpiler
         if (newExpr.Initializer != null)
         {
             var props = string.Join(", ", newExpr.Initializer.Properties.Select(p =>
-                $"{p.Name} = {TranspileExpression(p.Value)}"));
+            {
+                if (p.IsIndexerInitializer && p.IndexExpression != null)
+                {
+                    // Indexer initializer: ["key"] = value
+                    return $"[{TranspileExpression(p.IndexExpression)}] = {TranspileExpression(p.Value)}";
+                }
+                else
+                {
+                    // Property initializer: Name = value
+                    return $"{p.Name} = {TranspileExpression(p.Value)}";
+                }
+            }));
             result += $" {{ {props} }}";
         }
 

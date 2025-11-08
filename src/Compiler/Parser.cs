@@ -2384,7 +2384,7 @@ public class Parser
                     var propName = ConsumeIdentifier("Expected property name");
                     Consume(TokenType.Colon, "Expected ':'");
                     var propValue = ParseExpression();
-                    props.Add(new PropertyInitializer(propName, propValue));
+                    props.Add(new PropertyInitializer(propName, null, propValue));
 
                     if (!Check(TokenType.RightBrace))
                         Match(TokenType.Comma);
@@ -2662,10 +2662,24 @@ public class Parser
 
             while (!Check(TokenType.RightBrace))
             {
-                var propName = ConsumeIdentifier("Expected property name");
-                Consume(TokenType.Colon, "Expected ':'");
-                var propValue = ParseExpression();
-                props.Add(new PropertyInitializer(propName, propValue));
+                // Check if this is an indexer initializer (starts with '[')
+                if (Check(TokenType.LeftBracket))
+                {
+                    Advance(); // consume '['
+                    var indexExpr = ParseExpression();
+                    Consume(TokenType.RightBracket, "Expected ']'");
+                    Consume(TokenType.Assign, "Expected '='");
+                    var indexValue = ParseExpression();
+                    props.Add(new PropertyInitializer(null, indexExpr, indexValue));
+                }
+                else
+                {
+                    // Regular property initializer
+                    var propName = ConsumeIdentifier("Expected property name");
+                    Consume(TokenType.Colon, "Expected ':'");
+                    var propValue = ParseExpression();
+                    props.Add(new PropertyInitializer(propName, null, propValue));
+                }
 
                 if (!Check(TokenType.RightBrace))
                     Match(TokenType.Comma);
