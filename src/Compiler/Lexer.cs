@@ -158,6 +158,11 @@ public class Lexer
         if (ch == '$' && PeekNext() == '"')
         {
             Advance(); // consume $
+            // Check for interpolated raw string: $"""
+            if (Peek() == '"' && PeekNext() == '"' && PeekAhead(2) == '"')
+            {
+                return ReadInterpolatedRawString(startLine, startColumn);
+            }
             return ReadString(startLine, startColumn, isInterpolated: true);
         }
 
@@ -522,6 +527,39 @@ public class Lexer
         }
 
         throw new Exception($"Unterminated triple-quote string at {_fileName ?? "?"}:{startLine}:{startColumn}");
+    }
+
+    private Token ReadInterpolatedRawString(int startLine, int startColumn)
+    {
+        var sb = new StringBuilder();
+        sb.Append("$\"\"\"");
+
+        Advance(); // first quote
+        Advance(); // second quote
+        Advance(); // third quote
+
+        while (!IsAtEnd())
+        {
+            if (Peek() == '"' && PeekNext() == '"' && PeekAhead(2) == '"')
+            {
+                sb.Append("\"\"\"");
+                Advance();
+                Advance();
+                Advance();
+                return new Token(TokenType.InterpolatedRawStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
+            if (Peek() == '\n')
+            {
+                _line++;
+                _column = 0;
+            }
+
+            sb.Append(Peek());
+            Advance();
+        }
+
+        throw new Exception($"Unterminated interpolated raw string at {_fileName ?? "?"}:{startLine}:{startColumn}");
     }
 
     private Token ReadSingleLineComment(int startLine, int startColumn)

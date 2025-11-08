@@ -3060,5 +3060,32 @@ func Helper(): int {
         Assert.NotNull(initCall);
         Assert.Equal(3, initCall.Arguments.Count);
     }
+
+    [Fact]
+    public void TestInterpolatedRawString()
+    {
+        var source = @"
+            func Test() {
+                json := $""""""
+                {
+                    ""name"": ""{person.Name}"",
+                    ""age"": {person.Age}
+                }
+                """"""
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body!.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+        var stringLiteral = varDecl.Initializer as StringLiteralExpression;
+        Assert.NotNull(stringLiteral);
+        Assert.StartsWith("$\"\"\"", stringLiteral.Value);
+        Assert.EndsWith("\"\"\"", stringLiteral.Value);
+        Assert.Contains("{person.Name}", stringLiteral.Value);
+    }
 }
 

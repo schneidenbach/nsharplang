@@ -1806,4 +1806,25 @@ func Helper(): int {
         var result = Transpile(source);
         Assert.Contains("public Employee(string name, string id) : base(name)", result);
     }
+
+    [Fact]
+    public void TestInterpolatedRawStringTranspilation()
+    {
+        var source = @"
+            func GenerateJson(name: string, age: int): string {
+                return $""""""
+                {
+                    ""name"": ""{name}"",
+                    ""age"": {age}
+                }
+                """"""
+            }
+        ";
+        var result = Transpile(source);
+        // Verify the C# 11 raw string literal syntax is preserved
+        Assert.Contains("$\"\"\"", result);
+        Assert.Contains("\"\"\"", result);
+        Assert.Contains("{name}", result);
+        Assert.Contains("{age}", result);
+    }
 }

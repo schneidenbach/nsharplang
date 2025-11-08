@@ -1566,7 +1566,7 @@ public class Parser
         }
 
         // Literal pattern
-        if (Check(TokenType.IntLiteral) || Check(TokenType.StringLiteral) ||
+        if (Check(TokenType.IntLiteral) || Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) ||
             Check(TokenType.True) || Check(TokenType.False) || Check(TokenType.Null))
         {
             var literal = ParsePrimaryExpression();
@@ -2217,7 +2217,7 @@ public class Parser
         if (Check(TokenType.FloatLiteral))
             return new FloatLiteralExpression(Advance().Value, line, column);
 
-        if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral))
+        if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
             return new StringLiteralExpression(Advance().Value, line, column);
 
         if (Check(TokenType.True))

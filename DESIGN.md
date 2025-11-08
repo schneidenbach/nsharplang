@@ -450,6 +450,7 @@ doWork(new MemoryReader())  // works via structural typing
 - Regular strings: `"hello world"`
 - Interpolated strings: `$"Hello {name}, you are {age} years old"`
 - Template/multi-line strings: `"""multi-line content here"""`
+- **Interpolated raw strings** (C# 11): `$"""multi-line with {interpolation}"""`
 - Examples:
   ```
   msg := "Hello"
@@ -458,7 +459,21 @@ doWork(new MemoryReader())  // works via structural typing
     This is a multi-line
     string literal
     """
+
+  // Interpolated raw string - perfect for JSON, XML, SQL, etc.
+  json := $"""
+    {
+        "name": "{person.Name}",
+        "age": {person.Age}
+    }
+    """
   ```
+- **Raw string benefits**:
+  - No escape sequences needed (quotes, backslashes work naturally)
+  - Perfect for JSON, XML, SQL, regex patterns
+  - Supports interpolation with `{expression}`
+  - Multi-line by default
+  - Transpiles to C# 11 raw string literals
 
 #### Built-in Functions
 **Print function** - simplified console output:

@@ -8,6 +8,7 @@ public enum TokenType
     FloatLiteral,
     StringLiteral,
     TripleQuoteStringLiteral,
+    InterpolatedRawStringLiteral,
 
     // Keywords
     Func,

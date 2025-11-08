@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (32 tests), Parser (85 tests), Analyzer (78 tests), Transpiler (70 tests)
-- **Total**: 300 tests (300 passing, 0 skipped)
+- **Unit tests**: Lexer (33 tests), Parser (86 tests), Analyzer (78 tests), Transpiler (71 tests)
+- **Total**: 334 tests (334 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, null-conditional indexing (?[]), pattern matching guards (when clauses), **nested property patterns (NEW!)**
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, null-conditional indexing (?[]), pattern matching guards (when clauses), nested property patterns, ref/out parameters, required properties, init-only properties, preprocessor directives, open-ended ranges, range/index operators, operator overloading, constructor chaining, **interpolated raw strings (NEW!)**
 
 ## Build & Run
 
@@ -146,7 +146,58 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.35 (Constructor Chaining) ✅ COMPLETE - LATEST!
+### v1.36 (Interpolated Raw Strings) ✅ COMPLETE - LATEST!
+1. **New token type**: ✅ Added InterpolatedRawStringLiteral to Token.cs
+   - Recognizes `$"""..."""` syntax
+   - Distinguishes from regular raw strings `"""..."""`
+2. **Lexer enhancement**: ✅ ReadInterpolatedRawString method
+   - Detects `$"""` pattern and reads until closing `"""`
+   - Stores complete string including delimiters: `$"""content"""`
+   - Handles multi-line content with proper line tracking
+   - Supports interpolation expressions `{name}`, `{value}`
+3. **Parser support**: ✅ Updated string literal parsing
+   - Line 2220: Added InterpolatedRawStringLiteral to string checks
+   - Line 1569: Added to literal pattern matching
+   - Works seamlessly with existing StringLiteralExpression AST node
+4. **Transpiler support**: ✅ Already working (no changes needed!)
+   - Transpiles by using Value directly (includes `$"""` and `"""`)
+   - Emits valid C# 11 raw string literal syntax
+   - Perfect pass-through transpilation
+5. **Test coverage**: ✅ 3 new tests (1 lexer + 1 parser + 1 transpiler) = 334 total
+   - Lexer: TestInterpolatedRawString - verifies token type and delimiters
+   - Parser: TestInterpolatedRawString - verifies JSON example parsing
+   - Transpiler: TestInterpolatedRawStringTranspilation - verifies C# output
+6. **Example**: ✅ examples/interpolated_raw_strings.nl
+   - JSON generation without escaping quotes
+   - SQL queries with clean syntax
+   - HTML templates
+   - Regex patterns without escape sequences
+   - ASCII table generation
+   - Demonstrates all benefits of raw strings
+7. **Documentation**: ✅ Updated DESIGN.md
+   - Added interpolated raw string syntax
+   - Explained benefits (no escapes, multi-line, perfect for JSON/XML/SQL)
+   - Provided examples
+8. **Build status**: ✅ All 334 tests passing
+
+**Impact:** Modern C# 11 feature that makes working with JSON, XML, SQL, and regex patterns much cleaner!
+
+**What works:**
+- `$"""multi-line {interpolation}"""` syntax ✅
+- No escape sequences needed for quotes or backslashes ✅
+- Perfect for JSON, XML, SQL, regex patterns ✅
+- Full interpolation support `{expression}` ✅
+- Transpiles to C# 11 raw string literals ✅
+
+**Use cases:**
+- JSON/XML generation without quote escaping
+- SQL query strings with clean syntax
+- HTML templates
+- Regex patterns without backslash hell
+- Multi-line strings with interpolation
+- Any scenario where escape sequences are problematic
+
+### v1.35 (Constructor Chaining) ✅ COMPLETE
 1. **AST enhancement**: ✅ Added Initializer field to ConstructorDeclaration
    - Added `Expression? Initializer` field to ConstructorDeclaration record
    - Stores `this()` or `base()` call expression for constructor chaining

@@ -493,4 +493,19 @@ public class LexerTests
         Assert.Equal(TokenType.Out, tokens[0].Type);
         Assert.Equal("out", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestInterpolatedRawString()
+    {
+        var source = @"$""""""
+Hello {name}
+World
+""""""";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // raw string + EOF
+        Assert.Equal(TokenType.InterpolatedRawStringLiteral, tokens[0].Type);
+        Assert.StartsWith("$\"\"\"", tokens[0].Value);
+        Assert.EndsWith("\"\"\"", tokens[0].Value);
+        Assert.Contains("{name}", tokens[0].Value);
+    }
 }
