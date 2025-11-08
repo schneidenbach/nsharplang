@@ -284,4 +284,36 @@ func UpdateAge(p: Person): Person {
         Assert.Contains("Age = 31", result);
         Assert.Contains("p with {", result);
     }
+
+    [Fact]
+    public void TestDefaultParameterTranspilation()
+    {
+        var source = @"
+func Greet(name: string, greeting: string = ""Hello"") {
+    Console.WriteLine(greeting)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should include default value in parameter
+        Assert.Contains("greeting = \"Hello\"", result);
+        Assert.Contains("string greeting", result);
+    }
+
+    [Fact]
+    public void TestNamedArgumentTranspilation()
+    {
+        var source = @"
+func Test() {
+    CreateUser(name: ""John"", age: 30)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should preserve named arguments
+        Assert.Contains("name: \"John\"", result);
+        Assert.Contains("age: 30", result);
+    }
 }

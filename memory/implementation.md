@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (25 tests), Analyzer (51 tests), Transpiler (13 tests)
-- **Total**: 116 tests, all passing
+- **Unit tests**: Lexer (27 tests), Parser (27 tests), Analyzer (51 tests), Transpiler (15 tests)
+- **Total**: 120 tests, all passing
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, match expressions, with expressions, transpiler output validation
+- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, match expressions, with expressions, default parameters, named arguments, transpiler output validation
 
 ## Build & Run
 
@@ -146,7 +146,28 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.7 (Latest - With Expression Tests)
+### v1.8 (Latest - Default Parameters and Named Arguments)
+1. **Default parameter values**: ✅ Feature already implemented in parser and transpiler
+   - Parsed in `ParseParameterList` (lines 265-270)
+   - Stored in Parameter AST node with DefaultValue field
+   - Transpiled to C# default parameter syntax
+   - Syntax: `func Greet(name: string, greeting: string = "Hello")`
+2. **Named arguments**: ✅ Feature already implemented in parser and transpiler
+   - Parsed in `ParseArgumentList` (lines 1788-1798)
+   - Stored in Argument AST node with Name field
+   - Transpiled to C# named argument syntax
+   - Syntax: `CreateUser(name: "John", age: 30)`
+3. **Test coverage**: ✅ 120 tests total (27 lexer + 27 parser + 51 analyzer + 15 transpiler)
+   - Added `TestDefaultParameterValues` parser test
+   - Added `TestNamedArguments` parser test
+   - Added `TestDefaultParameterTranspilation` transpiler test
+   - Added `TestNamedArgumentTranspilation` transpiler test
+4. **Functionality confirmed**: ✅ Both features work end-to-end
+   - Tested with various combinations (positional, named, mixed, out-of-order)
+   - Default values work correctly when arguments omitted
+   - Named arguments work in any order
+
+### v1.7 (With Expression Tests)
 1. **Verified with expressions**: ✅ With expressions were already implemented and working
    - Parser support in `ParsePostfixExpression` (lines 1751-1769)
    - Transpiler support in `TranspileWithExpression`

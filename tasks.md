@@ -75,15 +75,22 @@
 - [x] Updated unions_and_match.nl to use actual match expressions
 - [x] All 114 tests passing (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
 
-### Phase 10: With Expression Tests (v1.7 - LATEST!)
+### Phase 10: With Expression Tests (v1.7)
 - [x] Verified with expressions already implemented and working
 - [x] Added comprehensive tests for with expressions (1 parser + 1 transpiler)
 - [x] Tested with expression end-to-end with record types
 - [x] All 116 tests passing (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
 
+### Phase 11: Default Parameters and Named Arguments (v1.8 - LATEST!)
+- [x] Verified default parameter values already implemented and working
+- [x] Verified named arguments already implemented and working
+- [x] Added comprehensive tests for both features (2 parser + 2 transpiler)
+- [x] Tested end-to-end with function calls and various argument patterns
+- [x] All 120 tests passing (27 lexer + 27 parser + 51 analyzer + 15 transpiler)
+
 ## 🚧 In Progress
 
-None currently - v1.7 complete!
+None currently - v1.8 complete!
 
 ## 📋 Next Steps
 
@@ -153,7 +160,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 116 unit tests passing** (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
+- **All 120 unit tests passing** (27 lexer + 27 parser + 51 analyzer + 15 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -167,4 +174,5 @@ The compiler successfully:
 - **String enum and top-level function fixes (v1.5)**
 - **Match expressions fully working with proper pattern transpilation (v1.6)**
 - **With expressions fully working for record mutation (v1.7)**
+- **Default parameter values and named arguments fully supported (v1.8)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

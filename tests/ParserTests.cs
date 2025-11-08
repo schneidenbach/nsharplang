@@ -601,4 +601,52 @@ public class ParserTests
         Assert.Single(withExpr.Properties);
         Assert.Equal("Age", withExpr.Properties[0].Name);
     }
+
+    [Fact]
+    public void TestDefaultParameterValues()
+    {
+        var source = @"
+            func Greet(name: string, greeting: string = ""Hello"") {
+                return greeting
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Equal(2, funcDecl.Parameters.Count);
+
+        var nameParam = funcDecl.Parameters[0];
+        Assert.Equal("name", nameParam.Name);
+        Assert.Null(nameParam.DefaultValue);
+
+        var greetingParam = funcDecl.Parameters[1];
+        Assert.Equal("greeting", greetingParam.Name);
+        Assert.NotNull(greetingParam.DefaultValue);
+        Assert.IsType<StringLiteralExpression>(greetingParam.DefaultValue);
+    }
+
+    [Fact]
+    public void TestNamedArguments()
+    {
+        var source = @"
+            func Test() {
+                CreateUser(name: ""John"", age: 30)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var exprStmt = funcDecl.Body.Statements[0] as ExpressionStatement;
+        Assert.NotNull(exprStmt);
+
+        var callExpr = exprStmt.Expression as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.Equal(2, callExpr.Arguments.Count);
+
+        Assert.Equal("name", callExpr.Arguments[0].Name);
+        Assert.Equal("age", callExpr.Arguments[1].Name);
+    }
 }
