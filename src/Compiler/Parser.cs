@@ -121,6 +121,7 @@ public class Parser
 
             if (Check(TokenType.LeftParen))
             {
+                Advance(); // consume '('
                 args = ParseArgumentList();
             }
 
@@ -701,7 +702,8 @@ public class Parser
         var baseType = ParseBaseTypeReference();
 
         // Array type
-        while (Check(TokenType.LeftBracket))
+        // Only treat '[' as array if it's followed by ']' (not an attribute)
+        while (Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket)
         {
             Advance();
             Consume(TokenType.RightBracket, "Expected ']'");

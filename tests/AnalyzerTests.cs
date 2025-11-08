@@ -615,4 +615,46 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void ReadonlyField_SetInConstructor_Valid()
+    {
+        AssertNoErrors(@"
+            class MyClass {
+                readonly id: string
+
+                constructor() {
+                    id = ""123""
+                }
+            }
+        ");
+    }
+
+    [Fact(Skip = "Readonly field validation not yet implemented in analyzer")]
+    public void ReadonlyField_SetOutsideConstructor_Error()
+    {
+        AssertHasError(@"
+            class MyClass {
+                readonly id: string
+
+                constructor() {
+                    id = ""123""
+                }
+
+                func ChangeId() {
+                    id = ""456""
+                }
+            }
+        ", "readonly");
+    }
+
+    [Fact]
+    public void ReadonlyField_WithInitializer_Valid()
+    {
+        AssertNoErrors(@"
+            class MyClass {
+                readonly id: string = ""default""
+            }
+        ");
+    }
 }

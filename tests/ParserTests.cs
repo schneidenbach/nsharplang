@@ -863,4 +863,171 @@ public class ParserTests
         var overrideMethod = derivedClass.Members[0] as FunctionDeclaration;
         Assert.NotNull(overrideMethod);
     }
+
+    [Fact]
+    public void TestTypeAlias()
+    {
+        var source = @"
+            type UserId = int
+            type Handler = Func<string, void>
+            type StringDict = Dictionary<string, string>
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(3, cu.Declarations.Count);
+
+        var alias1 = cu.Declarations[0] as TypeAliasDeclaration;
+        Assert.NotNull(alias1);
+        Assert.Equal("UserId", alias1.Name);
+        Assert.IsType<SimpleTypeReference>(alias1.Type);
+        Assert.Equal("int", ((SimpleTypeReference)alias1.Type).Name);
+
+        var alias2 = cu.Declarations[1] as TypeAliasDeclaration;
+        Assert.NotNull(alias2);
+        Assert.Equal("Handler", alias2.Name);
+        Assert.IsType<FunctionTypeReference>(alias2.Type); // Func<...> is a function type
+
+        var alias3 = cu.Declarations[2] as TypeAliasDeclaration;
+        Assert.NotNull(alias3);
+        Assert.Equal("StringDict", alias3.Name);
+        Assert.IsType<GenericTypeReference>(alias3.Type);
+    }
+
+    [Fact]
+    public void TestAttributes()
+    {
+        var source = @"
+            [Serializable]
+            class Person {
+                [JsonProperty(""user_name"")]
+                UserName: string
+
+                [Required]
+                Email: string
+            }
+
+            [HttpGet(""/api/users"")]
+            func GetUsers(): User[] {
+                return []
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(2, cu.Declarations.Count);
+
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Single(classDecl.Attributes);
+        Assert.Equal("Serializable", classDecl.Attributes[0].Name);
+
+        var field1 = classDecl.Members[0] as FieldDeclaration;
+        Assert.NotNull(field1);
+        Assert.Single(field1.Attributes);
+        Assert.Equal("JsonProperty", field1.Attributes[0].Name);
+        Assert.Single(field1.Attributes[0].Arguments);
+
+        var field2 = classDecl.Members[1] as FieldDeclaration;
+        Assert.NotNull(field2);
+        Assert.Single(field2.Attributes);
+        Assert.Equal("Required", field2.Attributes[0].Name);
+
+        var funcDecl = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Single(funcDecl.Attributes);
+        Assert.Equal("HttpGet", funcDecl.Attributes[0].Name);
+        Assert.Single(funcDecl.Attributes[0].Arguments);
+    }
+
+    [Fact]
+    public void TestExtensionMethod()
+    {
+        var source = @"
+            func IsEmpty(this s: string): bool {
+                return s.Length == 0
+            }
+
+            static class StringExtensions {
+                static func ToUpperFirst(this s: string): string {
+                    return s.Substring(0, 1).ToUpper() + s.Substring(1)
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(2, cu.Declarations.Count);
+
+        var topLevelFunc = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(topLevelFunc);
+        Assert.Equal("IsEmpty", topLevelFunc.Name);
+        Assert.Single(topLevelFunc.Parameters);
+        Assert.True(topLevelFunc.Parameters[0].IsThis);
+        Assert.Equal("s", topLevelFunc.Parameters[0].Name);
+
+        var staticClass = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(staticClass);
+        Assert.True(staticClass.Modifiers.HasFlag(Modifiers.Static));
+
+        var staticMethod = staticClass.Members[0] as FunctionDeclaration;
+        Assert.NotNull(staticMethod);
+        Assert.True(staticMethod.Modifiers.HasFlag(Modifiers.Static));
+        Assert.Single(staticMethod.Parameters);
+        Assert.True(staticMethod.Parameters[0].IsThis);
+    }
+
+    [Fact]
+    public void TestStaticClass()
+    {
+        var source = @"
+            static class Helpers {
+                static func DoThing() {
+                    Console.WriteLine(""done"")
+                }
+
+                static func Calculate(x: int): int {
+                    return x * 2
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Declarations);
+
+        var staticClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(staticClass);
+        Assert.Equal("Helpers", staticClass.Name);
+        Assert.True(staticClass.Modifiers.HasFlag(Modifiers.Static));
+        Assert.Equal(2, staticClass.Members.Count);
+
+        foreach (var member in staticClass.Members)
+        {
+            var method = member as FunctionDeclaration;
+            Assert.NotNull(method);
+            Assert.True(method.Modifiers.HasFlag(Modifiers.Static));
+        }
+    }
+
+    [Fact]
+    public void TestReadonlyField()
+    {
+        var source = @"
+            class MyClass {
+                readonly id: string
+
+                constructor() {
+                    id = Guid.NewGuid().ToString()
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Single(cu.Declarations);
+
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var field = classDecl.Members[0] as FieldDeclaration;
+        Assert.NotNull(field);
+        Assert.Equal("id", field.Name);
+        Assert.True(field.Modifiers.HasFlag(Modifiers.Readonly));
+    }
 }

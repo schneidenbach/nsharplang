@@ -491,4 +491,131 @@ class Dog : Animal {
         Assert.Contains("void MakeSound()", result);
         Assert.Contains("Console.WriteLine(\"Bark\")", result);
     }
+
+    [Fact]
+    public void TestStructTranspilation()
+    {
+        var source = @"
+struct Point {
+    X: int
+    Y: int
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should emit struct instead of class
+        Assert.Contains("struct Point", result);
+        Assert.Contains("public int X", result);
+        Assert.Contains("public int Y", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasTranspilation()
+    {
+        var source = @"
+type UserId = int
+type Handler = Func<string, void>
+        ";
+
+        var result = Transpile(source);
+
+        // Type aliases should be emitted as comments in C# (C# doesn't support type aliases at type level)
+        Assert.Contains("// type UserId = int", result);
+        // Func<string, void> transpiles to Action<string>
+        Assert.Contains("// type Handler = Action<string>", result);
+    }
+
+    [Fact]
+    public void TestAttributeTranspilation()
+    {
+        var source = @"
+[Serializable]
+class Person {
+    [JsonProperty(""user_name"")]
+    UserName: string
+}
+
+[HttpGet(""/api/users"")]
+func GetUsers(): User[] {
+    return []
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Attributes should be preserved in C# output
+        Assert.Contains("[Serializable]", result);
+        Assert.Contains("class Person", result);
+        Assert.Contains("[JsonProperty(\"user_name\")]", result);
+        Assert.Contains("public string UserName", result);
+        Assert.Contains("[HttpGet(\"/api/users\")]", result);
+    }
+
+    [Fact]
+    public void TestExtensionMethodTranspilation()
+    {
+        var source = @"
+func IsEmpty(this s: string): bool {
+    return s.Length == 0
+}
+
+static class StringExtensions {
+    static func ToUpperFirst(this s: string): string {
+        return s.Substring(0, 1).ToUpper() + s.Substring(1)
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Extension methods need to be in static classes
+        // Top-level extension method should be wrapped in internal static class
+        Assert.Contains("internal static", result);
+        Assert.Contains("static bool IsEmpty(this string s)", result);
+
+        // Explicit static class
+        Assert.Contains("static class StringExtensions", result);
+        Assert.Contains("static string ToUpperFirst(this string s)", result);
+    }
+
+    [Fact]
+    public void TestStaticClassTranspilation()
+    {
+        var source = @"
+static class Helpers {
+    static func DoThing() {
+        Console.WriteLine(""done"")
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should emit static class
+        Assert.Contains("static class Helpers", result);
+        Assert.Contains("static void DoThing()", result);
+        Assert.Contains("Console.WriteLine(\"done\")", result);
+    }
+
+    [Fact]
+    public void TestReadonlyFieldTranspilation()
+    {
+        var source = @"
+class MyClass {
+    readonly id: string
+
+    constructor() {
+        id = Guid.NewGuid().ToString()
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should emit readonly modifier
+        Assert.Contains("private readonly string id", result);
+        Assert.Contains("public MyClass()", result);
+        Assert.Contains("id = Guid.NewGuid().ToString()", result);
+    }
 }
