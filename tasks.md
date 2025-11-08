@@ -16,7 +16,7 @@
 - [x] Example hello.nl demonstrating key features
 - [x] End-to-end compilation pipeline working
 
-### Phase 3: Semantic Analysis (NEW!)
+### Phase 3: Semantic Analysis
 - [x] Analyzer implementation with type checking and type inference
 - [x] Name resolution and scope management
 - [x] Definite assignment analysis for non-nullable fields
@@ -24,6 +24,15 @@
 - [x] Error reporting with line/column information
 - [x] Integration with CLI build pipeline
 - [x] 47 analyzer tests, all passing (94 total tests)
+
+### Phase 4: External Type Resolution (NEW!)
+- [x] Using statement tracking in analyzer
+- [x] .NET reflection-based type resolution
+- [x] External type lookup (System.Console, System.Linq, etc.)
+- [x] Member resolution on external types (properties, fields, methods)
+- [x] Method overload resolution (basic, by argument count)
+- [x] Lambda parameter type inference (var → unknown → compatible)
+- [x] 4 new tests for external types (98 total tests)
 
 ## 🚧 In Progress
 
@@ -75,11 +84,14 @@ The compiler successfully:
 - Lexes all tokens including keywords, operators, literals, and string interpolation
 - Parses the full language grammar into a comprehensive AST
 - Performs semantic analysis with type checking and error reporting
+- **Resolves external types from .NET via reflection (System.Console, System.Linq, etc.)**
+- **Resolves members on external types (methods, properties, fields)**
+- **Handles method overloading**
 - Transpiles AST to clean, readable C# code
 - Compiles and runs .nl programs via the CLI
 
 **Working Examples:**
-- `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops
+- `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops, external types ✅
 - `examples/simple.nl` - Basic functions and type inference
 
 ## 📝 Notes
@@ -88,5 +100,6 @@ The compiler successfully:
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
 - String enum values use const fields instead of traditional enums
-- All 94 unit tests passing (47 lexer/parser + 47 analyzer)
-- Analyzer currently doesn't resolve external types from using statements (expected for v1)
+- All 98 unit tests passing (27 lexer + 20 parser + 51 analyzer)
+- **External type resolution now working via .NET reflection (v1.1)**
+- Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

@@ -563,4 +563,56 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void ExternalType_Console_Valid()
+    {
+        AssertNoErrors(@"
+            using System
+
+            func Main() {
+                Console.WriteLine(""Hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExternalType_MemberAccess_Valid()
+    {
+        AssertNoErrors(@"
+            using System
+
+            func Main() {
+                let msg = ""test""
+                Console.WriteLine(msg)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_InferredType_Valid()
+    {
+        AssertNoErrors(@"
+            using System.Linq
+
+            func Main() {
+                numbers := [1, 2, 3]
+                doubled := numbers.Select(x => x * 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExternalType_MethodOverloading_Valid()
+    {
+        AssertNoErrors(@"
+            using System
+
+            func Main() {
+                Console.WriteLine(42)
+                Console.WriteLine(""text"")
+                Console.WriteLine(true)
+            }
+        ");
+    }
 }

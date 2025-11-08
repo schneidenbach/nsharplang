@@ -53,18 +53,28 @@ Executable
   - Convention-based visibility → explicit modifiers in C#
 - Generates clean, indented output
 
-### 6. Analyzer (`src/Compiler/Analyzer.cs`) - NEW!
+### 6. Analyzer (`src/Compiler/Analyzer.cs`)
 - Performs semantic analysis, type checking, and name resolution
 - Implements scope management with nested scopes (global, class, function, block)
 - Type inference for variables and expressions
 - Definite assignment checking for non-nullable fields in constructors
 - Convention-based visibility checking (PascalCase = public, camelCase = private)
 - Reports errors with line/column information
+- **External Type Resolution (NEW!)**:
+  - Tracks using statements and namespace imports
+  - Uses .NET reflection to resolve external types (System.Console, System.Linq, etc.)
+  - Resolves members (properties, fields, methods) on external types
+  - Handles method overloading via ReflectionMethodGroupInfo
+  - Converts reflection types back to TypeInfo for analysis
 - **Design**:
   - Uses `TypeInfo` hierarchy for type representation
-  - Built-in types: int, long, float, double, bool, string, void, etc.
+  - Built-in types: int, long, float, double, bool, string, void, var (maps to unknown)
   - Supports class, struct, record, interface, union, enum types
   - Function return type resolution from declarations
+  - ReflectionTypeInfo: Represents types loaded via reflection
+  - ReflectionMethodInfo: Single method from reflection
+  - ReflectionMethodGroupInfo: Overloaded methods from reflection
+  - ExternalTypeInfo: Types that couldn't be fully resolved
 
 ### 7. CLI (`src/Cli/Program.cs`)
 - Three commands: build, transpile, run
@@ -99,11 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (20 tests), Analyzer (47 tests)
-- **Total**: 94 tests, all passing
+- **Unit tests**: Lexer (27 tests), Parser (20 tests), Analyzer (51 tests)
+- **Total**: 98 tests, all passing
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`
+- **New analyzer tests**: External type resolution, method overloading, lambda inference
 
 ## Build & Run
 
@@ -126,16 +137,26 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Known Limitations
 
-1. **No external type resolution**: Analyzer doesn't know about types from using statements (e.g., System.Console)
-2. **Limited member type resolution**: Method/property lookup on types not fully implemented
-3. **Basic lambda type inference**: Lambda parameter types need more sophisticated inference
+1. **Lambda type inference from context**: Lambda parameters with `var` work but type isn't inferred from LINQ method context
+2. **Extension method resolution**: Extension methods not yet resolved (e.g., LINQ on arrays works via IEnumerable)
+3. **Generic type inference**: Generic type parameters not fully inferred
 4. **No multi-file compilation**: Only single-file programs work
 5. **No project.yml support**: Dependency management not implemented
+6. **Limited overload resolution**: Method overload resolution based only on argument count, not types
+
+## Recent Changes (v1.1)
+
+1. **External type resolution**: ✅ Analyzer now resolves types from using statements via reflection
+2. **Member resolution**: ✅ Properties, fields, and methods on external types are resolved
+3. **Method overloading**: ✅ Handles overloaded methods (basic resolution by arg count)
+4. **Lambda parameters**: ✅ Lambda parameters without explicit types use `var` → `Unknown` → compatible with arithmetic
+5. **Test coverage**: ✅ Added 4 new tests for external type features (98 tests total)
 
 ## Next Implementation Priority
 
-1. **Enhanced type system**: Member type resolution, generic type inference
-2. **External type support**: Resolve types from using statements and .NET assemblies
-3. **Multi-file**: Extend CLI to compile multiple files
-4. **Project system**: Parse project.yml and manage dependencies
-5. **Better error messages**: Include source code context in error output
+1. **Better lambda type inference**: Infer lambda parameter types from LINQ method signatures
+2. **Extension method resolution**: Properly resolve extension methods like Select, Where
+3. **Generic type inference**: Infer type parameters from usage context
+4. **Multi-file compilation**: Extend CLI to compile multiple files
+5. **Project system**: Parse project.yml and manage dependencies
+6. **Better error messages**: Include source code context in error output

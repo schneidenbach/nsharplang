@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using NewCLILang.Compiler.Ast;
 
 namespace NewCLILang.Compiler;
@@ -13,6 +14,8 @@ public class Analyzer
 {
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
+    private readonly List<string> _usingNamespaces = new();
+    private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private ClassDeclaration? _currentClass;
@@ -21,8 +24,23 @@ public class Analyzer
     {
         _errors.Clear();
         _scopes.Clear();
+        _usingNamespaces.Clear();
+        _usingAliases.Clear();
         _currentReturnType = null;
         _inLoop = false;
+
+        // Process using statements
+        foreach (var usingStmt in unit.Usings)
+        {
+            if (usingStmt.Alias != null)
+            {
+                _usingAliases[usingStmt.Alias] = usingStmt.Namespace;
+            }
+            else
+            {
+                _usingNamespaces.Add(usingStmt.Namespace);
+            }
+        }
 
         // Create global scope
         PushScope(new Scope(ScopeKind.Global));
@@ -659,6 +677,12 @@ public class Analyzer
             return BuiltInTypes.String;
         }
 
+        // If either operand is Unknown, we can't check but assume it's okay
+        if (left == BuiltInTypes.Unknown || right == BuiltInTypes.Unknown)
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         if (!IsNumericType(left) || !IsNumericType(right))
         {
             Error($"Operator '{expr.Operator}' cannot be applied to '{left}' and '{right}'",
@@ -696,8 +720,119 @@ public class Analyzer
     private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
     {
         var objectType = AnalyzeExpression(member.Object);
-        // TODO: Resolve member on type
+
+        // Resolve member on type
+        return ResolveMember(objectType, member.MemberName);
+    }
+
+    private TypeInfo ResolveMember(TypeInfo objectType, string memberName)
+    {
+        // Handle reflection-based types
+        if (objectType is ReflectionTypeInfo reflectionType)
+        {
+            var type = reflectionType.Type;
+
+            // Try property
+            var property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+            if (property != null)
+                return ConvertReflectionType(property.PropertyType);
+
+            // Try field
+            var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+            if (field != null)
+                return ConvertReflectionType(field.FieldType);
+
+            // Try methods (get all matching methods to handle overloads)
+            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .Where(m => m.Name == memberName)
+                .ToArray();
+
+            if (methods.Length > 0)
+            {
+                // Return a special type that represents overloaded methods
+                return new ReflectionMethodGroupInfo(methods);
+            }
+
+            // Also check extension methods (simplified - just return Unknown for now)
+            return BuiltInTypes.Unknown;
+        }
+
+        // Handle declared types
+        if (objectType is ClassTypeInfo classType)
+        {
+            var member = classType.Declaration.Members.FirstOrDefault(m =>
+                (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is FunctionDeclaration func && func.Name == memberName));
+
+            if (member is FieldDeclaration field)
+                return ResolveType(field.Type);
+            if (member is FunctionDeclaration func)
+                return new FunctionTypeInfo(func);
+        }
+
+        if (objectType is StructTypeInfo structType)
+        {
+            var member = structType.Declaration.Members.FirstOrDefault(m =>
+                (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is FunctionDeclaration func && func.Name == memberName));
+
+            if (member is FieldDeclaration field)
+                return ResolveType(field.Type);
+            if (member is FunctionDeclaration func)
+                return new FunctionTypeInfo(func);
+        }
+
+        if (objectType is RecordTypeInfo recordType)
+        {
+            var member = recordType.Declaration.Members.FirstOrDefault(m =>
+                (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is FunctionDeclaration func && func.Name == memberName));
+
+            if (member is FieldDeclaration field)
+                return ResolveType(field.Type);
+            if (member is FunctionDeclaration func)
+                return new FunctionTypeInfo(func);
+        }
+
+        // Handle array types
+        if (objectType is ArrayTypeInfo arrayType)
+        {
+            if (memberName == "Length")
+                return BuiltInTypes.Int;
+        }
+
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo ConvertReflectionType(Type type)
+    {
+        // Handle primitive types
+        if (type == typeof(int)) return BuiltInTypes.Int;
+        if (type == typeof(long)) return BuiltInTypes.Long;
+        if (type == typeof(float)) return BuiltInTypes.Float;
+        if (type == typeof(double)) return BuiltInTypes.Double;
+        if (type == typeof(bool)) return BuiltInTypes.Bool;
+        if (type == typeof(string)) return BuiltInTypes.String;
+        if (type == typeof(void)) return BuiltInTypes.Void;
+        if (type == typeof(object)) return BuiltInTypes.Object;
+
+        // Handle arrays
+        if (type.IsArray)
+        {
+            var elementType = ConvertReflectionType(type.GetElementType()!);
+            return new ArrayTypeInfo(elementType);
+        }
+
+        // Handle generics
+        if (type.IsGenericType)
+        {
+            var genericArgs = type.GetGenericArguments().Select(ConvertReflectionType).ToList();
+            var genericName = type.Name.Substring(0, type.Name.IndexOf('`'));
+            return new GenericTypeInfo(genericName, genericArgs);
+        }
+
+        // Default to reflection type
+        return new ReflectionTypeInfo(type);
     }
 
     private TypeInfo AnalyzeCall(CallExpression call)
@@ -705,9 +840,10 @@ public class Analyzer
         var calleeType = AnalyzeExpression(call.Callee);
 
         // Analyze arguments
+        var argTypes = new List<TypeInfo>();
         foreach (var arg in call.Arguments)
         {
-            AnalyzeExpression(arg.Value);
+            argTypes.Add(AnalyzeExpression(arg.Value));
         }
 
         // Resolve return type from function type
@@ -719,6 +855,33 @@ public class Analyzer
                 return ResolveType(funcType.Declaration.ReturnType);
             }
             return funcType.ReturnType ?? BuiltInTypes.Void;
+        }
+
+        // Handle reflection method calls
+        if (calleeType is ReflectionMethodInfo methodInfo)
+        {
+            return ConvertReflectionType(methodInfo.Method.ReturnType);
+        }
+
+        // Handle method group (overloaded methods)
+        if (calleeType is ReflectionMethodGroupInfo methodGroup)
+        {
+            // Try to resolve overload based on argument count
+            // For now, just pick the first compatible method
+            var compatibleMethods = methodGroup.Methods
+                .Where(m => m.GetParameters().Length == argTypes.Count)
+                .ToArray();
+
+            if (compatibleMethods.Length > 0)
+            {
+                return ConvertReflectionType(compatibleMethods[0].ReturnType);
+            }
+
+            // If no exact match, just return the first method's return type
+            if (methodGroup.Methods.Length > 0)
+            {
+                return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
+            }
         }
 
         return BuiltInTypes.Unknown;
@@ -743,7 +906,9 @@ public class Analyzer
 
         foreach (var param in lambda.Parameters)
         {
-            var paramType = ResolveType(param.Type);
+            // If the parameter has an explicit type, use it
+            // Otherwise, use Unknown for now (will be inferred from context in full implementation)
+            var paramType = param.Type != null ? ResolveType(param.Type) : BuiltInTypes.Unknown;
             DeclareSymbol(param.Name, paramType, lambda.Line, lambda.Column);
         }
 
@@ -850,7 +1015,7 @@ public class Analyzer
     private TypeInfo ResolveSimpleType(string name)
     {
         // Check built-in types
-        return name switch
+        var builtInType = name switch
         {
             "int" => BuiltInTypes.Int,
             "long" => BuiltInTypes.Long,
@@ -860,8 +1025,80 @@ public class Analyzer
             "string" => BuiltInTypes.String,
             "void" => BuiltInTypes.Void,
             "object" => BuiltInTypes.Object,
-            _ => LookupType(name) ?? new SimpleTypeInfo(name)
+            "var" => BuiltInTypes.Unknown, // Treat 'var' as unknown for type inference
+            _ => null
         };
+
+        if (builtInType != null)
+            return builtInType;
+
+        // Check local type declarations
+        var localType = LookupType(name);
+        if (localType != null)
+            return localType;
+
+        // Check using aliases
+        if (_usingAliases.TryGetValue(name, out var fullName))
+        {
+            var aliasedType = TryResolveExternalType(fullName);
+            if (aliasedType != null)
+                return aliasedType;
+        }
+
+        // Try to resolve as external type
+        var externalType = TryResolveExternalType(name);
+        if (externalType != null)
+            return externalType;
+
+        // Return unknown type (not an error - might be from C# library)
+        return new ExternalTypeInfo(name);
+    }
+
+    private TypeInfo? TryResolveExternalType(string name)
+    {
+        // Try direct type lookup in common assemblies
+        var type = Type.GetType(name);
+        if (type != null)
+            return new ReflectionTypeInfo(type);
+
+        // Try with using namespaces
+        foreach (var ns in _usingNamespaces)
+        {
+            var fullName = $"{ns}.{name}";
+
+            // Try core library
+            type = Type.GetType($"{fullName}, System.Runtime");
+            if (type != null)
+                return new ReflectionTypeInfo(type);
+
+            // Try System.Private.CoreLib
+            type = Type.GetType($"{fullName}, System.Private.CoreLib");
+            if (type != null)
+                return new ReflectionTypeInfo(type);
+
+            // Try without assembly qualification
+            type = Type.GetType(fullName);
+            if (type != null)
+                return new ReflectionTypeInfo(type);
+
+            // Try common assemblies
+            var assemblies = new[]
+            {
+                Assembly.Load("System.Runtime"),
+                Assembly.Load("System.Console"),
+                Assembly.Load("System.Linq"),
+                typeof(object).Assembly // mscorlib/System.Private.CoreLib
+            };
+
+            foreach (var assembly in assemblies)
+            {
+                type = assembly.GetType(fullName);
+                if (type != null)
+                    return new ReflectionTypeInfo(type);
+            }
+        }
+
+        return null;
     }
 
     private TypeInfo? LookupType(string name)
@@ -876,11 +1113,22 @@ public class Analyzer
 
     private TypeInfo ResolveIdentifier(string name, int line, int column)
     {
+        // Check local symbols first
         foreach (var scope in _scopes)
         {
             if (scope.Symbols.TryGetValue(name, out var type))
                 return type;
         }
+
+        // Try to resolve as external type (for static class access like Console)
+        var externalType = TryResolveExternalType(name);
+        if (externalType != null)
+            return externalType;
+
+        // Check if it's a type name
+        var typeInfo = LookupType(name);
+        if (typeInfo != null)
+            return typeInfo;
 
         Error($"Undefined identifier '{name}'", line, column);
         return BuiltInTypes.Unknown;
@@ -933,6 +1181,16 @@ public class Analyzer
         if (target == source) return true;
         if (source == BuiltInTypes.Null && target is NullableTypeInfo) return true;
         if (source == BuiltInTypes.Never) return true;
+        if (source == BuiltInTypes.Unknown || target == BuiltInTypes.Unknown) return true;
+
+        // Handle external types (assume compatible if we can't resolve)
+        if (source is ExternalTypeInfo || target is ExternalTypeInfo) return true;
+        if (source is ReflectionTypeInfo || target is ReflectionTypeInfo) return true;
+        if (source is ReflectionMethodInfo || target is ReflectionMethodInfo) return true;
+        if (source is ReflectionMethodGroupInfo || target is ReflectionMethodGroupInfo) return true;
+
+        // Same type name
+        if (target.ToString() == source.ToString()) return true;
 
         // TODO: More sophisticated type compatibility checking
         return false;
@@ -1093,13 +1351,69 @@ public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
     public TypeInfo? ReturnType { get; set; }
 }
 
-public record ClassTypeInfo(ClassDeclaration Declaration) : TypeInfo;
-public record StructTypeInfo(StructDeclaration Declaration) : TypeInfo;
-public record RecordTypeInfo(RecordDeclaration Declaration) : TypeInfo;
-public record InterfaceTypeInfo(InterfaceDeclaration Declaration) : TypeInfo;
-public record UnionTypeInfo(UnionDeclaration Declaration) : TypeInfo;
-public record EnumTypeInfo(EnumDeclaration Declaration) : TypeInfo;
+public record ClassTypeInfo(ClassDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record StructTypeInfo(StructDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record RecordTypeInfo(RecordDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record InterfaceTypeInfo(InterfaceDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record UnionTypeInfo(UnionDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record EnumTypeInfo(EnumDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
 public record AliasTypeInfo(TypeReference AliasedType) : TypeInfo;
+
+/// <summary>
+/// Represents a type resolved via .NET reflection (external types like System.Console)
+/// </summary>
+public record ReflectionTypeInfo(Type Type) : TypeInfo
+{
+    public override string ToString() => Type.Name;
+}
+
+/// <summary>
+/// Represents a method resolved via .NET reflection
+/// </summary>
+public record ReflectionMethodInfo(MethodInfo Method) : TypeInfo
+{
+    public override string ToString() => $"{Method.Name}(...)";
+}
+
+/// <summary>
+/// Represents a group of overloaded methods resolved via .NET reflection
+/// </summary>
+public record ReflectionMethodGroupInfo(MethodInfo[] Methods) : TypeInfo
+{
+    public override string ToString() => Methods.Length > 0 ? $"{Methods[0].Name}(...)" : "method group";
+}
+
+/// <summary>
+/// Represents an external type that couldn't be fully resolved
+/// </summary>
+public record ExternalTypeInfo(string Name) : TypeInfo
+{
+    public override string ToString() => Name;
+}
 
 public static class BuiltInTypes
 {
