@@ -50,31 +50,32 @@ dotnet tool install -g nsharp
 
 ## Building and Running
 
-### Step 1: Navigate to the project
+### Option 1: Using N# Run Command (Simplest)
 ```bash
 cd examples/13-aspnet-demo/TaskManagementApi
+nsharp run Program.nl
 ```
 
-### Step 2: Compile N# to C#
-```bash
-nsharp build Program.nl
-nsharp build Database.nl
-nsharp build Tasks.nl
-```
+That's it! The N# compiler automatically:
+- Discovers and transpiles all `.nl` files
+- Compiles to .NET
+- Runs the application
+- Cleans up temporary files
 
-This generates:
-- `Program.g.cs`
-- `Database.g.cs`
-- `Tasks.g.cs`
-
-### Step 3: Run the application
+### Option 2: Build then Run Separately
 ```bash
+cd examples/13-aspnet-demo/TaskManagementApi
+
+# Build all .nl files (auto-discovers Program.nl, Database.nl, Tasks.nl)
+nsharp build
+
+# Run with dotnet
 dotnet run
 ```
 
 The API will start on `https://localhost:5001` (or similar).
 
-### Step 4: Explore with Swagger
+### Explore with Swagger
 Open your browser to:
 ```
 https://localhost:5001/swagger

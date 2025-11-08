@@ -31,11 +31,15 @@ class Program
 
     static int BuildCommand(string[] args)
     {
+        // Check for --keep-generated flag
+        var keepGenerated = args.Contains("--keep-generated");
+        args = args.Where(a => a != "--keep-generated").ToArray();
+
         // Support both single-file and multi-file builds
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
-            return BuildMultiFile(Directory.GetCurrentDirectory());
+            return BuildMultiFile(Directory.GetCurrentDirectory(), keepGenerated);
         }
 
         var sourceFile = args[0];
@@ -44,21 +48,46 @@ class Program
             return Error($"File not found: {sourceFile}");
         }
 
-        // Single file build
+        // Single file build - use temp directory
+        var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
         try
         {
             Console.WriteLine($"Building {sourceFile}...");
+
+            Directory.CreateDirectory(tempDir);
 
             var source = File.ReadAllText(sourceFile);
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             var csharpCode = CompileToCSharp(source, sourceFile, projectConfig);
 
-            // Write C# output
-            var csharpFile = Path.ChangeExtension(sourceFile, ".g.cs");
+            // Write C# to temp file
+            var csharpFile = Path.Combine(tempDir, "Program.cs");
             File.WriteAllText(csharpFile, csharpCode);
 
-            Console.WriteLine($"Generated C# code: {csharpFile}");
+            // Create .csproj
+            var projectFile = Path.Combine(tempDir, "TempProject.csproj");
+            File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
+
+            // Build
+            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{projectFile}\" -v q",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+
+            buildResult?.WaitForExit();
+
+            if (buildResult?.ExitCode != 0)
+            {
+                var error = buildResult?.StandardError.ReadToEnd() ?? "";
+                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
+                return Error($"Build failed:\n{error}{output}");
+            }
+
             Console.WriteLine("Build successful!");
 
             return 0;
@@ -67,13 +96,40 @@ class Program
         {
             return Error($"Build failed: {ex.Message}");
         }
+        finally
+        {
+            // Clean up temp directory unless --keep-generated
+            if (!keepGenerated && Directory.Exists(tempDir))
+            {
+                try
+                {
+                    Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+            else if (keepGenerated)
+            {
+                Console.WriteLine($"Generated files kept in: {tempDir}");
+            }
+        }
     }
 
-    static int BuildMultiFile(string projectRoot)
+    static int BuildMultiFile(string projectRoot, bool keepGenerated = false)
     {
+        var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
+
+            // Clean and create temp directory
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+            Directory.CreateDirectory(tempDir);
 
             // Load project config
             var config = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -93,16 +149,13 @@ class Program
                 return Error($"Build failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
             }
 
-            // Write C# output files
-            var outputDir = Path.Combine(projectRoot, "obj", "generated");
-            Directory.CreateDirectory(outputDir);
-
+            // Write C# files to temp directory
             foreach (var kvp in result.TranspiledFiles)
             {
                 var sourceFile = kvp.Key;
                 var csharpCode = kvp.Value;
                 var relativePath = Path.GetRelativePath(projectRoot, sourceFile);
-                var csharpFile = Path.Combine(outputDir, Path.ChangeExtension(relativePath, ".g.cs"));
+                var csharpFile = Path.Combine(tempDir, Path.ChangeExtension(relativePath, ".cs"));
 
                 // Create subdirectories if needed
                 var csharpDir = Path.GetDirectoryName(csharpFile);
@@ -112,7 +165,30 @@ class Program
                 }
 
                 File.WriteAllText(csharpFile, csharpCode);
-                Console.WriteLine($"Generated: {Path.GetRelativePath(projectRoot, csharpFile)}");
+            }
+
+            // Create .csproj in temp directory
+            var projectFile = Path.Combine(tempDir, "TempProject.csproj");
+            File.WriteAllText(projectFile, GenerateCsProj(config));
+
+            // Build with dotnet
+            Console.WriteLine("Running dotnet build...");
+            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{projectFile}\" -v q",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+
+            buildResult?.WaitForExit();
+
+            if (buildResult?.ExitCode != 0)
+            {
+                var error = buildResult?.StandardError.ReadToEnd() ?? "";
+                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
+                return Error($"Build failed:\n{error}{output}");
             }
 
             Console.WriteLine($"Build successful! ({result.TranspiledFiles.Count} files)");
@@ -121,6 +197,25 @@ class Program
         catch (Exception ex)
         {
             return Error($"Build failed: {ex.Message}");
+        }
+        finally
+        {
+            // Clean up temp directory unless --keep-generated
+            if (!keepGenerated && Directory.Exists(tempDir))
+            {
+                try
+                {
+                    Directory.Delete(tempDir, true);
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+            }
+            else if (keepGenerated)
+            {
+                Console.WriteLine($"Generated files kept in: {tempDir}");
+            }
         }
     }
 
@@ -596,6 +691,9 @@ func Main() {{
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --keep-generated     - Keep generated .cs files for debugging (build command)");
         Console.WriteLine();
 
         return 0;

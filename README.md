@@ -73,12 +73,20 @@ dotnet test  # 568 tests passing
 # Transpile to C# (stdout)
 dotnet run --project src/Cli/Cli.csproj -- transpile Program.nl
 
-# Build executable
+# Build single file (auto-cleanup)
 dotnet run --project src/Cli/Cli.csproj -- build Program.nl
+
+# Build all .nl files in project (auto-cleanup)
+dotnet run --project src/Cli/Cli.csproj -- build
 
 # Build and run
 dotnet run --project src/Cli/Cli.csproj -- run Program.nl
+
+# Keep generated .cs files for debugging
+dotnet run --project src/Cli/Cli.csproj -- build --keep-generated
 ```
+
+**Note:** Generated `.cs` files are automatically cleaned up after build. Use `--keep-generated` for debugging.
 
 ## Key Features
 

@@ -26,6 +26,7 @@ This task is **NOT COMPLETE** until ALL of the following work:
 - [ ] GET /api/tasks/priority/{priority} filters by priority
 - [ ] Database (tasks.db) is created and persists data
 - [ ] All validation works (required fields, max lengths, etc.)
+- [ ] Write tests using WebApplicationFactory using the .tests.nl N# test method
 
 ## Current State
 
@@ -447,6 +448,7 @@ This task is **ONLY COMPLETE** when:
 5. Filter by status
 6. Show it works in Swagger UI
 7. Restart the app and see data persisted
+8. Tests are written in the N# way using .tests.nl files
 
 **If ANY of the above fails, the task is NOT DONE.**
 
@@ -466,6 +468,7 @@ This task is **ONLY COMPLETE** when:
 - **Binary:** Works or doesn't work - no partial credit
 - **Proof:** Screenshot of Swagger UI and curl commands working
 - **Verification:** Can hand to another developer and they can run it
+- **TESTS WRITTEN USING THE N# TEST PATTERN USING WebApplicationFactory: .tests.nl**
 
 ## Notes
 
