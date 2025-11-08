@@ -199,7 +199,53 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Task 014: ASP.NET Core example project
 - Additional language features as needed
 
-### v1.32 (Preprocessor Directives) ✅ COMPLETE - LATEST!
+### v1.33 (Required and Init-Only Properties) ✅ COMPLETE - LATEST!
+1. **New keywords**: ✅ Added `required` and `init` keywords
+   - Added `Required` and `Init` token types to Token.cs
+   - Added keyword mappings to Lexer.cs
+   - Added `Required` and `Init` modifiers to Modifiers enum (Declarations.cs)
+2. **Parser support**: ✅ ParseModifiers handles new modifiers
+   - Updated ParseModifiers() to recognize `required` and `init` tokens
+   - Both modifiers can be combined: `required init Property: type`
+   - Work with both FieldDeclaration and PropertyDeclaration
+3. **Transpiler support**: ✅ Correct C# code generation
+   - Updated GetModifierString() to emit `required` modifier
+   - Updated TranspileFieldDeclaration() to handle init-only auto-properties
+     - `init` properties transpile to `{ get; init; }` instead of `{ get; set; }`
+     - Both `readonly` and `init` modifiers produce init-only properties
+   - Updated TranspilePropertyDeclaration() to handle init-only custom properties
+     - `init` modifier changes setter to `init` instead of `set`
+   - Modifiers are excluded from class-level modifier string (handled in accessors)
+4. **Test coverage**: ✅ 8 new tests (2 lexer + 3 parser + 3 transpiler) = 316 total
+   - Lexer: TestRequiredKeyword, TestInitKeyword
+   - Parser: TestRequiredProperty, TestInitOnlyProperty, TestRequiredAndInitProperty
+   - Transpiler: TestRequiredPropertyTranspilation, TestInitOnlyPropertyTranspilation, TestRequiredInitPropertyTranspilation
+5. **Example**: ✅ examples/required_and_init_properties.nl
+   - Demonstrates required properties (C# 11 feature)
+   - Shows init-only properties (C# 9 feature)
+   - Combines both modifiers for maximum safety
+   - Includes Person record, User class, and Product class examples
+   - Successfully compiles and runs
+6. **Documentation**: ✅ Updated DESIGN.md
+   - Added "Required Properties (C# 11)" section with examples
+   - Added "Init-Only Properties (C# 9)" section with examples
+   - Explained benefits and use cases
+7. **Build status**: ✅ All 316 tests passing
+
+**Impact:** N# now supports modern C# property features for better type safety and immutability!
+
+**Features:**
+- `required` modifier ensures properties are set during initialization (compile-time safety)
+- `init` modifier creates immutable properties that work with object initializers
+- Can be combined: `required init Property: type` for maximum safety
+- Better than `readonly` - allows object initializer syntax
+
+**Use cases:**
+- `required`: Ensure critical data like IDs and emails are never missing
+- `init`: Create immutable objects without ceremony
+- `required init`: Guaranteed immutable required properties
+
+### v1.32 (Preprocessor Directives) ✅ COMPLETE
 1. **AST nodes**: ✅ Two new AST nodes for preprocessor directives
    - Created `PreprocessorDirective` statement (for inline directives within functions/blocks)
    - Created `PreprocessorDeclaration` declaration (for top-level and class member directives)

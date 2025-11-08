@@ -212,6 +212,8 @@ public enum Modifiers
     Const = 1 << 10,
     Async = 1 << 11,
     Generator = 1 << 12, // For func* (yield)
+    Required = 1 << 13,  // C# 11 required properties
+    Init = 1 << 14,      // C# 9 init-only properties
 }
 
 // Attributes

@@ -238,6 +238,16 @@ public class Parser
                 modifiers |= Modifiers.Async;
                 Advance();
             }
+            else if (Check(TokenType.Required))
+            {
+                modifiers |= Modifiers.Required;
+                Advance();
+            }
+            else if (Check(TokenType.Init))
+            {
+                modifiers |= Modifiers.Init;
+                Advance();
+            }
             else
             {
                 break;

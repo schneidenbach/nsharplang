@@ -453,4 +453,24 @@ public class LexerTests
         Assert.Equal(TokenType.Import, tokens[0].Type);
         Assert.Equal("import", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestRequiredKeyword()
+    {
+        var source = "required";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // required + EOF
+        Assert.Equal(TokenType.Required, tokens[0].Type);
+        Assert.Equal("required", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestInitKeyword()
+    {
+        var source = "init";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // init + EOF
+        Assert.Equal(TokenType.Init, tokens[0].Type);
+        Assert.Equal("init", tokens[0].Value);
+    }
 }

@@ -1678,4 +1678,53 @@ func Helper(): int {
         var result = Transpile(source);
         Assert.Contains("#define FEATURE_X", result);
     }
+
+    [Fact]
+    public void TestRequiredPropertyTranspilation()
+    {
+        var source = @"
+            class Person {
+                required Name: string
+                required Email: string
+                Age: int = 0
+            }
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("public required string Name { get; set; }", result);
+        Assert.Contains("public required string Email { get; set; }", result);
+        Assert.Contains("public int Age { get; set; } = 0;", result);
+    }
+
+    [Fact]
+    public void TestInitOnlyPropertyTranspilation()
+    {
+        var source = @"
+            record Person {
+                init Name: string
+                init Age: int
+            }
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("public string Name { get; init; }", result);
+        Assert.Contains("public int Age { get; init; }", result);
+    }
+
+    [Fact]
+    public void TestRequiredInitPropertyTranspilation()
+    {
+        var source = @"
+            class User {
+                required init Id: string
+                required init Email: string
+                Name: string = """"
+            }
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("public required string Id { get; init; }", result);
+        Assert.Contains("public required string Email { get; init; }", result);
+        Assert.Contains("public string Name { get; set; } = \"\";", result);
+    }
 }

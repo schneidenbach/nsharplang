@@ -2786,5 +2786,98 @@ func Helper(): int {
         Assert.NotNull(preprocessor);
         Assert.Equal("#define FEATURE_X", preprocessor.Directive);
     }
+
+    [Fact]
+    public void TestRequiredProperty()
+    {
+        var source = @"
+            class Person {
+                required Name: string
+                required Email: string
+                Age: int = 0
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("Person", classDecl.Name);
+
+        var fields = classDecl.Members.OfType<FieldDeclaration>().ToList();
+        Assert.Equal(3, fields.Count);
+
+        var nameField = fields[0];
+        Assert.Equal("Name", nameField.Name);
+        Assert.True(nameField.Modifiers.HasFlag(Modifiers.Required));
+
+        var emailField = fields[1];
+        Assert.Equal("Email", emailField.Name);
+        Assert.True(emailField.Modifiers.HasFlag(Modifiers.Required));
+
+        var ageField = fields[2];
+        Assert.Equal("Age", ageField.Name);
+        Assert.False(ageField.Modifiers.HasFlag(Modifiers.Required));
+    }
+
+    [Fact]
+    public void TestInitOnlyProperty()
+    {
+        var source = @"
+            record Person {
+                init Name: string
+                init Age: int
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Person", recordDecl.Name);
+
+        var fields = recordDecl.Members.OfType<FieldDeclaration>().ToList();
+        Assert.Equal(2, fields.Count);
+
+        var nameField = fields[0];
+        Assert.Equal("Name", nameField.Name);
+        Assert.True(nameField.Modifiers.HasFlag(Modifiers.Init));
+
+        var ageField = fields[1];
+        Assert.Equal("Age", ageField.Name);
+        Assert.True(ageField.Modifiers.HasFlag(Modifiers.Init));
+    }
+
+    [Fact]
+    public void TestRequiredAndInitProperty()
+    {
+        var source = @"
+            class User {
+                required init Id: string
+                required init Email: string
+                Name: string = """"
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var fields = classDecl.Members.OfType<FieldDeclaration>().ToList();
+        Assert.Equal(3, fields.Count);
+
+        var idField = fields[0];
+        Assert.Equal("Id", idField.Name);
+        Assert.True(idField.Modifiers.HasFlag(Modifiers.Required));
+        Assert.True(idField.Modifiers.HasFlag(Modifiers.Init));
+
+        var emailField = fields[1];
+        Assert.Equal("Email", emailField.Name);
+        Assert.True(emailField.Modifiers.HasFlag(Modifiers.Required));
+        Assert.True(emailField.Modifiers.HasFlag(Modifiers.Init));
+
+        var nameField = fields[2];
+        Assert.Equal("Name", nameField.Name);
+        Assert.False(nameField.Modifiers.HasFlag(Modifiers.Required));
+        Assert.False(nameField.Modifiers.HasFlag(Modifiers.Init));
+    }
 }
 

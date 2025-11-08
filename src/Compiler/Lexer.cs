@@ -78,6 +78,8 @@ public class Lexer
         { "test", TokenType.Test },
         { "assert", TokenType.Assert },
         { "operator", TokenType.Operator },
+        { "required", TokenType.Required },
+        { "init", TokenType.Init },
     };
 
     public Lexer(string source, string? fileName = null)

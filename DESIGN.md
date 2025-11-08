@@ -197,6 +197,58 @@ result := match value {
   }
   ```
 
+#### Required Properties (C# 11)
+- `required` modifier ensures properties are set during object initialization
+- Compile-time enforcement prevents missing critical data
+- Works with both mutable and init-only properties
+- Example:
+  ```
+  class User {
+      required Id: string         // must be set during initialization
+      required Email: string      // must be set during initialization
+      Name: string = ""           // optional, has default
+
+      // This is valid:
+      // user := new User { Id: "123", Email: "user@example.com" }
+
+      // This would be a compile-time error:
+      // badUser := new User { Email: "user@example.com" }  // ERROR: Id not set
+  }
+  ```
+
+#### Init-Only Properties (C# 9)
+- `init` modifier creates properties that can only be set during initialization
+- Provides immutability while allowing object initializer syntax
+- Better than `readonly` fields - works with object initializers
+- Can be combined with `required` for maximum safety
+- Examples:
+  ```
+  record Person {
+      init Name: string          // can only be set during initialization
+      init Age: int              // immutable after object creation
+  }
+
+  class Product {
+      required init Id: string   // required AND immutable
+      required init Name: string // required AND immutable
+      init Price: double = 0.0   // optional but immutable
+      Stock: int = 0             // mutable
+  }
+
+  // Usage:
+  p := new Person { Name: "Alice", Age: 30 }
+  // p.Name = "Bob"  // ERROR: init-only property
+
+  product := new Product {
+      Id: "prod-001",
+      Name: "Widget",
+      Price: 29.99,
+      Stock: 100
+  }
+  product.Stock = 95  // OK: regular property
+  // product.Name = "New Name"  // ERROR: init-only
+  ```
+
 #### Interfaces
 - Two types of interfaces:
 

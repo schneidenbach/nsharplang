@@ -74,6 +74,8 @@ public enum TokenType
     Test,
     Assert,
     Operator,
+    Required,
+    Init,
 
     // Operators
     Plus,           // +
