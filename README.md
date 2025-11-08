@@ -64,7 +64,7 @@ Process(new FileReader())  // Works via structural typing!
 git clone https://github.com/anthropics/NewCLILang.git
 cd NewCLILang
 dotnet build
-dotnet test  # 506 tests passing
+dotnet test  # 568 tests passing
 ```
 
 ### CLI Usage
@@ -117,9 +117,9 @@ See `examples/` directory:
 
 ## Status
 
-**Version:** v1.69
-**Tests:** 506 passing (100%)
-**Features:** All from DESIGN.md implemented
+**Version:** v1.71
+**Tests:** 568 passing (100%)
+**Features:** All from DESIGN.md implemented + Assembly resolution + Override support
 
 ## Documentation
 
