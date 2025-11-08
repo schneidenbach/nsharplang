@@ -146,6 +146,66 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
+### v1.24 (Project.yml Support) ✅ COMPLETE
+1. **YamlDotNet dependency**: ✅ Added to Compiler project
+   - Using YamlDotNet 16.3.0 for YAML parsing
+   - Supports project configuration via project.yml files
+2. **ProjectConfig classes**: ✅ Created data models
+   - ProjectConfig: Main configuration class
+   - LanguageConfig: Language-specific settings (async default type, etc.)
+   - Support for name, version, entry, outputType, targetFramework, dependencies
+3. **ProjectFileParser**: ✅ Implemented YAML parsing
+   - Parse(yamlPath): Load project.yml from specific path
+   - ParseFromDirectory(directory): Look for project.yml in directory
+   - CreateDefault(): Generate default config when no project.yml exists
+   - GenerateTemplate(projectName): Generate template project.yml content
+4. **Validation**: ✅ Configuration validation
+   - Validates outputType must be "exe" or "library"
+   - Validates asyncDefaultType must be "Task" or "ValueTask"
+   - Checks entry file exists (if specified)
+   - Warns about target framework format
+5. **CLI integration**: ✅ Updated run command
+   - RunCommand looks for project.yml in source file's directory
+   - GenerateCsProj helper generates .csproj with dependencies from project.yml
+   - Dependencies automatically included in NuGet PackageReferences
+   - Falls back to default config if no project.yml exists
+6. **nlc new command**: ✅ Project scaffolding
+   - Creates new project directory
+   - Generates project.yml from template
+   - Creates Program.nl with Main() function
+   - Provides helpful instructions to user
+7. **System namespace**: ✅ Auto-included
+   - Transpiler now always emits `using System;` at top
+   - Fixes Console.WriteLine and other System types
+   - Ensures generated C# compiles without manual using statements
+8. **Test coverage**: ✅ 11 new tests
+   - TestParseValidProjectFile, TestParseMinimalProjectFile
+   - TestParseLibraryProject, TestParseWithTaskAsyncDefault
+   - TestInvalidOutputType, TestInvalidAsyncDefaultType
+   - TestParseFromDirectory_Exists, TestParseFromDirectory_NotExists
+   - TestCreateDefault, TestGenerateTemplate, TestEffectiveName
+   - All 270 tests passing (259 existing + 11 new)
+9. **End-to-end testing**: ✅
+   - Created examples/SimpleProject with project.yml
+   - Tested nlc new command successfully
+   - Tested run command with project.yml dependencies
+   - Fixed YAML template to avoid parser issues with commented dependencies
+
+**What works:**
+- project.yml parsing with full validation
+- NuGet dependencies automatically included in build
+- nlc new creates scaffolded projects
+- nlc run uses project.yml config when present
+- Language settings (asyncDefaultType) accessible for future use
+- Graceful fallback when no project.yml exists
+
+**Next steps:**
+- Task 011: Multi-file compilation (use entry point from project.yml)
+- Task 009: Testing support (.tests.nl files)
+- Task 004: Use asyncDefaultType from project.yml for implicit wrapping
+
+## Recent Changes
+
 ### v1.23 (Nested Property Patterns) ✅ COMPLETE
 1. **AST enhancements** (Expressions.cs): ✅
    - Enhanced PropertyPattern with Pattern field for nested patterns
@@ -754,9 +814,10 @@ Result.Success { value: { Count: count } } => count
 
 ## Next Implementation Priority
 
-1. **Better lambda type inference**: Infer lambda parameter types from LINQ method signatures
-2. **Extension method resolution**: Properly resolve extension methods like Select, Where
-3. **Generic type inference**: Infer type parameters from usage context
-4. **Multi-file compilation**: Extend CLI to compile multiple files
-5. **Project system**: Parse project.yml and manage dependencies
-6. **Better error messages**: Include source code context in error output
+1. **Multi-file compilation**: Extend CLI to compile multiple files (Task 011)
+2. **Testing support**: Implement .tests.nl files with XUnit transpilation (Task 009)
+3. **Async implicit wrapping**: Implement implicit Task/ValueTask wrapping based on project config (Task 004)
+4. **Better lambda type inference**: Infer lambda parameter types from LINQ method signatures
+5. **Extension method resolution**: Properly resolve extension methods like Select, Where
+6. **Generic type inference**: Infer type parameters from usage context
+7. **Better error messages**: Include source code context in error output

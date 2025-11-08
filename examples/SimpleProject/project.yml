@@ -1,0 +1,4 @@
+name: SimpleProject
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0

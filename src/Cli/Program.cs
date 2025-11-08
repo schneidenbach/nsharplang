@@ -22,6 +22,7 @@ class Program
             "build" => BuildCommand(args.Skip(1).ToArray()),
             "run" => RunCommand(args.Skip(1).ToArray()),
             "transpile" => TranspileCommand(args.Skip(1).ToArray()),
+            "new" => NewCommand(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
@@ -117,16 +118,13 @@ class Program
             var csharpFile = Path.Combine(tempDir, "Program.cs");
             File.WriteAllText(csharpFile, csharpCode);
 
-            // Create a minimal .csproj
+            // Look for project.yml in the directory containing the source file
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
+
+            // Create .csproj (with dependencies if project.yml exists)
             var projectFile = Path.Combine(tempDir, "TempProject.csproj");
-            File.WriteAllText(projectFile, @"<Project Sdk=""Microsoft.NET.Sdk"">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-</Project>");
+            File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
 
             // Build and run
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -166,6 +164,27 @@ class Program
         }
     }
 
+    static string GenerateCsProj(ProjectConfig? config)
+    {
+        config ??= ProjectFileParser.CreateDefault();
+
+        var dependencies = string.Join("\n    ",
+            config.Dependencies.Select(kvp =>
+                $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
+
+        return $@"<Project Sdk=""Microsoft.NET.Sdk"">
+  <PropertyGroup>
+    <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
+    <TargetFramework>{config.TargetFramework}</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    {dependencies}
+  </ItemGroup>
+</Project>";
+    }
+
     static string CompileToCSharp(string source, string fileName)
     {
         // Lexical analysis
@@ -200,6 +219,58 @@ class Program
         return transpiler.Transpile();
     }
 
+    static int NewCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            return Error("Usage: nlc new <project-name>");
+        }
+
+        var projectName = args[0];
+        var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
+
+        if (Directory.Exists(projectDir))
+        {
+            return Error($"Directory already exists: {projectDir}");
+        }
+
+        try
+        {
+            Console.WriteLine($"Creating new project: {projectName}");
+
+            // Create project directory
+            Directory.CreateDirectory(projectDir);
+
+            // Create project.yml
+            var projectYml = Path.Combine(projectDir, "project.yml");
+            File.WriteAllText(projectYml, ProjectFileParser.GenerateTemplate(projectName));
+
+            // Create Program.nl
+            var programNl = Path.Combine(projectDir, "Program.nl");
+            File.WriteAllText(programNl, $@"namespace {projectName}
+
+func Main() {{
+    print ""Hello, World from N#!""
+    print $""Project: {projectName}""
+}}
+");
+
+            Console.WriteLine($"Created: {projectName}/project.yml");
+            Console.WriteLine($"Created: {projectName}/Program.nl");
+            Console.WriteLine();
+            Console.WriteLine($"To build and run your project:");
+            Console.WriteLine($"  cd {projectName}");
+            Console.WriteLine($"  nlc run Program.nl");
+            Console.WriteLine();
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Failed to create project: {ex.Message}");
+        }
+    }
+
     static int ShowHelp()
     {
         Console.WriteLine("NewCLILang Compiler (nlc)");
@@ -210,6 +281,7 @@ class Program
         Console.WriteLine("  build <file.nl>      - Compile .nl file to C#");
         Console.WriteLine("  transpile <file.nl>  - Transpile .nl file to C# and print to stdout");
         Console.WriteLine("  run <file.nl>        - Compile and run .nl file");
+        Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
         Console.WriteLine();
 

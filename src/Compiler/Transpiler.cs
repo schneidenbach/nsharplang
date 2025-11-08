@@ -36,6 +36,9 @@ public class Transpiler
             .Where(i => i.IsDuckInterface)
             .ToList();
 
+        // Always add System namespace (needed for Console, Exception, etc.)
+        WriteLine("using System;");
+
         // Usings
         foreach (var usingDirective in _compilationUnit.Usings)
         {

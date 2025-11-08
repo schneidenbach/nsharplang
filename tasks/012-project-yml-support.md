@@ -132,13 +132,42 @@ language:
   - Language settings applied
 
 ## Success Criteria
-- [x] project.yml parses correctly
-- [x] Dependencies translated to NuGet PackageReferences
-- [x] Entry point specified correctly
-- [x] Language settings accessible to compiler
-- [x] `nlc new` scaffolds project
-- [x] `nlc restore` restores packages
-- [x] All tests pass
+- [x] project.yml parses correctly ✅
+- [x] Dependencies translated to NuGet PackageReferences ✅
+- [x] Entry point specified correctly ✅
+- [x] Language settings accessible to compiler ✅
+- [x] `nlc new` scaffolds project ✅
+- [ ] `nlc restore` restores packages (not needed - dotnet build handles it)
+- [x] All tests pass ✅ (270 tests, all passing)
+
+## Implementation Summary (v1.24)
+
+### Completed
+1. ✅ Added YamlDotNet 16.3.0 dependency
+2. ✅ Created ProjectConfig and LanguageConfig data models
+3. ✅ Implemented ProjectFileParser with Parse, ParseFromDirectory, CreateDefault, GenerateTemplate
+4. ✅ Added comprehensive validation (outputType, asyncDefaultType, entry file, targetFramework)
+5. ✅ Integrated into CLI run command - automatic detection and usage
+6. ✅ GenerateCsProj helper creates .csproj with dependencies
+7. ✅ Implemented `nlc new` command for project scaffolding
+8. ✅ Fixed transpiler to always emit `using System;`
+9. ✅ 11 new tests covering all parser functionality
+10. ✅ End-to-end testing with examples/SimpleProject and nlc new
+
+### What Works
+- Parse project.yml with YamlDotNet
+- Validate all configuration fields
+- Generate .csproj with NuGet dependencies
+- `nlc new ProjectName` creates scaffolded project
+- `nlc run Program.nl` automatically detects and uses project.yml
+- Language config accessible for future features (async implicit wrapping)
+- Graceful fallback when no project.yml present
+
+### Test Count
+270 tests total (259 existing + 11 new):
+- 27 Lexer, 78 Parser, 63 Analyzer, 67 Transpiler
+- 11 ProjectFile (NEW), 24 MultiFile
+All passing ✅
 
 ## Notes
 - YAML chosen for simplicity (vs XML .csproj)
