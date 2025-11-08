@@ -106,6 +106,15 @@ public record CompilerError
     public string? SourceSnippet { get; init; }
     public ErrorSeverity Severity { get; init; }
 
+    // Rich context for Elm-level error messages
+    public string? ActualType { get; init; }
+    public string? ExpectedType { get; init; }
+    public string? HumanExplanation { get; init; }
+    public string? ContextualHint { get; init; }
+    public string? DocsUrl { get; init; }
+    public List<string>? Suggestions { get; init; }
+    public Dictionary<string, string>? RelatedInfo { get; init; }
+
     public CompilerError(ErrorCode code, string message, int line, int column, ErrorSeverity severity)
     {
         Code = code;
@@ -116,9 +125,137 @@ public record CompilerError
     }
 
     /// <summary>
-    /// Format error in Rust-style with source snippet and suggestions
+    /// Format error in Elm-style with human-friendly explanations
     /// </summary>
     public string Format(bool useColors = true)
+    {
+        // Use Elm-style formatting if we have rich context
+        if (HumanExplanation != null)
+        {
+            return FormatElmStyle(useColors);
+        }
+
+        // Fall back to Rust-style formatting
+        return FormatRustStyle(useColors);
+    }
+
+    /// <summary>
+    /// Format error in Elm-style with conversational tone
+    /// </summary>
+    private string FormatElmStyle(bool useColors)
+    {
+        var builder = new StringBuilder();
+        var severityText = Severity == ErrorSeverity.Warning ? "WARNING" : (Code switch
+        {
+            ErrorCode.TypeMismatch or ErrorCode.TypeNotFound => "TYPE MISMATCH",
+            ErrorCode.UndefinedVariable or ErrorCode.UndefinedType or ErrorCode.UndefinedMember => "NAMING ERROR",
+            ErrorCode.NonExhaustiveMatch => "INCOMPLETE PATTERN MATCH",
+            ErrorCode.WrongArgumentCount or ErrorCode.NoMatchingOverload => "FUNCTION CALL ERROR",
+            _ => "ERROR"
+        });
+
+        // ANSI color codes
+        const string Cyan = "\x1b[1;36m";
+        const string Reset = "\x1b[0m";
+        const string Dim = "\x1b[2m";
+
+        // Header line
+        var headerLine = new string('-', 50);
+        var fileName = FileName ?? "code";
+        if (useColors)
+        {
+            builder.AppendLine($"{Dim}-- {severityText} {headerLine}{Reset}  {fileName}");
+        }
+        else
+        {
+            builder.AppendLine($"-- {severityText} {headerLine}  {fileName}");
+        }
+
+        builder.AppendLine();
+
+        // Human explanation
+        builder.AppendLine(HumanExplanation);
+        builder.AppendLine();
+
+        // Source snippet
+        if (SourceSnippet != null)
+        {
+            if (useColors)
+            {
+                builder.AppendLine($"{Cyan}{Line}|{Reset}     {SourceSnippet}");
+            }
+            else
+            {
+                builder.AppendLine($"{Line}|     {SourceSnippet}");
+            }
+
+            var markerIndent = Column > 0 ? new string(' ', Column - 1 + 6) : "      ";
+            var markerLength = Math.Max(1, Length);
+            var marker = new string('^', markerLength);
+
+            if (useColors)
+            {
+                builder.AppendLine($"{Cyan}{markerIndent}{marker}{Reset}");
+            }
+            else
+            {
+                builder.AppendLine($"{markerIndent}{marker}");
+            }
+            builder.AppendLine();
+        }
+
+        // Type information (for type errors)
+        if (ActualType != null && ExpectedType != null)
+        {
+            builder.AppendLine("This expression has type:");
+            builder.AppendLine();
+            builder.AppendLine($"    {ActualType}");
+            builder.AppendLine();
+            builder.AppendLine("But you said it should be:");
+            builder.AppendLine();
+            builder.AppendLine($"    {ExpectedType}");
+            builder.AppendLine();
+        }
+
+        // Contextual hint
+        if (ContextualHint != null)
+        {
+            builder.AppendLine(ContextualHint);
+            builder.AppendLine();
+        }
+
+        // Multiple suggestions
+        if (Suggestions != null && Suggestions.Count > 0)
+        {
+            builder.AppendLine("Did you mean one of these?");
+            builder.AppendLine();
+            foreach (var suggestion in Suggestions)
+            {
+                builder.AppendLine($"    {suggestion}");
+            }
+            builder.AppendLine();
+        }
+
+        // Documentation link
+        if (DocsUrl != null)
+        {
+            if (useColors)
+            {
+                builder.AppendLine($"{Cyan}Read more:{Reset} {DocsUrl}");
+            }
+            else
+            {
+                builder.AppendLine($"Read more: {DocsUrl}");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Format error in Rust-style with source snippet and suggestions
+    /// </summary>
+    private string FormatRustStyle(bool useColors)
     {
         var builder = new StringBuilder();
         var severityText = Severity == ErrorSeverity.Warning ? "warning" : "error";
@@ -332,7 +469,7 @@ public static class ErrorSuggestions
             .First();
     }
 
-    private static int LevenshteinDistance(string s, string t)
+    public static int LevenshteinDistance(string s, string t)
     {
         int n = s.Length;
         int m = t.Length;
@@ -354,5 +491,223 @@ public static class ErrorSuggestions
         }
 
         return d[n, m];
+    }
+}
+
+/// <summary>
+/// Smart suggester for typos using enhanced Levenshtein distance
+/// </summary>
+public class SmartSuggester
+{
+    private readonly List<string> _candidates;
+
+    public SmartSuggester(List<string> candidates)
+    {
+        _candidates = candidates;
+    }
+
+    /// <summary>
+    /// Suggest similar names based on typo
+    /// </summary>
+    public List<string> SuggestSimilarNames(string typo, int maxSuggestions = 3)
+    {
+        return _candidates
+            .Select(c => (Name: c, Score: ScoreSimilarity(typo, c)))
+            .Where(x => x.Score > 0.5)  // Only suggest if reasonably similar
+            .OrderByDescending(x => x.Score)
+            .Take(maxSuggestions)
+            .Select(x => x.Name)
+            .ToList();
+    }
+
+    private double ScoreSimilarity(string a, string b)
+    {
+        var distance = ErrorSuggestions.LevenshteinDistance(a.ToLower(), b.ToLower());
+        var maxLen = Math.Max(a.Length, b.Length);
+        var distanceScore = 1.0 - ((double)distance / maxLen);
+
+        var prefixScore = CommonPrefixLength(a, b) / (double)Math.Min(a.Length, b.Length);
+
+        return (distanceScore * 0.7) + (prefixScore * 0.3);
+    }
+
+    private int CommonPrefixLength(string a, string b)
+    {
+        int count = 0;
+        int minLen = Math.Min(a.Length, b.Length);
+        for (int i = 0; i < minLen; i++)
+        {
+            if (char.ToLower(a[i]) == char.ToLower(b[i]))
+                count++;
+            else
+                break;
+        }
+        return count;
+    }
+}
+
+/// <summary>
+/// Provides contextual hints for type conversions
+/// </summary>
+public static class TypeConversionSuggester
+{
+    public static string? SuggestConversion(string fromType, string toType)
+    {
+        return (fromType, toType) switch
+        {
+            ("string", "int") =>
+                "Hint: Strings and integers are different types. To convert a string to an int,\n" +
+                "you can use int.Parse(yourString) or int.TryParse(yourString, out result).",
+
+            ("int", "string") =>
+                "Hint: You can convert an integer to a string using .ToString() or string\n" +
+                "interpolation: $\"{yourNumber}\"",
+
+            ("int", "double") =>
+                "Hint: Implicit conversion from int to double works automatically.",
+
+            ("double", "int") =>
+                "Hint: You need an explicit cast: (int)value\n" +
+                "Warning: This truncates decimals, so 3.7 becomes 3.",
+
+            ("string", "double") =>
+                "Hint: Use double.Parse(yourString) or double.TryParse(yourString, out result).",
+
+            ("double", "string") =>
+                "Hint: Use value.ToString() or $\"{value}\"",
+
+            ("int", "long") =>
+                "Hint: Implicit conversion from int to long works automatically.",
+
+            ("long", "int") =>
+                "Hint: You need an explicit cast: (int)value\n" +
+                "Warning: This may lose data if the long value is too large for int.",
+
+            // Nullable conversions
+            (var from, var to) when to == from + "?" =>
+                "Hint: This conversion is implicit. Non-nullable values can be assigned to nullable types.",
+
+            (var from, var to) when from == to + "?" =>
+                "Hint: You're trying to use a nullable value where a non-nullable is expected.\n" +
+                "You need to handle the null case, perhaps with 'if (x != null)' or the\n" +
+                "null-coalescing operator 'x ?? defaultValue'.",
+
+            // Array/List conversions
+            (var from, var to) when from.EndsWith("[]") && to.StartsWith("List<") =>
+                "Hint: Use .ToList() to convert an array to a List, or use 'new List<T>(array)'.",
+
+            (var from, var to) when from.StartsWith("List<") && to.EndsWith("[]") =>
+                "Hint: Use .ToArray() to convert a List to an array.",
+
+            _ => null
+        };
+    }
+}
+
+/// <summary>
+/// Builds human-friendly error messages with multi-level explanations
+/// </summary>
+public static class ErrorMessageBuilder
+{
+    /// <summary>
+    /// Create an Elm-style type mismatch error
+    /// </summary>
+    public static CompilerError TypeMismatch(string fileName, int line, int column, string sourceSnippet,
+        int length, string actualType, string expectedType)
+    {
+        var humanExplanation = $"I am having trouble with this code on line {line}:";
+        var contextualHint = TypeConversionSuggester.SuggestConversion(actualType, expectedType);
+
+        return new CompilerError(ErrorCode.TypeMismatch, "Type mismatch", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = actualType,
+            ExpectedType = expectedType,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint ?? "Hint: These types are not compatible. Check if you need to convert or cast.",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style undefined variable error
+    /// </summary>
+    public static CompilerError UndefinedVariable(string fileName, int line, int column, string sourceSnippet,
+        int length, string varName, List<string> similarNames)
+    {
+        var humanExplanation = $"I cannot find a `{varName}` variable on line {line}:";
+
+        var contextualHint = similarNames.Any()
+            ? "Hint: Variables need to be declared before they can be used. If you meant to\n" +
+              "use a variable from outside this function, make sure it's in scope."
+            : "Hint: Make sure you've declared this variable before using it.";
+
+        return new CompilerError(ErrorCode.UndefinedVariable, $"Variable '{varName}' not found", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestions = similarNames.Any() ? similarNames : null,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL301"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style non-exhaustive match error
+    /// </summary>
+    public static CompilerError NonExhaustiveMatch(string fileName, int line, int column, string sourceSnippet,
+        int length, List<string> missingCases)
+    {
+        var humanExplanation = $"This `match` expression does not cover all possibilities on line {line}:";
+
+        var contextualHint =
+            $"You need to handle these cases:\n\n" +
+            string.Join("\n", missingCases.Select(c => $"    {c}")) + "\n\n" +
+            "Hint: Pattern matching in N# must be exhaustive, meaning every possible value\n" +
+            "must be handled. You can either add the missing cases, or use a wildcard '_'\n" +
+            "pattern to catch everything else:\n\n" +
+            "    _ => handleOtherCases()\n\n" +
+            "Why? This helps prevent runtime errors. The compiler checks that you've thought\n" +
+            "about all possibilities!";
+
+        return new CompilerError(ErrorCode.NonExhaustiveMatch, "Pattern matching is not exhaustive", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            RelatedInfo = new Dictionary<string, string> { ["missingCases"] = string.Join(", ", missingCases) },
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL501"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style undefined type error
+    /// </summary>
+    public static CompilerError UndefinedType(string fileName, int line, int column, string sourceSnippet,
+        int length, string typeName, List<string> similarTypes)
+    {
+        var humanExplanation = $"I cannot find a type called `{typeName}` on line {line}:";
+
+        var contextualHint = similarTypes.Any()
+            ? "Hint: Check that the type is imported. If it's from another namespace,\n" +
+              "you may need to add an import statement at the top of your file."
+            : "Hint: Make sure the type is defined and imported correctly.";
+
+        return new CompilerError(ErrorCode.UndefinedType, $"Type '{typeName}' not found", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestions = similarTypes.Any() ? similarTypes : null,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL302"
+        };
     }
 }
