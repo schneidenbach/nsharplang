@@ -205,7 +205,7 @@ public class Analyzer
             var exprType = AnalyzeExpression(func.ExpressionBody);
             if (_currentReturnType != BuiltInTypes.Void && !IsAssignable(_currentReturnType, exprType))
             {
-                Error($"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
+                Error(ErrorCode.TypeMismatch, $"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
             }
         }
 
@@ -469,7 +469,7 @@ public class Analyzer
         {
             if (!assignedFields.Contains(field))
             {
-                Error($"Non-nullable field '{field}' must be assigned in constructor", ctor.Line, ctor.Column);
+                Error(ErrorCode.DefiniteAssignmentError, $"Non-nullable field '{field}' must be assigned in constructor", ctor.Line, ctor.Column);
             }
         }
     }
@@ -737,7 +737,7 @@ public class Analyzer
         var condType = AnalyzeExpression(ifStmt.Condition);
         if (!IsBoolType(condType))
         {
-            Error($"If condition must be boolean", ifStmt.Line, ifStmt.Column);
+            Error(ErrorCode.TypeMismatch, $"If condition must be boolean, got '{condType}'", ifStmt.Line, ifStmt.Column);
         }
 
         AnalyzeStatement(ifStmt.ThenStatement);
@@ -814,7 +814,7 @@ public class Analyzer
             var returnedType = AnalyzeExpression(returnStmt.Value);
             if (!IsAssignable(_currentReturnType, returnedType))
             {
-                Error($"Cannot return '{returnedType}' from function returning '{_currentReturnType}'",
+                Error(ErrorCode.TypeMismatch, $"Cannot return '{returnedType}' from function returning '{_currentReturnType}'",
                     returnStmt.Line, returnStmt.Column);
             }
         }
@@ -822,7 +822,7 @@ public class Analyzer
         {
             if (_currentReturnType != BuiltInTypes.Void)
             {
-                Error($"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
             }
         }
     }
@@ -1921,7 +1921,7 @@ public class Analyzer
                 var guardType = AnalyzeExpression(matchCase.Guard);
                 if (!IsAssignable(BuiltInTypes.Bool, guardType))
                 {
-                    Error($"Guard expression must be of type 'bool', but got '{guardType}'",
+                    Error(ErrorCode.GuardNotBoolean, $"Guard expression must be of type 'bool', but got '{guardType}'",
                         matchCase.Guard.Line, matchCase.Guard.Column);
                 }
             }
@@ -1990,8 +1990,9 @@ public class Analyzer
 
         if (missingCases.Any())
         {
-            Error($"Match expression is not exhaustive. Missing cases: {string.Join(", ", missingCases)}",
-                match.Line, match.Column);
+            var missingCasesStr = string.Join(", ", missingCases);
+            Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing cases: {missingCasesStr}",
+                match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
         }
     }
 
@@ -2534,12 +2535,30 @@ public class Analyzer
     // Error reporting
     private void Error(string message, int line, int column)
     {
-        _errors.Add(new CompilerError(message, line, column, ErrorSeverity.Error));
+        Error(ErrorCode.InvalidSyntax, message, line, column);
+    }
+
+    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null)
+    {
+        var error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
+        {
+            Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
+        };
+        _errors.Add(error);
     }
 
     private void Warning(string message, int line, int column)
     {
-        _errors.Add(new CompilerError(message, line, column, ErrorSeverity.Warning));
+        Warning(ErrorCode.UnusedVariable, message, line, column);
+    }
+
+    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null)
+    {
+        var warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
+        {
+            Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
+        };
+        _errors.Add(warning);
     }
 
     // Import processing
@@ -2699,19 +2718,7 @@ public class Analyzer
     }
 }
 
-// Supporting types
-public record CompilerError(string Message, int Line, int Column, ErrorSeverity Severity);
-
-public enum ErrorSeverity
-{
-    Warning,
-    Error
-}
-
-public record AnalysisResult(List<CompilerError> Errors)
-{
-    public bool HasErrors => Errors.Any(e => e.Severity == ErrorSeverity.Error);
-}
+// Supporting types - now in ErrorReporting.cs
 
 public class Scope
 {

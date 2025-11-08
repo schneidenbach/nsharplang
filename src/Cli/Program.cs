@@ -82,12 +82,10 @@ class Program
             var compiler = new MultiFileCompiler(projectRoot, config);
             var result = compiler.Compile();
 
-            // Report errors and warnings
+            // Report errors and warnings with rich formatting
             foreach (var error in result.Errors)
             {
-                var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
-                var location = $"{error.Line}:{error.Column}";
-                Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+                Console.Error.WriteLine(error.Format());
             }
 
             if (!result.Success)
@@ -245,12 +243,10 @@ class Program
             var compiler = new MultiFileCompiler(projectRoot, projectConfig);
             var result = compiler.Compile();
 
-            // Report errors and warnings
+            // Report errors and warnings with rich formatting
             foreach (var error in result.Errors)
             {
-                var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
-                var location = $"{error.Line}:{error.Column}";
-                Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+                Console.Error.WriteLine(error.Format());
             }
 
             if (!result.Success)
@@ -357,12 +353,10 @@ class Program
         var projectRoot = Path.GetDirectoryName(Path.GetFullPath(fileName)) ?? Directory.GetCurrentDirectory();
         var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot);
 
-        // Report errors and warnings
+        // Report errors and warnings with rich formatting
         foreach (var error in analysisResult.Errors)
         {
-            var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
-            var location = $"{fileName}:{error.Line}:{error.Column}";
-            Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+            Console.Error.WriteLine(error.Format());
         }
 
         // Stop if there are errors
@@ -460,12 +454,10 @@ func Main() {{
             var compiler = new MultiFileCompiler(allFiles, projectRoot, projectConfig);
             var result = compiler.Compile();
 
-            // Report errors and warnings
+            // Report errors and warnings with rich formatting
             foreach (var error in result.Errors)
             {
-                var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
-                var location = $"{error.Line}:{error.Column}";
-                Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+                Console.Error.WriteLine(error.Format());
             }
 
             if (!result.Success)

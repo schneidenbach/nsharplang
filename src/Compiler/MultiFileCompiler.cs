@@ -69,6 +69,7 @@ public class MultiFileCompiler
             catch (Exception ex)
             {
                 _allErrors.Add(new CompilerError(
+                    ErrorCode.InvalidSyntax,
                     $"Failed to parse {sourceFile}: {ex.Message}",
                     0,
                     0,
@@ -107,6 +108,7 @@ public class MultiFileCompiler
             catch (Exception ex)
             {
                 _allErrors.Add(new CompilerError(
+                    ErrorCode.InvalidSyntax,
                     $"Failed to analyze {sourceFile}: {ex.Message}",
                     0,
                     0,
@@ -136,6 +138,7 @@ public class MultiFileCompiler
             catch (Exception ex)
             {
                 _allErrors.Add(new CompilerError(
+                    ErrorCode.InvalidSyntax,
                     $"Failed to transpile {sourceFile}: {ex.Message}",
                     0,
                     0,
