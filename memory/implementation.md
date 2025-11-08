@@ -1335,6 +1335,33 @@ Result.Success { value: { Count: count } } => count
 6. **Generic type inference**: Infer type parameters from usage context
 7. **Better error messages**: Include source code context in error output
 
+## v1.38: Primary Constructors (C# 12)
+
+**Date**: November 8, 2025
+
+### Feature
+Implemented primary constructor syntax for classes, structs, and records (C# 12 feature).
+
+### Implementation Details
+- **AST Nodes**: Added `PrimaryConstructorParameters` field to ClassDeclaration, StructDeclaration, RecordDeclaration
+- **Parser**: Updated to parse optional `(parameters)` after type name
+- **Transpiler**: Emits C# 12 primary constructor syntax: `class Name(Type param)`
+- **Tests**: 6 new tests (3 parser + 3 transpiler), all 350 passing
+
+### Syntax
+```n#
+class UserService(logger: ILogger, db: IDatabase) { }
+struct Point(x: double, y: double) { }
+record Person(name: string, age: int) { }
+```
+
+### Known Limitations
+- Analyzer doesn't yet make parameters available as captured variables
+- Workaround: Assign parameters to fields manually
+
+### Impact
+Modern C# 12 syntax for cleaner dependency injection and value types!
+
 ## v1.37: List Patterns (C# 11)
 
 **Date**: November 8, 2025

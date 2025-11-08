@@ -434,6 +434,13 @@ public class Parser
         var name = ConsumeIdentifier("Expected class name");
         var typeParams = ParseTypeParameters();
 
+        // Parse optional primary constructor parameters (C# 12)
+        List<Parameter>? primaryCtorParams = null;
+        if (Check(TokenType.LeftParen))
+        {
+            primaryCtorParams = ParseParameterList();
+        }
+
         TypeReference? baseClass = null;
         var interfaces = new List<TypeReference>();
 
@@ -462,7 +469,7 @@ public class Parser
 
         Consume(TokenType.RightBrace, "Expected '}'");
 
-        return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, modifiers, attributes, line, column);
+        return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
 
     private StructDeclaration ParseStructDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
@@ -474,6 +481,13 @@ public class Parser
         var name = ConsumeIdentifier("Expected struct name");
         var typeParams = ParseTypeParameters();
 
+        // Parse optional primary constructor parameters (C# 12)
+        List<Parameter>? primaryCtorParams = null;
+        if (Check(TokenType.LeftParen))
+        {
+            primaryCtorParams = ParseParameterList();
+        }
+
         var interfaces = new List<TypeReference>();
         if (Check(TokenType.Colon))
         {
@@ -494,7 +508,7 @@ public class Parser
 
         Consume(TokenType.RightBrace, "Expected '}'");
 
-        return new StructDeclaration(name, typeParams, interfaces, members, modifiers, attributes, line, column);
+        return new StructDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
 
     private RecordDeclaration ParseRecordDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
@@ -506,6 +520,13 @@ public class Parser
         var name = ConsumeIdentifier("Expected record name");
         var typeParams = ParseTypeParameters();
 
+        // Parse optional primary constructor parameters (C# 12)
+        List<Parameter>? primaryCtorParams = null;
+        if (Check(TokenType.LeftParen))
+        {
+            primaryCtorParams = ParseParameterList();
+        }
+
         var interfaces = new List<TypeReference>();
         if (Check(TokenType.Colon))
         {
@@ -526,7 +547,7 @@ public class Parser
 
         Consume(TokenType.RightBrace, "Expected '}'");
 
-        return new RecordDeclaration(name, typeParams, interfaces, members, modifiers, attributes, line, column);
+        return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
 
     private InterfaceDeclaration ParseInterfaceDeclaration(List<AttributeNode> attributes, Modifiers modifiers)

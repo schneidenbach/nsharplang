@@ -1912,4 +1912,55 @@ func Helper(): int {
         Assert.Contains("{name}", result);
         Assert.Contains("{age}", result);
     }
+
+    [Fact]
+    public void TestClassWithPrimaryConstructorTranspilation()
+    {
+        var source = @"
+class UserService(logger: ILogger, db: IDatabase) {
+    func DoWork() {
+        logger.Log(""Working"")
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 12 primary constructor syntax
+        Assert.Contains("class UserService(ILogger logger, IDatabase db)", result);
+        Assert.DoesNotContain("public UserService(", result); // Should NOT generate explicit constructor
+    }
+
+    [Fact]
+    public void TestStructWithPrimaryConstructorTranspilation()
+    {
+        var source = @"
+struct Point(x: double, y: double) {
+    func GetDistance(): double {
+        return Math.Sqrt(x * x + y * y)
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 12 primary constructor syntax
+        Assert.Contains("struct Point(double x, double y)", result);
+    }
+
+    [Fact]
+    public void TestRecordWithPrimaryConstructorTranspilation()
+    {
+        var source = @"
+record Person(name: string, age: int) {
+    FullInfo: string => $""{name} is {age} years old""
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 12 primary constructor syntax
+        Assert.Contains("record Person(string name, int age)", result);
+        Assert.Contains("=> $\"{name} is {age} years old\"", result);
+    }
 }

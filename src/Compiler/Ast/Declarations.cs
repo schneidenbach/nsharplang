@@ -71,6 +71,7 @@ public record ClassDeclaration(
     TypeReference? BaseClass,
     List<TypeReference> Interfaces,
     List<Declaration> Members,
+    List<Parameter>? PrimaryConstructorParameters, // C# 12 primary constructor
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,
@@ -82,6 +83,7 @@ public record StructDeclaration(
     List<TypeParameter>? TypeParameters,
     List<TypeReference> Interfaces,
     List<Declaration> Members,
+    List<Parameter>? PrimaryConstructorParameters, // C# 12 primary constructor
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,
@@ -93,6 +95,7 @@ public record RecordDeclaration(
     List<TypeParameter>? TypeParameters,
     List<TypeReference> Interfaces,
     List<Declaration> Members,
+    List<Parameter>? PrimaryConstructorParameters, // C# 12 primary constructor
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,

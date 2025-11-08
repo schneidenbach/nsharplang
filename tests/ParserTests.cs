@@ -3232,5 +3232,71 @@ func Helper(): int {
         Assert.EndsWith("\"\"\"", stringLiteral.Value);
         Assert.Contains("{person.Name}", stringLiteral.Value);
     }
+
+    [Fact]
+    public void TestClassWithPrimaryConstructor()
+    {
+        var source = @"
+            class UserService(logger: ILogger, db: IDatabase) {
+                func DoWork() {
+                    logger.Log(""Working"")
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("UserService", classDecl.Name);
+
+        Assert.NotNull(classDecl.PrimaryConstructorParameters);
+        Assert.Equal(2, classDecl.PrimaryConstructorParameters.Count);
+        Assert.Equal("logger", classDecl.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("ILogger", (classDecl.PrimaryConstructorParameters[0].Type as SimpleTypeReference)?.Name);
+        Assert.Equal("db", classDecl.PrimaryConstructorParameters[1].Name);
+        Assert.Equal("IDatabase", (classDecl.PrimaryConstructorParameters[1].Type as SimpleTypeReference)?.Name);
+    }
+
+    [Fact]
+    public void TestStructWithPrimaryConstructor()
+    {
+        var source = @"
+            struct Point(x: double, y: double) {
+                func GetDistance(): double {
+                    return Math.Sqrt(x * x + y * y)
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var structDecl = cu.Declarations[0] as StructDeclaration;
+        Assert.NotNull(structDecl);
+        Assert.Equal("Point", structDecl.Name);
+
+        Assert.NotNull(structDecl.PrimaryConstructorParameters);
+        Assert.Equal(2, structDecl.PrimaryConstructorParameters.Count);
+        Assert.Equal("x", structDecl.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("y", structDecl.PrimaryConstructorParameters[1].Name);
+    }
+
+    [Fact]
+    public void TestRecordWithPrimaryConstructor()
+    {
+        var source = @"
+            record Person(name: string, age: int) {
+                FullInfo: string => $""{name} is {age} years old""
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Person", recordDecl.Name);
+
+        Assert.NotNull(recordDecl.PrimaryConstructorParameters);
+        Assert.Equal(2, recordDecl.PrimaryConstructorParameters.Count);
+        Assert.Equal("name", recordDecl.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("age", recordDecl.PrimaryConstructorParameters[1].Name);
+    }
 }
 

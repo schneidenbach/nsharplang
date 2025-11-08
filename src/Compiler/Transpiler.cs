@@ -358,6 +358,14 @@ public class Transpiler
 
         Write($"{modifiers}class {cls.Name}{typeParams}");
 
+        // Emit primary constructor parameters (C# 12)
+        if (cls.PrimaryConstructorParameters != null && cls.PrimaryConstructorParameters.Count > 0)
+        {
+            _output.Append("(");
+            _output.Append(string.Join(", ", cls.PrimaryConstructorParameters.Select(TranspileParameter)));
+            _output.Append(")");
+        }
+
         var bases = new List<string>();
         if (cls.BaseClass != null)
             bases.Add(TranspileTypeReference(cls.BaseClass));
@@ -416,6 +424,14 @@ public class Transpiler
 
         Write($"{modifiers}struct {str.Name}{typeParams}");
 
+        // Emit primary constructor parameters (C# 12)
+        if (str.PrimaryConstructorParameters != null && str.PrimaryConstructorParameters.Count > 0)
+        {
+            _output.Append("(");
+            _output.Append(string.Join(", ", str.PrimaryConstructorParameters.Select(TranspileParameter)));
+            _output.Append(")");
+        }
+
         var bases = new List<string>();
         bases.AddRange(str.Interfaces.Select(TranspileTypeReference));
 
@@ -471,6 +487,14 @@ public class Transpiler
             : "";
 
         Write($"{modifiers}record {rec.Name}{typeParams}");
+
+        // Emit primary constructor parameters (C# 12)
+        if (rec.PrimaryConstructorParameters != null && rec.PrimaryConstructorParameters.Count > 0)
+        {
+            _output.Append("(");
+            _output.Append(string.Join(", ", rec.PrimaryConstructorParameters.Select(TranspileParameter)));
+            _output.Append(")");
+        }
 
         var bases = new List<string>();
         bases.AddRange(rec.Interfaces.Select(TranspileTypeReference));
