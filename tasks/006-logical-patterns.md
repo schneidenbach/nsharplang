@@ -1,8 +1,9 @@
-# Task 006: Logical Patterns (and/or/not)
+# Task 006: Logical Patterns (and/or/not) ✅ COMPLETED
 
 **Priority:** High (F#-level pattern matching goal)
 **Dependencies:** Task 005 (relational patterns recommended first)
 **Estimated Effort:** Medium (4-5 hours)
+**Completed:** v1.20
 
 ## Goal
 Support logical combinators in patterns for complex matching conditions.

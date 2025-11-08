@@ -1,8 +1,9 @@
-# Task 007: Nested Property Patterns
+# Task 007: Nested Property Patterns ⏭️ DEFERRED
 
 **Priority:** Medium (F#-level pattern matching goal)
 **Dependencies:** None (extends existing property patterns)
 **Estimated Effort:** Medium (3-4 hours)
+**Status:** Union case patterns already support property destructuring. Full nested property patterns for arbitrary types deferred to future version.
 
 ## Goal
 Support nested property patterns for deep object destructuring in match expressions.

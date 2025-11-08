@@ -146,38 +146,36 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.20 (WIP - Advanced Pattern Matching)
-1. **Relational Patterns**: 🚧 Pattern matching with comparison operators
+### v1.20 (Advanced Pattern Matching) ✅
+1. **Relational Patterns**: ✅ Pattern matching with comparison operators
    - Added `RelationalPattern` AST node (Expressions.cs:186-190)
-   - Syntax: `< 13`, `>= 65`, `== value`, `!= value` in match expressions
+   - Syntax: `< 13, >= 65, == value, != value` in match expressions
    - Parser support with precedence handling (Parser.cs:1330-1348)
    - Analyzer validates relational pattern expressions (Analyzer.cs:818-823)
    - Transpiler emits C# 9+ relational patterns (Transpiler.cs:1288-1292)
-   - **Issue**: Conflicts with binary expression operators - needs debugging
-2. **Logical Patterns**: 🚧 Combining patterns with and/or/not
+2. **Logical Patterns**: ✅ Combining patterns with and/or/not
    - Added `AndPattern`, `OrPattern`, `NotPattern` AST nodes (Expressions.cs:193-209)
    - Added keywords: `and`, `or`, `not` for pattern matching (Token.cs:58-60, Lexer.cs:62-64)
    - Parser with correct precedence: or > and > not (Parser.cs:1284-1328)
    - Analyzer validates both/all sub-patterns (Analyzer.cs:825-840)
    - Transpiler emits C# and/or/not patterns (Transpiler.cs:1294-1310)
-   - **Status**: Depends on relational pattern fix
-3. **Positional Patterns**: 🚧 Tuple deconstruction in match patterns
+3. **Positional Patterns**: ✅ Tuple deconstruction in match patterns
    - Added `PositionalPattern` AST node (Expressions.cs:211-214)
    - Syntax: `(pattern1, pattern2, ...)` for tuple matching
    - Parser support (Parser.cs:1354-1368)
    - Analyzer validates each sub-pattern (Analyzer.cs:842-849)
    - Transpiler emits C# positional patterns (Transpiler.cs:1312-1317)
-   - **Status**: Depends on relational pattern fix
-4. **Test coverage**: 🚧 12 new tests added (6 parser + 6 transpiler) = 243 total
+4. **Critical syntax fix**: ✅ Match expressions now require commas between cases
+   - **Problem**: Without delimiters, parser couldn't distinguish between case expression ending and next pattern starting
+   - **Example issue**: `< 13 => "child" >= 65` was ambiguous - is `>= 65` part of expression or new pattern?
+   - **Solution**: Require commas between cases, matching C# switch expression syntax (Parser.cs:2154-2155)
+   - **Syntax**: `match x { pattern1 => expr1, pattern2 => expr2, _ => default }`
+   - Updated all 26 test methods across ParserTests, TranspilerTests, and AnalyzerTests
+5. **Test coverage**: ✅ 12 new tests added (6 parser + 6 transpiler) = 243 total, all passing
    - `TestRelationalPattern`, `TestAndPattern`, `TestOrPattern` (Parser)
    - `TestNotPattern`, `TestPositionalPattern`, `TestComplexCombinedPatterns` (Parser)
    - Corresponding transpilation tests for all patterns
-   - **Current status**: 4 failing, 239 passing (issue with relational pattern parsing)
-5. **Known issue**: Expression parsing conflict
-   - When parsing relational patterns like `< 13`, the value parsing conflicts with binary operators
-   - Multiple relational patterns in sequence cause parser errors
-   - Need to isolate pattern value parsing from full expression parsing
-   - Single relational pattern works, but second one fails
+   - All existing match expression tests updated to use comma syntax
 
 ### v1.19 (Expression-Bodied Members)
 1. **Expression-bodied properties**: ✅ Concise syntax for computed properties

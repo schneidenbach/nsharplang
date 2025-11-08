@@ -1,8 +1,9 @@
-# Task 005: Relational Patterns in Match Expressions
+# Task 005: Relational Patterns in Match Expressions ✅ COMPLETED
 
 **Priority:** High (F#-level pattern matching goal)
 **Dependencies:** None (extends existing match implementation)
 **Estimated Effort:** Medium (3-4 hours)
+**Completed:** v1.20
 
 ## Goal
 Support relational patterns in match expressions for numeric comparisons (`<`, `>`, `<=`, `>=`).

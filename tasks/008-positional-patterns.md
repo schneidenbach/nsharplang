@@ -1,8 +1,9 @@
-# Task 008: Positional Patterns
+# Task 008: Positional Patterns ✅ COMPLETED
 
 **Priority:** Medium (F#-level pattern matching goal)
 **Dependencies:** None
 **Estimated Effort:** Medium (4-5 hours)
+**Completed:** v1.20
 
 ## Goal
 Support positional patterns for tuple and deconstructable type matching.

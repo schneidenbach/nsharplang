@@ -1864,8 +1864,8 @@ func main() {
     {
         var source = "func classify(age: int): string {\n" +
                      "    result := match age {\n" +
-                     "        < 13 => \"child\"\n" +
-                     "        >= 65 => \"senior\"\n" +
+                     "        < 13 => \"child\",\n" +
+                     "        >= 65 => \"senior\",\n" +
                      "        _ => \"adult\"\n" +
                      "    }\n" +
                      "    return result\n" +
@@ -1905,7 +1905,7 @@ func main() {
         var source = @"
             func check(x: int): bool {
                 result := match x {
-                    > 0 and < 100 => true
+                    > 0 and < 100 => true,
                     _ => false
                 }
                 return result
@@ -1934,7 +1934,7 @@ func main() {
         var source = @"
             func check(x: int): bool {
                 result := match x {
-                    < 0 or > 100 => true
+                    < 0 or > 100 => true,
                     _ => false
                 }
                 return result
@@ -1963,7 +1963,7 @@ func main() {
         var source = @"
             func check(x: int): bool {
                 result := match x {
-                    not 0 => true
+                    not 0 => true,
                     _ => false
                 }
                 return result
@@ -1990,9 +1990,9 @@ func main() {
     {
         var source = "func check(point: (int, int)): string {\n" +
                      "    result := match point {\n" +
-                     "        (0, 0) => \"origin\"\n" +
-                     "        (0, _) => \"y-axis\"\n" +
-                     "        (_, 0) => \"x-axis\"\n" +
+                     "        (0, 0) => \"origin\",\n" +
+                     "        (0, _) => \"y-axis\",\n" +
+                     "        (_, 0) => \"x-axis\",\n" +
                      "        _ => \"other\"\n" +
                      "    }\n" +
                      "    return result\n" +
@@ -2022,8 +2022,8 @@ func main() {
     {
         var source = "func check(value: int): string {\n" +
                      "    result := match value {\n" +
-                     "        (> 0 and < 10) or (> 90 and < 100) => \"valid\"\n" +
-                     "        not (>= 50 and <= 60) => \"not middle\"\n" +
+                     "        (> 0 and < 10) or (> 90 and < 100) => \"valid\",\n" +
+                     "        not (>= 50 and <= 60) => \"not middle\",\n" +
                      "        _ => \"other\"\n" +
                      "    }\n" +
                      "    return result\n" +

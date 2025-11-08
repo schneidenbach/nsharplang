@@ -928,7 +928,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value
+                    Result.Success { value } => value,
                     Result.Failure { error } => 0
                 }
             }
@@ -966,7 +966,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value
+                    Result.Success { value } => value,
                     _ => 0
                 }
             }
@@ -1005,7 +1005,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value * 2
+                    Result.Success { value } => value * 2,
                     Result.Failure { error, code } => code
                 }
             }
@@ -1024,7 +1024,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value
+                    Result.Success { value } => value,
                     Result.Unknown => 0
                 }
             }
@@ -1043,7 +1043,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value
+                    Result.Success { value } => value,
                     Result.Failure { invalidProp } => 0
                 }
             }
@@ -1058,7 +1058,7 @@ public class AnalyzerTests
             func Main() {
                 x := 5
                 result := match x {
-                    1 => ""one""
+                    1 => ""one"",
                     2 => ""two""
                 }
             }
@@ -1090,7 +1090,7 @@ public class AnalyzerTests
             func Main() {
                 r := new Result.Success { value: 42 }
                 x := match r {
-                    Result.Success { value } => value
+                    Result.Success { value } => value,
                     Result.Failure { error } => error
                 }
             }

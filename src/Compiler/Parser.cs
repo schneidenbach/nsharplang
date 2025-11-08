@@ -2148,8 +2148,9 @@ public class Parser
             var caseExpr = ParseExpression();
             cases.Add(new MatchCase(pattern, guard, caseExpr));
 
+            // Require comma between cases (except before closing brace)
             if (!Check(TokenType.RightBrace))
-                Match(TokenType.Comma);
+                Consume(TokenType.Comma, "Expected ',' between match cases");
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");

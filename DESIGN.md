@@ -88,7 +88,7 @@ union Result {
 **Union Case Patterns**:
 ```
 result := match someValue {
-    Success { value } => value * 2
+    Success { value } => value * 2,
     Failure { error, code } => 0
 }
 ```
@@ -96,9 +96,9 @@ result := match someValue {
 **Relational Patterns**:
 ```
 result := match age {
-    < 13 => "child"
-    < 20 => "teen"
-    >= 65 => "senior"
+    < 13 => "child",
+    < 20 => "teen",
+    >= 65 => "senior",
     _ => "adult"
 }
 ```
@@ -106,9 +106,9 @@ result := match age {
 **Logical Patterns** (and/or/not):
 ```
 result := match value {
-    > 0 and < 100 => "valid range"
-    < 0 or > 100 => "out of range"
-    not 50 => "not fifty"
+    > 0 and < 100 => "valid range",
+    < 0 or > 100 => "out of range",
+    not 50 => "not fifty",
     _ => "default"
 }
 ```
@@ -116,8 +116,8 @@ result := match value {
 **Nested Property Patterns**:
 ```
 result := match person {
-    { Address: { City: "NYC", State: "NY" } } => "New Yorker"
-    { Address: { State: "CA" } } => "Californian"
+    { Address: { City: "NYC", State: "NY" } } => "New Yorker",
+    { Address: { State: "CA" } } => "Californian",
     _ => "Other"
 }
 ```
@@ -125,10 +125,10 @@ result := match person {
 **Positional Patterns** (tuples/deconstructable types):
 ```
 result := match point {
-    (0, 0) => "origin"
-    (0, y) => "on y-axis"
-    (x, 0) => "on x-axis"
-    (x, y) when x == y => "diagonal"
+    (0, 0) => "origin",
+    (0, y) => "on y-axis",
+    (x, 0) => "on x-axis",
+    (x, y) when x == y => "diagonal",
     _ => "other"
 }
 ```
@@ -136,11 +136,13 @@ result := match point {
 **Guards** (additional conditions):
 ```
 result := match value {
-    x when x > 0 and x < 10 => "single digit"
-    x when x % 2 == 0 => "even"
+    x when x > 0 and x < 10 => "single digit",
+    x when x % 2 == 0 => "even",
     _ => "other"
 }
 ```
+
+**Note**: Commas are required between match cases (like C# switch expressions) to prevent parsing ambiguities.
 
 #### Classes and Structs
 - `class` is the default (emits .NET reference types)
