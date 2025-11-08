@@ -2963,5 +2963,102 @@ func Helper(): int {
         Assert.Equal(ArgumentModifier.None, call.Arguments[0].Modifier);
         Assert.Equal(ArgumentModifier.Out, call.Arguments[1].Modifier);
     }
+
+    [Fact]
+    public void TestConstructorWithThisInitializer()
+    {
+        var source = @"
+            class Person {
+                Name: string
+                Age: int
+
+                constructor(name: string): this(name, 0) {
+                }
+
+                constructor(name: string, age: int) {
+                    Name = name
+                    Age = age
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var personClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(personClass);
+
+        var ctor1 = personClass.Members[2] as ConstructorDeclaration;
+        Assert.NotNull(ctor1);
+        Assert.Single(ctor1.Parameters);
+        Assert.NotNull(ctor1.Initializer);
+
+        // Initializer should be a CallExpression with ThisExpression as callee
+        var initCall = ctor1.Initializer as CallExpression;
+        Assert.NotNull(initCall);
+        Assert.IsType<ThisExpression>(initCall.Callee);
+        Assert.Equal(2, initCall.Arguments.Count);
+    }
+
+    [Fact]
+    public void TestConstructorWithBaseInitializer()
+    {
+        var source = @"
+            class Employee : Person {
+                EmployeeId: string
+
+                constructor(name: string, id: string): base(name) {
+                    EmployeeId = id
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var empClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(empClass);
+
+        var ctor = empClass.Members[1] as ConstructorDeclaration;
+        Assert.NotNull(ctor);
+        Assert.Equal(2, ctor.Parameters.Count);
+        Assert.NotNull(ctor.Initializer);
+
+        // Initializer should be a CallExpression with BaseExpression as callee
+        var initCall = ctor.Initializer as CallExpression;
+        Assert.NotNull(initCall);
+        Assert.IsType<BaseExpression>(initCall.Callee);
+        Assert.Single(initCall.Arguments);
+    }
+
+    [Fact]
+    public void TestConstructorWithMultipleArguments()
+    {
+        var source = @"
+            class Product {
+                Name: string
+                Price: double
+                Stock: int
+
+                constructor(name: string): this(name, 0.0, 0) {
+                }
+
+                constructor(name: string, price: double, stock: int) {
+                    Name = name
+                    Price = price
+                    Stock = stock
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var productClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(productClass);
+
+        var ctor1 = productClass.Members[3] as ConstructorDeclaration;
+        Assert.NotNull(ctor1);
+        Assert.Single(ctor1.Parameters);
+        Assert.NotNull(ctor1.Initializer);
+
+        var initCall = ctor1.Initializer as CallExpression;
+        Assert.NotNull(initCall);
+        Assert.Equal(3, initCall.Arguments.Count);
+    }
 }
 

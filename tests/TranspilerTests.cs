@@ -1769,4 +1769,41 @@ func Helper(): int {
         var result = Transpile(source);
         Assert.Contains("int.TryParse(\"123\", out result)", result);
     }
+
+    [Fact]
+    public void TestConstructorThisInitializerTranspilation()
+    {
+        var source = @"
+            class Person {
+                Name: string
+                Age: int
+
+                constructor(name: string): this(name, 0) {
+                }
+
+                constructor(name: string, age: int) {
+                    Name = name
+                    Age = age
+                }
+            }
+        ";
+        var result = Transpile(source);
+        Assert.Contains("public Person(string name) : this(name, 0)", result);
+    }
+
+    [Fact]
+    public void TestConstructorBaseInitializerTranspilation()
+    {
+        var source = @"
+            class Employee : Person {
+                EmployeeId: string
+
+                constructor(name: string, id: string): base(name) {
+                    EmployeeId = id
+                }
+            }
+        ";
+        var result = Transpile(source);
+        Assert.Contains("public Employee(string name, string id) : base(name)", result);
+    }
 }

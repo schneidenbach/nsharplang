@@ -387,11 +387,17 @@ public class Analyzer
             DeclareSymbol(param.Name, paramType, ctor.Line, ctor.Column);
         }
 
+        // Analyze initializer if present
+        if (ctor.Initializer != null)
+        {
+            AnalyzeExpression(ctor.Initializer);
+        }
+
         // Analyze body
         AnalyzeStatement(ctor.Body);
 
-        // TODO: Definite assignment analysis - check all non-nullable fields are assigned
-        if (_currentClass != null)
+        // Check definite assignment only if no initializer (this/base handles assignment)
+        if (_currentClass != null && ctor.Initializer == null)
         {
             CheckDefiniteAssignment(ctor, _currentClass);
         }

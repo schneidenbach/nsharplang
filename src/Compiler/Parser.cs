@@ -739,9 +739,54 @@ public class Parser
         Consume(TokenType.Identifier, "Expected 'constructor'");
 
         var parameters = ParseParameterList();
+
+        // Parse optional initializer: `: this(args)` or `: base(args)`
+        Expression? initializer = null;
+        if (Match(TokenType.Colon))  // Match() advances past colon
+        {
+            if (Check(TokenType.This))
+            {
+                var thisLine = Current.Line;
+                var thisColumn = Current.Column;
+                Advance(); // consume 'this'
+
+                // Parse arguments for this()
+                Consume(TokenType.LeftParen, "Expected '(' after 'this'");
+                var arguments = ParseArgumentList();  // ParseArgumentList consumes the ')'
+
+                // Create CallExpression with this as callee
+                initializer = new CallExpression(
+                    new ThisExpression(thisLine, thisColumn),
+                    arguments,
+                    thisLine,
+                    thisColumn);
+            }
+            else if (Check(TokenType.Base))
+            {
+                var baseLine = Current.Line;
+                var baseColumn = Current.Column;
+                Advance(); // consume 'base'
+
+                // Parse arguments for base()
+                Consume(TokenType.LeftParen, "Expected '(' after 'base'");
+                var arguments = ParseArgumentList();  // ParseArgumentList consumes the ')'
+
+                // Create CallExpression with base as callee
+                initializer = new CallExpression(
+                    new BaseExpression(baseLine, baseColumn),
+                    arguments,
+                    baseLine,
+                    baseColumn);
+            }
+            else
+            {
+                throw new Exception($"Expected 'this' or 'base' after ':' at line {Current.Line}, column {Current.Column}");
+            }
+        }
+
         var body = ParseBlock();
 
-        return new ConstructorDeclaration(parameters, body, modifiers, attributes, line, column);
+        return new ConstructorDeclaration(parameters, body, initializer, modifiers, attributes, line, column);
     }
 
     private IndexerDeclaration ParseIndexerDeclaration(List<AttributeNode> attributes, Modifiers modifiers)

@@ -173,6 +173,7 @@ public record PropertyDeclaration(
 public record ConstructorDeclaration(
     List<Parameter> Parameters,
     BlockStatement Body,
+    Expression? Initializer,  // this() or base() call
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,

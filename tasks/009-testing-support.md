@@ -1,8 +1,9 @@
-# Task 009: Testing Support (.tests.nl files)
+# Task 009: Testing Support (.tests.nl files) ✅ COMPLETED
 
 **Priority:** High (Developer experience)
 **Dependencies:** None
 **Estimated Effort:** Large (6-8 hours)
+**Completed:** v1.27-v1.28
 
 ## Goal
 Support inline test files (`.tests.nl`) that compile as XUnit tests with `test` syntax and smart `assert` transpilation.

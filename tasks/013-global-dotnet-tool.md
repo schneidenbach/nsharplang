@@ -1,8 +1,9 @@
-# Task 013: Global .NET Tool Configuration
+# Task 013: Global .NET Tool Configuration ✅ COMPLETED
 
 **Priority:** High (Developer experience - makes tool installable)
 **Dependencies:** None
 **Estimated Effort:** Small (2-3 hours)
+**Completed:** v1.28
 
 ## Goal
 Configure CLI as a global .NET tool so users can install with `dotnet tool install -g nlc` and use `nlc` command globally.

@@ -146,7 +146,51 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.34 (Ref/Out Parameters) ✅ COMPLETE - LATEST!
+### v1.35 (Constructor Chaining) ✅ COMPLETE - LATEST!
+1. **AST enhancement**: ✅ Added Initializer field to ConstructorDeclaration
+   - Added `Expression? Initializer` field to ConstructorDeclaration record
+   - Stores `this()` or `base()` call expression for constructor chaining
+2. **Parser support**: ✅ Parse `: this()` and `: base()` syntax
+   - After parsing constructor parameters, checks for optional `:` token
+   - Parses `this(args)` or `base(args)` as CallExpression with ThisExpression/BaseExpression
+   - Creates CallExpression with appropriate callee and arguments
+   - ParseArgumentList() consumes the closing paren
+3. **Transpiler support**: ✅ Emit C# constructor initializer syntax
+   - TranspileConstructorDeclaration checks for Initializer and emits `: this(args)` or `: base(args)`
+   - TranspileConstructorInitializer helper method formats initializer with arguments
+   - Supports ref/out modifiers and named arguments in initializers
+   - Generates idiomatic C# constructor chaining syntax
+4. **Analyzer support**: ✅ Constructor initializer validation and definite assignment
+   - AnalyzeConstructorDeclaration analyzes initializer expression if present
+   - Skips definite assignment check when initializer exists (initializer handles assignments)
+   - Constructors with `this()` or `base()` initializers don't need to assign fields directly
+5. **Test coverage**: ✅ 5 new tests (3 parser + 2 transpiler) = 331 total
+   - Parser: TestConstructorWithThisInitializer, TestConstructorWithBaseInitializer, TestConstructorWithMultipleArguments
+   - Transpiler: TestConstructorThisInitializerTranspilation, TestConstructorBaseInitializerTranspilation
+6. **Example**: ✅ examples/constructor_chaining.nl
+   - Demonstrates this() chaining with default parameters (Person class)
+   - Shows base() constructor calls (Employee class inheriting Person)
+   - Illustrates dependency injection pattern with simplified constructors
+   - Multiple levels of chaining in single class
+   - Successfully transpiles to correct C# code
+7. **Build status**: ✅ All 331 tests passing
+
+**Impact:** Essential for DI patterns and reducing constructor duplication! Enables idiomatic .NET constructor design.
+
+**What works:**
+- Constructor chaining with `this(args)` ✅
+- Base constructor calls with `base(args)` ✅
+- Multiple arguments with ref/out/named parameters ✅
+- Definite assignment analysis skipped when initializer present ✅
+- Clean C# code generation matching C# syntax exactly ✅
+
+**Use cases:**
+- Dependency injection with simplified constructors
+- Default parameter values via constructor chaining
+- Inheritance with base class initialization
+- Reducing code duplication across multiple constructors
+
+### v1.34 (Ref/Out Parameters) ✅ COMPLETE
 1. **New keywords**: ✅ Added `ref` and `out` keywords
    - Added `Ref` and `Out` token types to Token.cs
    - Added keyword mappings to Lexer.cs

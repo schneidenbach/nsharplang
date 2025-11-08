@@ -1,8 +1,9 @@
-# Task 004: Async/Await Implicit Wrapping
+# Task 004: Async/Await Implicit Wrapping ✅ COMPLETED
 
 **Priority:** Medium
 **Dependencies:** project.yml parsing (for config)
 **Estimated Effort:** Medium (3-4 hours)
+**Completed:** v1.28
 
 ## Goal
 Support implicit Task/ValueTask wrapping for async methods - user writes unwrapped return type, compiler adds wrapper based on configuration.

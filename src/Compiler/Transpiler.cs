@@ -737,8 +737,49 @@ public class Transpiler
 
         var parameters = string.Join(", ", ctor.Parameters.Select(TranspileParameter));
         var ctorName = _currentTypeName ?? "UnknownType";
-        WriteLine($"{modifiers}{ctorName}({parameters})");
+
+        // Emit constructor with optional initializer
+        if (ctor.Initializer != null)
+        {
+            var initializer = TranspileConstructorInitializer(ctor.Initializer);
+            WriteLine($"{modifiers}{ctorName}({parameters}) : {initializer}");
+        }
+        else
+        {
+            WriteLine($"{modifiers}{ctorName}({parameters})");
+        }
+
         TranspileBlockStatement(ctor.Body);
+    }
+
+    private string TranspileConstructorInitializer(Expression initializer)
+    {
+        // Initializer is a CallExpression with either ThisExpression or BaseExpression as callee
+        if (initializer is CallExpression call)
+        {
+            var keyword = call.Callee switch
+            {
+                ThisExpression => "this",
+                BaseExpression => "base",
+                _ => throw new Exception("Constructor initializer must be 'this()' or 'base()' call")
+            };
+
+            var arguments = string.Join(", ", call.Arguments.Select(arg =>
+            {
+                var prefix = "";
+                if (arg.Modifier == ArgumentModifier.Ref)
+                    prefix = "ref ";
+                else if (arg.Modifier == ArgumentModifier.Out)
+                    prefix = "out ";
+
+                var argValue = TranspileExpression(arg.Value);
+                var result = prefix + argValue;
+                return arg.Name != null ? $"{arg.Name}: {result}" : result;
+            }));
+            return $"{keyword}({arguments})";
+        }
+
+        throw new Exception("Invalid constructor initializer expression");
     }
 
     private void TranspileIndexerDeclaration(IndexerDeclaration indexer)
