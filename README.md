@@ -306,9 +306,9 @@ Explore `examples/` for comprehensive demonstrations:
 
 ## 📊 Project Status
 
-### ✅ Fully Implemented (v1.47)
+### ✅ Fully Implemented (v1.48)
 
-- **404 tests passing** (27 lexer + 55 parser + 67 analyzer + 53 transpiler + more)
+- **406 tests passing** (27 lexer + 55 parser + 67 analyzer + 53 transpiler + more)
 - Full lexical analysis with all operators and keywords
 - Complete AST parsing for all language constructs
 - Semantic analysis with type checking and inference
@@ -484,6 +484,6 @@ Built with Claude Code to demonstrate modern language implementation on the CLR.
 
 ---
 
-**Current Version:** v1.47 - Inline Out Variable Declarations
+**Current Version:** v1.48 - Spread Operator in Function Calls
 **Status:** Production-ready for experimentation and learning
-**Tests:** 404 passing ✅
+**Tests:** 406 passing ✅

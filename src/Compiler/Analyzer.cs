@@ -1163,6 +1163,7 @@ public class Analyzer
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
             OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
+            SpreadExpression spread => AnalyzeSpreadExpression(spread),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1206,6 +1207,17 @@ public class Analyzer
         DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
 
         return varType;
+    }
+
+    private TypeInfo AnalyzeSpreadExpression(SpreadExpression spread)
+    {
+        // Analyze the inner expression
+        var innerType = AnalyzeExpression(spread.Expression);
+
+        // For spread in function calls, we expect the inner expression to be an array or enumerable
+        // The C# compiler will handle validation of whether the spread is valid
+        // For now, we just return the inner type (the collection type itself)
+        return innerType;
     }
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
@@ -1489,10 +1501,39 @@ public class Analyzer
                         {
                             for (int i = regularParamCount; i < argTypes.Count; i++)
                             {
-                                if (!IsAssignable(arrayType.ElementType, argTypes[i]))
+                                var argType = argTypes[i];
+                                var arg = call.Arguments[i];
+
+                                // Special handling for spread expressions in params
+                                // If argument is a spread expression, the argType is the collection type
+                                // We need to verify it's compatible with the params array type
+                                if (arg.Value is SpreadExpression)
                                 {
-                                    Error($"Params argument {i + 1} of type '{argTypes[i]}' is not assignable to params array element type '{arrayType.ElementType}'",
-                                        call.Line, call.Column);
+                                    // For spread, check if the spread expression type is compatible with the params array
+                                    // The spread type should be an array/collection of the same element type
+                                    if (argType is ArrayTypeInfo spreadArrayType)
+                                    {
+                                        if (!IsAssignable(arrayType.ElementType, spreadArrayType.ElementType))
+                                        {
+                                            Error($"Spread argument {i + 1} element type '{spreadArrayType.ElementType}' is not assignable to params array element type '{arrayType.ElementType}'",
+                                                call.Line, call.Column);
+                                        }
+                                    }
+                                    // If it's not an array type, it's an error
+                                    else if (argType != BuiltInTypes.Unknown)
+                                    {
+                                        Error($"Spread argument {i + 1} must be an array or collection type, but got '{argType}'",
+                                            call.Line, call.Column);
+                                    }
+                                }
+                                else
+                                {
+                                    // Regular argument (not spread) - check element type directly
+                                    if (!IsAssignable(arrayType.ElementType, argType))
+                                    {
+                                        Error($"Params argument {i + 1} of type '{argType}' is not assignable to params array element type '{arrayType.ElementType}'",
+                                            call.Line, call.Column);
+                                    }
                                 }
                             }
                         }

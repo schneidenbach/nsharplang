@@ -455,6 +455,27 @@ func Test() {
     }
 
     [Fact]
+    public void TestSpreadOperatorInFunctionCallTranspilation()
+    {
+        var source = @"
+func Sum(params numbers: int[]): int {
+    return 0
+}
+
+func Test() {
+    items := [1, 2, 3]
+    result := Sum(...items)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Spread in function calls transpiles to direct array passing in C#
+        // N#: Sum(...items) -> C#: Sum(items)
+        Assert.Contains("Sum(items)", result);
+    }
+
+    [Fact]
     public void TestCollectionExpressionListTranspilation()
     {
         var source = @"

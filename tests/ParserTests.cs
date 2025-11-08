@@ -831,6 +831,39 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestSpreadOperatorInFunctionCall()
+    {
+        var source = @"
+            func Sum(params numbers: int[]): int {
+                return 0
+            }
+
+            func Test() {
+                items := [1, 2, 3]
+                result := Sum(...items)
+            }
+        ";
+
+        var cu = Parse(source);
+        var testFunc = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(testFunc);
+
+        var resultDecl = testFunc.Body.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(resultDecl);
+
+        var callExpr = resultDecl.Initializer as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.Single(callExpr.Arguments);
+
+        var spreadArg = callExpr.Arguments[0].Value as SpreadExpression;
+        Assert.NotNull(spreadArg);
+
+        var innerExpr = spreadArg.Expression as IdentifierExpression;
+        Assert.NotNull(innerExpr);
+        Assert.Equal("items", innerExpr.Name);
+    }
+
+    [Fact]
     public void TestPartialClass()
     {
         var source = @"

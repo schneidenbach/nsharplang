@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.47 - Inline Out Variable Declarations
-**Tests:** 404 passing ✅
+**Version:** v1.48 - Spread Operator in Function Calls
+**Tests:** 406 passing ✅
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
@@ -1913,4 +1913,81 @@ public static int Sum(params int[] numbers)
     return total;
 }
 ```
+
+## v1.48: Spread Operator in Function Calls
+
+### Overview
+Implemented support for spread operator (`...`) in function call arguments, enabling ergonomic array expansion when calling functions with params parameters.
+
+### Syntax
+```n#
+func Sum(params numbers: int[]): int { ... }
+
+items := [1, 2, 3, 4, 5]
+total := Sum(...items)  // Spread array into individual arguments
+```
+
+### Implementation Details
+
+**Parser (src/Compiler/Parser.cs:2327-2340)**:
+- Modified `ParseArgumentList()` to detect `...` token before argument expression
+- When found, wraps expression in `SpreadExpression` AST node
+- Spread can only be used with expressions (variables, member access, etc.)
+
+**Analyzer (src/Compiler/Analyzer.cs:1212-1221, 1510-1538)**:
+- Added `AnalyzeSpreadExpression()` to analyze inner expression type
+- Enhanced params validation in `AnalyzeCall()` to handle spread arguments
+- When spread argument detected:
+  - Verifies inner type is an array type
+  - Checks array element type matches params parameter element type
+  - Reports clear error if types mismatch or if spread is not an array
+
+**Transpiler (src/Compiler/Transpiler.cs:1426-1438)**:
+- Special handling in `TranspileCallExpression()` for spread arguments
+- **Key insight**: C# params accept arrays directly, not with `..` operator
+- Unwraps `SpreadExpression` and transpiles only the inner expression
+- N# `Sum(...items)` → C# `Sum(items)` (not `Sum(..items)`)
+- The `..` operator in C# is only for collection expressions, not function calls
+
+### Examples
+```n#
+// Basic spread
+numbers := [1, 2, 3]
+total := Sum(...numbers)
+
+// With params and regular arguments
+words := ["World", "from", "N#"]
+sentence := Concatenate("Hello", ...words)
+
+// Multiple separate spreads
+firstSet := [1, 2, 3]
+secondSet := [10, 20, 30]
+total1 := Sum(...firstSet)
+total2 := Sum(...secondSet)
+```
+
+### C# Output
+```csharp
+int[] numbers = [1, 2, 3];
+var total = Sum(numbers);  // Not Sum(..numbers)!
+
+string[] words = ["World", "from", "N#"];
+var sentence = Concatenate("Hello", words);
+```
+
+### Tests Added
+- `TestSpreadOperatorInFunctionCall()` in ParserTests.cs
+- `TestSpreadOperatorInFunctionCallTranspilation()` in TranspilerTests.cs
+- Example: `examples/spread_in_function_calls.nl`
+
+### Design Decisions
+1. **Transpilation strategy**: Unwrap spread for params, not use `..` operator
+2. **Type validation**: Analyzer checks array element type compatibility
+3. **Error messages**: Clear distinction between spread arguments and regular arguments
+4. **Compatibility**: Follows C# params conventions exactly
+
+### Limitations
+- Spread in array literals still uses `..` (e.g., `[...arr1, 4, 5]`)
+- Array literal type inference with nested spreads needs improvement
+- For now, recommend explicit types: `let combined: int[] = [...arr1, 4, 5]`
 

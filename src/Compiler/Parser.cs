@@ -2324,7 +2324,21 @@ public class Parser
                     Advance(); // consume colon
                 }
 
-                var argValue = ParseExpression();
+                // Check for spread operator in function calls
+                Expression argValue;
+                if (Check(TokenType.DotDotDot))
+                {
+                    var spreadLine = Current.Line;
+                    var spreadColumn = Current.Column;
+                    Advance(); // consume '...'
+                    var spreadExpr = ParseExpression();
+                    argValue = new SpreadExpression(spreadExpr, spreadLine, spreadColumn);
+                }
+                else
+                {
+                    argValue = ParseExpression();
+                }
+
                 args.Add(new Argument(argName, argValue, modifier));
 
             } while (Match(TokenType.Comma));

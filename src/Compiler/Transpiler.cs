@@ -1423,7 +1423,20 @@ public class Transpiler
             else if (arg.Modifier == ArgumentModifier.Out)
                 prefix = "out ";
 
-            var argValue = TranspileExpression(arg.Value);
+            // Special handling for spread expressions in function calls
+            // In C#, params arrays accept the array directly, not with .. operator
+            // So Sum(...items) in N# becomes Sum(items) in C#, not Sum(..items)
+            string argValue;
+            if (arg.Value is SpreadExpression spread)
+            {
+                // Unwrap the spread - just transpile the inner expression
+                argValue = TranspileExpression(spread.Expression);
+            }
+            else
+            {
+                argValue = TranspileExpression(arg.Value);
+            }
+
             var result = prefix + argValue;
             return arg.Name != null ? $"{arg.Name}: {result}" : result;
         }));
