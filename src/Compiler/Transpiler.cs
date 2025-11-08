@@ -16,6 +16,7 @@ public class Transpiler
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
     private List<InterfaceDeclaration> _duckInterfaces; // Track duck interfaces for automatic implementation
+    private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null)
     {
@@ -1141,7 +1142,16 @@ public class Transpiler
 
         if (varDecl.Initializer != null)
         {
-            WriteLine($"{keyword}{type} {varDecl.Name} = {TranspileExpression(varDecl.Initializer)};");
+            // Set flag to indicate we need explicit array types for var declarations
+            // C# collection expressions [1, 2, 3] don't work with var, need new int[] { 1, 2, 3 }
+            var previousFlag = _needsExplicitArrayType;
+            _needsExplicitArrayType = (varDecl.Type == null); // true if using var
+
+            var initializer = TranspileExpression(varDecl.Initializer);
+
+            _needsExplicitArrayType = previousFlag; // restore
+
+            WriteLine($"{keyword}{type} {varDecl.Name} = {initializer};");
         }
         else
         {
@@ -1582,13 +1592,45 @@ public class Transpiler
     {
         var elements = string.Join(", ", array.Elements.Select(TranspileExpression));
 
-        // Use C# 12+ collection expression syntax for all array literals
-        // Collection expressions are target-typed, meaning they adapt to the expected type:
-        // - int[] arr = [1, 2, 3];              creates int[]
-        // - List<int> list = [1, 2, 3];          creates List<int>
-        // - HashSet<string> set = ["a", "b"];    creates HashSet<string>
-        // - ImmutableArray<int> imm = [1, 2, 3]; creates ImmutableArray<int>
+        // If we need explicit array type (e.g., for var declarations), use explicit syntax
+        // C# collection expressions [1, 2, 3] require a target type, which doesn't work with var
+        if (_needsExplicitArrayType)
+        {
+            if (array.Elements.Count > 0)
+            {
+                var elementType = InferArrayElementType(array.Elements[0]);
+                return $"new {elementType}[] {{ {elements} }}";
+            }
+            // Empty array - use object[] as fallback
+            return "new object[] { }";
+        }
+
+        // Otherwise use C# 12+ collection expression syntax (target-typed)
+        // Works with explicit types: List<int> list = [1, 2, 3]
         return $"[{elements}]";
+    }
+
+    private string InferArrayElementType(Expression firstElement)
+    {
+        return firstElement switch
+        {
+            // Literals - int literals might have L suffix for long
+            IntLiteralExpression lit => lit.Value.EndsWith("L") || lit.Value.EndsWith("l") ? "long" : "int",
+            FloatLiteralExpression lit => lit.Value.EndsWith("f") || lit.Value.EndsWith("F") ? "float" : "double",
+            StringLiteralExpression => "string",
+            BoolLiteralExpression => "bool",
+            NullLiteralExpression => "object",
+
+            // New expressions - extract the type
+            NewExpression newExpr when newExpr.Type != null => TranspileTypeReference(newExpr.Type),
+
+            // Array literals (nested) - recursive
+            ArrayLiteralExpression nestedArray when nestedArray.Elements.Count > 0 =>
+                InferArrayElementType(nestedArray.Elements[0]) + "[]",
+
+            // For complex expressions, fall back to var (let C# infer)
+            _ => "var"
+        };
     }
 
     private string TranspileNewExpression(NewExpression newExpr)

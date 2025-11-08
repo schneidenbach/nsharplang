@@ -470,8 +470,8 @@ func Test() {
 
         var result = Transpile(source);
 
-        // Should generate array with collection expression syntax
-        Assert.Contains("var arr1 = [1, 2, 3]", result);
+        // var declarations should use explicit array syntax (not collection expressions)
+        Assert.Contains("var arr1 = new int[] { 1, 2, 3 }", result);
         // Spread should be transpiled (implementation may vary)
         Assert.Contains("arr2", result);
     }
@@ -2691,5 +2691,146 @@ func Test() {
         // Should handle variable references in indexer expressions
         Assert.Contains("[key] = value", csharp);
         Assert.Contains("[\"literal\"] = 100", csharp);
+    }
+
+    // Array Literal Type Inference Tests (v1.69)
+
+    [Fact]
+    public void TestArrayLiteralWithVarUsesExplicitType()
+    {
+        var source = @"
+func Test() {
+    x := [1, 2, 3]
+}
+        ";
+
+        var result = Transpile(source);
+        // var declarations should use explicit array syntax for type inference
+        Assert.Contains("var x = new int[] { 1, 2, 3 }", result);
+    }
+
+    [Fact]
+    public void TestArrayLiteralWithExplicitTypeUsesCollectionExpression()
+    {
+        var source = @"
+func Test() {
+    let numbers: int[] = [1, 2, 3]
+}
+        ";
+
+        var result = Transpile(source);
+        // Explicit types should use C# 12 collection expression syntax
+        Assert.Contains("int[] numbers = [1, 2, 3]", result);
+    }
+
+    [Fact]
+    public void TestStringArrayInference()
+    {
+        var source = @"
+func Test() {
+    names := [""Alice"", ""Bob"", ""Charlie""]
+}
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("var names = new string[] { \"Alice\", \"Bob\", \"Charlie\" }", result);
+    }
+
+    [Fact]
+    public void TestBoolArrayInference()
+    {
+        var source = @"
+func Test() {
+    flags := [true, false, true]
+}
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("var flags = new bool[] { true, false, true }", result);
+    }
+
+    [Fact]
+    public void TestDoubleArrayInference()
+    {
+        var source = @"
+func Test() {
+    values := [1.0, 2.5, 3.14]
+}
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("var values = new double[] { 1.0, 2.5, 3.14 }", result);
+    }
+
+    [Fact]
+    public void TestNestedArrayInference()
+    {
+        var source = @"
+func Test() {
+    matrix := [[1, 2], [3, 4], [5, 6]]
+}
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("var matrix = new int[][] {", result);
+        Assert.Contains("new int[] { 1, 2 }", result);
+        Assert.Contains("new int[] { 3, 4 }", result);
+        Assert.Contains("new int[] { 5, 6 }", result);
+    }
+
+    [Fact]
+    public void TestEmptyArrayInference()
+    {
+        var source = @"
+func Test() {
+    empty := []
+}
+        ";
+
+        var result = Transpile(source);
+        // Empty arrays default to object[]
+        Assert.Contains("var empty = new object[] { }", result);
+    }
+
+    [Fact]
+    public void TestListCollectionExpressionStillWorks()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    let list: List<int> = [1, 2, 3, 4, 5]
+}
+        ";
+
+        var result = Transpile(source);
+        // Explicit List<T> type should use collection expression
+        Assert.Contains("List<int> list = [1, 2, 3, 4, 5]", result);
+    }
+
+    [Fact]
+    public void TestMixedVarAndExplicitTypes()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    // var should use explicit array syntax
+    inferred := [1, 2, 3]
+
+    // Explicit types should use collection expressions
+    let explicitArray: int[] = [4, 5, 6]
+    let list: List<string> = [""a"", ""b"", ""c""]
+}
+        ";
+
+        var result = Transpile(source);
+
+        // var declaration needs explicit type
+        Assert.Contains("var inferred = new int[] { 1, 2, 3 }", result);
+
+        // Explicit types can use collection expressions
+        Assert.Contains("int[] explicitArray = [4, 5, 6]", result);
+        Assert.Contains("List<string> list = [\"a\", \"b\", \"c\"]", result);
     }
 }

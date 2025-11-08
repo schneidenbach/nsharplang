@@ -1,8 +1,8 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.68 - Default Parameter Values with Full Validation (Current)
-**Tests:** 497 passing ✅ (15 new tests for default parameters)
-**Status:** Feature-complete! All DESIGN.md features implemented. **Default parameter values fully validated!** LSP server integrated with VS Code!
+**Version:** v1.69 - Implicit Array Type Inference (Current)
+**Tests:** 506 passing ✅ (9 new tests for array type inference)
+**Status:** Feature-complete! All DESIGN.md features implemented. **Array literals now work with var declarations!** LSP server integrated with VS Code!
 
 ## Architecture Overview
 
@@ -2719,4 +2719,48 @@ code --install-extension nsharp-0.2.0.vsix
 
 ### Test Results
 All 497 tests passing ✅ (482 existing + 15 new)
+
+
+
+## Version History
+
+### v1.69 (Current) - Implicit Array Type Inference
+**What:** Array literals now intelligently emit explicit or collection expression syntax based on context
+**Why:** C# collection expressions `[1, 2, 3]` dont work with `var` - need explicit type
+**Solution:** 
+- Transpiler tracks if were in a var declaration context
+- `var x = [1, 2, 3]` → `var x = new int[] { 1, 2, 3 }`
+- `int[] x = [1, 2, 3]` → `int[] x = [1, 2, 3]` (collection expression)
+- `List<int> x = [1, 2, 3]` → `List<int> x = [1, 2, 3]` (target-typed!)
+**Impact:** Array literals now work seamlessly with var, making N# more ergonomic than C#
+**Tests:** 9 new tests covering int[], string[], bool[], double[], nested arrays, empty arrays, mixed scenarios
+
+### v1.68 - Default Parameter Values Validation
+**What:** Full validation of default parameter values
+**Why:** Ensure default values are compile-time constants
+**Tests:** 15 new tests
+
+### v1.67 - Rust-Quality Error Messages
+**What:** Professional error messages with source snippets, colors, error codes
+**Impact:** Production-ready developer experience
+
+### v1.66 - Async Streams (IAsyncEnumerable)
+**What:** `async*` functions with `yield` for async iteration
+**Syntax:** `func async* GetData(): IAsyncEnumerable<T> { yield x }`
+
+### v1.65 - LSP Phase 2 (VS Code Integration)
+**What:** Full Language Server Protocol integration with VS Code
+**Features:** IntelliSense, real-time diagnostics, hover information
+
+### v1.64 - LSP Phase 1 (Foundation)
+**What:** Language Server Protocol foundation
+
+### v1.63 - C# 13 Params Collections
+**What:** `params` with any collection type (Span, IEnumerable, List, etc.)
+
+### v1.62 - Record Structs (C# 10)
+**What:** Value-type records with immutability
+
+### Earlier Versions
+See git history for complete version details.
 
