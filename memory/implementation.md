@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (29 tests), Parser (61 tests), Analyzer (67 tests), Transpiler (48 tests)
-- **Total**: 215 tests (215 passing, 0 skipped)
+- **Unit tests**: Lexer (32 tests), Parser (82 tests), Analyzer (78 tests), Transpiler (67 tests)
+- **Total**: 259 tests (259 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, null-conditional indexing (?[]), **pattern matching guards (when clauses) (NEW!)**
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, null-conditional indexing (?[]), pattern matching guards (when clauses), **nested property patterns (NEW!)**
 
 ## Build & Run
 
@@ -145,6 +145,56 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 6. **Limited overload resolution**: Method overload resolution based only on argument count, not types
 
 ## Recent Changes
+
+### v1.23 (Nested Property Patterns) ✅ COMPLETE
+1. **AST enhancements** (Expressions.cs): ✅
+   - Enhanced PropertyPattern with Pattern field for nested patterns
+   - Added ObjectPattern type for standalone property matching
+   - Pattern field allows recursive nesting (literals, identifiers, objects)
+   - Supports unlimited nesting depth
+2. **Parser improvements** (Parser.cs): ✅
+   - Added ParsePropertyPatterns() helper for recursive pattern parsing
+   - Support for colon syntax: `{ Name: pattern }` vs simple binding: `{ Name }`
+   - Handles both `TypeName { props }` and standalone `{ props }` syntax
+   - Recursive pattern parsing enables arbitrary depth
+3. **Analyzer validation** (Analyzer.cs): ✅
+   - Added AnalyzePropertyPatterns() for recursive pattern validation
+   - Checks property existence on class/struct/record/reflection types
+   - Fixed to check both FieldDeclaration and PropertyDeclaration members
+   - Validates nested pattern types match property types
+   - Binds variables from pattern destructuring to correct types
+4. **Transpiler code generation** (Transpiler.cs): ✅
+   - Added TranspileObjectPattern() for standalone property patterns
+   - Added TranspilePropertyPatterns() helper for recursive transpilation
+   - Emits C# 8+ nested property pattern syntax with var bindings
+   - Properly handles literal vs identifier patterns
+5. **Test coverage**: ✅ 8 new tests (4 parser + 4 transpiler)
+   - TestNestedPropertyPatternWithLiteral
+   - TestNestedPropertyPatternWithBinding
+   - TestThreeLevelNestedPropertyPattern
+   - TestUnionCaseWithNestedPropertyPattern
+   - All transpiler tests verify correct C# output
+6. **Examples**: ✅
+   - examples/nested_simple_test.nl: Basic demo
+   - examples/nested_property_patterns_simple.nl: Comprehensive showcase
+
+**Syntax Examples:**
+```nl
+// Simple nested literal
+{ Address: { City: "NYC" } } => "New Yorker"
+
+// Nested with binding
+{ Address: { City: city, State: "CA" } } => $"From {city}"
+
+// Three-level nesting
+{ HQ: { Address: { City: "NYC" } } } => "NYC HQ"
+
+// With guards
+{ Age: age, Address: { City: "NYC" } } when age < 30 => "Young"
+
+// Union case with nested pattern
+Result.Success { value: { Count: count } } => count
+```
 
 ### v1.22 (Import System - Phase 2: Symbol Resolution and Analysis) ✅ COMPLETE
 1. **FileResolver class**: ✅ Path resolution for file-based imports
