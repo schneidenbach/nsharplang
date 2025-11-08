@@ -18,6 +18,13 @@ public record NullLiteralExpression(int Line, int Column) : Expression(Line, Col
 // Identifier
 public record IdentifierExpression(string Name, int Line, int Column) : Expression(Line, Column);
 
+// Range expression (supports open-ended ranges: ..end, start.., start..end, ..)
+public record RangeExpression(
+    Expression? Start,  // null for open-ended start (..end, ..)
+    Expression? End,    // null for open-ended end (start.., ..)
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // Binary operations
 public record BinaryExpression(
     Expression Left,

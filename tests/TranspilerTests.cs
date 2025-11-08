@@ -1552,8 +1552,8 @@ class Test {
 }";
 
         var result = Transpile(source);
-        Assert.Contains("arr[(1 .. 4)]", result);
-        Assert.Contains("arr[(0 .. 3)]", result);
+        Assert.Contains("arr[1..4]", result);
+        Assert.Contains("arr[0..3]", result);
     }
 
     [Fact]
@@ -1571,7 +1571,49 @@ class Test {
 }";
 
         var result = Transpile(source);
-        Assert.Contains("arr[(1 .. ^1)]", result);
-        Assert.Contains("arr[(0 .. ^2)]", result);
+        Assert.Contains("arr[1..^1]", result);
+        Assert.Contains("arr[0..^2]", result);
+    }
+
+    [Fact]
+    public void TestOpenEndedRangeToEndTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetFirst(arr: int[]): int[] {
+        return arr[..3]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[..3]", result);
+    }
+
+    [Fact]
+    public void TestOpenEndedRangeFromStartTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetLast(arr: int[]): int[] {
+        return arr[2..]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[2..]", result);
+    }
+
+    [Fact]
+    public void TestFullyOpenRangeTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetAll(arr: int[]): int[] {
+        return arr[..]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[..]", result);
     }
 }

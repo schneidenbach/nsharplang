@@ -1215,6 +1215,7 @@ public class Transpiler
             BaseExpression => "base",
             TypeOfExpression typeOf => $"typeof({TranspileTypeReference(typeOf.Type)})",
             NameofExpression nameOf => TranspileNameofExpression(nameOf),
+            RangeExpression range => TranspileRangeExpression(range),
             SizeOfExpression sizeOf => $"sizeof({TranspileTypeReference(sizeOf.Type)})",
             TupleExpression tuple => TranspileTupleExpression(tuple),
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
@@ -1252,6 +1253,15 @@ public class Transpiler
         };
 
         return $"({left} {op} {right})";
+    }
+
+    private string TranspileRangeExpression(RangeExpression range)
+    {
+        // Handle all combinations of open-ended ranges
+        // start..end, ..end, start.., ..
+        var start = range.Start != null ? TranspileExpression(range.Start) : "";
+        var end = range.End != null ? TranspileExpression(range.End) : "";
+        return $"{start}..{end}";
     }
 
     private string TranspileUnaryExpression(UnaryExpression unary)

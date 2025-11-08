@@ -1024,8 +1024,27 @@ public class Analyzer
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
+            RangeExpression range => AnalyzeRangeExpression(range),
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private TypeInfo AnalyzeRangeExpression(RangeExpression range)
+    {
+        // Analyze start if present
+        if (range.Start != null)
+        {
+            AnalyzeExpression(range.Start);
+        }
+
+        // Analyze end if present
+        if (range.End != null)
+        {
+            AnalyzeExpression(range.End);
+        }
+
+        // All range expressions return System.Range
+        return LookupType("System.Range") ?? BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)

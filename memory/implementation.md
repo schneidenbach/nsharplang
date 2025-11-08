@@ -109,8 +109,8 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (32 tests), Parser (82 tests), Analyzer (78 tests), Transpiler (67 tests)
-- **Total**: 259 tests (259 passing, 0 skipped)
+- **Unit tests**: Lexer (32 tests), Parser (85 tests), Analyzer (78 tests), Transpiler (70 tests)
+- **Total**: 300 tests (300 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
@@ -199,7 +199,46 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Task 014: ASP.NET Core example project
 - Additional language features as needed
 
-### v1.30 (Range and Index from End Operators) ✅ COMPLETE - LATEST!
+### v1.31 (Open-Ended Ranges) ✅ COMPLETE - LATEST!
+1. **AST enhancement**: ✅ New RangeExpression node
+   - Created dedicated `RangeExpression` record with optional `Start` and `End` fields
+   - Replaces BinaryExpression.Range for cleaner handling of open-ended ranges
+   - Supports all combinations: `start..end`, `..end`, `start..`, `..`
+2. **Parser support**: ✅ Complete open-ended range parsing
+   - Updated ParseRangeExpression to detect `..` at start of expression
+   - Lookahead to determine if end expression exists (context-aware)
+   - Checks for terminating tokens (], ), comma, semicolon) to detect open-ended
+   - Handles: `..3` (from start), `2..` (to end), `..` (fully open), `1..5` (closed)
+3. **Analyzer support**: ✅ Type checking
+   - Added AnalyzeRangeExpression method
+   - Analyzes Start and End expressions if present
+   - Returns System.Range for all range variants
+4. **Transpiler support**: ✅ C# 8+ code generation
+   - Added TranspileRangeExpression method
+   - Emits clean C# syntax: `..3`, `2..`, `..`, `1..5`
+   - Direct mapping to C# range operators (no parens needed)
+5. **Test coverage**: ✅ 6 new tests (3 parser + 3 transpiler) = 300 total
+   - TestOpenEndedRangeToEnd: `arr[..3]` parsing
+   - TestOpenEndedRangeFromStart: `arr[2..]` parsing
+   - TestFullyOpenRange: `arr[..]` parsing
+   - Transpiler tests verify correct C# output for all variants
+   - Updated existing range tests to use RangeExpression instead of BinaryExpression
+6. **Example**: ✅ examples/open_ended_ranges.nl
+   - Comprehensive demonstration of all range variants
+   - String slicing examples
+   - Practical pagination example using open-ended ranges
+   - Successfully compiles and runs with full functionality
+7. **Build status**: ✅ All 300 tests passing
+
+**Impact:** N# now has complete C# 8+ range support including open-ended ranges!
+
+**Features:**
+- `..end`: From start to index (e.g., `arr[..5]` = first 5 elements)
+- `start..`: From index to end (e.g., `arr[5..]` = from index 5 onward)
+- `..`: Full range (e.g., `arr[..]` = copy entire array)
+- Can combine with index from end: `..^2`, `^3..`, `2..^2`
+
+### v1.30 (Range and Index from End Operators) ✅ COMPLETE
 1. **Token support**: ✅ Reused existing tokens
    - `BitwiseXor` token (`^`) dual-purpose: bitwise XOR and index from end (context-dependent)
    - `DotDot` token (`..`) for range operator (already existed)
@@ -231,11 +270,6 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 8. **Build status**: ✅ All 294 tests passing
 
 **Impact:** N# now supports modern C# 8+ range and index operators for elegant array slicing!
-
-**Limitations (future enhancement):**
-- Open-ended ranges not yet supported: `..3`, `2..`, `..`
-- Would require special handling for empty operands in ParseRangeExpression
-- Current implementation requires both operands to be present
 
 ### v1.29 (Operator Overloading) ✅ COMPLETE
 1. **Operator keyword**: ✅ Added `Operator` token type

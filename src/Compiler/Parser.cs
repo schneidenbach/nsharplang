@@ -1927,13 +1927,35 @@ public class Parser
 
     private Expression ParseRangeExpression()
     {
-        var expr = ParseUnaryExpression();
-
+        // Check for open-ended start: ..end or ..
         if (Check(TokenType.DotDot))
         {
             var opToken = Advance();
-            var right = ParseUnaryExpression();
-            expr = new BinaryExpression(expr, BinaryOperator.Range, right, opToken.Line, opToken.Column);
+            // Check if there's an end expression (..end) or fully open (..)
+            // We need to peek ahead to see if this is followed by something that could be an expression
+            Expression? end = null;
+            if (!IsAtEnd() && !Check(TokenType.RightBracket) && !Check(TokenType.Comma) &&
+                !Check(TokenType.RightParen) && !Check(TokenType.Semicolon))
+            {
+                end = ParseUnaryExpression();
+            }
+            return new RangeExpression(null, end, opToken.Line, opToken.Column);
+        }
+
+        var expr = ParseUnaryExpression();
+
+        // Check for range with start: start..end or start..
+        if (Check(TokenType.DotDot))
+        {
+            var opToken = Advance();
+            // Check if there's an end expression
+            Expression? end = null;
+            if (!IsAtEnd() && !Check(TokenType.RightBracket) && !Check(TokenType.Comma) &&
+                !Check(TokenType.RightParen) && !Check(TokenType.Semicolon))
+            {
+                end = ParseUnaryExpression();
+            }
+            return new RangeExpression(expr, end, opToken.Line, opToken.Column);
         }
 
         return expr;

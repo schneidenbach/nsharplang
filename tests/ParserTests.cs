@@ -2559,15 +2559,14 @@ func TestFunc() {
         var indexAccess = sliceDecl.Initializer as IndexAccessExpression;
         Assert.NotNull(indexAccess);
 
-        var rangeExpr = indexAccess.Index as BinaryExpression;
+        var rangeExpr = indexAccess.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
-        Assert.Equal(BinaryOperator.Range, rangeExpr.Operator);
 
-        var left = rangeExpr.Left as IntLiteralExpression;
+        var left = rangeExpr.Start as IntLiteralExpression;
         Assert.NotNull(left);
         Assert.Equal("1", left.Value);
 
-        var right = rangeExpr.Right as IntLiteralExpression;
+        var right = rangeExpr.End as IntLiteralExpression;
         Assert.NotNull(right);
         Assert.Equal("4", right.Value);
     }
@@ -2595,17 +2594,101 @@ func TestFunc() {
         var indexAccess = middleDecl.Initializer as IndexAccessExpression;
         Assert.NotNull(indexAccess);
 
-        var rangeExpr = indexAccess.Index as BinaryExpression;
+        var rangeExpr = indexAccess.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
-        Assert.Equal(BinaryOperator.Range, rangeExpr.Operator);
 
-        var left = rangeExpr.Left as IntLiteralExpression;
+        var left = rangeExpr.Start as IntLiteralExpression;
         Assert.NotNull(left);
         Assert.Equal("1", left.Value);
 
-        var right = rangeExpr.Right as UnaryExpression;
+        var right = rangeExpr.End as UnaryExpression;
         Assert.NotNull(right);
         Assert.Equal(UnaryOperator.IndexFromEnd, right.Operator);
+    }
+
+    [Fact]
+    public void TestOpenEndedRangeToEnd()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                slice := arr[..3]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+
+        var sliceDecl = vars[1];
+        Assert.Equal("slice", sliceDecl.Name);
+        var indexAccess = sliceDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var rangeExpr = indexAccess.Index as RangeExpression;
+        Assert.NotNull(rangeExpr);
+        Assert.Null(rangeExpr.Start);  // Open-ended start
+
+        var end = rangeExpr.End as IntLiteralExpression;
+        Assert.NotNull(end);
+        Assert.Equal("3", end.Value);
+    }
+
+    [Fact]
+    public void TestOpenEndedRangeFromStart()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                slice := arr[2..]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+
+        var sliceDecl = vars[1];
+        Assert.Equal("slice", sliceDecl.Name);
+        var indexAccess = sliceDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var rangeExpr = indexAccess.Index as RangeExpression;
+        Assert.NotNull(rangeExpr);
+
+        var start = rangeExpr.Start as IntLiteralExpression;
+        Assert.NotNull(start);
+        Assert.Equal("2", start.Value);
+
+        Assert.Null(rangeExpr.End);  // Open-ended end
+    }
+
+    [Fact]
+    public void TestFullyOpenRange()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                slice := arr[..]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+
+        var sliceDecl = vars[1];
+        Assert.Equal("slice", sliceDecl.Name);
+        var indexAccess = sliceDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var rangeExpr = indexAccess.Index as RangeExpression;
+        Assert.NotNull(rangeExpr);
+        Assert.Null(rangeExpr.Start);  // Fully open
+        Assert.Null(rangeExpr.End);     // Fully open
     }
 }
 
