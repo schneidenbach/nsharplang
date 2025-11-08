@@ -89,84 +89,141 @@ Fix conflicting design philosophies identified in design review.
 
 ## Remaining Conflicts to Address
 
-### #6: Type Inference Inconsistency
+### ✅ #6: Type Inference Inconsistency
 **Problem:** Variables allow inference (`:=`) but properties require explicit types
 
-**Options:**
-- A. Keep as-is, document C# limitation
-- B. Add property inference, transpile creatively
-- C. Remove `:=` for consistency (bad idea)
+**Decision:** Option B - Add property inference
 
-**Status:** 🔲 NEEDS DECISION
+**Rationale:**
+- Don't accept C# limitations passively
+- Properties should support `:=` just like variables
+- We already have type inference for variables - extend it
+- Transpiler can emit explicit type in C#
+
+**Syntax:**
+```n#
+class Person {
+    Name := "Alice"        // Infers string
+    Age := 30              // Infers int
+    Items := [1, 2, 3]     // Infers int[]
+}
+```
+
+**Transpiles to:**
+```csharp
+public class Person {
+    public string Name = "Alice";
+    public int Age = 30;
+    public int[] Items = new int[] { 1, 2, 3 };
+}
+```
+
+**Status:** ✅ DECIDED - Implementation task needed
 
 ---
 
-### #7: "Concrete over abstractions" is BS
+### ✅ #7: "Concrete over abstractions" is BS
 **Problem:** Philosophy claims "concrete over abstractions" but has tons of abstraction mechanisms
 
-**Options:**
-- A. Remove the claim from philosophy
-- B. Actually remove abstraction features (bad idea)
-- C. Reword to be honest about being multi-paradigm
+**Decision:** Option A - Remove the claim entirely
 
-**Status:** 🔲 NEEDS DECISION
+**Rationale:**
+- It's obviously bullshit
+- Language has: duck interfaces, regular interfaces, abstract classes, virtual methods, generics, extension methods
+- All of those are abstractions
+- Don't claim something we don't do
+- Philosophy is cleaner without it
 
----
-
-### #8: No semicolons - parsing ambiguities?
-**Problem:** Needs automatic semicolon insertion rules, not documented
-
-**Options:**
-- A. Document the rules
-- B. Go-style ASI rules
-- C. Just require semicolons (defeats the point)
-
-**Status:** 🔲 NEEDS REVIEW - Are there actual ambiguities?
+**Status:** ✅ DECIDED - Just delete the line from philosophy
 
 ---
 
-### #9: Multi-paradigm confusion
+### ✅ #8: No semicolons - parsing ambiguities?
+**Problem (perceived):** Needs automatic semicolon insertion rules, not documented
+
+**Finding:** NO PROBLEM - Parser filters out all newlines
+
+**Implementation:**
+```csharp
+// Parser.cs constructor:
+_tokens = tokens.Where(t => t.Type != TokenType.Newline).ToList();
+```
+
+Parser simply ignores newlines entirely. No ASI rules needed.
+
+**Implications:**
+- Can split expressions across lines freely
+- No ambiguities (newlines don't exist to the parser)
+- Simpler than Go's ASI
+- Curly braces determine statement boundaries
+
+**Status:** ✅ NO CHANGES NEEDED - Works as designed
+
+---
+
+### ✅ #9: Multi-paradigm confusion
 **Problem:** No guidance on idiomatic style (when to use what)
 
-**Options:**
-- A. Write idioms guide
-- B. Pick a primary paradigm
-- C. Embrace chaos
+**Decision:** DEFER - Add features now, pare down later if needed
 
-**Status:** 🔲 NEEDS DECISION
+**Rationale:**
+- Don't prematurely constrain the language
+- Let usage patterns emerge organically
+- Can always add guidance later based on real experience
+- Philosophy already says "Multi-paradigm: Use the right tool for the job"
+
+**Status:** ✅ NO ACTION NEEDED - Revisit after more usage
 
 ---
 
-### #10: C# interop limits language design
+### ✅ #10: C# interop limits language design
 **Problem:** Some features compromised for C# compatibility
 
-**Examples:**
-- Duck interfaces must be internal (now: type-erased)
-- Type aliases are comments
-- String enums are static classes
-- Can't infer property types
+**Decision:** Case-by-case pragmatism
 
-**Options:**
-- A. Accept the limitations, document them
-- B. Be more aggressive with language features
-- C. Provide C# compatibility layer
+**Rationale:**
+- Each limitation evaluated individually
+- Some workarounds make sense (duck interface type erasure, property inference)
+- Some limitations are acceptable (type aliases as comments, string enums as static classes)
+- No blanket policy - pragmatic decisions per feature
 
-**Status:** 🔲 NEEDS DECISION
+**Current status:**
+- ✅ Duck interfaces: Type-erased (good workaround)
+- ✅ Property inference: Adding it (good workaround)
+- ✅ Type aliases: Comments in C# (acceptable limitation)
+- ✅ String enums: Static classes (acceptable limitation)
+
+**Status:** ✅ NO POLICY CHANGE - Continue case-by-case approach
 
 ---
 
 ## Success Criteria
 
-- [ ] All conflicting philosophies identified
-- [ ] Decisions documented
-- [ ] Implementation tasks created
-- [ ] DESIGN.md updated with decisions
-- [ ] memory/ folder updated
-- [ ] No more "we claim X but do Y" situations
+- [x] All conflicting philosophies identified (10 total)
+- [x] Decisions documented for all 10 conflicts
+- [x] Implementation tasks created (024, 025)
+- [x] DESIGN.md updated with decisions (#1, #2, #7)
+- [x] memory/ folder updated (type-system.md)
+- [x] No more "we claim X but do Y" situations
 
-## Next Steps
+## Summary
 
-1. Review remaining conflicts (#6-#10)
-2. Make decisions
-3. Create implementation tasks
-4. Update documentation
+All 10 design philosophy conflicts have been addressed:
+
+**Implemented/Documented:**
+- #1: Language identity → "C# with discriminated unions, structural typing, and Go-inspired syntax"
+- #2: Visibility rules → Convention with explicit override
+- #7: Removed "concrete over abstractions" BS
+
+**Implementation Tasks Created:**
+- #5: Task 024 - Type-erase duck interfaces
+- #6: Task 025 - Property type inference
+
+**No Action Needed:**
+- #3: Error handling → Not actually a conflict
+- #4: (combined with #3)
+- #8: No semicolons → Parser filters newlines, no ambiguity
+- #9: Multi-paradigm → Add features now, pare down later
+- #10: C# interop → Case-by-case pragmatism (working well)
+
+**Status:** ✅ COMPLETE - All conflicts resolved
