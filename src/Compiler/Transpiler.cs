@@ -1266,6 +1266,7 @@ public class Transpiler
             UnaryOperator.PreDecrement => $"--{operand}",
             UnaryOperator.PostIncrement => $"{operand}++",
             UnaryOperator.PostDecrement => $"{operand}--",
+            UnaryOperator.IndexFromEnd => $"^{operand}",
             _ => throw new Exception($"Unsupported unary operator: {unary.Operator}")
         };
     }

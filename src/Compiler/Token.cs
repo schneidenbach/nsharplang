@@ -97,7 +97,7 @@ public enum TokenType
     Not,            // !
     BitwiseAnd,     // &
     BitwiseOr,      // |
-    BitwiseXor,     // ^
+    BitwiseXor,     // ^ (bitwise XOR or index from end, context-dependent)
     BitwiseNot,     // ~
     LeftShift,      // <<
     RightShift,     // >>

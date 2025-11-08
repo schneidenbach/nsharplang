@@ -199,7 +199,45 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Task 014: ASP.NET Core example project
 - Additional language features as needed
 
-### v1.29 (Operator Overloading) ✅ COMPLETE - LATEST!
+### v1.30 (Range and Index from End Operators) ✅ COMPLETE - LATEST!
+1. **Token support**: ✅ Reused existing tokens
+   - `BitwiseXor` token (`^`) dual-purpose: bitwise XOR and index from end (context-dependent)
+   - `DotDot` token (`..`) for range operator (already existed)
+2. **AST support**: ✅ Enhanced existing enums
+   - Added `UnaryOperator.IndexFromEnd` for `^n` expressions
+   - Reused `BinaryOperator.Range` for `start..end` expressions (already existed)
+3. **Parser support**: ✅ Full parsing implementation
+   - Updated ParseUnaryExpression to handle `^` as prefix unary operator for index from end
+   - Range operator parsing already existed in ParseRangeExpression
+   - Context-dependent: `^` is unary prefix when no left operand, binary XOR otherwise
+4. **Analyzer support**: ✅ Type resolution
+   - `^n` expressions return `System.Index` type
+   - `start..end` expressions return `System.Range` type
+   - Type lookup via LookupType for .NET types
+5. **Transpiler output**: ✅ C# 8+ syntax generation
+   - Index from end: `^n` transpiles to `^n`
+   - Range: `start..end` transpiles to `start..end`
+   - Direct mapping to C# operators
+6. **Test coverage**: ✅ 6 new tests (3 parser + 3 transpiler) = 294 total
+   - TestIndexFromEndExpression: Verifies `arr[^1]` and `arr[^2]` parsing
+   - TestRangeExpression: Verifies `arr[1..4]` parsing
+   - TestRangeWithIndexFromEnd: Verifies `arr[1..^1]` combination
+   - Transpiler tests verify correct C# output
+7. **Example**: ✅ examples/range_and_index.nl
+   - Demonstrates index from end: `arr[^1]`, `arr[^2]`, `arr[^3]`
+   - Demonstrates range: `arr[2..5]`, `arr[0..3]`
+   - Demonstrates combination: `arr[2..^2]`, `arr[^3..^0]`, `arr[0..^2]`
+   - Successfully compiles and runs with full functionality
+8. **Build status**: ✅ All 294 tests passing
+
+**Impact:** N# now supports modern C# 8+ range and index operators for elegant array slicing!
+
+**Limitations (future enhancement):**
+- Open-ended ranges not yet supported: `..3`, `2..`, `..`
+- Would require special handling for empty operands in ParseRangeExpression
+- Current implementation requires both operands to be present
+
+### v1.29 (Operator Overloading) ✅ COMPLETE
 1. **Operator keyword**: ✅ Added `Operator` token type
    - Added to Token.cs and Lexer keywords dictionary
    - Enables `static func operator +` syntax

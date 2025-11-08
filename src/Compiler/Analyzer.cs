@@ -1041,6 +1041,7 @@ public class Analyzer
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
             BinaryOperator.And or BinaryOperator.Or => AnalyzeLogicalOp(leftType, rightType, binary),
             BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftType, rightType, binary),
+            BinaryOperator.Range => LookupType("System.Range") ?? BuiltInTypes.Unknown,
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1103,6 +1104,7 @@ public class Analyzer
             UnaryOperator.Not => BuiltInTypes.Bool,
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => operandType,
+            UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.Unknown,
             _ => BuiltInTypes.Unknown
         };
     }

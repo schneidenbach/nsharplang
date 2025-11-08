@@ -1942,7 +1942,7 @@ public class Parser
     private Expression ParseUnaryExpression()
     {
         if (Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) ||
-            Check(TokenType.Increment) || Check(TokenType.Decrement))
+            Check(TokenType.Increment) || Check(TokenType.Decrement) || Check(TokenType.BitwiseXor))
         {
             var op = Current.Type switch
             {
@@ -1951,6 +1951,7 @@ public class Parser
                 TokenType.BitwiseNot => UnaryOperator.BitwiseNot,
                 TokenType.Increment => UnaryOperator.PreIncrement,
                 TokenType.Decrement => UnaryOperator.PreDecrement,
+                TokenType.BitwiseXor => UnaryOperator.IndexFromEnd,  // ^ as prefix for index from end
                 _ => throw new Exception("Invalid unary operator")
             };
 

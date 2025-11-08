@@ -183,6 +183,18 @@
 - [x] All 183 tests passing, 0 skipped (27 lexer + 53 parser + 63 analyzer + 40 transpiler)
 - [x] Build successful with no warnings
 
+### Phase 30: Range and Index from End Operators (v1.30 - LATEST!)
+- [x] **C# 8+ Range and Index operators**: Full support for modern array slicing
+  - Added `UnaryOperator.IndexFromEnd` for `^n` syntax (index from end)
+  - Reused `BinaryOperator.Range` for `start..end` syntax
+  - Parser handles `^` as context-dependent: unary prefix or binary XOR
+  - Analyzer returns System.Index and System.Range types
+  - Transpiler emits C# 8+ `^` and `..` operators
+  - 6 new tests (3 parser + 3 transpiler) = 294 total tests passing
+  - Example: examples/range_and_index.nl demonstrates all features
+- [x] **Limitations documented**: Open-ended ranges (`..3`, `2..`, `..`) for future enhancement
+- [x] All 294 tests passing, 0 skipped
+
 ### Phase 17: Match Expression Exhaustiveness Checking (v1.14)
 - [x] **Match Expression Analysis**: Complete AnalyzeMatchExpression implementation
   - Analyzes value being matched and all match cases

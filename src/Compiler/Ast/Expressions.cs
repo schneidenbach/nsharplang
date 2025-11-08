@@ -51,7 +51,7 @@ public record UnaryExpression(
 
 public enum UnaryOperator
 {
-    Negate, Not, BitwiseNot, PreIncrement, PreDecrement, PostIncrement, PostDecrement
+    Negate, Not, BitwiseNot, PreIncrement, PreDecrement, PostIncrement, PostDecrement, IndexFromEnd
 }
 
 // Member access

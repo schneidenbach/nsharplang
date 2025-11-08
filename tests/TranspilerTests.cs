@@ -1517,4 +1517,61 @@ struct Flags {
         Assert.Contains("public static Flags operator |(Flags a, Flags b)", result);
         Assert.Contains("public static Flags operator ~(Flags f)", result);
     }
+
+    [Fact]
+    public void TestIndexFromEndTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetLastItem(arr: int[]): int {
+        return arr[^1]
+    }
+
+    func GetSecondLast(arr: int[]): int {
+        return arr[^2]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[^1]", result);
+        Assert.Contains("arr[^2]", result);
+    }
+
+    [Fact]
+    public void TestRangeExpressionTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetSlice(arr: int[]): int[] {
+        return arr[1..4]
+    }
+
+    func GetSlice2(arr: int[]): int[] {
+        return arr[0..3]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[(1 .. 4)]", result);
+        Assert.Contains("arr[(0 .. 3)]", result);
+    }
+
+    [Fact]
+    public void TestRangeWithIndexFromEndTranspilation()
+    {
+        var source = @"
+class Test {
+    func GetMiddle(arr: int[]): int[] {
+        return arr[1..^1]
+    }
+
+    func GetFirstToSecondLast(arr: int[]): int[] {
+        return arr[0..^2]
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("arr[(1 .. ^1)]", result);
+        Assert.Contains("arr[(0 .. ^2)]", result);
+    }
 }

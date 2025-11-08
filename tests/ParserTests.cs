@@ -2503,5 +2503,109 @@ func TestFunc() {
         var orOp = operators.FirstOrDefault(f => f.OperatorSymbol == "|");
         Assert.NotNull(orOp);
     }
+
+    [Fact]
+    public void TestIndexFromEndExpression()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                lastItem := arr[^1]
+                secondLast := arr[^2]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        Assert.Equal(3, vars.Count);
+
+        // Check lastItem uses index from end
+        var lastItemDecl = vars[1];
+        Assert.Equal("lastItem", lastItemDecl.Name);
+        var indexAccess = lastItemDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var indexExpr = indexAccess.Index as UnaryExpression;
+        Assert.NotNull(indexExpr);
+        Assert.Equal(UnaryOperator.IndexFromEnd, indexExpr.Operator);
+
+        var indexValue = indexExpr.Operand as IntLiteralExpression;
+        Assert.NotNull(indexValue);
+        Assert.Equal("1", indexValue.Value);
+    }
+
+    [Fact]
+    public void TestRangeExpression()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                slice := arr[1..4]
+                slice2 := arr[0..3]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        Assert.Equal(3, vars.Count);
+
+        // Check slice uses range
+        var sliceDecl = vars[1];
+        Assert.Equal("slice", sliceDecl.Name);
+        var indexAccess = sliceDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var rangeExpr = indexAccess.Index as BinaryExpression;
+        Assert.NotNull(rangeExpr);
+        Assert.Equal(BinaryOperator.Range, rangeExpr.Operator);
+
+        var left = rangeExpr.Left as IntLiteralExpression;
+        Assert.NotNull(left);
+        Assert.Equal("1", left.Value);
+
+        var right = rangeExpr.Right as IntLiteralExpression;
+        Assert.NotNull(right);
+        Assert.Equal("4", right.Value);
+    }
+
+    [Fact]
+    public void TestRangeWithIndexFromEnd()
+    {
+        var source = @"
+            func Test() {
+                arr := [1, 2, 3, 4, 5]
+                middle := arr[1..^1]
+                firstToSecondLast := arr[0..^2]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        Assert.Equal(3, vars.Count);
+
+        // Check middle uses range with index from end
+        var middleDecl = vars[1];
+        Assert.Equal("middle", middleDecl.Name);
+        var indexAccess = middleDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+
+        var rangeExpr = indexAccess.Index as BinaryExpression;
+        Assert.NotNull(rangeExpr);
+        Assert.Equal(BinaryOperator.Range, rangeExpr.Operator);
+
+        var left = rangeExpr.Left as IntLiteralExpression;
+        Assert.NotNull(left);
+        Assert.Equal("1", left.Value);
+
+        var right = rangeExpr.Right as UnaryExpression;
+        Assert.NotNull(right);
+        Assert.Equal(UnaryOperator.IndexFromEnd, right.Operator);
+    }
 }
 
