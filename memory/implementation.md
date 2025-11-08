@@ -1,4 +1,8 @@
-# NewCLILang Implementation Notes
+# N# (NewLang Sharp) Implementation Notes
+
+**Version:** v1.47 - Inline Out Variable Declarations
+**Tests:** 404 passing ✅
+**Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
 
