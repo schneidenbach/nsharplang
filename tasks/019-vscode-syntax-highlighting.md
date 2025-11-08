@@ -1,9 +1,9 @@
-# Task 019: VS Code Syntax Highlighting Extension
+# Task 019: VS Code Syntax Highlighting Extension ✅ COMPLETED
 
 **Priority:** High (Quick win for developer experience)
 **Dependencies:** None
 **Estimated Effort:** Small (2-3 hours)
-**Status:** 🔥 NEW TASK - QUICK WIN
+**Status:** ✅ COMPLETE (v1.59)
 
 ## Goal
 Create a minimal VS Code extension that provides syntax highlighting for `.nl` files - a quick win before full LSP implementation.

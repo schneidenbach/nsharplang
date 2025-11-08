@@ -1,0 +1,183 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "N#",
+  "scopeName": "source.nsharp",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#functions" },
+    { "include": "#attributes" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.nsharp",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.nsharp",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.block.documentation.nsharp",
+          "begin": "///",
+          "end": "$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.interpolated.nsharp",
+          "begin": "\\$\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.nsharp",
+              "match": "\\\\."
+            },
+            {
+              "name": "meta.interpolation.nsharp",
+              "begin": "\\{",
+              "end": "\\}",
+              "patterns": [{ "include": "$self" }]
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.nsharp",
+          "begin": "\\$?\"\"\"",
+          "end": "\"\"\""
+        },
+        {
+          "name": "string.quoted.double.nsharp",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.nsharp",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.nsharp",
+          "match": "\\b(if|else|for|foreach|while|return|break|continue|match|switch|case|when|yield|await|async|throw|try|catch|finally|using|lock)\\b"
+        },
+        {
+          "name": "keyword.other.nsharp",
+          "match": "\\b(func|class|struct|record|interface|enum|union|namespace|import|using|new|this|base|static|virtual|override|abstract|sealed|partial|readonly|const|file|duck)\\b"
+        },
+        {
+          "name": "storage.modifier.nsharp",
+          "match": "\\b(public|private|internal|protected|required|init)\\b"
+        },
+        {
+          "name": "storage.type.nsharp",
+          "match": "\\b(let|var|const|type|out|ref|params)\\b"
+        },
+        {
+          "name": "constant.language.nsharp",
+          "match": "\\b(true|false|null)\\b"
+        },
+        {
+          "name": "keyword.operator.nsharp",
+          "match": "\\b(is|as|typeof|nameof|checked|unchecked|and|or|not|with|immutable|implicit|explicit|operator)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.nsharp",
+          "match": "\\b(int|long|float|double|bool|string|void|object|byte|short|char|decimal|uint|ulong|ushort|sbyte)\\b"
+        },
+        {
+          "name": "entity.name.type.nsharp",
+          "match": "\\b[A-Z][a-zA-Z0-9]*\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.nsharp",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?[fFdDmM]?\\b"
+        },
+        {
+          "name": "constant.numeric.hex.nsharp",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.nsharp",
+          "match": ":=|="
+        },
+        {
+          "name": "keyword.operator.comparison.nsharp",
+          "match": "==|!=|<|>|<=|>="
+        },
+        {
+          "name": "keyword.operator.arithmetic.nsharp",
+          "match": "\\+|-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.logical.nsharp",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.nullable.nsharp",
+          "match": "\\?\\?|\\?\\.?|\\?\\[|\\!\\."
+        },
+        {
+          "name": "keyword.operator.lambda.nsharp",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.spread.nsharp",
+          "match": "\\.\\.\\.?"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.nsharp",
+          "match": "\\b([a-z][a-zA-Z0-9]*)\\s*(?=\\()"
+        },
+        {
+          "name": "entity.name.function.nsharp",
+          "match": "\\b([A-Z][a-zA-Z0-9]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.nsharp",
+          "begin": "\\[",
+          "end": "\\]",
+          "patterns": [
+            {
+              "name": "entity.name.type.attribute.nsharp",
+              "match": "[A-Z][a-zA-Z0-9]*"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

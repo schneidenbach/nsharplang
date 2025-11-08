@@ -1,0 +1,41 @@
+{
+  "name": "nsharp",
+  "displayName": "N# Language Support",
+  "description": "Syntax highlighting for N# (.nl files)",
+  "version": "0.1.0",
+  "publisher": "nsharp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/NewCLILang"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "nsharp",
+    "n#",
+    ".NET",
+    "CLI",
+    "transpiler"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nsharp",
+        "aliases": ["N#", "nsharp"],
+        "extensions": [".nl", ".tests.nl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nsharp",
+        "scopeName": "source.nsharp",
+        "path": "./syntaxes/nsharp.tmLanguage.json"
+      }
+    ]
+  }
+}
