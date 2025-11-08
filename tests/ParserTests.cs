@@ -649,4 +649,218 @@ public class ParserTests
         Assert.Equal("name", callExpr.Arguments[0].Name);
         Assert.Equal("age", callExpr.Arguments[1].Name);
     }
+
+    [Fact]
+    public void TestAsyncAwait()
+    {
+        var source = @"
+            async func FetchData(): Task<string> {
+                result := await GetDataAsync()
+                return result
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Equal("FetchData", funcDecl.Name);
+        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Async));
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var awaitExpr = varDecl.Initializer as AwaitExpression;
+        Assert.NotNull(awaitExpr);
+
+        var callExpr = awaitExpr.Expression as CallExpression;
+        Assert.NotNull(callExpr);
+    }
+
+    [Fact]
+    public void TestIteratorFunction()
+    {
+        var source = @"
+            func* GetNumbers(): IEnumerable<int> {
+                yield 1
+                yield 2
+                yield 3
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Equal("GetNumbers", funcDecl.Name);
+        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Generator));
+        Assert.Equal(3, funcDecl.Body.Statements.Count);
+
+        // Check yield statements
+        for (int i = 0; i < 3; i++)
+        {
+            var yieldStmt = funcDecl.Body.Statements[i] as YieldStatement;
+            Assert.NotNull(yieldStmt);
+            Assert.NotNull(yieldStmt.Value);
+        }
+    }
+
+    [Fact]
+    public void TestUsingStatement()
+    {
+        var source = @"
+            func Test() {
+                using stream := File.OpenRead(""file.txt"") {
+                    data := stream.Read()
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var usingStmt = funcDecl.Body.Statements[0] as UsingStatement;
+        Assert.NotNull(usingStmt);
+        Assert.NotNull(usingStmt.Declaration);
+        Assert.Equal("stream", usingStmt.Declaration.Name);
+        Assert.NotNull(usingStmt.Body);
+
+        var blockStmt = usingStmt.Body as BlockStatement;
+        Assert.NotNull(blockStmt);
+        Assert.Single(blockStmt.Statements);
+    }
+
+    [Fact]
+    public void TestSwitchStatement()
+    {
+        var source = @"
+            func Test(value: int) {
+                switch value {
+                    case 1 => Console.WriteLine(""One"")
+                    case 2 => Console.WriteLine(""Two"")
+                    default => Console.WriteLine(""Other"")
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var switchStmt = funcDecl.Body.Statements[0] as SwitchStatement;
+        Assert.NotNull(switchStmt);
+        Assert.NotNull(switchStmt.Value);
+        Assert.Equal(3, switchStmt.Cases.Count);
+
+        // Check first two cases have patterns
+        Assert.NotNull(switchStmt.Cases[0].Pattern);
+        Assert.NotNull(switchStmt.Cases[1].Pattern);
+
+        // Check default case (pattern is null for default)
+        Assert.Null(switchStmt.Cases[2].Pattern);
+    }
+
+    [Fact]
+    public void TestSpreadOperator()
+    {
+        var source = @"
+            func Test() {
+                arr1 := [1, 2, 3]
+                arr2 := [...arr1, 4, 5]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var arr2Decl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(arr2Decl);
+
+        var arrayLiteral = arr2Decl.Initializer as ArrayLiteralExpression;
+        Assert.NotNull(arrayLiteral);
+        Assert.Equal(3, arrayLiteral.Elements.Count);
+
+        var spreadExpr = arrayLiteral.Elements[0] as SpreadExpression;
+        Assert.NotNull(spreadExpr);
+    }
+
+    [Fact]
+    public void TestPartialClass()
+    {
+        var source = @"
+            partial class User {
+                Name: string
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("User", classDecl.Name);
+        Assert.True(classDecl.Modifiers.HasFlag(Modifiers.Partial));
+    }
+
+    [Fact]
+    public void TestAbstractAndSealedClasses()
+    {
+        var source = @"
+            abstract class Animal {
+                abstract func MakeSound()
+            }
+
+            sealed class FinalClass {
+                Name: string
+            }
+        ";
+
+        var cu = Parse(source);
+
+        var abstractClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(abstractClass);
+        Assert.Equal("Animal", abstractClass.Name);
+        Assert.True(abstractClass.Modifiers.HasFlag(Modifiers.Abstract));
+
+        var abstractMethod = abstractClass.Members[0] as FunctionDeclaration;
+        Assert.NotNull(abstractMethod);
+        Assert.True(abstractMethod.Modifiers.HasFlag(Modifiers.Abstract));
+
+        var sealedClass = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(sealedClass);
+        Assert.Equal("FinalClass", sealedClass.Name);
+        Assert.True(sealedClass.Modifiers.HasFlag(Modifiers.Sealed));
+    }
+
+    [Fact]
+    public void TestVirtualMethods()
+    {
+        var source = @"
+            class Animal {
+                virtual func MakeSound() {
+                    Console.WriteLine(""Sound"")
+                }
+            }
+
+            class Dog : Animal {
+                func MakeSound() {
+                    Console.WriteLine(""Bark"")
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+
+        var baseClass = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(baseClass);
+
+        var virtualMethod = baseClass.Members[0] as FunctionDeclaration;
+        Assert.NotNull(virtualMethod);
+        Assert.True(virtualMethod.Modifiers.HasFlag(Modifiers.Virtual));
+
+        var derivedClass = cu.Declarations[1] as ClassDeclaration;
+        Assert.NotNull(derivedClass);
+        Assert.NotNull(derivedClass.BaseClass);
+
+        var overrideMethod = derivedClass.Members[0] as FunctionDeclaration;
+        Assert.NotNull(overrideMethod);
+    }
 }

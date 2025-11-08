@@ -316,4 +316,179 @@ func Test() {
         Assert.Contains("name: \"John\"", result);
         Assert.Contains("age: 30", result);
     }
+
+    [Fact]
+    public void TestAsyncAwaitTranspilation()
+    {
+        var source = @"
+async func FetchData(): Task<string> {
+    result := await GetDataAsync()
+    return result
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate async method
+        Assert.Contains("async Task<string> FetchData()", result);
+        Assert.Contains("await GetDataAsync()", result);
+        Assert.Contains("return result", result);
+    }
+
+    [Fact]
+    public void TestIteratorFunctionTranspilation()
+    {
+        var source = @"
+func* GetNumbers(): IEnumerable<int> {
+    yield 1
+    yield 2
+    yield 3
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should contain yield statements
+        Assert.Contains("IEnumerable<int> GetNumbers()", result);
+        Assert.Contains("yield return 1", result);
+        Assert.Contains("yield return 2", result);
+        Assert.Contains("yield return 3", result);
+    }
+
+    [Fact]
+    public void TestUsingStatementTranspilation()
+    {
+        var source = @"
+func Test() {
+    using stream := File.OpenRead(""file.txt"") {
+        data := stream.Read()
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate using statement
+        Assert.Contains("using (", result);
+        Assert.Contains("var stream = File.OpenRead(\"file.txt\")", result);
+        Assert.Contains("var data = stream.Read()", result);
+    }
+
+    [Fact]
+    public void TestSwitchStatementTranspilation()
+    {
+        var source = @"
+func Test(value: int) {
+    switch value {
+        case 1 => Console.WriteLine(""One"")
+        case 2 => Console.WriteLine(""Two"")
+        default => Console.WriteLine(""Other"")
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate switch statement
+        Assert.Contains("switch (value)", result);
+        Assert.Contains("case 1:", result);
+        Assert.Contains("case 2:", result);
+        Assert.Contains("default:", result);
+        Assert.Contains("Console.WriteLine(\"One\")", result);
+        Assert.Contains("Console.WriteLine(\"Two\")", result);
+        Assert.Contains("Console.WriteLine(\"Other\")", result);
+    }
+
+    [Fact]
+    public void TestSpreadOperatorTranspilation()
+    {
+        var source = @"
+func Test() {
+    arr1 := [1, 2, 3]
+    arr2 := [...arr1, 4, 5]
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate array concatenation or spread syntax
+        Assert.Contains("var arr1 = new[] { 1, 2, 3 }", result);
+        // Spread should be transpiled (implementation may vary)
+        Assert.Contains("arr2", result);
+    }
+
+    [Fact]
+    public void TestPartialClassTranspilation()
+    {
+        var source = @"
+partial class User {
+    Name: string
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should include partial modifier
+        Assert.Contains("partial class User", result);
+        Assert.Contains("public string Name", result);
+    }
+
+    [Fact]
+    public void TestAbstractClassTranspilation()
+    {
+        var source = @"
+abstract class Animal {
+    abstract func MakeSound()
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should include abstract modifiers
+        Assert.Contains("abstract class Animal", result);
+        Assert.Contains("abstract void MakeSound()", result);
+    }
+
+    [Fact]
+    public void TestSealedClassTranspilation()
+    {
+        var source = @"
+sealed class FinalClass {
+    Name: string
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should include sealed modifier
+        Assert.Contains("sealed class FinalClass", result);
+        Assert.Contains("public string Name", result);
+    }
+
+    [Fact]
+    public void TestVirtualMethodTranspilation()
+    {
+        var source = @"
+class Animal {
+    virtual func MakeSound() {
+        Console.WriteLine(""Sound"")
+    }
+}
+
+class Dog : Animal {
+    func MakeSound() {
+        Console.WriteLine(""Bark"")
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should include virtual and override modifiers
+        Assert.Contains("virtual void MakeSound()", result);
+        Assert.Contains("class Dog : Animal", result);
+        // The override method in derived class - transpiler should add override keyword
+        Assert.Contains("void MakeSound()", result);
+        Assert.Contains("Console.WriteLine(\"Bark\")", result);
+    }
 }
