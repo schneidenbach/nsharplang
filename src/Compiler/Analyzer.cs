@@ -1045,6 +1045,17 @@ public class Analyzer
                     DeclareSymbol(slicePattern.BindingName, new ArrayTypeInfo(valueType), pattern.Line, pattern.Column);
                 }
                 break;
+
+            case TypePattern typePattern:
+                // Type pattern checks if value is of a specific type and binds it
+                var targetType = ResolveType(typePattern.Type);
+
+                // Bind the variable if a binding name is provided
+                if (typePattern.BindingName != null)
+                {
+                    DeclareSymbol(typePattern.BindingName, targetType, pattern.Line, pattern.Column);
+                }
+                break;
         }
     }
 

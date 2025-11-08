@@ -146,7 +146,127 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.42 (Collection Expressions - C# 12) ✅ COMPLETE - LATEST!
+### v1.45 (Type Patterns in Match Expressions) ✅ COMPLETE - LATEST!
+1. **AST enhancement**: ✅ Added TypePattern record
+   - New pattern type for type checking and variable binding
+   - Supports SimpleTypeReference for type names
+   - Optional BindingName for capturing matched value
+   - Works with qualified type names (e.g., System.String)
+2. **Parser support**: ✅ Parse type patterns in match expressions
+   - Detects pattern: `TypeName variableName`
+   - Distinguishes from union case patterns and identifier patterns
+   - Handles qualified type names correctly
+   - Integrates with existing pattern parsing infrastructure
+3. **Analyzer support**: ✅ Type pattern validation and binding
+   - Resolves target type using ResolveType
+   - Binds variable to target type in current scope
+   - Works seamlessly with guards and other pattern types
+4. **Transpiler support**: ✅ C# 8+ type pattern code generation
+   - Transpiles to: `TypeName variableName`
+   - Works with qualified names: `System.String s`
+   - Integrates with match expression transpilation
+5. **Test coverage**: ✅ 6 new tests (3 parser + 3 transpiler) = 406 total
+   - Parser: TestTypePatternSimple, TestTypePatternWithQualifiedName, TestTypePatternWithGuard
+   - Transpiler: TestTypePatternTranspilation, TestTypePatternWithQualifiedNameTranspilation, TestTypePatternWithGuardTranspilation
+6. **Example**: ✅ examples/type_patterns.nl
+   - Demonstrates type patterns with strings and integers
+   - Shows type patterns with guards for classification
+   - Combines type patterns with literal patterns
+   - Successfully compiles and runs
+7. **Build status**: ✅ All 406 tests passing
+
+**Impact:** Essential pattern matching feature for polymorphic code! Enables type-safe handling of different types in match expressions.
+
+**Syntax:**
+```n#
+func ClassifyString(value: string): string {
+    result := match value {
+        string s when s.Length == 0 => "Empty",
+        string s when s.Length > 20 => "Long",
+        string s => $"Short: {s}"
+    }
+    return result
+}
+```
+
+**Transpiles to C# 8+:**
+```csharp
+public static string ClassifyString(string value)
+{
+    var result = value switch {
+        string s when (s.Length == 0) => "Empty",
+        string s when (s.Length > 20) => "Long",
+        string s => $"Short: {s}"
+    };
+    return result;
+}
+```
+
+**Use cases:**
+- Type checking and casting in polymorphic scenarios
+- Processing different message types
+- Handling various data formats
+- API response processing with different shapes
+- Pattern-based type discrimination
+
+### v1.44 (Params Arrays) ✅ COMPLETE
+1. **Parser enhancement**: ✅ Params parameter support
+   - Added `IsParams` boolean field to Parameter record
+   - ParseParameterList checks for `params` keyword before type
+   - Only allowed on last parameter, must be array type
+2. **Analyzer validation**: ✅ Params parameter rules enforcement
+   - Validates params is only on last parameter
+   - Ensures params parameter is array type
+   - Reports errors for invalid params usage
+3. **Transpiler support**: ✅ Correct C# code generation
+   - TranspileParameter emits `params` keyword before type
+   - Generates idiomatic C# params syntax
+4. **Test coverage**: ✅ 6 new tests (2 parser + 2 analyzer + 2 transpiler) = 400 total
+   - Parser: TestParamsParameter, TestParamsWithOtherParameters
+   - Analyzer: ParamsParameter_Valid_NoError, ParamsParameter_WithOtherParams_NoError
+   - Transpiler: TestParamsParameterTranspilation, TestParamsWithOtherParametersTranspilation
+5. **Example**: ✅ examples/params_arrays.nl
+   - Demonstrates variable-length argument lists
+   - Shows Sum function with any number of arguments
+   - Generic params with PrintAll<T>
+   - Successfully compiles and runs
+6. **Documentation**: ✅ Updated DESIGN.md
+   - Added params arrays section under Function Definitions
+   - Explained rules and constraints
+   - Provided practical examples
+7. **Build status**: ✅ All 400 tests passing
+
+**Impact:** Essential .NET feature for flexible APIs! Enables console logging, string formatting, and collection initialization patterns.
+
+### v1.43 (File-Scoped Types - C# 11) ✅ COMPLETE
+1. **Lexer enhancement**: ✅ Added File keyword
+   - Added `File` token type to Token.cs
+   - Added keyword mapping in Lexer.cs
+2. **Parser support**: ✅ File modifier in ParseModifiers
+   - Updated ParseModifiers() to recognize `file` keyword
+   - Added `File` to Modifiers enum
+   - Works with classes, structs, records, interfaces
+3. **Transpiler support**: ✅ Correct C# 11 code generation
+   - Updated GetModifierString() to emit `file` modifier
+   - Generates valid C# file-scoped type syntax
+4. **Test coverage**: ✅ 6 new tests (2 lexer + 2 parser + 2 transpiler) = 394 total
+   - Lexer: TestFileKeyword
+   - Parser: TestFileScopedClass, TestFileScopedStruct
+   - Transpiler: TestFileScopedClassTranspilation, TestFileScopedStructTranspilation, TestFileScopedInterfaceTranspilation
+5. **Example**: ✅ examples/file_scoped_types.nl
+   - Demonstrates file-scoped classes, structs, records, and interfaces
+   - Shows how file-scoped types prevent namespace pollution
+   - Illustrates implementation detail encapsulation
+   - Successfully compiles
+6. **Documentation**: ✅ Updated DESIGN.md
+   - Added file-scoped types section under Visibility
+   - Explained benefits and use cases
+   - Provided examples for all type declarations
+7. **Build status**: ✅ All 394 tests passing
+
+**Impact:** Modern C# 11 feature for better encapsulation! Perfect for hiding implementation details within a single file.
+
+### v1.42 (Collection Expressions - C# 12) ✅ COMPLETE
 1. **Analyzer enhancement**: ✅ Added collection type support for array literals
    - New helper: `IsCollectionType(TypeInfo, out TypeInfo elementType)`
    - Detects GenericTypeInfo for List<T>, HashSet<T>, Queue<T>, Stack<T>, etc.

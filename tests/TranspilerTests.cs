@@ -2211,4 +2211,65 @@ file interface IHelper {
         // Verify file modifier emitted in C#
         Assert.Contains("file interface IHelper", result);
     }
+
+    [Fact]
+    public void TestTypePatternTranspilation()
+    {
+        var source = @"
+func check(obj: object): string {
+    result := match obj {
+        string s => s,
+        int n => n.ToString(),
+        _ => ""unknown""
+    }
+    return result
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify type patterns transpile to C# syntax
+        Assert.Contains("string s => s", result);
+        Assert.Contains("int n => n.ToString()", result);
+    }
+
+    [Fact]
+    public void TestTypePatternWithQualifiedNameTranspilation()
+    {
+        var source = @"
+func check(obj: object): string {
+    result := match obj {
+        System.String s => s.ToUpper(),
+        _ => ""unknown""
+    }
+    return result
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify qualified type names work
+        Assert.Contains("System.String s => s.ToUpper()", result);
+    }
+
+    [Fact]
+    public void TestTypePatternWithGuardTranspilation()
+    {
+        var source = @"
+func check(obj: object): string {
+    result := match obj {
+        string s when s.Length > 5 => ""long"",
+        string s => ""short"",
+        _ => ""not string""
+    }
+    return result
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify type pattern with guard clause
+        Assert.Contains("string s when (s.Length > 5) => \"long\"", result);
+        Assert.Contains("string s => \"short\"", result);
+    }
 }

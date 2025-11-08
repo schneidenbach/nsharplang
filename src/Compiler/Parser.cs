@@ -1670,12 +1670,12 @@ public class Parser
             return new ObjectPattern(props, line, column);
         }
 
-        // Union case or identifier pattern
+        // Union case, type pattern, or identifier pattern
         if (Check(TokenType.Identifier))
         {
             var name = Advance().Value;
 
-            // Handle qualified names (e.g., Result.Success)
+            // Handle qualified names (e.g., Result.Success, System.String)
             while (Check(TokenType.Dot))
             {
                 Advance();
@@ -1689,7 +1689,16 @@ public class Parser
                 return new UnionCasePattern(name, props, line, column);
             }
 
-            // Simple identifier pattern
+            // Type pattern: TypeName variableName
+            // If followed by identifier, this is a type pattern
+            if (Check(TokenType.Identifier))
+            {
+                var bindingName = Advance().Value;
+                var typeRef = new SimpleTypeReference(name);
+                return new TypePattern(typeRef, bindingName, line, column);
+            }
+
+            // Simple identifier pattern (just a variable binding)
             return new IdentifierPattern(name, line, column);
         }
 

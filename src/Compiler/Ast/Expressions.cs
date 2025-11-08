@@ -262,6 +262,17 @@ public record SlicePattern(
     int Line,
     int Column) : Pattern(Line, Column);
 
+// Type pattern for type checking and variable binding in match expressions
+// Examples:
+//   string s => ...         -> type check and bind
+//   Person p => ...         -> type check and bind
+//   IEnumerable<int> list when list.Any() => ...  -> with guard
+public record TypePattern(
+    TypeReference Type,      // The type to check against
+    string? BindingName,     // Variable name to bind (optional)
+    int Line,
+    int Column) : Pattern(Line, Column);
+
 // Spread expression (for arrays and function calls)
 public record SpreadExpression(
     Expression Expression,

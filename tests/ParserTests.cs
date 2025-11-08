@@ -2244,6 +2244,102 @@ func main() {
     }
 
     [Fact]
+    public void TestTypePatternSimple()
+    {
+        var source = "func check(obj: object): string {\n" +
+                     "    result := match obj {\n" +
+                     "        string s => s,\n" +
+                     "        int n => n.ToString(),\n" +
+                     "        _ => \"unknown\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(3, matchExpr.Cases.Count);
+
+        // First case: string s
+        var firstCase = matchExpr.Cases[0];
+        var typePattern1 = Assert.IsType<TypePattern>(firstCase.Pattern);
+        Assert.IsType<SimpleTypeReference>(typePattern1.Type);
+        var simpleType1 = (SimpleTypeReference)typePattern1.Type;
+        Assert.Equal("string", simpleType1.Name);
+        Assert.Equal("s", typePattern1.BindingName);
+
+        // Second case: int n
+        var secondCase = matchExpr.Cases[1];
+        var typePattern2 = Assert.IsType<TypePattern>(secondCase.Pattern);
+        Assert.IsType<SimpleTypeReference>(typePattern2.Type);
+        var simpleType2 = (SimpleTypeReference)typePattern2.Type;
+        Assert.Equal("int", simpleType2.Name);
+        Assert.Equal("n", typePattern2.BindingName);
+    }
+
+    [Fact]
+    public void TestTypePatternWithQualifiedName()
+    {
+        var source = "func check(obj: object): string {\n" +
+                     "    result := match obj {\n" +
+                     "        System.String s => s,\n" +
+                     "        _ => \"unknown\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var typePattern = Assert.IsType<TypePattern>(firstCase.Pattern);
+        var simpleType = Assert.IsType<SimpleTypeReference>(typePattern.Type);
+        Assert.Equal("System.String", simpleType.Name);
+        Assert.Equal("s", typePattern.BindingName);
+    }
+
+    [Fact]
+    public void TestTypePatternWithGuard()
+    {
+        var source = "func check(obj: object): string {\n" +
+                     "    result := match obj {\n" +
+                     "        string s when s.Length > 5 => \"long\",\n" +
+                     "        string s => \"short\",\n" +
+                     "        _ => \"not string\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var typePattern = Assert.IsType<TypePattern>(firstCase.Pattern);
+        Assert.Equal("s", typePattern.BindingName);
+        Assert.NotNull(firstCase.Guard); // Has guard clause
+    }
+
+    [Fact]
     public void TestFileImport()
     {
         var source = @"

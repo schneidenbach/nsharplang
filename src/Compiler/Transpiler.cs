@@ -1619,6 +1619,7 @@ public class Transpiler
             PositionalPattern positional => TranspilePositionalPattern(positional),
             ListPattern list => TranspileListPattern(list),
             SlicePattern slice => TranspileSlicePattern(slice),
+            TypePattern type => TranspileTypePattern(type),
             _ => throw new Exception($"Unsupported pattern type: {pattern.GetType().Name}")
         };
     }
@@ -1719,6 +1720,18 @@ public class Transpiler
             return $".. var {pattern.BindingName}";
         }
         return "..";
+    }
+
+    private string TranspileTypePattern(TypePattern pattern)
+    {
+        // C# type pattern: TypeName variableName
+        var typeName = TranspileTypeReference(pattern.Type);
+        if (pattern.BindingName != null)
+        {
+            return $"{typeName} {pattern.BindingName}";
+        }
+        // Type pattern without binding (just type check)
+        return typeName;
     }
 
     private string TranspileTypeReference(TypeReference typeRef)
