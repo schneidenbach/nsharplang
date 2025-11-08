@@ -1,9 +1,9 @@
 // Comprehensive example demonstrating iterator functions (func*)
 // Iterators use yield to return values one at a time
 
-using System
-using System.Collections.Generic
-using System.Linq
+import System
+import System.Collections.Generic
+import System.Linq
 
 // Basic iterator - generates a sequence of numbers
 func* GetNumbers(count: int): IEnumerable<int> {

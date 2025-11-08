@@ -1,7 +1,7 @@
 // Example: Required and Init-Only Properties (C# 9 & 11 Features)
 // This demonstrates modern C# property features in N#
 
-using System
+import System
 
 // Record with init-only properties (C# 9)
 // Init properties can only be set during object initialization

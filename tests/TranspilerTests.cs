@@ -501,7 +501,7 @@ func Test() {
     public void TestCollectionExpressionListTranspilation()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     let numbers: List<int> = [1, 2, 3]
@@ -521,7 +521,7 @@ func Test() {
     public void TestCollectionExpressionHashSetTranspilation()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     let unique: HashSet<int> = [1, 2, 3]
@@ -538,7 +538,7 @@ func Test() {
     public void TestCollectionExpressionQueueTranspilation()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     let queue: Queue<string> = [""first"", ""second"", ""third""]
@@ -554,7 +554,7 @@ func Test() {
     public void TestCollectionExpressionIEnumerableTranspilation()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     let items: IEnumerable<int> = [1, 2, 3, 4, 5]
@@ -2304,7 +2304,7 @@ record struct Point {
     public void TestRecordStructWithPrimaryConstructorTranspilation()
     {
         var source = @"
-using System
+import System
 
 record struct Point(x: double, y: double) {
     Length: double => Math.Sqrt(x * x + y * y)
@@ -2825,7 +2825,7 @@ func Test() {
     public void TestListCollectionExpressionStillWorks()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     let list: List<int> = [1, 2, 3, 4, 5]
@@ -2841,7 +2841,7 @@ func Test() {
     public void TestMixedVarAndExplicitTypes()
     {
         var source = @"
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Test() {
     // var should use explicit array syntax

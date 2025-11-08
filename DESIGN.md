@@ -530,10 +530,10 @@ doWork(new MemoryReader())  // works via structural typing
 - Example: file at `MyApp/Services/UserService.ext` automatically gets `MyApp.Services` namespace if not explicitly declared
 
 #### Imports
-- C# style `using` statements:
+- Uses `import` keyword (more intuitive than C#'s `using`):
   ```
-  using System.Collections
-  using Json = System.Text.Json  // aliasing supported
+  import System.Collections
+  import Json = System.Text.Json  // aliasing supported
   ```
 - Must appear at top of file (after namespace declaration)
 

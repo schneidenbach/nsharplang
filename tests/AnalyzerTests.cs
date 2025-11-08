@@ -568,7 +568,7 @@ public class AnalyzerTests
     public void ExternalType_Console_Valid()
     {
         AssertNoErrors(@"
-            using System
+            import System
 
             func Main() {
                 Console.WriteLine(""Hello"")
@@ -580,7 +580,7 @@ public class AnalyzerTests
     public void ExternalType_MemberAccess_Valid()
     {
         AssertNoErrors(@"
-            using System
+            import System
 
             func Main() {
                 let msg = ""test""
@@ -593,7 +593,7 @@ public class AnalyzerTests
     public void Lambda_InferredType_Valid()
     {
         AssertNoErrors(@"
-            using System.Linq
+            import System.Linq
 
             func Main() {
                 numbers := [1, 2, 3]
@@ -606,7 +606,7 @@ public class AnalyzerTests
     public void ExternalType_MethodOverloading_Valid()
     {
         AssertNoErrors(@"
-            using System
+            import System
 
             func Main() {
                 Console.WriteLine(42)
@@ -1231,7 +1231,7 @@ public class AnalyzerTests
     public void CollectionExpression_ListAssignment_Valid()
     {
         AssertNoErrors(@"
-            using System.Collections.Generic
+            import System.Collections.Generic
 
             func Main() {
                 let numbers: List<int> = [1, 2, 3]
@@ -1243,7 +1243,7 @@ public class AnalyzerTests
     public void CollectionExpression_HashSetAssignment_Valid()
     {
         AssertNoErrors(@"
-            using System.Collections.Generic
+            import System.Collections.Generic
 
             func Main() {
                 let unique: HashSet<string> = [""a"", ""b"", ""c""]
@@ -1255,7 +1255,7 @@ public class AnalyzerTests
     public void CollectionExpression_QueueAssignment_Valid()
     {
         AssertNoErrors(@"
-            using System.Collections.Generic
+            import System.Collections.Generic
 
             func Main() {
                 let queue: Queue<int> = [1, 2, 3]
@@ -1267,7 +1267,7 @@ public class AnalyzerTests
     public void CollectionExpression_IEnumerableAssignment_Valid()
     {
         AssertNoErrors(@"
-            using System.Collections.Generic
+            import System.Collections.Generic
 
             func Main() {
                 let items: IEnumerable<string> = [""a"", ""b""]
@@ -1279,7 +1279,7 @@ public class AnalyzerTests
     public void CollectionExpression_TypeMismatch_Error()
     {
         AssertHasError(@"
-            using System.Collections.Generic
+            import System.Collections.Generic
 
             func Main() {
                 let numbers: List<int> = [""not"", ""ints""]

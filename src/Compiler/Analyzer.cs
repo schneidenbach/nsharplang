@@ -49,16 +49,16 @@ public class Analyzer
         _projectRoot = projectRoot;
         _sourceLines = sourceCode?.Split('\n');
 
-        // Process using statements
-        foreach (var usingStmt in unit.Usings)
+        // Process import directives
+        foreach (var importDirective in unit.Imports)
         {
-            if (usingStmt.Alias != null)
+            if (importDirective.Alias != null)
             {
-                _usingAliases[usingStmt.Alias] = usingStmt.Namespace;
+                _usingAliases[importDirective.Alias] = importDirective.Namespace;
             }
             else
             {
-                _usingNamespaces.Add(usingStmt.Namespace);
+                _usingNamespaces.Add(importDirective.Namespace);
             }
         }
 
@@ -71,8 +71,11 @@ public class Analyzer
         // Create global scope first (needed for adding imported symbols)
         PushScope(new Scope(ScopeKind.Global));
 
-        // Process imports (adds symbols to global scope)
-        ProcessImports(unit.Imports);
+        // Process file imports (adds symbols to global scope)
+        if (unit.FileImports.Count > 0)
+        {
+            ProcessImports(unit.FileImports);
+        }
 
         // Check for import collisions
         CheckImportCollisions();

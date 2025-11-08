@@ -1,7 +1,7 @@
 // Duck Interfaces Example
 // Demonstrates structural typing with duck interfaces
 
-using System
+import System
 
 // Define a duck interface for anything that can read
 duck interface IReader {

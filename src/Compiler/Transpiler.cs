@@ -33,11 +33,11 @@ public class Transpiler
         // Check if we have test declarations to add Xunit using
         var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
 
-        // Collect all using statements (deduplicate System if already present)
-        var hasSystemUsing = _compilationUnit.Usings.Any(u => u.Namespace == "System" && u.Alias == null);
+        // Collect all import directives (deduplicate System if already present)
+        var hasSystemImport = _compilationUnit.Imports.Any(i => i.Namespace == "System" && i.Alias == null);
 
         // Always add System namespace (needed for Console, Exception, etc.) if not already present
-        if (!hasSystemUsing)
+        if (!hasSystemImport)
         {
             WriteLine("using System;");
         }
@@ -48,23 +48,16 @@ public class Transpiler
             WriteLine("using Xunit;");
         }
 
-        // Usings
-        foreach (var usingDirective in _compilationUnit.Usings)
+        // Transpile import directives to C# using statements
+        foreach (var importDirective in _compilationUnit.Imports)
         {
-            TranspileUsing(usingDirective);
+            TranspileImportDirective(importDirective);
         }
 
-        // Imports (namespace imports only - file imports are inlined)
-        foreach (var import in _compilationUnit.Imports)
-        {
-            if (import is NamespaceImport nsImport)
-            {
-                TranspileNamespaceImport(nsImport);
-            }
-            // FileImports are not emitted - their symbols are inlined
-        }
+        // File imports are handled separately (their symbols are inlined)
+        // FileImports in _compilationUnit.FileImports are not emitted as using statements
 
-        if (_compilationUnit.Usings.Count > 0 || _compilationUnit.Imports.Count > 0 || hasTests)
+        if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests)
             _output.AppendLine();
 
         // Namespace
@@ -152,28 +145,16 @@ public class Transpiler
         return _output.ToString();
     }
 
-    private void TranspileUsing(UsingDirective usingDirective)
+    private void TranspileImportDirective(ImportDirective importDirective)
     {
-        if (usingDirective.Alias != null)
+        // N# import directives transpile to C# using statements
+        if (importDirective.Alias != null)
         {
-            WriteLine($"using {usingDirective.Alias} = {usingDirective.Namespace};");
+            WriteLine($"using {importDirective.Alias} = {importDirective.Namespace};");
         }
         else
         {
-            WriteLine($"using {usingDirective.Namespace};");
-        }
-    }
-
-    private void TranspileNamespaceImport(NamespaceImport import)
-    {
-        // Namespace imports transpile to C# using statements
-        if (import.Alias != null)
-        {
-            WriteLine($"using {import.Alias} = {import.Namespace};");
-        }
-        else
-        {
-            WriteLine($"using {import.Namespace};");
+            WriteLine($"using {importDirective.Namespace};");
         }
     }
 

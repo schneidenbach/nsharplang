@@ -1,4 +1,4 @@
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Main() {
     // Test if collection expressions work with explicit types

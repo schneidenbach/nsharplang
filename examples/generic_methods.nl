@@ -1,9 +1,9 @@
 // Generic Method Calls Example
 // Demonstrates explicit type argument syntax for generic methods
 
-using System
-using System.Linq
-using System.Collections.Generic
+import System
+import System.Linq
+import System.Collections.Generic
 
 // Generic helper functions
 func CreateList<T>(params items: T[]): List<T> {

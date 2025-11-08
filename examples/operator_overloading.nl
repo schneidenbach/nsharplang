@@ -2,7 +2,7 @@
 // This example demonstrates the syntax for operator overloading
 // Note: Full runtime support requires analyzer enhancements (tracked separately)
 
-using System
+import System
 
 // Simple vector class demonstrating operator overload syntax
 class Vector2D {

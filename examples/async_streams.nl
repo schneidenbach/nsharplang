@@ -1,6 +1,6 @@
-using System
-using System.Collections.Generic
-using System.Threading.Tasks
+import System
+import System.Collections.Generic
+import System.Threading.Tasks
 
 // Example 1: Basic async stream (async iterator)
 func async* GetNumbersAsync(): IAsyncEnumerable<int> {

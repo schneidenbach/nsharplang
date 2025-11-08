@@ -254,9 +254,9 @@ public class ParserTests
         var source = @"
             namespace MyApp.Services
 
-            using System
-            using System.Collections.Generic
-            using Json = System.Text.Json
+            import System
+            import System.Collections.Generic
+            import Json = System.Text.Json
 
             func Test() {}
         ";
@@ -264,10 +264,10 @@ public class ParserTests
         var cu = Parse(source);
         Assert.NotNull(cu.Namespace);
         Assert.Equal("MyApp.Services", cu.Namespace.Name);
-        Assert.Equal(3, cu.Usings.Count);
-        Assert.Equal("System", cu.Usings[0].Namespace);
-        Assert.Equal("System.Collections.Generic", cu.Usings[1].Namespace);
-        Assert.Equal("Json", cu.Usings[2].Alias);
+        Assert.Equal(3, cu.Imports.Count);
+        Assert.Equal("System", cu.Imports[0].Namespace);
+        Assert.Equal("System.Collections.Generic", cu.Imports[1].Namespace);
+        Assert.Equal("Json", cu.Imports[2].Alias);
     }
 
     [Fact]
@@ -2509,9 +2509,9 @@ func main() {
         ";
 
         var cu = Parse(source);
-        Assert.Single(cu.Imports);
+        Assert.Single(cu.FileImports);
 
-        var fileImport = cu.Imports[0] as FileImport;
+        var fileImport = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport);
         Assert.Equal("Models/Person", fileImport.Path);
         Assert.Null(fileImport.Alias);
@@ -2525,9 +2525,9 @@ func main() {
         ";
 
         var cu = Parse(source);
-        Assert.Single(cu.Imports);
+        Assert.Single(cu.FileImports);
 
-        var fileImport = cu.Imports[0] as FileImport;
+        var fileImport = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport);
         Assert.Equal("Services/Auth", fileImport.Path);
         Assert.Equal("AuthService", fileImport.Alias);
@@ -2543,7 +2543,7 @@ func main() {
         var cu = Parse(source);
         Assert.Single(cu.Imports);
 
-        var nsImport = cu.Imports[0] as NamespaceImport;
+        var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         Assert.Equal("System.Collections.Generic", nsImport.Namespace);
         Assert.Null(nsImport.Alias);
@@ -2559,7 +2559,7 @@ func main() {
         var cu = Parse(source);
         Assert.Single(cu.Imports);
 
-        var nsImport = cu.Imports[0] as NamespaceImport;
+        var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         Assert.Equal("System.Text.Json", nsImport.Namespace);
         Assert.Equal("Json", nsImport.Alias);
@@ -2575,17 +2575,18 @@ func main() {
         ";
 
         var cu = Parse(source);
-        Assert.Equal(3, cu.Imports.Count);
+        Assert.Equal(2, cu.FileImports.Count);
+        Assert.Equal(1, cu.Imports.Count);
 
-        var fileImport1 = cu.Imports[0] as FileImport;
+        var fileImport1 = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport1);
         Assert.Equal("Models/Person", fileImport1.Path);
 
-        var nsImport = cu.Imports[1] as NamespaceImport;
+        var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         Assert.Equal("System.Linq", nsImport.Namespace);
 
-        var fileImport2 = cu.Imports[2] as FileImport;
+        var fileImport2 = cu.FileImports[1] as FileImport;
         Assert.NotNull(fileImport2);
         Assert.Equal("Services/Auth", fileImport2.Path);
         Assert.Equal("AuthService", fileImport2.Alias);

@@ -1,7 +1,7 @@
 // Collection Initializers with Indexers (C# 6 Feature)
 // Demonstrates dictionary and collection initialization using indexer syntax
 
-using System.Collections.Generic
+import System.Collections.Generic
 
 func Main() {
     print "=== Collection Initializers with Indexers ==="

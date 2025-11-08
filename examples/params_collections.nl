@@ -1,8 +1,8 @@
 // Example demonstrating params collections (C# 13 feature)
 // Params can now work with Span<T>, ReadOnlySpan<T>, and collection types
 
-using System
-using System.Collections.Generic
+import System
+import System.Collections.Generic
 
 // 1. Basic params with array (original C# behavior)
 func SumArray(params numbers: int[]): int {

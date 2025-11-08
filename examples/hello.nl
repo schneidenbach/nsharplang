@@ -1,5 +1,5 @@
-using System
-using System.Linq
+import System
+import System.Linq
 
 class Program {
     static func Main() {

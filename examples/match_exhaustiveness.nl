@@ -1,6 +1,6 @@
 namespace MatchExamplesDEMO
 
-using System
+import System
 
 // Discriminated union for HTTP responses
 union HttpResponse {

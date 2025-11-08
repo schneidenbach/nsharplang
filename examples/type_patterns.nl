@@ -1,8 +1,8 @@
 // Type Pattern Matching Example
 // Demonstrates C# 8+ type patterns in match expressions
 
-using System
-using System.Collections.Generic
+import System
+import System.Collections.Generic
 
 // Example 1: Type pattern matching with strings
 func ClassifyString(value: string): string {

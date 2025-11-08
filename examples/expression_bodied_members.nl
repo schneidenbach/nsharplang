@@ -1,7 +1,7 @@
 // Expression-Bodied Members Example
 // Demonstrates the => syntax for properties and methods
 
-using System
+import System
 
 class Person {
     FirstName: string

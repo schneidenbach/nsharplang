@@ -1,7 +1,7 @@
 // N# Extension Methods Example
 // Demonstrates extension method resolution with LINQ-style operations
 
-using System
+import System
 
 // ========================================
 // String Extensions

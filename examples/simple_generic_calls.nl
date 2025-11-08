@@ -1,8 +1,8 @@
 // Simple Generic Method Calls Example
 // Demonstrates explicit type argument syntax
 
-using System.Linq
-using System.Collections.Generic
+import System.Linq
+import System.Collections.Generic
 
 func Main() {
     print "Generic Method Calls Demo"

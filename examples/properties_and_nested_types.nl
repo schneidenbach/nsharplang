@@ -1,6 +1,6 @@
 // Example demonstrating properties with custom get/set and nested types
 
-using System
+import System
 
 class BankAccount {
     // Private backing fields

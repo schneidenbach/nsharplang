@@ -29,18 +29,20 @@ public class Parser
             namespaceDecl = ParseNamespace();
         }
 
-        // Parse using directives
-        var usings = new List<UsingDirective>();
-        while (Check(TokenType.Using))
-        {
-            usings.Add(ParseUsing());
-        }
-
-        // Parse import statements
-        var imports = new List<Statement>();
+        // Parse import directives (both namespace and file imports)
+        var imports = new List<ImportDirective>();
+        var fileImports = new List<Statement>();
         while (Check(TokenType.Import))
         {
-            imports.Add(ParseImport());
+            var import = ParseImport();
+            if (import is NamespaceImport nsImport)
+            {
+                imports.Add(new ImportDirective(nsImport.Namespace, nsImport.Alias, nsImport.Line, nsImport.Column));
+            }
+            else if (import is FileImport fileImport)
+            {
+                fileImports.Add(fileImport);
+            }
         }
 
         // Parse package declaration (optional)
@@ -57,7 +59,7 @@ public class Parser
             declarations.Add(ParseDeclaration());
         }
 
-        return new CompilationUnit(namespaceDecl, usings, imports, packageDecl, declarations, line, column);
+        return new CompilationUnit(namespaceDecl, imports, fileImports, packageDecl, declarations, line, column);
     }
 
     private NamespaceDeclaration ParseNamespace()
@@ -78,24 +80,6 @@ public class Parser
         return new PackageDeclaration(name, line, column);
     }
 
-    private UsingDirective ParseUsing()
-    {
-        var line = Current.Line;
-        var column = Current.Column;
-        Consume(TokenType.Using, "Expected 'using'");
-
-        // Check for alias
-        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Assign)
-        {
-            var alias = Advance().Value;
-            Consume(TokenType.Assign, "Expected '='");
-            var ns = ParseQualifiedName();
-            return new UsingDirective(ns, alias, line, column);
-        }
-
-        var namespaceName = ParseQualifiedName();
-        return new UsingDirective(namespaceName, null, line, column);
-    }
 
     private Statement ParseImport()
     {
@@ -120,7 +104,19 @@ public class Parser
         }
 
         // Namespace import: import System.Collections.Generic [as Alias]
-        var namespaceName = ParseQualifiedName();
+        // OR: import Alias = System.Collections.Generic (C# style)
+
+        // Check for C# style alias: import Alias = Namespace
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Assign)
+        {
+            var alias = ConsumeIdentifier("Expected identifier");
+            Consume(TokenType.Assign, "Expected '='");
+            var namespaceName = ParseQualifiedName();
+            return new NamespaceImport(namespaceName, alias, line, column);
+        }
+
+        // Normal namespace import with optional 'as' alias
+        var ns = ParseQualifiedName();
         string? nsAlias = null;
 
         if (Check(TokenType.As))
@@ -129,7 +125,7 @@ public class Parser
             nsAlias = ConsumeIdentifier("Expected alias name after 'as'");
         }
 
-        return new NamespaceImport(namespaceName, nsAlias, line, column);
+        return new NamespaceImport(ns, nsAlias, line, column);
     }
 
     private string ParseQualifiedName()

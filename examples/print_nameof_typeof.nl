@@ -1,6 +1,6 @@
 // Demonstrating print, nameof, and typeof features
 
-using System
+import System
 
 class Person {
     Name: string

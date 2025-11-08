@@ -4,7 +4,7 @@
 // NOTE: This example demonstrates the syntax and transpilation.
 // To see overflow exceptions at runtime, compile and run the generated C# code.
 
-using System
+import System
 
 // Helper function with checked arithmetic
 func SafeAdd(x: int, y: int): int {

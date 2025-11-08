@@ -1,9 +1,9 @@
 namespace MultiFileProject
 
-using System
-using System.Linq
-using MultiFileProject.Models
-using MultiFileProject.Services
+import System
+import System.Linq
+import MultiFileProject.Models
+import MultiFileProject.Services
 import "Models/Person"
 import "Services/PersonService"
 

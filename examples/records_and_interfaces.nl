@@ -1,6 +1,6 @@
 // Demonstrates records, with expressions, interfaces, and inheritance
 
-using System
+import System
 
 // Record type with value equality
 record Point {

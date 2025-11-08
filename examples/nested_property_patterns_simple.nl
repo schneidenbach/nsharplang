@@ -1,7 +1,7 @@
 // Nested Property Patterns Example
 // Demonstrates deep object destructuring in match expressions
 
-using System
+import System
 
 class Address {
     Street: string

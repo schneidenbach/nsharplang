@@ -1,6 +1,6 @@
 namespace ErrorHandlingDemo
 
-using System
+import System
 
 // Example function that might throw
 func Divide(a: int, b: int): int {

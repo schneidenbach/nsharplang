@@ -1,7 +1,7 @@
 // Inline Out Variable Declarations (C# 7+)
 // Demonstrates declaring variables inline with out parameters
 
-using System.Collections.Generic
+import System.Collections.Generic
 
 // TryParse pattern - very common in .NET
 func TryParseInt(input: string, out result: int): bool {

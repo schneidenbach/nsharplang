@@ -1,7 +1,7 @@
-using System
-using System.Linq
-using WeatherDemo.Models
-using WeatherDemo.Services
+import System
+import System.Linq
+import WeatherDemo.Models
+import WeatherDemo.Services
 
 class Program {
     static func Main() {

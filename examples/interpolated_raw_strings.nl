@@ -1,7 +1,7 @@
 // Interpolated Raw String Literals Example
 // Demonstrates C# 11 raw string interpolation feature in N#
 
-using System
+import System
 
 class Person {
     Name: string

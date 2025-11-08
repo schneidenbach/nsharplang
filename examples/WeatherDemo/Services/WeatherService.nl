@@ -1,8 +1,8 @@
 namespace WeatherDemo.Services
 
-using System
-using System.Linq
-using WeatherDemo.Models
+import System
+import System.Linq
+import WeatherDemo.Models
 
 // Business logic service demonstrating N# features
 class WeatherService {

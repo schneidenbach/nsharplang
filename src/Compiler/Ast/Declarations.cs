@@ -9,15 +9,15 @@ public abstract record Declaration(int Line, int Column) : AstNode(Line, Column)
 // Compilation unit (file)
 public record CompilationUnit(
     NamespaceDeclaration? Namespace,
-    List<UsingDirective> Usings,
-    List<Statement> Imports,
+    List<ImportDirective> Imports,
+    List<Statement> FileImports,
     PackageDeclaration? Package,
     List<Declaration> Declarations,
     int Line,
     int Column) : AstNode(Line, Column);
 
-// Using directive
-public record UsingDirective(
+// Import directive
+public record ImportDirective(
     string Namespace,
     string? Alias,
     int Line,

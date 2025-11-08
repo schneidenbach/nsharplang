@@ -1,7 +1,7 @@
 // Conversion Operators Example
 // Demonstrates implicit and explicit user-defined type conversions
 
-using System
+import System
 
 // Temperature conversion example - implicit conversion (safe)
 class Celsius {

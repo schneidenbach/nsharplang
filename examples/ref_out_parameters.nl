@@ -1,7 +1,7 @@
 // Ref and Out Parameters Example
 // Demonstrates .NET interop with ref/out parameters
 
-using System.Collections.Generic
+import System.Collections.Generic
 
 // Custom swap function using ref parameters
 func Swap(ref a: int, ref b: int) {

@@ -1,7 +1,7 @@
 // Primary Constructors (C# 12 Feature)
 // Demonstrates primary constructor syntax for classes, structs, and records
 
-using System
+import System
 
 // 1. Class with Primary Constructor - Perfect for Dependency Injection
 class Logger(name: string) {
