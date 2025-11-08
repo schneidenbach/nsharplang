@@ -48,7 +48,8 @@ public enum ParameterModifier
 {
     None,
     Ref,
-    Out
+    Out,
+    Params
 }
 
 public record Parameter(

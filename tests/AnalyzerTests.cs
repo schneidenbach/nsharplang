@@ -1296,4 +1296,42 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void ParamsParameter_Valid_NoError()
+    {
+        AssertNoErrors(@"
+            func Sum(params numbers: int[]): int {
+                return 0
+            }
+        ");
+    }
+
+    [Fact]
+    public void ParamsParameter_WithOtherParams_NoError()
+    {
+        AssertNoErrors(@"
+            func Format(format: string, params args: object[]): string {
+                return format
+            }
+        ");
+    }
+
+    [Fact]
+    public void ParamsParameter_NotLast_Error()
+    {
+        AssertHasError(@"
+            func Invalid(params numbers: int[], other: string) {
+            }
+        ", "params parameter must be the last parameter");
+    }
+
+    [Fact]
+    public void ParamsParameter_NotArray_Error()
+    {
+        AssertHasError(@"
+            func Invalid(params value: int) {
+            }
+        ", "params parameter must be an array type");
+    }
 }

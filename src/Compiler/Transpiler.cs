@@ -838,8 +838,10 @@ public class Transpiler
     {
         var result = "";
 
-        // Add ref/out modifier
-        if (param.Modifier == ParameterModifier.Ref)
+        // Add params/ref/out modifier
+        if (param.Modifier == ParameterModifier.Params)
+            result = "params ";
+        else if (param.Modifier == ParameterModifier.Ref)
             result = "ref ";
         else if (param.Modifier == ParameterModifier.Out)
             result = "out ";

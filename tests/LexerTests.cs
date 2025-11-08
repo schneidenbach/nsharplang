@@ -528,4 +528,14 @@ World
         Assert.Equal(TokenType.File, tokens[0].Type);
         Assert.Equal("file", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestParamsKeyword()
+    {
+        var source = "params";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // params + EOF
+        Assert.Equal(TokenType.Params, tokens[0].Type);
+        Assert.Equal("params", tokens[0].Value);
+    }
 }

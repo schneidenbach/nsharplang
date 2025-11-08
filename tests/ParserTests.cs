@@ -3106,6 +3106,38 @@ func Helper(): int {
     }
 
     [Fact]
+    public void TestParamsParameter()
+    {
+        var source = "func Sum(params numbers: int[]) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Sum", func.Name);
+        Assert.Single(func.Parameters);
+
+        Assert.Equal("numbers", func.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.IsType<ArrayTypeReference>(func.Parameters[0].Type);
+    }
+
+    [Fact]
+    public void TestParamsWithOtherParameters()
+    {
+        var source = "func Format(format: string, params args: object[]) { }";
+        var cu = Parse(source);
+        var func = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(func);
+        Assert.Equal("Format", func.Name);
+        Assert.Equal(2, func.Parameters.Count);
+
+        Assert.Equal("format", func.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.None, func.Parameters[0].Modifier);
+
+        Assert.Equal("args", func.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Params, func.Parameters[1].Modifier);
+    }
+
+    [Fact]
     public void TestRefArgument()
     {
         var source = @"

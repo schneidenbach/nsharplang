@@ -368,7 +368,12 @@ public class Parser
             do
             {
                 var modifier = ParameterModifier.None;
-                if (Check(TokenType.Ref))
+                if (Check(TokenType.Params))
+                {
+                    modifier = ParameterModifier.Params;
+                    Advance();
+                }
+                else if (Check(TokenType.Ref))
                 {
                     modifier = ParameterModifier.Ref;
                     Advance();

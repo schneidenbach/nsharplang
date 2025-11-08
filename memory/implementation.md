@@ -1683,3 +1683,110 @@ class Application {
 - Cleaner API surface - internal helpers stay internal
 - C# 11 feature for better code organization
 - Perfect for helper classes, internal data structures, and private contracts
+
+---
+
+## v1.44 - Params Arrays
+
+### Feature
+Implemented params arrays for variable-length argument lists, allowing functions to accept any number of arguments of a specific type.
+
+### Implementation Details
+- **Token** (Token.cs:84):
+  - Added `Params` token type
+- **Lexer** (Lexer.cs:87):
+  - Added `"params"` keyword mapping to `TokenType.Params`
+- **AST** (Declarations.cs:52):
+  - Added `Params` to `ParameterModifier` enum
+- **Parser** (Parser.cs:371-375):
+  - Added params modifier parsing in `ParseParameterList()`
+  - Params modifier must come before ref/out modifiers
+- **Transpiler** (Transpiler.cs:842-843):
+  - Added params keyword emission in `TranspileParameter()`
+  - Correctly outputs `params Type[] name` syntax
+- **Analyzer** (Analyzer.cs:2222-2243):
+  - Added `ValidateParamsParameters()` validation
+  - Ensures params parameter is last in parameter list
+  - Ensures params parameter is an array type
+- **Analyzer** (Analyzer.cs:1414-1465):
+  - Updated function call argument checking for params arrays
+  - Allows variable number of arguments when params parameter present
+  - Validates individual params arguments against array element type
+  - Minimum argument count = regular params count
+
+### Syntax Examples
+```n#
+// Basic params array
+func Sum(params numbers: int[]): int {
+    total := 0
+    for num in numbers {
+        total += num
+    }
+    return total
+}
+
+// Call with any number of arguments
+result1 := Sum(1, 2, 3, 4, 5)  // OK
+result2 := Sum()                // OK - empty params
+result3 := Sum(10, 20)          // OK
+
+// Params with other parameters
+func Format(format: string, params args: object[]): string {
+    // params must be last parameter
+}
+
+// Generic params
+func PrintAll<T>(prefix: string, params items: T[]) {
+    for item in items {
+        print $"{prefix}{item}"
+    }
+}
+
+// Static method with params
+static class Math {
+    static func Max(params values: int[]): int {
+        // ...
+    }
+}
+```
+
+### Tests Added
+- 1 lexer test: `TestParamsKeyword()`
+- 2 parser tests: basic params, params with other parameters
+- 2 transpiler tests: verifying params keyword in C# output
+- 4 analyzer tests: valid usage, error cases (not last, not array)
+- All 394 tests passing
+
+### Example Files
+- Created `examples/params_arrays.nl` demonstrating:
+  - Basic params usage with multiple/zero arguments
+  - Params with other parameters
+  - Generic params arrays
+  - Static methods with params
+
+### Validation Rules
+1. **Last Parameter**: params parameter must be the last parameter in the list
+2. **Array Type**: params parameter must be an array type (e.g., `int[]`, `string[]`)
+3. **Argument Count**: Functions accept any number of arguments >= non-params parameter count
+4. **Type Checking**: Each params argument must be assignable to array element type
+
+### Benefits
+- Variable-length argument lists without manual array creation
+- Cleaner function calls - no need to construct arrays explicitly
+- Essential .NET feature for flexible APIs
+- Works with generics and type inference
+- Perfect C# interop - emits idiomatic C# code
+
+### C# Output Example
+```csharp
+public static int Sum(params int[] numbers)
+{
+    var total = 0;
+    foreach (var num in numbers)
+    {
+        total += num;
+    }
+    return total;
+}
+```
+

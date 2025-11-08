@@ -1936,6 +1936,22 @@ func Helper(): int {
     }
 
     [Fact]
+    public void TestParamsParameterTranspilation()
+    {
+        var source = "func Sum(params numbers: int[]): int { }";
+        var result = Transpile(source);
+        Assert.Contains("params int[] numbers", result);
+    }
+
+    [Fact]
+    public void TestParamsWithOtherParametersTranspilation()
+    {
+        var source = "func Format(format: string, params args: object[]): string { }";
+        var result = Transpile(source);
+        Assert.Contains("string format, params object[] args", result);
+    }
+
+    [Fact]
     public void TestRefArgumentTranspilation()
     {
         var source = @"

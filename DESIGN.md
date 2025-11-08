@@ -1044,6 +1044,39 @@ func foo(x: int): int {
       print num
   }
   ```
+- **Params arrays** for variable-length argument lists:
+  ```
+  // Basic params array
+  func Sum(params numbers: int[]): int {
+      total := 0
+      for num in numbers {
+          total += num
+      }
+      return total
+  }
+
+  // Call with any number of arguments
+  result1 := Sum(1, 2, 3, 4, 5)  // OK
+  result2 := Sum()                // OK - empty
+  result3 := Sum(10, 20)          // OK
+
+  // Params with other parameters (params must be last)
+  func Format(format: string, params args: string[]): string {
+      // implementation
+  }
+
+  // Generic params
+  func PrintAll<T>(prefix: string, params items: T[]) {
+      for item in items {
+          print $"{prefix}{item}"
+      }
+  }
+
+  // Rules:
+  // 1. params must be last parameter
+  // 2. params must be array type
+  // 3. Only one params parameter allowed
+  ```
 
 ### Variables
 - Multiple declaration styles supported

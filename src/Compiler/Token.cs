@@ -81,6 +81,7 @@ public enum TokenType
     Out,
     Lock,
     File,
+    Params,
 
     // Operators
     Plus,           // +

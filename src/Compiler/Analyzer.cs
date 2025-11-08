@@ -173,6 +173,9 @@ public class Analyzer
 
         PushScope(new Scope(ScopeKind.Function));
 
+        // Validate params parameters
+        ValidateParamsParameters(func.Parameters, func.Line, func.Column);
+
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
@@ -1408,16 +1411,27 @@ public class Analyzer
             {
                 var parameters = funcType.Declaration.Parameters;
 
+                // Check if last parameter is params
+                var hasParamsParameter = parameters.Count > 0 &&
+                                        parameters[^1].Modifier == Ast.ParameterModifier.Params;
+
                 // Check argument count
-                if (argTypes.Count != parameters.Count)
+                int minArgs = hasParamsParameter ? parameters.Count - 1 : parameters.Count;
+                if (argTypes.Count < minArgs)
+                {
+                    Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
+                        call.Line, call.Column);
+                }
+                else if (!hasParamsParameter && argTypes.Count > parameters.Count)
                 {
                     Error($"Function '{funcType.Declaration.Name}' expects {parameters.Count} arguments but got {argTypes.Count}",
                         call.Line, call.Column);
                 }
                 else
                 {
-                    // Check each parameter type
-                    for (int i = 0; i < parameters.Count; i++)
+                    // Check each parameter type (non-params parameters)
+                    int regularParamCount = hasParamsParameter ? parameters.Count - 1 : parameters.Count;
+                    for (int i = 0; i < regularParamCount && i < argTypes.Count; i++)
                     {
                         var paramType = ResolveType(parameters[i].Type);
                         var argType = argTypes[i];
@@ -1426,6 +1440,26 @@ public class Analyzer
                         {
                             Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[i].Name}' of type '{paramType}'",
                                 call.Line, call.Column);
+                        }
+                    }
+
+                    // Check params arguments (if any)
+                    if (hasParamsParameter && argTypes.Count >= parameters.Count)
+                    {
+                        var paramsParam = parameters[^1];
+                        var paramsArrayType = ResolveType(paramsParam.Type);
+
+                        // Get element type from array type
+                        if (paramsArrayType is ArrayTypeInfo arrayType)
+                        {
+                            for (int i = regularParamCount; i < argTypes.Count; i++)
+                            {
+                                if (!IsAssignable(arrayType.ElementType, argTypes[i]))
+                                {
+                                    Error($"Params argument {i + 1} of type '{argTypes[i]}' is not assignable to params array element type '{arrayType.ElementType}'",
+                                        call.Line, call.Column);
+                                }
+                            }
                         }
                     }
                 }
@@ -2216,6 +2250,41 @@ public class Analyzer
     }
 
     // Operator overload validation
+    private void ValidateParamsParameters(List<Parameter> parameters, int line, int column)
+    {
+        // Find params parameters
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var param = parameters[i];
+            if (param.Modifier == Ast.ParameterModifier.Params)
+            {
+                // params must be last parameter
+                if (i != parameters.Count - 1)
+                {
+                    Error("A params parameter must be the last parameter in a parameter list", line, column);
+                }
+
+                // params must be an array type
+                if (param.Type is not ArrayTypeReference)
+                {
+                    Error($"A params parameter must be an array type, got '{TranspileTypeReference(param.Type)}'", line, column);
+                }
+            }
+        }
+    }
+
+    private string TranspileTypeReference(TypeReference typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference simple => simple.Name,
+            ArrayTypeReference array => TranspileTypeReference(array.ElementType) + "[]",
+            GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
+            NullableTypeReference nullable => TranspileTypeReference(nullable.InnerType) + "?",
+            _ => typeRef.ToString() ?? "unknown"
+        };
+    }
+
     private void ValidateOperatorOverload(FunctionDeclaration func)
     {
         // Operator overloads must be static
