@@ -507,4 +507,71 @@ public class ParserTests
         Assert.NotNull(targetExpr);
         Assert.Equal("r", targetExpr.Name);
     }
+
+    [Fact]
+    public void TestMatchExpression()
+    {
+        var source = @"
+            func Test() {
+                result := match x {
+                    1 => ""one"",
+                    2 => ""two""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(2, matchExpr.Cases.Count);
+
+        var firstCase = matchExpr.Cases[0];
+        Assert.IsType<LiteralPattern>(firstCase.Pattern);
+        Assert.IsType<StringLiteralExpression>(firstCase.Expression);
+    }
+
+    [Fact]
+    public void TestMatchExpressionWithUnionPattern()
+    {
+        var source = @"
+            func Test() {
+                msg := match result {
+                    Result.Success { value } => ""ok"",
+                    Result.Failure { error } => ""fail""
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(2, matchExpr.Cases.Count);
+
+        var successCase = matchExpr.Cases[0];
+        var successPattern = successCase.Pattern as UnionCasePattern;
+        Assert.NotNull(successPattern);
+        Assert.Equal("Result.Success", successPattern.CaseName);
+        Assert.Single(successPattern.Properties);
+        Assert.Equal("value", successPattern.Properties[0].Name);
+        Assert.Null(successPattern.Properties[0].BindingName);
+
+        var failureCase = matchExpr.Cases[1];
+        var failurePattern = failureCase.Pattern as UnionCasePattern;
+        Assert.NotNull(failurePattern);
+        Assert.Equal("Result.Failure", failurePattern.CaseName);
+        Assert.Single(failurePattern.Properties);
+        Assert.Equal("error", failurePattern.Properties[0].Name);
+    }
 }

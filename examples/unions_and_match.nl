@@ -27,16 +27,10 @@ type UserId = int
 type ErrorCode = int
 
 func ProcessResult(r: Result): string {
-    // For now, use if-else instead of match since transpilation needs work
-    if r is Result.Success {
-        s := (Result.Success)r
-        return $"Success: {s.value}"
+    return match r {
+        Result.Success { value } => $"Success: {value}",
+        Result.Failure { error, code } => $"Error {code}: {error}"
     }
-    if r is Result.Failure {
-        f := (Result.Failure)r
-        return $"Error {f.code}: {f.error}"
-    }
-    return "Unknown"
 }
 
 func GetStatusMessage(status: string): string {

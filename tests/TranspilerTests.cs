@@ -234,4 +234,32 @@ func Divide(a: int, b: int): int {
         Assert.Contains("throw new Exception(", result);
         Assert.Contains("Division by zero", result);
     }
+
+    [Fact]
+    public void TestMatchExpressionTranspilation()
+    {
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+
+func ProcessResult(r: Result): string {
+    return match r {
+        Result.Success { value } => $""Success: {value}"",
+        Result.Failure { error } => $""Error: {error}""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate switch expression
+        Assert.Contains("switch", result);
+        Assert.Contains("Result.Success { value: var value }", result);
+        Assert.Contains("Result.Failure { error: var error }", result);
+        Assert.Contains("=>", result);
+        Assert.Contains("$\"Success: {value}\"", result);
+        Assert.Contains("$\"Error: {error}\"", result);
+    }
 }

@@ -1082,7 +1082,10 @@ public class Transpiler
         }
 
         var props = string.Join(", ", pattern.Properties.Select(p =>
-            p.BindingName != null ? $"{p.Name}: var {p.BindingName}" : p.Name));
+        {
+            var binding = p.BindingName ?? p.Name;
+            return $"{p.Name}: var {binding}";
+        }));
 
         return $"{pattern.CaseName} {{ {props} }}";
     }

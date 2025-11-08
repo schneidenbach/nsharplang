@@ -57,7 +57,7 @@
 - [x] Throw expressions already implemented (from v1.3)
 - [x] All 110 tests passing (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
 
-### Phase 8: Parser and Transpiler Improvements (v1.5 - LATEST!)
+### Phase 8: Parser and Transpiler Improvements (v1.5)
 - [x] Qualified type names in type references (Result.Success)
 - [x] Cast expression detection for qualified names
 - [x] Parser reordering: cast before tuple/paren for correct precedence
@@ -67,9 +67,17 @@
 - [x] All 111 tests passing (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
 - [x] New example: unions_and_match.nl demonstrating unions, match, enums
 
+### Phase 9: Match Expression Fixes (v1.6 - LATEST!)
+- [x] Fixed pattern parsing to support qualified names (Result.Success)
+- [x] Fixed pattern transpilation to emit proper C# property patterns
+- [x] Pattern properties now transpile to `{ prop: var prop }` syntax
+- [x] Added 3 comprehensive tests for match expressions (2 parser + 1 transpiler)
+- [x] Updated unions_and_match.nl to use actual match expressions
+- [x] All 114 tests passing (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
+
 ## 🚧 In Progress
 
-None currently - v1.5 complete!
+None currently - v1.6 complete!
 
 ## 📋 Next Steps
 
@@ -139,7 +147,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 111 unit tests passing** (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
+- **All 114 unit tests passing** (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -151,4 +159,5 @@ The compiler successfully:
 - **Qualified type names support (v1.5)**
 - **Type alias resolution in type checking (v1.5)**
 - **String enum and top-level function fixes (v1.5)**
+- **Match expressions fully working with proper pattern transpilation (v1.6)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

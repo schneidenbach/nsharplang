@@ -146,7 +146,25 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.5 (Latest - Parser and Transpiler Improvements)
+### v1.6 (Latest - Match Expression Fixes)
+1. **Pattern parsing for qualified names**: ✅ CRITICAL bug fixed - patterns can now use qualified type names
+   - Updated `ParsePattern` to handle dotted names like `Result.Success`
+   - Added while loop to consume `.` and additional identifiers
+   - Enables proper union case pattern matching
+2. **Pattern transpilation improvements**: ✅ CRITICAL bug fixed - proper C# property pattern syntax
+   - Updated `TranspileUnionCasePattern` to emit `{ prop: var prop }` syntax
+   - When no explicit binding name, uses property name as binding
+   - Generates valid C# switch expression patterns
+3. **Test coverage**: ✅ 114 tests total (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
+   - Added `TestMatchExpression` parser test (literal patterns)
+   - Added `TestMatchExpressionWithUnionPattern` parser test (union case patterns)
+   - Added `TestMatchExpressionTranspilation` transpiler test
+4. **Example update**: ✅ `examples/unions_and_match.nl` now uses real match expressions
+   - Replaced if-else chains with proper match expressions
+   - Demonstrates exhaustive pattern matching on union types
+   - Successfully compiles and runs
+
+### v1.5 (Parser and Transpiler Improvements)
 1. **Qualified type names**: ✅ Support for dotted type names like `Result.Success`
    - Updated `ParseBaseTypeReference` to handle `Type.Name` syntax
    - Allows union case types to be referenced properly

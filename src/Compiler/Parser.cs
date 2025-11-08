@@ -1238,6 +1238,13 @@ public class Parser
         {
             var name = Advance().Value;
 
+            // Handle qualified names (e.g., Result.Success)
+            while (Check(TokenType.Dot))
+            {
+                Advance();
+                name += "." + ConsumeIdentifier("Expected identifier after '.'");
+            }
+
             // Union case pattern with properties
             if (Check(TokenType.LeftBrace))
             {
