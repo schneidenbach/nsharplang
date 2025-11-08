@@ -1,0 +1,2036 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using NewCLILang.Compiler.Ast;
+
+namespace NewCLILang.Compiler;
+
+public class Parser
+{
+    private readonly List<Token> _tokens;
+    private readonly string? _fileName;
+    private int _position;
+
+    public Parser(List<Token> tokens, string? fileName = null)
+    {
+        _tokens = tokens.Where(t => t.Type != TokenType.Newline).ToList();
+        _fileName = fileName;
+    }
+
+    public CompilationUnit ParseCompilationUnit()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Parse namespace (optional, file-scoped)
+        NamespaceDeclaration? namespaceDecl = null;
+        if (Check(TokenType.Namespace))
+        {
+            namespaceDecl = ParseNamespace();
+        }
+
+        // Parse using directives
+        var usings = new List<UsingDirective>();
+        while (Check(TokenType.Using))
+        {
+            usings.Add(ParseUsing());
+        }
+
+        // Parse top-level declarations
+        var declarations = new List<Declaration>();
+        while (!IsAtEnd())
+        {
+            declarations.Add(ParseDeclaration());
+        }
+
+        return new CompilationUnit(namespaceDecl, usings, declarations, line, column);
+    }
+
+    private NamespaceDeclaration ParseNamespace()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Namespace, "Expected 'namespace'");
+        var name = ParseQualifiedName();
+        return new NamespaceDeclaration(name, line, column);
+    }
+
+    private UsingDirective ParseUsing()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Using, "Expected 'using'");
+
+        // Check for alias
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Assign)
+        {
+            var alias = Advance().Value;
+            Consume(TokenType.Assign, "Expected '='");
+            var ns = ParseQualifiedName();
+            return new UsingDirective(ns, alias, line, column);
+        }
+
+        var namespaceName = ParseQualifiedName();
+        return new UsingDirective(namespaceName, null, line, column);
+    }
+
+    private string ParseQualifiedName()
+    {
+        var parts = new List<string> { ConsumeIdentifier("Expected identifier") };
+        while (Check(TokenType.Dot))
+        {
+            Advance();
+            parts.Add(ConsumeIdentifier("Expected identifier after '.'"));
+        }
+        return string.Join(".", parts);
+    }
+
+    private Declaration ParseDeclaration()
+    {
+        var attributes = ParseAttributes();
+        var modifiers = ParseModifiers();
+
+        if (Check(TokenType.Func))
+            return ParseFunctionDeclaration(attributes, modifiers);
+        if (Check(TokenType.Class))
+            return ParseClassDeclaration(attributes, modifiers);
+        if (Check(TokenType.Struct))
+            return ParseStructDeclaration(attributes, modifiers);
+        if (Check(TokenType.Record))
+            return ParseRecordDeclaration(attributes, modifiers);
+        if (Check(TokenType.Interface) || (Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface))
+            return ParseInterfaceDeclaration(attributes, modifiers);
+        if (Check(TokenType.Union))
+            return ParseUnionDeclaration(attributes, modifiers);
+        if (Check(TokenType.Enum))
+            return ParseEnumDeclaration(attributes, modifiers);
+        if (Check(TokenType.Type))
+            return ParseTypeAliasDeclaration();
+
+        throw new Exception($"Unexpected token '{Current.Value}' at {Current.Line}:{Current.Column}");
+    }
+
+    private List<AttributeNode> ParseAttributes()
+    {
+        var attributes = new List<AttributeNode>();
+        while (Check(TokenType.LeftBracket))
+        {
+            Advance();
+            var name = ConsumeIdentifier("Expected attribute name");
+            var args = new List<Argument>();
+
+            if (Check(TokenType.LeftParen))
+            {
+                args = ParseArgumentList();
+            }
+
+            attributes.Add(new AttributeNode(name, args));
+            Consume(TokenType.RightBracket, "Expected ']'");
+        }
+        return attributes;
+    }
+
+    private Modifiers ParseModifiers()
+    {
+        var modifiers = Modifiers.None;
+
+        while (true)
+        {
+            if (Check(TokenType.Static))
+            {
+                modifiers |= Modifiers.Static;
+                Advance();
+            }
+            else if (Check(TokenType.Internal))
+            {
+                modifiers |= Modifiers.Internal;
+                Advance();
+            }
+            else if (Check(TokenType.Protected))
+            {
+                modifiers |= Modifiers.Protected;
+                Advance();
+            }
+            else if (Check(TokenType.Virtual))
+            {
+                modifiers |= Modifiers.Virtual;
+                Advance();
+            }
+            else if (Check(TokenType.Abstract))
+            {
+                modifiers |= Modifiers.Abstract;
+                Advance();
+            }
+            else if (Check(TokenType.Sealed))
+            {
+                modifiers |= Modifiers.Sealed;
+                Advance();
+            }
+            else if (Check(TokenType.Partial))
+            {
+                modifiers |= Modifiers.Partial;
+                Advance();
+            }
+            else if (Check(TokenType.Readonly))
+            {
+                modifiers |= Modifiers.Readonly;
+                Advance();
+            }
+            else if (Check(TokenType.Async))
+            {
+                modifiers |= Modifiers.Async;
+                Advance();
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return modifiers;
+    }
+
+    private FunctionDeclaration ParseFunctionDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Func, "Expected 'func'");
+
+        if (Check(TokenType.Star))
+        {
+            modifiers |= Modifiers.Generator;
+            Advance();
+        }
+
+        var name = ConsumeIdentifier("Expected function name");
+        var typeParams = ParseTypeParameters();
+        var parameters = ParseParameterList();
+
+        TypeReference? returnType = null;
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            returnType = ParseTypeReference();
+        }
+
+        var constraints = ParseGenericConstraints();
+
+        BlockStatement? body = null;
+        if (Check(TokenType.LeftBrace))
+        {
+            body = ParseBlock();
+        }
+
+        return new FunctionDeclaration(name, parameters, returnType, body, typeParams, constraints, modifiers, attributes, line, column);
+    }
+
+    private List<TypeParameter>? ParseTypeParameters()
+    {
+        if (!Check(TokenType.Less))
+            return null;
+
+        Advance();
+        var typeParams = new List<TypeParameter>();
+
+        do
+        {
+            var name = ConsumeIdentifier("Expected type parameter name");
+            typeParams.Add(new TypeParameter(name));
+        } while (Match(TokenType.Comma));
+
+        Consume(TokenType.Greater, "Expected '>'");
+        return typeParams;
+    }
+
+    private List<Parameter> ParseParameterList()
+    {
+        Consume(TokenType.LeftParen, "Expected '('");
+        var parameters = new List<Parameter>();
+
+        if (!Check(TokenType.RightParen))
+        {
+            do
+            {
+                var isThis = false;
+                if (Check(TokenType.This))
+                {
+                    isThis = true;
+                    Advance();
+                }
+
+                var paramName = ConsumeIdentifier("Expected parameter name");
+                Consume(TokenType.Colon, "Expected ':' after parameter name");
+                var paramType = ParseTypeReference();
+
+                Expression? defaultValue = null;
+                if (Check(TokenType.Assign))
+                {
+                    Advance();
+                    defaultValue = ParseExpression();
+                }
+
+                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis));
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightParen, "Expected ')'");
+        return parameters;
+    }
+
+    private List<GenericConstraint>? ParseGenericConstraints()
+    {
+        if (!Check(TokenType.Where))
+            return null;
+
+        var constraints = new List<GenericConstraint>();
+
+        while (Check(TokenType.Where))
+        {
+            Advance();
+            var typeParam = ConsumeIdentifier("Expected type parameter");
+            Consume(TokenType.Colon, "Expected ':'");
+
+            var constraintTypes = new List<TypeReference> { ParseTypeReference() };
+            while (Match(TokenType.Comma))
+            {
+                constraintTypes.Add(ParseTypeReference());
+            }
+
+            constraints.Add(new GenericConstraint(typeParam, constraintTypes));
+        }
+
+        return constraints;
+    }
+
+    private ClassDeclaration ParseClassDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Class, "Expected 'class'");
+
+        var name = ConsumeIdentifier("Expected class name");
+        var typeParams = ParseTypeParameters();
+
+        TypeReference? baseClass = null;
+        var interfaces = new List<TypeReference>();
+
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            var types = new List<TypeReference> { ParseTypeReference() };
+
+            while (Match(TokenType.Comma))
+            {
+                types.Add(ParseTypeReference());
+            }
+
+            // First non-interface type is base class
+            baseClass = types.FirstOrDefault();
+            interfaces = types.Skip(1).ToList();
+        }
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var members = new List<Declaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            members.Add(ParseMemberDeclaration());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, modifiers, attributes, line, column);
+    }
+
+    private StructDeclaration ParseStructDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Struct, "Expected 'struct'");
+
+        var name = ConsumeIdentifier("Expected struct name");
+        var typeParams = ParseTypeParameters();
+
+        var interfaces = new List<TypeReference>();
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            do
+            {
+                interfaces.Add(ParseTypeReference());
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var members = new List<Declaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            members.Add(ParseMemberDeclaration());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new StructDeclaration(name, typeParams, interfaces, members, modifiers, attributes, line, column);
+    }
+
+    private RecordDeclaration ParseRecordDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Record, "Expected 'record'");
+
+        var name = ConsumeIdentifier("Expected record name");
+        var typeParams = ParseTypeParameters();
+
+        var interfaces = new List<TypeReference>();
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            do
+            {
+                interfaces.Add(ParseTypeReference());
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var members = new List<Declaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            members.Add(ParseMemberDeclaration());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new RecordDeclaration(name, typeParams, interfaces, members, modifiers, attributes, line, column);
+    }
+
+    private InterfaceDeclaration ParseInterfaceDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        var isDuck = false;
+
+        if (Check(TokenType.Duck))
+        {
+            isDuck = true;
+            Advance();
+        }
+
+        Consume(TokenType.Interface, "Expected 'interface'");
+        var name = ConsumeIdentifier("Expected interface name");
+        var typeParams = ParseTypeParameters();
+
+        var baseInterfaces = new List<TypeReference>();
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            do
+            {
+                baseInterfaces.Add(ParseTypeReference());
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var members = new List<Declaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            members.Add(ParseMemberDeclaration());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, line, column);
+    }
+
+    private UnionDeclaration ParseUnionDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Union, "Expected 'union'");
+
+        var name = ConsumeIdentifier("Expected union name");
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var cases = new List<UnionCase>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            var caseName = ConsumeIdentifier("Expected union case name");
+            List<UnionCaseProperty>? properties = null;
+
+            if (Check(TokenType.LeftBrace))
+            {
+                Advance();
+                properties = new List<UnionCaseProperty>();
+
+                while (!Check(TokenType.RightBrace))
+                {
+                    var propName = ConsumeIdentifier("Expected property name");
+                    Consume(TokenType.Colon, "Expected ':'");
+                    var propType = ParseTypeReference();
+                    properties.Add(new UnionCaseProperty(propName, propType));
+
+                    if (!Check(TokenType.RightBrace))
+                        Match(TokenType.Comma);
+                }
+
+                Consume(TokenType.RightBrace, "Expected '}'");
+            }
+
+            cases.Add(new UnionCase(caseName, properties));
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new UnionDeclaration(name, cases, modifiers, attributes, line, column);
+    }
+
+    private EnumDeclaration ParseEnumDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Enum, "Expected 'enum'");
+
+        var name = ConsumeIdentifier("Expected enum name");
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var members = new List<EnumMember>();
+        var enumType = EnumType.Int; // Default to int, will infer from first value
+
+        if (!Check(TokenType.RightBrace))
+        {
+            do
+            {
+                var memberName = ConsumeIdentifier("Expected enum member name");
+                Expression? value = null;
+
+                if (Check(TokenType.Assign))
+                {
+                    Advance();
+                    value = ParseExpression();
+
+                    // Infer enum type from first assigned value
+                    if (members.Count == 0 && value is StringLiteralExpression)
+                    {
+                        enumType = EnumType.String;
+                    }
+                }
+
+                members.Add(new EnumMember(memberName, value));
+
+                if (Check(TokenType.Comma))
+                    Advance();
+                else
+                    break;
+            } while (!Check(TokenType.RightBrace) && !IsAtEnd());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new EnumDeclaration(name, members, enumType, modifiers, attributes, line, column);
+    }
+
+    private TypeAliasDeclaration ParseTypeAliasDeclaration()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Type, "Expected 'type'");
+
+        var name = ConsumeIdentifier("Expected type alias name");
+        Consume(TokenType.Assign, "Expected '='");
+        var type = ParseTypeReference();
+
+        return new TypeAliasDeclaration(name, type, line, column);
+    }
+
+    private Declaration ParseMemberDeclaration()
+    {
+        var attributes = ParseAttributes();
+        var modifiers = ParseModifiers();
+
+        // Constructor
+        if (Check(TokenType.Identifier) && Current.Value == "constructor")
+        {
+            return ParseConstructorDeclaration(attributes, modifiers);
+        }
+
+        // Function
+        if (Check(TokenType.Func))
+        {
+            return ParseFunctionDeclaration(attributes, modifiers);
+        }
+
+        // Indexer
+        if (Check(TokenType.Func) && LookAhead(1).Type == TokenType.This)
+        {
+            return ParseIndexerDeclaration(attributes, modifiers);
+        }
+
+        // Field/Property
+        return ParseFieldDeclaration(attributes, modifiers);
+    }
+
+    private ConstructorDeclaration ParseConstructorDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Identifier, "Expected 'constructor'");
+
+        var parameters = ParseParameterList();
+        var body = ParseBlock();
+
+        return new ConstructorDeclaration(parameters, body, modifiers, attributes, line, column);
+    }
+
+    private IndexerDeclaration ParseIndexerDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Func, "Expected 'func'");
+        Consume(TokenType.This, "Expected 'this'");
+
+        Consume(TokenType.LeftBracket, "Expected '['");
+        var parameters = new List<Parameter>();
+
+        if (!Check(TokenType.RightBracket))
+        {
+            do
+            {
+                var paramName = ConsumeIdentifier("Expected parameter name");
+                Consume(TokenType.Colon, "Expected ':'");
+                var paramType = ParseTypeReference();
+                parameters.Add(new Parameter(paramName, paramType, null, false));
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightBracket, "Expected ']'");
+        Consume(TokenType.Colon, "Expected ':'");
+        var returnType = ParseTypeReference();
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+
+        BlockStatement? getBody = null;
+        BlockStatement? setBody = null;
+
+        while (!Check(TokenType.RightBrace))
+        {
+            var accessor = ConsumeIdentifier("Expected 'get' or 'set'");
+
+            if (accessor == "get")
+            {
+                getBody = ParseBlock();
+            }
+            else if (accessor == "set")
+            {
+                setBody = ParseBlock();
+            }
+            else
+            {
+                throw new Exception($"Expected 'get' or 'set', got '{accessor}'");
+            }
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new IndexerDeclaration(parameters, returnType, getBody, setBody, modifiers, attributes, line, column);
+    }
+
+    private FieldDeclaration ParseFieldDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        var name = ConsumeIdentifier("Expected field name");
+
+        Consume(TokenType.Colon, "Expected ':'");
+        var type = ParseTypeReference();
+
+        Expression? initializer = null;
+        if (Check(TokenType.Assign))
+        {
+            Advance();
+            initializer = ParseExpression();
+        }
+
+        return new FieldDeclaration(name, type, initializer, modifiers, attributes, line, column);
+    }
+
+    private TypeReference ParseTypeReference()
+    {
+        var baseType = ParseBaseTypeReference();
+
+        // Array type
+        while (Check(TokenType.LeftBracket))
+        {
+            Advance();
+            Consume(TokenType.RightBracket, "Expected ']'");
+            baseType = new ArrayTypeReference(baseType);
+        }
+
+        // Nullable type
+        if (Check(TokenType.Question))
+        {
+            Advance();
+            baseType = new NullableTypeReference(baseType);
+        }
+
+        return baseType;
+    }
+
+    private TypeReference ParseBaseTypeReference()
+    {
+        // Tuple type
+        if (Check(TokenType.LeftParen))
+        {
+            return ParseTupleTypeReference();
+        }
+
+        // Func<> type
+        if (Check(TokenType.Identifier) && Current.Value == "Func")
+        {
+            return ParseFunctionTypeReference();
+        }
+
+        // Simple or generic type
+        var name = ConsumeIdentifier("Expected type name");
+
+        if (Check(TokenType.Less))
+        {
+            Advance();
+            var typeArgs = new List<TypeReference> { ParseTypeReference() };
+
+            while (Match(TokenType.Comma))
+            {
+                typeArgs.Add(ParseTypeReference());
+            }
+
+            Consume(TokenType.Greater, "Expected '>'");
+            return new GenericTypeReference(name, typeArgs);
+        }
+
+        return new SimpleTypeReference(name);
+    }
+
+    private TupleTypeReference ParseTupleTypeReference()
+    {
+        Consume(TokenType.LeftParen, "Expected '('");
+        var elements = new List<TupleTypeElement>();
+
+        do
+        {
+            string? name = null;
+
+            // Check for named element: (name: type) or (type)
+            if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon)
+            {
+                name = Advance().Value;
+                Advance(); // consume colon
+            }
+
+            var type = ParseTypeReference();
+            elements.Add(new TupleTypeElement(type, name));
+
+        } while (Match(TokenType.Comma));
+
+        Consume(TokenType.RightParen, "Expected ')'");
+        return new TupleTypeReference(elements);
+    }
+
+    private FunctionTypeReference ParseFunctionTypeReference()
+    {
+        Consume(TokenType.Identifier, "Expected 'Func'");
+        Consume(TokenType.Less, "Expected '<'");
+
+        var paramTypes = new List<TypeReference>();
+        var returnType = ParseTypeReference();
+
+        while (Match(TokenType.Comma))
+        {
+            paramTypes.Add(returnType);
+            returnType = ParseTypeReference();
+        }
+
+        Consume(TokenType.Greater, "Expected '>'");
+
+        // Last type is return type, rest are parameters
+        return new FunctionTypeReference(paramTypes, returnType);
+    }
+
+    private BlockStatement ParseBlock()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.LeftBrace, "Expected '{'");
+
+        var statements = new List<Statement>();
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            statements.Add(ParseStatement());
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+        return new BlockStatement(statements, line, column);
+    }
+
+    private Statement ParseStatement()
+    {
+        if (Check(TokenType.Let))
+            return ParseVariableDeclaration(VariableKind.Let);
+        if (Check(TokenType.Const))
+            return ParseVariableDeclaration(VariableKind.Const);
+        if (Check(TokenType.Readonly))
+            return ParseVariableDeclaration(VariableKind.Readonly);
+        if (Check(TokenType.If))
+            return ParseIfStatement();
+        if (Check(TokenType.For))
+            return ParseForStatement();
+        if (Check(TokenType.Foreach))
+            return ParseForeachStatement();
+        if (Check(TokenType.While))
+            return ParseWhileStatement();
+        if (Check(TokenType.Return))
+            return ParseReturnStatement();
+        if (Check(TokenType.Yield))
+            return ParseYieldStatement();
+        if (Check(TokenType.Break))
+            return ParseBreakStatement();
+        if (Check(TokenType.Continue))
+            return ParseContinueStatement();
+        if (Check(TokenType.Throw))
+            return ParseThrowStatement();
+        if (Check(TokenType.Try))
+            return ParseTryStatement();
+        if (Check(TokenType.Using))
+            return ParseUsingStatement();
+        if (Check(TokenType.Switch))
+            return ParseSwitchStatement();
+        if (Check(TokenType.LeftBrace))
+            return ParseBlock();
+
+        // Expression statement (or shorthand declaration with :=)
+        return ParseExpressionStatement();
+    }
+
+    private VariableDeclarationStatement ParseVariableDeclaration(VariableKind kind)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // consume let/const/readonly
+
+        var name = ConsumeIdentifier("Expected variable name");
+
+        TypeReference? type = null;
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            type = ParseTypeReference();
+        }
+
+        Expression? initializer = null;
+        if (Check(TokenType.Assign))
+        {
+            Advance();
+            initializer = ParseExpression();
+        }
+
+        return new VariableDeclarationStatement(name, type, initializer, kind, line, column);
+    }
+
+    private IfStatement ParseIfStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.If, "Expected 'if'");
+
+        var condition = ParseExpression();
+        var thenStatement = ParseStatement();
+
+        Statement? elseStatement = null;
+        if (Check(TokenType.Else))
+        {
+            Advance();
+            elseStatement = ParseStatement();
+        }
+
+        return new IfStatement(condition, thenStatement, elseStatement, line, column);
+    }
+
+    private ForStatement ParseForStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.For, "Expected 'for'");
+
+        // Check for foreach-style: for item in collection
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In)
+        {
+            var varName = Advance().Value;
+            Consume(TokenType.In, "Expected 'in'");
+            var collection = ParseExpression();
+            var body = ParseStatement();
+            return new ForStatement(null, null, null,
+                new ForeachStatement(varName, collection, body, line, column), line, column);
+        }
+
+        // C-style for loop
+        Statement? initializer = null;
+        if (!Check(TokenType.Semicolon))
+        {
+            if (Check(TokenType.Let))
+            {
+                initializer = ParseVariableDeclaration(VariableKind.Let);
+            }
+            else
+            {
+                // This will handle both regular expressions and := shorthand declarations
+                var initLine = Current.Line;
+                var initCol = Current.Column;
+                var expr = ParseExpression();
+
+                // Check for := shorthand declaration
+                if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
+                {
+                    Advance();
+                    var init = ParseExpression();
+                    initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, initLine, initCol);
+                }
+                else
+                {
+                    initializer = new ExpressionStatement(expr, expr.Line, expr.Column);
+                }
+            }
+        }
+
+        Consume(TokenType.Semicolon, "Expected ';'");
+
+        Expression? condition = null;
+        if (!Check(TokenType.Semicolon))
+        {
+            condition = ParseExpression();
+        }
+
+        Consume(TokenType.Semicolon, "Expected ';'");
+
+        Expression? iterator = null;
+        if (!Check(TokenType.LeftBrace))
+        {
+            iterator = ParseExpression();
+        }
+
+        var forBody = ParseStatement();
+
+        return new ForStatement(initializer, condition, iterator, forBody, line, column);
+    }
+
+    private ForeachStatement ParseForeachStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Foreach, "Expected 'foreach'");
+
+        var varName = ConsumeIdentifier("Expected variable name");
+        Consume(TokenType.In, "Expected 'in'");
+        var collection = ParseExpression();
+        var body = ParseStatement();
+
+        return new ForeachStatement(varName, collection, body, line, column);
+    }
+
+    private WhileStatement ParseWhileStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.While, "Expected 'while'");
+
+        var condition = ParseExpression();
+        var body = ParseStatement();
+
+        return new WhileStatement(condition, body, line, column);
+    }
+
+    private ReturnStatement ParseReturnStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Return, "Expected 'return'");
+
+        Expression? value = null;
+        if (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            value = ParseExpression();
+        }
+
+        return new ReturnStatement(value, line, column);
+    }
+
+    private YieldStatement ParseYieldStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Yield, "Expected 'yield'");
+
+        var value = ParseExpression();
+        return new YieldStatement(value, line, column);
+    }
+
+    private BreakStatement ParseBreakStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Break, "Expected 'break'");
+        return new BreakStatement(line, column);
+    }
+
+    private ContinueStatement ParseContinueStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Continue, "Expected 'continue'");
+        return new ContinueStatement(line, column);
+    }
+
+    private ThrowStatement ParseThrowStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Throw, "Expected 'throw'");
+
+        var expr = ParseExpression();
+        return new ThrowStatement(expr, line, column);
+    }
+
+    private TryStatement ParseTryStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Try, "Expected 'try'");
+
+        var tryBlock = ParseBlock();
+        var catchClauses = new List<CatchClause>();
+
+        while (Check(TokenType.Catch))
+        {
+            Advance();
+
+            TypeReference? exceptionType = null;
+            string? varName = null;
+
+            if (Check(TokenType.LeftParen))
+            {
+                Advance();
+                if (!Check(TokenType.RightParen))
+                {
+                    exceptionType = ParseTypeReference();
+
+                    if (Check(TokenType.Identifier))
+                    {
+                        varName = Advance().Value;
+                    }
+                }
+                Consume(TokenType.RightParen, "Expected ')'");
+            }
+
+            var catchBlock = ParseBlock();
+            catchClauses.Add(new CatchClause(exceptionType, varName, catchBlock));
+        }
+
+        BlockStatement? finallyBlock = null;
+        if (Check(TokenType.Finally))
+        {
+            Advance();
+            finallyBlock = ParseBlock();
+        }
+
+        return new TryStatement(tryBlock, catchClauses, finallyBlock, line, column);
+    }
+
+    private UsingStatement ParseUsingStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Using, "Expected 'using'");
+
+        // using varName := expr { ... } or using varName := expr (no block)
+        if (Check(TokenType.Identifier) || Check(TokenType.Let))
+        {
+            VariableDeclarationStatement? decl = null;
+
+            if (Check(TokenType.Let))
+            {
+                decl = ParseVariableDeclaration(VariableKind.Let);
+            }
+            else
+            {
+                var varName = ConsumeIdentifier("Expected variable name");
+                Consume(TokenType.ColonAssign, "Expected ':='");
+                var init = ParseExpression();
+                decl = new VariableDeclarationStatement(varName, null, init, VariableKind.Let, line, column);
+            }
+
+            Statement? body = null;
+            if (Check(TokenType.LeftBrace))
+            {
+                body = ParseBlock();
+            }
+
+            return new UsingStatement(decl, null, body, line, column);
+        }
+
+        // using (expr) or using expr
+        var expr = ParseExpression();
+        Statement? usingBody = null;
+
+        if (Check(TokenType.LeftBrace))
+        {
+            usingBody = ParseBlock();
+        }
+
+        return new UsingStatement(null, expr, usingBody, line, column);
+    }
+
+    private SwitchStatement ParseSwitchStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Switch, "Expected 'switch'");
+
+        var value = ParseExpression();
+        Consume(TokenType.LeftBrace, "Expected '{'");
+
+        var cases = new List<SwitchCase>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            Pattern? pattern = null;
+
+            if (Check(TokenType.Case))
+            {
+                Advance();
+                pattern = ParsePattern();
+            }
+            else if (Check(TokenType.Default))
+            {
+                Advance();
+                pattern = null;
+            }
+            else
+            {
+                throw new Exception($"Expected 'case' or 'default' at {Current.Line}:{Current.Column}");
+            }
+
+            Consume(TokenType.Arrow, "Expected '=>'");
+
+            var statements = new List<Statement>();
+            if (Check(TokenType.LeftBrace))
+            {
+                var block = ParseBlock();
+                statements.AddRange(block.Statements);
+            }
+            else
+            {
+                statements.Add(ParseStatement());
+            }
+
+            cases.Add(new SwitchCase(pattern, statements));
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new SwitchStatement(value, cases, line, column);
+    }
+
+    private Pattern ParsePattern()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Literal pattern
+        if (Check(TokenType.IntLiteral) || Check(TokenType.StringLiteral) ||
+            Check(TokenType.True) || Check(TokenType.False) || Check(TokenType.Null))
+        {
+            var literal = ParsePrimaryExpression();
+            return new LiteralPattern(literal, line, column);
+        }
+
+        // Union case or identifier pattern
+        if (Check(TokenType.Identifier))
+        {
+            var name = Advance().Value;
+
+            // Union case pattern with properties
+            if (Check(TokenType.LeftBrace))
+            {
+                Advance();
+                var props = new List<PropertyPattern>();
+
+                while (!Check(TokenType.RightBrace))
+                {
+                    var propName = ConsumeIdentifier("Expected property name");
+                    string? bindingName = null;
+
+                    if (Check(TokenType.Identifier))
+                    {
+                        bindingName = Advance().Value;
+                    }
+
+                    props.Add(new PropertyPattern(propName, bindingName));
+
+                    if (!Check(TokenType.RightBrace))
+                        Match(TokenType.Comma);
+                }
+
+                Consume(TokenType.RightBrace, "Expected '}'");
+                return new UnionCasePattern(name, props, line, column);
+            }
+
+            // Simple identifier pattern
+            return new IdentifierPattern(name, line, column);
+        }
+
+        throw new Exception($"Invalid pattern at {line}:{column}");
+    }
+
+    private Statement ParseExpressionStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        var expr = ParseExpression();
+
+        // Check for := shorthand declaration
+        if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
+        {
+            Advance();
+            var initializer = ParseExpression();
+            return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, line, column);
+        }
+
+        return new ExpressionStatement(expr, line, column);
+    }
+
+    // Expression parsing with precedence climbing
+    private Expression ParseExpression()
+    {
+        return ParseLambdaOrAssignmentExpression();
+    }
+
+    private Expression ParseLambdaOrAssignmentExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Single parameter lambda: x => expr
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
+        {
+            var param = Advance().Value;
+            Advance(); // consume =>
+
+            if (Check(TokenType.LeftBrace))
+            {
+                var body = ParseBlock();
+                return new LambdaExpression(
+                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false) },
+                    null, body, line, column);
+            }
+            else
+            {
+                var exprBody = ParseExpression();
+                return new LambdaExpression(
+                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false) },
+                    exprBody, null, line, column);
+            }
+        }
+
+        // Multi-parameter lambda: (x, y) => expr
+        if (Check(TokenType.LeftParen) && IsLambdaExpression())
+        {
+            return ParseMultiParameterLambda();
+        }
+
+        return ParseAssignmentExpression();
+    }
+
+    private Expression ParseAssignmentExpression()
+    {
+        var expr = ParseTernaryExpression();
+
+        if (Check(TokenType.Assign) || Check(TokenType.PlusAssign) || Check(TokenType.MinusAssign) ||
+            Check(TokenType.StarAssign) || Check(TokenType.SlashAssign) || Check(TokenType.QuestionQuestionAssign))
+        {
+            var op = Current.Type switch
+            {
+                TokenType.Assign => AssignmentOperator.Assign,
+                TokenType.PlusAssign => AssignmentOperator.AddAssign,
+                TokenType.MinusAssign => AssignmentOperator.SubtractAssign,
+                TokenType.StarAssign => AssignmentOperator.MultiplyAssign,
+                TokenType.SlashAssign => AssignmentOperator.DivideAssign,
+                TokenType.QuestionQuestionAssign => AssignmentOperator.NullCoalesceAssign,
+                _ => throw new Exception("Invalid assignment operator")
+            };
+
+            var opToken = Advance();
+            var right = ParseAssignmentExpression();
+            return new AssignmentExpression(expr, op, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseTernaryExpression()
+    {
+        var expr = ParseNullCoalescingExpression();
+
+        if (Check(TokenType.Question))
+        {
+            var questionToken = Advance();
+            var thenExpr = ParseExpression();
+            Consume(TokenType.Colon, "Expected ':' in ternary expression");
+            var elseExpr = ParseExpression();
+            return new TernaryExpression(expr, thenExpr, elseExpr, questionToken.Line, questionToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseNullCoalescingExpression()
+    {
+        var expr = ParseLogicalOrExpression();
+
+        while (Check(TokenType.QuestionQuestion))
+        {
+            var opToken = Advance();
+            var right = ParseLogicalOrExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.NullCoalesce, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseLogicalOrExpression()
+    {
+        var expr = ParseLogicalAndExpression();
+
+        while (Check(TokenType.Or))
+        {
+            var opToken = Advance();
+            var right = ParseLogicalAndExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.Or, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseLogicalAndExpression()
+    {
+        var expr = ParseBitwiseOrExpression();
+
+        while (Check(TokenType.And))
+        {
+            var opToken = Advance();
+            var right = ParseBitwiseOrExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.And, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseBitwiseOrExpression()
+    {
+        var expr = ParseBitwiseXorExpression();
+
+        while (Check(TokenType.BitwiseOr))
+        {
+            var opToken = Advance();
+            var right = ParseBitwiseXorExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.BitwiseOr, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseBitwiseXorExpression()
+    {
+        var expr = ParseBitwiseAndExpression();
+
+        while (Check(TokenType.BitwiseXor))
+        {
+            var opToken = Advance();
+            var right = ParseBitwiseAndExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.BitwiseXor, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseBitwiseAndExpression()
+    {
+        var expr = ParseEqualityExpression();
+
+        while (Check(TokenType.BitwiseAnd))
+        {
+            var opToken = Advance();
+            var right = ParseEqualityExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.BitwiseAnd, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseEqualityExpression()
+    {
+        var expr = ParseRelationalExpression();
+
+        while (Check(TokenType.Equal) || Check(TokenType.NotEqual))
+        {
+            var op = Current.Type == TokenType.Equal ? BinaryOperator.Equal : BinaryOperator.NotEqual;
+            var opToken = Advance();
+            var right = ParseRelationalExpression();
+            expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseRelationalExpression()
+    {
+        var expr = ParseShiftExpression();
+
+        while (Check(TokenType.Less) || Check(TokenType.LessEqual) ||
+               Check(TokenType.Greater) || Check(TokenType.GreaterEqual) ||
+               Check(TokenType.Is) || Check(TokenType.As))
+        {
+            if (Check(TokenType.Is))
+            {
+                var isToken = Advance();
+                var type = ParseTypeReference();
+                string? varName = null;
+
+                if (Check(TokenType.Identifier))
+                {
+                    varName = Advance().Value;
+                }
+
+                expr = new IsExpression(expr, type, varName, isToken.Line, isToken.Column);
+            }
+            else if (Check(TokenType.As))
+            {
+                var asToken = Advance();
+                var type = ParseTypeReference();
+                expr = new CastExpression(expr, type, CastKind.Safe, asToken.Line, asToken.Column);
+            }
+            else
+            {
+                var op = Current.Type switch
+                {
+                    TokenType.Less => BinaryOperator.Less,
+                    TokenType.LessEqual => BinaryOperator.LessOrEqual,
+                    TokenType.Greater => BinaryOperator.Greater,
+                    TokenType.GreaterEqual => BinaryOperator.GreaterOrEqual,
+                    _ => throw new Exception("Invalid relational operator")
+                };
+
+                var opToken = Advance();
+                var right = ParseShiftExpression();
+                expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
+            }
+        }
+
+        return expr;
+    }
+
+    private Expression ParseShiftExpression()
+    {
+        var expr = ParseAdditiveExpression();
+
+        while (Check(TokenType.LeftShift) || Check(TokenType.RightShift))
+        {
+            var op = Current.Type == TokenType.LeftShift ? BinaryOperator.LeftShift : BinaryOperator.RightShift;
+            var opToken = Advance();
+            var right = ParseAdditiveExpression();
+            expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseAdditiveExpression()
+    {
+        var expr = ParseMultiplicativeExpression();
+
+        while (Check(TokenType.Plus) || Check(TokenType.Minus))
+        {
+            var op = Current.Type == TokenType.Plus ? BinaryOperator.Add : BinaryOperator.Subtract;
+            var opToken = Advance();
+            var right = ParseMultiplicativeExpression();
+            expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseMultiplicativeExpression()
+    {
+        var expr = ParseRangeExpression();
+
+        while (Check(TokenType.Star) || Check(TokenType.Slash) || Check(TokenType.Percent))
+        {
+            var op = Current.Type switch
+            {
+                TokenType.Star => BinaryOperator.Multiply,
+                TokenType.Slash => BinaryOperator.Divide,
+                TokenType.Percent => BinaryOperator.Modulo,
+                _ => throw new Exception("Invalid multiplicative operator")
+            };
+
+            var opToken = Advance();
+            var right = ParseRangeExpression();
+            expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseRangeExpression()
+    {
+        var expr = ParseUnaryExpression();
+
+        if (Check(TokenType.DotDot))
+        {
+            var opToken = Advance();
+            var right = ParseUnaryExpression();
+            expr = new BinaryExpression(expr, BinaryOperator.Range, right, opToken.Line, opToken.Column);
+        }
+
+        return expr;
+    }
+
+    private Expression ParseUnaryExpression()
+    {
+        if (Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) ||
+            Check(TokenType.Increment) || Check(TokenType.Decrement))
+        {
+            var op = Current.Type switch
+            {
+                TokenType.Not => UnaryOperator.Not,
+                TokenType.Minus => UnaryOperator.Negate,
+                TokenType.BitwiseNot => UnaryOperator.BitwiseNot,
+                TokenType.Increment => UnaryOperator.PreIncrement,
+                TokenType.Decrement => UnaryOperator.PreDecrement,
+                _ => throw new Exception("Invalid unary operator")
+            };
+
+            var opToken = Advance();
+            var operand = ParseUnaryExpression();
+            return new UnaryExpression(op, operand, opToken.Line, opToken.Column);
+        }
+
+        if (Check(TokenType.Await))
+        {
+            var awaitToken = Advance();
+            var expr = ParseUnaryExpression();
+            return new AwaitExpression(expr, awaitToken.Line, awaitToken.Column);
+        }
+
+        if (Check(TokenType.Throw))
+        {
+            var throwToken = Advance();
+            var expr = ParseUnaryExpression();
+            return new ThrowExpression(expr, throwToken.Line, throwToken.Column);
+        }
+
+        return ParsePostfixExpression();
+    }
+
+    private Expression ParsePostfixExpression()
+    {
+        var expr = ParsePrimaryExpression();
+
+        while (true)
+        {
+            if (Check(TokenType.Dot) || Check(TokenType.QuestionDot))
+            {
+                var isNullConditional = Check(TokenType.QuestionDot);
+                var dotToken = Advance();
+                var memberName = ConsumeIdentifier("Expected member name");
+                expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
+            }
+            else if (Check(TokenType.LeftBracket))
+            {
+                var bracketToken = Advance();
+                var index = ParseExpression();
+                Consume(TokenType.RightBracket, "Expected ']'");
+                expr = new IndexAccessExpression(expr, index, false, bracketToken.Line, bracketToken.Column);
+            }
+            else if (Check(TokenType.LeftParen))
+            {
+                var parenToken = Advance();
+                var args = ParseArgumentList();
+                expr = new CallExpression(expr, args, parenToken.Line, parenToken.Column);
+            }
+            else if (Check(TokenType.Increment))
+            {
+                var opToken = Advance();
+                expr = new UnaryExpression(UnaryOperator.PostIncrement, expr, opToken.Line, opToken.Column);
+            }
+            else if (Check(TokenType.Decrement))
+            {
+                var opToken = Advance();
+                expr = new UnaryExpression(UnaryOperator.PostDecrement, expr, opToken.Line, opToken.Column);
+            }
+            else if (Check(TokenType.With))
+            {
+                var withToken = Advance();
+                Consume(TokenType.LeftBrace, "Expected '{'");
+                var props = new List<PropertyInitializer>();
+
+                while (!Check(TokenType.RightBrace))
+                {
+                    var propName = ConsumeIdentifier("Expected property name");
+                    Consume(TokenType.Colon, "Expected ':'");
+                    var propValue = ParseExpression();
+                    props.Add(new PropertyInitializer(propName, propValue));
+
+                    if (!Check(TokenType.RightBrace))
+                        Match(TokenType.Comma);
+                }
+
+                Consume(TokenType.RightBrace, "Expected '}'");
+                expr = new WithExpression(expr, props, withToken.Line, withToken.Column);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
+    private List<Argument> ParseArgumentList()
+    {
+        var args = new List<Argument>();
+
+        if (!Check(TokenType.RightParen))
+        {
+            do
+            {
+                string? argName = null;
+
+                // Check for named argument
+                if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon)
+                {
+                    argName = Advance().Value;
+                    Advance(); // consume colon
+                }
+
+                var argValue = ParseExpression();
+                args.Add(new Argument(argName, argValue));
+
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightParen, "Expected ')'");
+        return args;
+    }
+
+    private Expression ParsePrimaryExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Literals
+        if (Check(TokenType.IntLiteral))
+            return new IntLiteralExpression(Advance().Value, line, column);
+
+        if (Check(TokenType.FloatLiteral))
+            return new FloatLiteralExpression(Advance().Value, line, column);
+
+        if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral))
+            return new StringLiteralExpression(Advance().Value, line, column);
+
+        if (Check(TokenType.True))
+        {
+            Advance();
+            return new BoolLiteralExpression(true, line, column);
+        }
+
+        if (Check(TokenType.False))
+        {
+            Advance();
+            return new BoolLiteralExpression(false, line, column);
+        }
+
+        if (Check(TokenType.Null))
+        {
+            Advance();
+            return new NullLiteralExpression(line, column);
+        }
+
+        // This and Base
+        if (Check(TokenType.This))
+        {
+            Advance();
+            return new ThisExpression(line, column);
+        }
+
+        if (Check(TokenType.Base))
+        {
+            Advance();
+            return new BaseExpression(line, column);
+        }
+
+        // Typeof and Sizeof
+        if (Check(TokenType.Typeof))
+        {
+            Advance();
+            Consume(TokenType.LeftParen, "Expected '('");
+            var type = ParseTypeReference();
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new TypeOfExpression(type, line, column);
+        }
+
+        if (Check(TokenType.Sizeof))
+        {
+            Advance();
+            Consume(TokenType.LeftParen, "Expected '('");
+            var type = ParseTypeReference();
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new SizeOfExpression(type, line, column);
+        }
+
+        // New expression
+        if (Check(TokenType.New))
+        {
+            return ParseNewExpression();
+        }
+
+        // Match expression
+        if (Check(TokenType.Match))
+        {
+            return ParseMatchExpression();
+        }
+
+        // Array literal
+        if (Check(TokenType.LeftBracket))
+        {
+            return ParseArrayLiteral();
+        }
+
+        // Tuple or parenthesized expression (lambdas are now handled at higher precedence)
+        if (Check(TokenType.LeftParen))
+        {
+            return ParseTupleOrParenthesizedExpression();
+        }
+
+        // Cast expression
+        if (Check(TokenType.LeftParen) && IsCastExpression())
+        {
+            Advance();
+            var castType = ParseTypeReference();
+            Consume(TokenType.RightParen, "Expected ')'");
+            var castExpr = ParseUnaryExpression();
+            return new CastExpression(castExpr, castType, CastKind.Hard, line, column);
+        }
+
+        // Spread operator
+        if (Check(TokenType.DotDotDot))
+        {
+            Advance();
+            var spreadExpr = ParseExpression();
+            return new SpreadExpression(spreadExpr, line, column);
+        }
+
+        // Identifier
+        if (Check(TokenType.Identifier))
+        {
+            var name = Advance().Value;
+            return new IdentifierExpression(name, line, column);
+        }
+
+        throw new Exception($"Unexpected token '{Current.Value}' at {line}:{column}");
+    }
+
+    private Expression ParseNewExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.New, "Expected 'new'");
+
+        var type = ParseTypeReference();
+        var args = new List<Argument>();
+
+        if (Check(TokenType.LeftParen))
+        {
+            Advance();
+            args = ParseArgumentList();
+        }
+
+        ObjectInitializerExpression? initializer = null;
+        if (Check(TokenType.LeftBrace))
+        {
+            Advance();
+            var props = new List<PropertyInitializer>();
+
+            while (!Check(TokenType.RightBrace))
+            {
+                var propName = ConsumeIdentifier("Expected property name");
+                Consume(TokenType.Colon, "Expected ':'");
+                var propValue = ParseExpression();
+                props.Add(new PropertyInitializer(propName, propValue));
+
+                if (!Check(TokenType.RightBrace))
+                    Match(TokenType.Comma);
+            }
+
+            Consume(TokenType.RightBrace, "Expected '}'");
+            initializer = new ObjectInitializerExpression(props, line, column);
+        }
+
+        return new NewExpression(type, args, initializer, line, column);
+    }
+
+    private Expression ParseMatchExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Match, "Expected 'match'");
+
+        var value = ParseExpression();
+        Consume(TokenType.LeftBrace, "Expected '{'");
+
+        var cases = new List<MatchCase>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            var pattern = ParsePattern();
+            Consume(TokenType.Arrow, "Expected '=>'");
+            var caseExpr = ParseExpression();
+            cases.Add(new MatchCase(pattern, caseExpr));
+
+            if (!Check(TokenType.RightBrace))
+                Match(TokenType.Comma);
+        }
+
+        Consume(TokenType.RightBrace, "Expected '}'");
+
+        return new MatchExpression(value, cases, line, column);
+    }
+
+    private Expression ParseArrayLiteral()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.LeftBracket, "Expected '['");
+
+        var elements = new List<Expression>();
+
+        if (!Check(TokenType.RightBracket))
+        {
+            do
+            {
+                elements.Add(ParseExpression());
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightBracket, "Expected ']'");
+
+        return new ArrayLiteralExpression(elements, false, line, column);
+    }
+
+    private Expression ParseTupleOrParenthesizedExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.LeftParen, "Expected '('");
+
+        // Empty tuple
+        if (Check(TokenType.RightParen))
+        {
+            Advance();
+            return new TupleExpression(new List<TupleElement>(), line, column);
+        }
+
+        // Single element or tuple
+        var firstExpr = ParseExpression();
+
+        // Check for named tuple element
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            var firstValue = ParseExpression();
+            var elements = new List<TupleElement>
+            {
+                new TupleElement(((IdentifierExpression)firstExpr).Name, firstValue)
+            };
+
+            while (Match(TokenType.Comma))
+            {
+                var elemName = ConsumeIdentifier("Expected identifier");
+                Consume(TokenType.Colon, "Expected ':'");
+                var elemValue = ParseExpression();
+                elements.Add(new TupleElement(elemName, elemValue));
+            }
+
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new TupleExpression(elements, line, column);
+        }
+
+        // Tuple with unnamed elements
+        if (Check(TokenType.Comma))
+        {
+            var elements = new List<TupleElement> { new TupleElement(null, firstExpr) };
+
+            while (Match(TokenType.Comma))
+            {
+                elements.Add(new TupleElement(null, ParseExpression()));
+            }
+
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new TupleExpression(elements, line, column);
+        }
+
+        // Parenthesized expression
+        Consume(TokenType.RightParen, "Expected ')'");
+        return firstExpr;
+    }
+
+    private Expression ParseMultiParameterLambda()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.LeftParen, "Expected '('");
+
+        var parameters = new List<Parameter>();
+
+        if (!Check(TokenType.RightParen))
+        {
+            do
+            {
+                var paramName = ConsumeIdentifier("Expected parameter name");
+                parameters.Add(new Parameter(paramName, new SimpleTypeReference("var"), null, false));
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightParen, "Expected ')'");
+        Consume(TokenType.Arrow, "Expected '=>'");
+
+        if (Check(TokenType.LeftBrace))
+        {
+            var body = ParseBlock();
+            return new LambdaExpression(parameters, null, body, line, column);
+        }
+        else
+        {
+            var exprBody = ParseExpression();
+            return new LambdaExpression(parameters, exprBody, null, line, column);
+        }
+    }
+
+    private bool IsLambdaExpression()
+    {
+        var saved = _position;
+        try
+        {
+            Advance(); // consume (
+
+            // Empty lambda
+            if (Check(TokenType.RightParen) && LookAhead(1).Type == TokenType.Arrow)
+                return true;
+
+            // Check for lambda parameters
+            while (!IsAtEnd())
+            {
+                if (!Check(TokenType.Identifier))
+                    return false;
+
+                Advance();
+
+                if (Check(TokenType.RightParen))
+                {
+                    return LookAhead(1).Type == TokenType.Arrow;
+                }
+
+                if (!Check(TokenType.Comma))
+                    return false;
+
+                Advance();
+            }
+
+            return false;
+        }
+        finally
+        {
+            _position = saved;
+        }
+    }
+
+    private bool IsCastExpression()
+    {
+        var saved = _position;
+        try
+        {
+            Advance(); // consume (
+
+            if (!Check(TokenType.Identifier))
+                return false;
+
+            Advance();
+
+            // Simple type cast: (TypeName)
+            if (Check(TokenType.RightParen))
+                return true;
+
+            // Generic or complex type
+            return false;
+        }
+        finally
+        {
+            _position = saved;
+        }
+    }
+
+    // Helper methods
+    private Token Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1];
+
+    private bool IsAtEnd() => Current.Type == TokenType.Eof;
+
+    private Token Advance()
+    {
+        if (!IsAtEnd())
+            _position++;
+        return _tokens[_position - 1];
+    }
+
+    private bool Check(TokenType type) => Current.Type == type;
+
+    private bool Match(TokenType type)
+    {
+        if (Check(type))
+        {
+            Advance();
+            return true;
+        }
+        return false;
+    }
+
+    private Token LookAhead(int offset)
+    {
+        var pos = _position + offset;
+        return pos < _tokens.Count ? _tokens[pos] : _tokens[^1];
+    }
+
+    private void Consume(TokenType type, string message)
+    {
+        if (!Check(type))
+            throw new Exception($"{message}. Got '{Current.Value}' at {Current.Line}:{Current.Column}");
+        Advance();
+    }
+
+    private string ConsumeIdentifier(string message)
+    {
+        if (!Check(TokenType.Identifier))
+            throw new Exception($"{message}. Got '{Current.Value}' at {Current.Line}:{Current.Column}");
+        return Advance().Value;
+    }
+}
