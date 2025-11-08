@@ -146,7 +146,47 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.36 (Interpolated Raw Strings) ✅ COMPLETE - LATEST!
+### v1.42 (Collection Expressions - C# 12) ✅ COMPLETE - LATEST!
+1. **Analyzer enhancement**: ✅ Added collection type support for array literals
+   - New helper: `IsCollectionType(TypeInfo, out TypeInfo elementType)`
+   - Detects GenericTypeInfo for List<T>, HashSet<T>, Queue<T>, Stack<T>, etc.
+   - Supports 15+ collection types including interfaces (IEnumerable<T>, IList<T>, etc.)
+   - Modified `IsAssignable` to allow array literals assigned to collection types
+   - Type-safe: checks element type compatibility before allowing assignment
+2. **Transpiler update**: ✅ Always emit C# 12 collection expression syntax
+   - Changed `TranspileArrayLiteral` to always return `[elements]` format
+   - Removed distinction between mutable and immutable for syntax emission
+   - Collection expressions are target-typed - C# compiler creates correct collection type
+   - Works for arrays, lists, sets, queues, stacks, and any IEnumerable-based collection
+3. **Test coverage**: ✅ 10 new tests (6 analyzer + 4 transpiler) = 376 total
+   - Analyzer: 6 tests for List, HashSet, Queue, IEnumerable, type mismatch, arrays
+   - Transpiler: 4 tests for List, HashSet, Queue, IEnumerable transpilation
+4. **Example**: ✅ examples/collection_expressions.nl
+   - Demonstrates List<T>, HashSet<T>, Queue<T>, Stack<T>, IEnumerable<T>
+   - Shows target-typed behavior
+5. **Documentation**: ✅ Updated DESIGN.md section on Arrays and Collections
+   - Added collection expression examples
+   - Documented supported collection types
+   - Explained target-typed behavior
+6. **Build status**: ✅ All 376 tests passing
+
+**Syntax:**
+```n#
+let numbers: List<int> = [1, 2, 3]          // Creates List<int>
+let unique: HashSet<string> = ["a", "b"]    // Creates HashSet<string>
+let tasks: Queue<string> = ["t1", "t2"]     // Creates Queue<string>
+```
+
+**Transpiles to C# 12:**
+```csharp
+List<int> numbers = [1, 2, 3];
+HashSet<string> unique = ["a", "b"];
+Queue<string> tasks = ["t1", "t2"];
+```
+
+**Impact:** Makes generic collections as easy to initialize as arrays! Modern C# 12 feature.
+
+### v1.36 (Interpolated Raw Strings) ✅ COMPLETE
 1. **New token type**: ✅ Added InterpolatedRawStringLiteral to Token.cs
    - Recognizes `$"""..."""` syntax
    - Distinguishes from regular raw strings `"""..."""`
