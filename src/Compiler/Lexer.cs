@@ -140,7 +140,13 @@ public class Lexer
             return ReadMultiLineComment(startLine, startColumn);
         }
 
-        // String literals
+        // String literals (including interpolated strings)
+        if (ch == '$' && PeekNext() == '"')
+        {
+            Advance(); // consume $
+            return ReadString(startLine, startColumn, isInterpolated: true);
+        }
+
         if (ch == '"')
         {
             if (PeekNext() == '"' && PeekAhead(2) == '"')
@@ -425,30 +431,27 @@ public class Lexer
         return new Token(tokenType, value, startLine, startColumn, _fileName);
     }
 
-    private Token ReadString(int startLine, int startColumn)
+    private Token ReadString(int startLine, int startColumn, bool isInterpolated = false)
     {
         var sb = new StringBuilder();
+
+        // Add $ prefix for interpolated strings
+        if (isInterpolated)
+            sb.Append('$');
+
+        sb.Append('"');
         Advance(); // consume opening quote
 
         while (!IsAtEnd() && Peek() != '"')
         {
             if (Peek() == '\\')
             {
+                sb.Append('\\');
                 Advance();
                 if (IsAtEnd())
                     throw new Exception($"Unterminated string at {_fileName ?? "?"}:{startLine}:{startColumn}");
 
-                var escaped = Peek();
-                sb.Append(escaped switch
-                {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    '\\' => '\\',
-                    '"' => '"',
-                    '0' => '\0',
-                    _ => escaped
-                });
+                sb.Append(Peek());
                 Advance();
             }
             else
@@ -466,6 +469,7 @@ public class Lexer
         if (IsAtEnd())
             throw new Exception($"Unterminated string at {_fileName ?? "?"}:{startLine}:{startColumn}");
 
+        sb.Append('"');
         Advance(); // consume closing quote
 
         return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);

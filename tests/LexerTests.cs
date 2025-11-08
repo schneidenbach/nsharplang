@@ -87,9 +87,9 @@ public class LexerTests
 
         var strings = tokens.Where(t => t.Type == TokenType.StringLiteral).ToList();
         Assert.Equal(3, strings.Count);
-        Assert.Equal("hello", strings[0].Value);
-        Assert.Equal("world with spaces", strings[1].Value);
-        Assert.Equal("escape\ntest\t\r", strings[2].Value);
+        Assert.Equal("\"hello\"", strings[0].Value);
+        Assert.Equal("\"world with spaces\"", strings[1].Value);
+        Assert.Equal("\"escape\\ntest\\t\\r\"", strings[2].Value);
     }
 
     [Fact]
@@ -286,7 +286,7 @@ public class LexerTests
         Assert.Equal("string", tokens[3].Value);
         Assert.Equal(TokenType.Assign, tokens[4].Type);
         Assert.Equal(TokenType.StringLiteral, tokens[5].Type);
-        Assert.Equal("John", tokens[5].Value);
+        Assert.Equal("\"John\"", tokens[5].Value);
     }
 
     [Fact]
