@@ -338,6 +338,11 @@ public class Lexer
                 Advance();
                 return new Token(TokenType.QuestionDot, "?.", startLine, startColumn, _fileName);
             }
+            if (Peek() == '[')
+            {
+                Advance();
+                return new Token(TokenType.QuestionBracket, "?[", startLine, startColumn, _fileName);
+            }
             return new Token(TokenType.Question, "?", startLine, startColumn, _fileName);
         }
 

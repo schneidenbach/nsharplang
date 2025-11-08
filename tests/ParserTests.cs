@@ -1091,6 +1091,40 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestNullConditionalIndexing()
+    {
+        var source = @"
+            func Test() {
+                arr := GetArray()
+                x := arr?[0]
+                dict := GetDict()
+                y := dict?[""key""]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // Check arr?[0]
+        var xDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        Assert.NotNull(xDecl);
+        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(indexAccess);
+        Assert.True(indexAccess.IsNullConditional);
+        var arrIdent = indexAccess.Object as IdentifierExpression;
+        Assert.NotNull(arrIdent);
+        Assert.Equal("arr", arrIdent.Name);
+
+        // Check dict?["key"]
+        var yDecl = funcDecl.Body.Statements[3] as VariableDeclarationStatement;
+        Assert.NotNull(yDecl);
+        var dictIndexAccess = yDecl.Initializer as IndexAccessExpression;
+        Assert.NotNull(dictIndexAccess);
+        Assert.True(dictIndexAccess.IsNullConditional);
+    }
+
+    [Fact]
     public void TestSafeCastOperator()
     {
         var source = @"

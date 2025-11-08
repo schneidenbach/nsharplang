@@ -1753,12 +1753,13 @@ public class Parser
                 var memberName = ConsumeIdentifier("Expected member name");
                 expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
             }
-            else if (Check(TokenType.LeftBracket))
+            else if (Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket))
             {
+                var isNullConditional = Check(TokenType.QuestionBracket);
                 var bracketToken = Advance();
                 var index = ParseExpression();
                 Consume(TokenType.RightBracket, "Expected ']'");
-                expr = new IndexAccessExpression(expr, index, false, bracketToken.Line, bracketToken.Column);
+                expr = new IndexAccessExpression(expr, index, isNullConditional, bracketToken.Line, bracketToken.Column);
             }
             else if (Check(TokenType.LeftParen))
             {

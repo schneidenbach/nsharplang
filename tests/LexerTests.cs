@@ -330,6 +330,18 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestNullConditionalIndexing()
+    {
+        var source = "arr?[0]";
+        var tokens = Tokenize(source);
+
+        Assert.Equal(TokenType.Identifier, tokens[0].Type);
+        Assert.Equal(TokenType.QuestionBracket, tokens[1].Type);
+        Assert.Equal(TokenType.IntLiteral, tokens[2].Type);
+        Assert.Equal(TokenType.RightBracket, tokens[3].Type);
+    }
+
+    [Fact]
     public void TestArrayLiteral()
     {
         var source = "[1, 2, 3]";

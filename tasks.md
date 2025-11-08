@@ -258,9 +258,30 @@
 - [x] All 203 tests passing, 0 skipped (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
 - [x] Build successful with no warnings
 
+### Phase 19: Null-Conditional Indexing Operator (v1.16 - LATEST!)
+- [x] **Lexer Enhancement**: Added QuestionBracket token type
+  - Added `QuestionBracket` token type to Token.cs (line 100)
+  - Lexer now recognizes `?[` as a distinct token (Lexer.cs:341-345)
+  - Follows same pattern as QuestionDot for consistency
+- [x] **Parser Enhancement**: Support for null-conditional indexing
+  - Updated ParsePostfixExpression to check for QuestionBracket (Parser.cs:1756)
+  - Sets IsNullConditional flag when ?[ is detected
+  - AST already had IsNullConditional field (forward-thinking design!)
+- [x] **Transpiler Enhancement**: C# code generation for ?[]
+  - Added TranspileIndexAccess method (Transpiler.cs:1044-1050)
+  - Emits `?[` or `[` based on IsNullConditional flag
+  - Follows same pattern as TranspileMemberAccess
+- [x] **Comprehensive Test Coverage**: 3 new tests
+  - TestNullConditionalIndexing (Lexer): Verifies ?[ token recognition
+  - TestNullConditionalIndexing (Parser): Verifies AST construction with IsNullConditional=true
+  - TestNullConditionalIndexingTranspilation: Verifies C# output contains ?[
+- [x] Added 3 new tests (1 lexer + 1 parser + 1 transpiler) = 206 tests total
+- [x] All 206 tests passing, 0 skipped (28 lexer + 59 parser + 63 analyzer + 46 transpiler)
+- [x] Build successful with warnings (same nullability warnings as before)
+
 ## 🚧 In Progress
 
-None currently - v1.15 complete!
+None currently - v1.16 complete!
 
 ## 📋 Next Steps
 
@@ -332,7 +353,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 203 unit tests passing, 0 skipped** (27 lexer + 58 parser + 63 analyzer + 45 transpiler)
+- **All 206 unit tests passing, 0 skipped** (28 lexer + 59 parser + 63 analyzer + 46 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -364,4 +385,7 @@ The compiler successfully:
 - **Match expression exhaustiveness checking enforced by compiler (v1.14)**
 - **Pattern variable binding works correctly in all match cases (v1.14)**
 - **Union case type resolution fixed for proper pattern matching (v1.14)**
+- **Properties with custom get/set support (v1.15)**
+- **Nested types fully supported (classes, structs, records, enums inside other types) (v1.15)**
+- **Null-conditional indexing operator (?[]) fully implemented (v1.16)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

@@ -638,6 +638,24 @@ func Test() {
     }
 
     [Fact]
+    public void TestNullConditionalIndexingTranspilation()
+    {
+        var source = @"
+func Test() {
+    arr := GetArray()
+    x := arr?[0]
+    dict := GetDict()
+    y := dict?[""key""]
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("arr?[0]", result);
+        Assert.Contains("dict?[\"key\"]", result);
+    }
+
+    [Fact]
     public void TestSafeCastTranspilation()
     {
         var source = @"

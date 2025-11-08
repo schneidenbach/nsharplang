@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (58 tests), Analyzer (63 tests), Transpiler (45 tests)
-- **Total**: 203 tests (203 passing, 0 skipped)
+- **Unit tests**: Lexer (28 tests), Parser (59 tests), Analyzer (63 tests), Transpiler (46 tests)
+- **Total**: 206 tests (206 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, **properties with custom get/set (NEW!)**, **nested types (NEW!)**
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual), type aliases, attributes, extension methods, static classes, structs, readonly fields, safe cast (as), is pattern, null-coalescing assignment (??=), this/base keywords, multiple interface implementation, generic constraints, multi-line template strings, duck interfaces with structural typing, properties with custom get/set, nested types, **null-conditional indexing (?[]) (NEW!)**
 
 ## Build & Run
 
@@ -146,7 +146,26 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.15 (Latest - Properties and Nested Types)
+### v1.16 (Latest - Null-Conditional Indexing Operator)
+1. **Lexer enhancement**: ✅ Added QuestionBracket token type
+   - Added `QuestionBracket` token type to recognize `?[` (Token.cs:100)
+   - Lexer tokenizes `?[` as distinct operator (Lexer.cs:341-345)
+   - Follows same pattern as `QuestionDot` (`?.`) for consistency
+2. **Parser enhancement**: ✅ Support for null-conditional indexing
+   - Updated `ParsePostfixExpression` to handle both `[` and `?[` (Parser.cs:1756)
+   - Sets `IsNullConditional` flag to true when `?[` is detected
+   - AST already had `IsNullConditional` field on `IndexAccessExpression` (forward-thinking!)
+3. **Transpiler enhancement**: ✅ C# code generation for ?[]
+   - Refactored inline indexing to `TranspileIndexAccess` method (Transpiler.cs:1044-1050)
+   - Emits `?[` or `[` based on `IsNullConditional` flag
+   - Mirrors `TranspileMemberAccess` pattern for consistency
+4. **Comprehensive test coverage**: ✅ 3 new tests (1 lexer + 1 parser + 1 transpiler)
+   - `TestNullConditionalIndexing` (Lexer): Verifies `?[` token recognition
+   - `TestNullConditionalIndexing` (Parser): Verifies AST with `IsNullConditional=true`
+   - `TestNullConditionalIndexingTranspilation`: Verifies C# output contains `?[`
+5. **Test count**: ✅ 206 tests total, all passing (28 lexer + 59 parser + 63 analyzer + 46 transpiler)
+
+### v1.15 (Properties and Nested Types)
 1. **Property get/set return type tracking**: ✅ Fixed analyzer to properly handle return statements in properties
    - Property getters set `_currentReturnType` to property type
    - Property setters set `_currentReturnType` to void

@@ -97,6 +97,7 @@ public enum TokenType
     QuestionQuestion, // ??
     QuestionQuestionAssign, // ??=
     QuestionDot,    // ?.
+    QuestionBracket, // ?[
     Arrow,          // =>
     ColonAssign,    // :=
     Colon,          // :

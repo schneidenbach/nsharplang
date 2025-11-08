@@ -963,7 +963,7 @@ public class Transpiler
             BinaryExpression binary => TranspileBinaryExpression(binary),
             UnaryExpression unary => TranspileUnaryExpression(unary),
             MemberAccessExpression member => TranspileMemberAccess(member),
-            IndexAccessExpression index => $"{TranspileExpression(index.Object)}[{TranspileExpression(index.Index)}]",
+            IndexAccessExpression index => TranspileIndexAccess(index),
             CallExpression call => TranspileCallExpression(call),
             AssignmentExpression assign => TranspileAssignmentExpression(assign),
             TernaryExpression ternary => $"({TranspileExpression(ternary.Condition)} ? {TranspileExpression(ternary.ThenExpression)} : {TranspileExpression(ternary.ElseExpression)})",
@@ -1039,6 +1039,14 @@ public class Transpiler
         var obj = TranspileExpression(member.Object);
         var accessor = member.IsNullConditional ? "?." : ".";
         return $"{obj}{accessor}{member.MemberName}";
+    }
+
+    private string TranspileIndexAccess(IndexAccessExpression index)
+    {
+        var obj = TranspileExpression(index.Object);
+        var indexValue = TranspileExpression(index.Index);
+        var accessor = index.IsNullConditional ? "?[" : "[";
+        return $"{obj}{accessor}{indexValue}]";
     }
 
     private string TranspileCallExpression(CallExpression call)
