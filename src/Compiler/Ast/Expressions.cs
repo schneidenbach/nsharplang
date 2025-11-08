@@ -321,3 +321,14 @@ public record ThisExpression(int Line, int Column) : Expression(Line, Column);
 
 // Base expression
 public record BaseExpression(int Line, int Column) : Expression(Line, Column);
+
+// Out variable declaration expression (C# 7+)
+// Used for inline variable declarations in out parameters
+// Examples:
+//   TryParse("123", out var result)    -> type inferred
+//   TryParse("123", out int result)    -> explicit type
+public record OutVariableDeclarationExpression(
+    TypeReference? Type,     // null for 'var' (type inference)
+    string VariableName,
+    int Line,
+    int Column) : Expression(Line, Column);

@@ -661,7 +661,7 @@ The compiler successfully:
 - **Identifier patterns correctly transpile with var prefix for variable capture (v1.17)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)
 
-### Phase 46: List Patterns Example (v1.46 - LATEST!)
+### Phase 46: List Patterns Example (v1.46)
 - [x] **List Patterns Example**: Created comprehensive demonstration example
   - Verified List Patterns already fully implemented (AST, Parser, Analyzer, Transpiler)
   - All List Pattern tests already passing (5 parser tests, coverage complete)
@@ -693,4 +693,50 @@ The compiler successfully:
   - Pattern matching with guards on list patterns
   - Real-world use cases (data processing, stack operations)
 - [x] **Documentation**: Example is self-documenting with comments
+
+### Phase 47: Inline Out Variable Declarations (v1.47 - LATEST!)
+- [x] **Inline Out Variable Declarations (C# 7+)**: Full implementation complete
+  - **AST Enhancement**: Added `OutVariableDeclarationExpression` to Expressions.cs
+    - Supports both `out var identifier` (type inference) and `out Type identifier` (explicit type)
+    - Clean AST representation with optional TypeReference field
+  - **Parser Implementation**: Modified `ParseArgumentList` to detect and parse inline declarations
+    - Checks for `out var` pattern by matching identifier "var"
+    - Detects `out Type identifier` by looking ahead for double identifier pattern
+    - Falls back to regular `out existingVar` syntax when not inline declaration
+    - Smart parsing distinguishes between new declarations and existing variables
+  - **Analyzer Support**: Added `AnalyzeOutVariableDeclaration` method
+    - Resolves explicit types when provided
+    - Marks inferred types as Unknown (to be resolved from parameter type in future enhancement)
+    - Declares variable in current scope using `DeclareSymbol`
+    - Variables available in scope after the declaration (C# 7+ scoping rules)
+  - **Transpiler Implementation**: Added `TranspileOutVariableDeclaration` method
+    - Emits `out var identifier` for inferred types
+    - Emits `out Type identifier` for explicit types
+    - Clean C# 7+ compatible output
+  - **Test Coverage**: 4 new tests (2 parser + 2 transpiler)
+    - TestInlineOutVarDeclaration: Verifies parsing of `out var`
+    - TestInlineOutExplicitTypeDeclaration: Verifies parsing of `out Type`
+    - TestInlineOutVarTranspilation: Verifies C# output for `out var`
+    - TestInlineOutExplicitTypeTranspilation: Verifies C# output for `out Type`
+  - **Example**: `examples/inline_out_variables.nl`
+    - 7 comprehensive examples demonstrating all patterns
+    - TryParse pattern (common .NET idiom)
+    - TryGetValue pattern (dictionary lookups)
+    - Multiple out parameters
+    - Variable scope demonstration
+    - .NET BCL compatibility notes
+    - Successfully compiles and runs with full functionality
+  - All 404 tests passing (27 lexer + 55 parser + 67 analyzer + 53 transpiler + 202 other)
+- [x] **Features Demonstrated**:
+  - C# 7+ inline variable declarations with out parameters
+  - Type inference with `out var`
+  - Explicit types with `out Type`
+  - Multiple out parameters in single call
+  - Variable scope extends beyond the if statement
+  - Compatible with .NET BCL patterns (TryParse, TryGetValue, etc.)
+- [x] **Benefits**:
+  - More concise code - no need to pre-declare variables
+  - Better readability - variable declaration at point of use
+  - Cleaner pattern matching with .NET APIs
+  - Full compatibility with C# 7+ features
 

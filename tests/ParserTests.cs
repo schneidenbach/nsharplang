@@ -3609,5 +3609,87 @@ func Helper(): int {
         Assert.Equal("IHelper", interfaceDecl.Name);
         Assert.True(interfaceDecl.Modifiers.HasFlag(Modifiers.File));
     }
+
+    [Fact]
+    public void TestInlineOutVarDeclaration()
+    {
+        var source = @"
+            func TryParse(input: string, out result: int): bool {
+                result = 42
+                return true
+            }
+
+            func Main() {
+                if TryParse(""123"", out var num) {
+                    print num
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(2, cu.Declarations.Count);
+
+        var mainFunc = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(mainFunc);
+        Assert.Equal("Main", mainFunc.Name);
+
+        var ifStmt = mainFunc.Body.Statements[0] as IfStatement;
+        Assert.NotNull(ifStmt);
+
+        var callExpr = ifStmt.Condition as CallExpression;
+        Assert.NotNull(callExpr);
+        Assert.Equal(2, callExpr.Arguments.Count);
+
+        // Second argument should be out var num
+        var outArg = callExpr.Arguments[1];
+        Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
+
+        var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
+        Assert.NotNull(outVarDecl);
+        Assert.Null(outVarDecl.Type); // var = null type
+        Assert.Equal("num", outVarDecl.VariableName);
+    }
+
+    [Fact]
+    public void TestInlineOutExplicitTypeDeclaration()
+    {
+        var source = @"
+            func TryParse(input: string, out result: int): bool {
+                result = 42
+                return true
+            }
+
+            func Main() {
+                if TryParse(""456"", out int value) {
+                    print value
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(2, cu.Declarations.Count);
+
+        var mainFunc = cu.Declarations[1] as FunctionDeclaration;
+        Assert.NotNull(mainFunc);
+
+        var ifStmt = mainFunc.Body.Statements[0] as IfStatement;
+        Assert.NotNull(ifStmt);
+
+        var callExpr = ifStmt.Condition as CallExpression;
+        Assert.NotNull(callExpr);
+
+        // Second argument should be out int value
+        var outArg = callExpr.Arguments[1];
+        Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
+
+        var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
+        Assert.NotNull(outVarDecl);
+        Assert.NotNull(outVarDecl.Type); // explicit type
+        Assert.Equal("value", outVarDecl.VariableName);
+
+        var simpleType = outVarDecl.Type as SimpleTypeReference;
+        Assert.NotNull(simpleType);
+        Assert.Equal("int", simpleType.Name);
+    }
 }
 

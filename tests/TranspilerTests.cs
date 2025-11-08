@@ -2272,4 +2272,44 @@ func check(obj: object): string {
         Assert.Contains("string s when (s.Length > 5) => \"long\"", result);
         Assert.Contains("string s => \"short\"", result);
     }
+
+    [Fact]
+    public void TestInlineOutVarTranspilation()
+    {
+        var source = @"
+func TryParse(input: string, out result: int): bool {
+    result = 42
+    return true
+}
+
+func Main() {
+    if TryParse(""123"", out var num) {
+        print num
+    }
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("if (TryParse(\"123\", out var num))", csharp);
+    }
+
+    [Fact]
+    public void TestInlineOutExplicitTypeTranspilation()
+    {
+        var source = @"
+func TryParse(input: string, out result: int): bool {
+    result = 42
+    return true
+}
+
+func Main() {
+    if TryParse(""456"", out int value) {
+        print value
+    }
+}
+";
+
+        var csharp = Transpile(source);
+        Assert.Contains("if (TryParse(\"456\", out int value))", csharp);
+    }
 }

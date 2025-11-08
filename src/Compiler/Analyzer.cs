@@ -1162,6 +1162,7 @@ public class Analyzer
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
+            OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1182,6 +1183,29 @@ public class Analyzer
 
         // All range expressions return System.Range
         return LookupType("System.Range") ?? BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeOutVariableDeclaration(OutVariableDeclarationExpression outVar)
+    {
+        // Determine the type
+        TypeInfo varType;
+        if (outVar.Type != null)
+        {
+            // Explicit type: out int x
+            varType = ResolveType(outVar.Type);
+        }
+        else
+        {
+            // Type inference: out var x
+            // The type will be inferred from the parameter type in AnalyzeCall
+            // For now, we mark it as Unknown - it will be updated when analyzing the call
+            varType = BuiltInTypes.Unknown;
+        }
+
+        // Declare the variable in the current scope
+        DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
+
+        return varType;
     }
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)

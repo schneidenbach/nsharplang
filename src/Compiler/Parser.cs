@@ -2283,6 +2283,36 @@ public class Parser
                 {
                     modifier = ArgumentModifier.Out;
                     Advance();
+
+                    // Check for inline out variable declaration (C# 7+)
+                    // Syntax: out var identifier  OR  out Type identifier
+                    var line = Current.Line;
+                    var column = Current.Column;
+
+                    if (Check(TokenType.Identifier) && Current.Value == "var")
+                    {
+                        // out var identifier
+                        Advance(); // consume 'var'
+                        var varName = ConsumeIdentifier("Expected identifier after 'out var'");
+                        var outVarDecl = new OutVariableDeclarationExpression(null, varName, line, column);
+                        args.Add(new Argument(null, outVarDecl, modifier));
+                        continue; // Skip the rest of normal argument parsing
+                    }
+                    else if (Check(TokenType.Identifier))
+                    {
+                        // Could be: out Type identifier  OR  out existingVar
+                        // We need to check if next token is another identifier
+                        if (LookAhead(1).Type == TokenType.Identifier)
+                        {
+                            // out Type identifier
+                            var typeRef = ParseTypeReference();
+                            var varName = ConsumeIdentifier("Expected identifier after type");
+                            var outVarDecl = new OutVariableDeclarationExpression(typeRef, varName, line, column);
+                            args.Add(new Argument(null, outVarDecl, modifier));
+                            continue; // Skip the rest of normal argument parsing
+                        }
+                        // Otherwise fall through to normal expression parsing (out existingVar)
+                    }
                 }
 
                 string? argName = null;
