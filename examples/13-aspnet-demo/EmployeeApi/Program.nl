@@ -2,6 +2,7 @@ import Microsoft.AspNetCore.Builder
 import Microsoft.Extensions.DependencyInjection
 import Microsoft.EntityFrameworkCore
 import Microsoft.Extensions.Hosting
+import System
 
 package EmployeeApi
 
@@ -20,6 +21,14 @@ func Main(args: string[]) {
     })
 
     app := builder.Build()
+
+    // Ensure database is created
+    {
+        scope := app.Services.CreateScope()
+        db := scope.ServiceProvider.GetRequiredService<AppDbContext>()
+        db.Database.EnsureCreated()
+        scope.Dispose()
+    }
 
     // Configure the HTTP request pipeline
     if app.Environment.IsDevelopment() {

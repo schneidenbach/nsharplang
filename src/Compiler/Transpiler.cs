@@ -1660,7 +1660,15 @@ public class Transpiler
                 return arg.Name != null ? $"{arg.Name}: {argResult}" : argResult;
             }));
 
-            result = $"new({args})";
+            // Anonymous objects (no type, no constructor args, only initializer) should use "new" not "new()"
+            if (args.Length == 0 && newExpr.Initializer != null)
+            {
+                result = "new";
+            }
+            else
+            {
+                result = $"new({args})";
+            }
         }
         else
         {
