@@ -1,4 +1,6 @@
-# NewCLILang Design Document
+# N# (NewLang Sharp) Design Document
+
+**Official Name:** N# (NewLang Sharp) - subject to change
 
 ## Core Philosophy
 
@@ -57,13 +59,64 @@ union Result {
 #### Pattern Matching
 - `match` expression for exhaustive pattern matching (compiler enforced)
 - `switch` statement as separate construct (non-exhaustive)
-- Syntax:
-  ```
-  result := match someValue {
-      Success { value } => value * 2
-      Failure { error, code } => 0
-  }
-  ```
+- **F#-level pattern matching** with multiple pattern types:
+
+**Union Case Patterns**:
+```
+result := match someValue {
+    Success { value } => value * 2
+    Failure { error, code } => 0
+}
+```
+
+**Relational Patterns**:
+```
+result := match age {
+    < 13 => "child"
+    < 20 => "teen"
+    >= 65 => "senior"
+    _ => "adult"
+}
+```
+
+**Logical Patterns** (and/or/not):
+```
+result := match value {
+    > 0 and < 100 => "valid range"
+    < 0 or > 100 => "out of range"
+    not 50 => "not fifty"
+    _ => "default"
+}
+```
+
+**Nested Property Patterns**:
+```
+result := match person {
+    { Address: { City: "NYC", State: "NY" } } => "New Yorker"
+    { Address: { State: "CA" } } => "Californian"
+    _ => "Other"
+}
+```
+
+**Positional Patterns** (tuples/deconstructable types):
+```
+result := match point {
+    (0, 0) => "origin"
+    (0, y) => "on y-axis"
+    (x, 0) => "on x-axis"
+    (x, y) when x == y => "diagonal"
+    _ => "other"
+}
+```
+
+**Guards** (additional conditions):
+```
+result := match value {
+    x when x > 0 and x < 10 => "single digit"
+    x when x % 2 == 0 => "even"
+    _ => "other"
+}
+```
 
 #### Classes and Structs
 - `class` is the default (emits .NET reference types)
@@ -75,6 +128,9 @@ union Result {
       Name: string        // public property (PascalCase)
       age: int            // private property (camelCase)
 
+      // Expression-bodied property (type inferred)
+      FullName => $"{FirstName} {LastName}"
+
       constructor(name: string) {
           Name = name
           // age must be set via struct-literal or another constructor
@@ -83,6 +139,9 @@ union Result {
       func GetInfo(): string {
           return Name + " is " + age
       }
+
+      // Expression-bodied method
+      func Greet() => print $"Hello, {Name}!"
   }
   ```
 - Fields emit as properties under the hood
@@ -90,6 +149,10 @@ union Result {
 - Default constructor always available
 - Multiple constructors supported (for DI scenarios)
 - Compiler tracks which properties are set in constructors
+- **Expression-bodied members**:
+  - Properties: `PropertyName => expression` (type inferred from expression)
+  - Methods: `func MethodName() => expression`
+  - Single-expression implementations without full body syntax
 
 #### Object Initialization
 - Syntax: `p := new Person("John") { age: 30 }`
@@ -212,11 +275,24 @@ doWork(new MemoryReader())  // works via structural typing
   ```
 
 #### Async/Await
-- Full async/await support (C# style)
+- Full async/await support with implicit wrapping
+- Return type wrapping:
+  - `func async FetchData(): string { }` → transpiles to `ValueTask<string>` (or `Task<string>` based on project config)
+  - Explicit types allowed: `func async GetData(): Task<string> { }` (for nested Task types)
+  - Configurable default in `project.yml`: `language.asyncDefaultType: ValueTask` or `Task`
 - Examples:
   ```
-  func async FetchData(): Task<string> { ... }
+  // Implicit wrapping (recommended)
+  func async FetchData(): string {
+      return await LoadFromDb()
+  }
 
+  // Explicit when needed (e.g., Task<Task<string>>)
+  func async GetNestedTask(): Task<string> {
+      return Task.FromResult("value")
+  }
+
+  // Usage
   result := await FetchData()
   ```
 
@@ -305,6 +381,18 @@ doWork(new MemoryReader())  // works via structural typing
     string literal
     """
   ```
+
+#### Built-in Functions
+**Print function** - simplified console output:
+```
+print "Hello, world!"                    // with newline
+print $"Name: {name}, Age: {age}"       // string interpolation
+print person.ToString()                  // any expression
+```
+- No parentheses required
+- Always outputs with newline (like println)
+- Transpiles to `Console.WriteLine()`
+- Use string interpolation for formatting instead of printf
 
 #### Control Flow
 - No parentheses required (Go-style)
@@ -527,6 +615,19 @@ doWork(new MemoryReader())  // works via structural typing
   cache ??= ExpensiveOperation()
   ```
 
+#### Reflection Operators
+**nameof** - get identifier name as string:
+```
+throw new ArgumentNullException(nameof(parameter))
+fieldName := nameof(person.Name)  // "Name"
+```
+
+**typeof** - get Type object:
+```
+type := typeof(Person)
+if obj.GetType() == typeof(string) { }
+```
+
 #### Function Types
 - Use `Func<>` for all function types
 - `Func<void>` maps to `Action<>` under the hood
@@ -644,6 +745,33 @@ doWork(new MemoryReader())  // works via structural typing
 - Multi-line: `/* comment */`
 - XML documentation: `/// <summary>...</summary>`
 
+#### Testing
+- Test files: `.tests.nl` extension
+- Compiled as XUnit test projects
+- Inline with source code (no separate test projects needed)
+- Syntax:
+  ```
+  test "should add two numbers correctly" {
+      result := Add(2, 3)
+      assert result == 5
+      assert result > 0
+  }
+
+  test "should handle null values" {
+      value := GetValue()
+      assert value != null
+      assert value.Length > 0
+  }
+  ```
+- **Assert syntax**:
+  - Boolean expressions transpile to appropriate XUnit Assert calls
+  - `assert x == y` → `Assert.Equal(y, x)`
+  - `assert x != y` → `Assert.NotEqual(y, x)`
+  - `assert x > y` → `Assert.True(x > y)`
+  - `assert x` → `Assert.True(x)`
+- Tests run with standard XUnit test runner
+- Full access to project symbols and types
+
 ## Syntax Decisions
 
 ### Function Definitions
@@ -733,6 +861,7 @@ func foo(x: int): int {
 
 ### File Extension
 - Source files: `.nl`
+- Test files: `.tests.nl` (compiled as XUnit tests)
 
 ### Project Manifest
 - `project.yml` file for project configuration
@@ -740,24 +869,69 @@ func foo(x: int): int {
   ```yaml
   name: MyApp  # optional, defaults to root directory name
   version: 1.0.0
+  entry: Program.nl  # entry point for executables
   dependencies:
     Newtonsoft.Json: 13.0.3
     Microsoft.Extensions.DependencyInjection: 8.0.0
+  language:
+    asyncDefaultType: ValueTask  # or "Task" - default wrapper for async methods
   ```
 - Minimal configuration required
 - No `.csproj` files needed - inferred from directory structure
 
+### Multi-File Compilation
+- Compiler processes ALL `.nl` files in project directory
+- Entry point specified in `project.yml` (for executables)
+- Top-level statements:
+  - Entry file's top-level statements execute as `Main()`
+  - Other files' top-level statements execute in import dependency order
+  - Each file executes once (before entry point)
+- Two-pass compilation:
+  1. Collect all type declarations from all files
+  2. Analyze and type-check with full symbol table
+
+### Import System
+Two types of imports:
+
+**File-based imports** (relative paths):
+```
+import "Models/Person"      // imports all symbols from file
+import "./Helpers"          // relative path
+import "Services/Auth" as AuthService  // with alias
+```
+
+**Namespace imports** (like C# using):
+```
+import System.Collections.Generic
+import System.Linq
+import Newtonsoft.Json as Json  // with alias
+```
+
+**Collision handling**:
+- If two imports provide same symbol name → compiler error
+- Resolve with aliasing: `import "File" as Alias`
+- Access symbols: `Alias.SymbolName`
+- Follows Python-style import semantics
+
 ## Deferred Features
 
-### High Priority for v2
-- Custom property get/set accessors (use backing fields and methods for now)
-
-### Not in Initial Version
+### Future Consideration
 - Operator overloading (may add later)
-- Events (use callbacks/lambdas instead)
-- Delegates (use Func<> from .NET)
-- ref/out parameters (use tuples for multiple returns)
+- ref/out parameters (use tuples for multiple returns; may add later for .NET interop)
 - Unsafe code and pointers (may add later for native interop)
+
+### Explicitly NOT Supported
+- **Events** - NO event syntax. N# does not interop with .NET events. Use callbacks/lambdas instead.
+- **Delegates (custom)** - Use `Func<>` and `Action<>` from .NET. No custom delegate declarations.
+
+## Philosophy Notes
+
+N# is a **focused subset of C#**, not a replacement:
+- C# has become a "junk heap" of backwards compatibility features
+- N# provides a tight, clean grammar for modern .NET development
+- **Not trying to be F#** - F# has poor C# interop and OCaml heritage
+- **Not functional-first** - pragmatic, multi-paradigm with functional support
+- Goal: "Go for .NET" with better type system and pattern matching
 
 ## Open Design Questions
 
