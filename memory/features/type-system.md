@@ -63,13 +63,24 @@ func ProcessReader(reader: IReader) {
 }
 ```
 
-### Transpilation
-- Duck interface → C# internal interface
-- Implementing types automatically get interface added in generated C#
-- Analyzer validates structural compatibility at compile-time
+### Type Erasure (Important!)
+
+**Duck interfaces are completely type-erased during transpilation.**
+
+They exist **only** for N# compile-time type checking:
+- Analyzer validates structural compatibility
+- Transpiler **omits** duck interface declarations entirely
+- Generated C# code has **no trace** of duck interfaces
+- Classes don't auto-implement duck interfaces in C#
+
+**Why?**
+- Duck interfaces are an N# language feature
+- C# consumers don't need to know about them
+- Cleaner generated C# code
+- No leakage of internal implementation details
 
 ### Structural Matching Rules
-Type matches duck interface if it has:
+At compile-time, type matches duck interface if it has:
 - All required methods
 - Matching names
 - Matching return types
