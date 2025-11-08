@@ -1417,4 +1417,104 @@ test ""should-handle_special characters!"" {
         // Should convert to valid C# method name
         Assert.Contains("public void ShouldHandleSpecialCharacters()", result);
     }
+
+    [Fact]
+    public void TestOperatorOverloadBinaryTranspilation()
+    {
+        var source = @"
+class Vector {
+    X: int
+    Y: int
+
+    static func operator +(a: Vector, b: Vector): Vector {
+        return new Vector { X: a.X + b.X, Y: a.Y + b.Y }
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static Vector operator +(Vector a, Vector b)", result);
+        Assert.Contains("return new Vector() { X = (a.X + b.X), Y = (a.Y + b.Y) };", result);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadUnaryTranspilation()
+    {
+        var source = @"
+class Vector {
+    X: int
+    Y: int
+
+    static func operator -(v: Vector): Vector {
+        return new Vector { X: -v.X, Y: -v.Y }
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static Vector operator -(Vector v)", result);
+        Assert.Contains("return new Vector() { X = (-v.X), Y = (-v.Y) };", result);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadComparisonTranspilation()
+    {
+        var source = @"
+class Money {
+    Amount: decimal
+
+    static func operator ==(a: Money, b: Money): bool {
+        return a.Amount == b.Amount
+    }
+
+    static func operator !=(a: Money, b: Money): bool {
+        return a.Amount != b.Amount
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static bool operator ==(Money a, Money b)", result);
+        Assert.Contains("public static bool operator !=(Money a, Money b)", result);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadExpressionBodied()
+    {
+        var source = @"
+struct Complex {
+    Real: double
+    Imaginary: double
+
+    static func operator +(a: Complex, b: Complex): Complex =>
+        new Complex { Real: a.Real + b.Real, Imaginary: a.Imaginary + b.Imaginary }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static Complex operator +(Complex a, Complex b)", result);
+        Assert.Contains("=> new Complex()", result);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadMultipleOperators()
+    {
+        var source = @"
+struct Flags {
+    Value: int
+
+    static func operator &(a: Flags, b: Flags): Flags {
+        return new Flags { Value: a.Value & b.Value }
+    }
+
+    static func operator |(a: Flags, b: Flags): Flags {
+        return new Flags { Value: a.Value | b.Value }
+    }
+
+    static func operator ~(f: Flags): Flags {
+        return new Flags { Value: ~f.Value }
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static Flags operator &(Flags a, Flags b)", result);
+        Assert.Contains("public static Flags operator |(Flags a, Flags b)", result);
+        Assert.Contains("public static Flags operator ~(Flags f)", result);
+    }
 }

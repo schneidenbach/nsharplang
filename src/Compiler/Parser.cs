@@ -249,7 +249,25 @@ public class Parser
             Advance();
         }
 
-        var name = ConsumeIdentifier("Expected function name");
+        // Check for operator overloading: func operator +
+        bool isOperatorOverload = false;
+        string? operatorSymbol = null;
+        string name;
+
+        if (Check(TokenType.Operator))
+        {
+            isOperatorOverload = true;
+            Advance(); // consume 'operator'
+
+            // Get the operator symbol
+            operatorSymbol = ParseOperatorSymbol();
+            name = "operator " + operatorSymbol; // For error reporting
+        }
+        else
+        {
+            name = ConsumeIdentifier("Expected function name");
+        }
+
         var typeParams = ParseTypeParameters();
         var parameters = ParseParameterList();
 
@@ -275,7 +293,7 @@ public class Parser
             body = ParseBlock();
         }
 
-        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, line, column);
+        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, line, column);
     }
 
     private TestDeclaration ParseTestDeclaration()
@@ -2439,6 +2457,42 @@ public class Parser
         {
             _position = saved;
         }
+    }
+
+    private string ParseOperatorSymbol()
+    {
+        // Parse operator symbol for operator overloading
+        // Supported: +, -, *, /, %, ==, !=, <, >, <=, >=, !, ~, ++, --, true, false
+        var token = Current;
+        var symbol = token.Type switch
+        {
+            TokenType.Plus => "+",
+            TokenType.Minus => "-",
+            TokenType.Star => "*",
+            TokenType.Slash => "/",
+            TokenType.Percent => "%",
+            TokenType.Equal => "==",
+            TokenType.NotEqual => "!=",
+            TokenType.Less => "<",
+            TokenType.LessEqual => "<=",
+            TokenType.Greater => ">",
+            TokenType.GreaterEqual => ">=",
+            TokenType.Not => "!",
+            TokenType.BitwiseNot => "~",
+            TokenType.BitwiseAnd => "&",
+            TokenType.BitwiseOr => "|",
+            TokenType.BitwiseXor => "^",
+            TokenType.LeftShift => "<<",
+            TokenType.RightShift => ">>",
+            TokenType.Increment => "++",
+            TokenType.Decrement => "--",
+            TokenType.True => "true",
+            TokenType.False => "false",
+            _ => throw new Exception($"Invalid operator symbol '{token.Value}' at {token.Line}:{token.Column}")
+        };
+
+        Advance();
+        return symbol;
     }
 
     // Helper methods

@@ -2383,4 +2383,125 @@ func TestFunc() {
         Assert.NotNull(binExpr2);
         Assert.Equal(BinaryOperator.NotEqual, binExpr2.Operator);
     }
+
+    [Fact]
+    public void TestOperatorOverloadBinaryPlus()
+    {
+        var source = @"
+            class Vector {
+                X: int
+                Y: int
+
+                static func operator +(a: Vector, b: Vector): Vector {
+                    return new Vector { X: a.X + b.X, Y: a.Y + b.Y }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("Vector", classDecl.Name);
+
+        // Find operator overload
+        var opFunc = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
+        Assert.NotNull(opFunc);
+        Assert.True(opFunc.IsOperatorOverload);
+        Assert.Equal("+", opFunc.OperatorSymbol);
+        Assert.Equal(2, opFunc.Parameters.Count);
+        Assert.Equal("a", opFunc.Parameters[0].Name);
+        Assert.Equal("b", opFunc.Parameters[1].Name);
+        Assert.True(opFunc.Modifiers.HasFlag(Modifiers.Static));
+    }
+
+    [Fact]
+    public void TestOperatorOverloadUnaryMinus()
+    {
+        var source = @"
+            class Vector {
+                X: int
+                Y: int
+
+                static func operator -(v: Vector): Vector {
+                    return new Vector { X: -v.X, Y: -v.Y }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var opFunc = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
+        Assert.NotNull(opFunc);
+        Assert.True(opFunc.IsOperatorOverload);
+        Assert.Equal("-", opFunc.OperatorSymbol);
+        Assert.Equal(1, opFunc.Parameters.Count);
+        Assert.Equal("v", opFunc.Parameters[0].Name);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadComparison()
+    {
+        var source = @"
+            class Money {
+                Amount: decimal
+
+                static func operator ==(a: Money, b: Money): bool {
+                    return a.Amount == b.Amount
+                }
+
+                static func operator !=(a: Money, b: Money): bool {
+                    return a.Amount != b.Amount
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var operators = classDecl.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
+        Assert.Equal(2, operators.Count);
+
+        var equalOp = operators.FirstOrDefault(f => f.OperatorSymbol == "==");
+        Assert.NotNull(equalOp);
+        Assert.Equal(2, equalOp.Parameters.Count);
+
+        var notEqualOp = operators.FirstOrDefault(f => f.OperatorSymbol == "!=");
+        Assert.NotNull(notEqualOp);
+        Assert.Equal(2, notEqualOp.Parameters.Count);
+    }
+
+    [Fact]
+    public void TestOperatorOverloadBitwise()
+    {
+        var source = @"
+            struct Flags {
+                Value: int
+
+                static func operator &(a: Flags, b: Flags): Flags {
+                    return new Flags { Value: a.Value & b.Value }
+                }
+
+                static func operator |(a: Flags, b: Flags): Flags {
+                    return new Flags { Value: a.Value | b.Value }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var structDecl = cu.Declarations[0] as StructDeclaration;
+        Assert.NotNull(structDecl);
+
+        var operators = structDecl.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
+        Assert.Equal(2, operators.Count);
+
+        var andOp = operators.FirstOrDefault(f => f.OperatorSymbol == "&");
+        Assert.NotNull(andOp);
+
+        var orOp = operators.FirstOrDefault(f => f.OperatorSymbol == "|");
+        Assert.NotNull(orOp);
+    }
 }
+

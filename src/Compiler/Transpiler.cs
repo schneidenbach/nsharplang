@@ -278,8 +278,13 @@ public class Transpiler
         {
             modifiers = GetModifierString(func.Modifiers);
 
+            // Operator overloads must be public static
+            if (func.IsOperatorOverload)
+            {
+                modifiers = "public static ";
+            }
             // If no explicit visibility modifier, apply naming convention
-            if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
+            else if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
                 !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal))
             {
                 modifiers = char.IsUpper(func.Name[0]) ? "public " + modifiers : "private " + modifiers;
@@ -299,7 +304,10 @@ public class Transpiler
             returnType = WrapAsyncReturnType(returnType, func.ReturnType);
         }
 
-        Write($"{modifiers}{returnType} {func.Name}{typeParams}({parameters})");
+        // Determine function name (operator keyword for overloads)
+        var functionName = func.IsOperatorOverload ? $"operator {func.OperatorSymbol}" : func.Name;
+
+        Write($"{modifiers}{returnType} {functionName}{typeParams}({parameters})");
 
         if (func.Constraints != null && func.Constraints.Count > 0)
         {

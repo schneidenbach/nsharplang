@@ -73,6 +73,7 @@ public enum TokenType
     Type,
     Test,
     Assert,
+    Operator,
 
     // Operators
     Plus,           // +

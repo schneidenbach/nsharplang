@@ -39,6 +39,8 @@ public record FunctionDeclaration(
     List<GenericConstraint>? Constraints,
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
+    bool IsOperatorOverload,      // For operator overloads
+    string? OperatorSymbol,        // The operator symbol (+, -, *, etc.)
     int Line,
     int Column) : Declaration(Line, Column);
 

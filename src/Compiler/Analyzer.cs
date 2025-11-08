@@ -151,12 +151,21 @@ public class Analyzer
 
     private void AnalyzeFunctionDeclaration(FunctionDeclaration func)
     {
+        // Validate operator overloads
+        if (func.IsOperatorOverload)
+        {
+            ValidateOperatorOverload(func);
+        }
+
         // Declare function in current scope
         var funcType = new FunctionTypeInfo(func);
         DeclareSymbol(func.Name, funcType, func.Line, func.Column);
 
-        // Check visibility convention
-        CheckVisibilityConvention(func.Name, func.Modifiers, func.Line, func.Column);
+        // Check visibility convention (skip for operator overloads - they must be public static)
+        if (!func.IsOperatorOverload)
+        {
+            CheckVisibilityConvention(func.Name, func.Modifiers, func.Line, func.Column);
+        }
 
         PushScope(new Scope(ScopeKind.Function));
 
@@ -1952,6 +1961,47 @@ public class Analyzer
         else
         {
             currentScope.Types[name] = type;
+        }
+    }
+
+    // Operator overload validation
+    private void ValidateOperatorOverload(FunctionDeclaration func)
+    {
+        // Operator overloads must be static
+        if (!func.Modifiers.HasFlag(Modifiers.Static))
+        {
+            Error("Operator overloads must be static", func.Line, func.Column);
+        }
+
+        // Get expected parameter count
+        var expectedParams = func.OperatorSymbol switch
+        {
+            // Unary operators
+            "!" or "~" or "++" or "--" or "true" or "false" => 1,
+            // Binary operators
+            "+" or "-" or "*" or "/" or "%" or
+            "==" or "!=" or "<" or ">" or "<=" or ">=" or
+            "&" or "|" or "^" or "<<" or ">>" => 2,
+            _ => -1 // Unknown operator
+        };
+
+        if (expectedParams == -1)
+        {
+            Error($"Unsupported operator '{func.OperatorSymbol}' for overloading", func.Line, func.Column);
+            return;
+        }
+
+        // Note: +/- can be both unary and binary, so we allow 1 or 2 parameters
+        if (func.OperatorSymbol is "+" or "-")
+        {
+            if (func.Parameters.Count != 1 && func.Parameters.Count != 2)
+            {
+                Error($"Operator '{func.OperatorSymbol}' must have 1 (unary) or 2 (binary) parameters", func.Line, func.Column);
+            }
+        }
+        else if (func.Parameters.Count != expectedParams)
+        {
+            Error($"Operator '{func.OperatorSymbol}' must have {expectedParams} parameter(s), got {func.Parameters.Count}", func.Line, func.Column);
         }
     }
 

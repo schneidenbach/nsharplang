@@ -196,9 +196,71 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Template for future N# projects
 
 **Next steps:**
-- Task 009: Complete testing support (CLI and end-to-end)
-- Task 004: Async implicit wrapping
-- Task 013: Global .NET tool packaging
+- Task 014: ASP.NET Core example project
+- Additional language features as needed
+
+### v1.29 (Operator Overloading) ✅ COMPLETE - LATEST!
+1. **Operator keyword**: ✅ Added `Operator` token type
+   - Added to Token.cs and Lexer keywords dictionary
+   - Enables `static func operator +` syntax
+2. **AST support**: ✅ Enhanced FunctionDeclaration
+   - Added `IsOperatorOverload` flag and `OperatorSymbol` field
+   - Backward compatible with existing code (C# records add defaults)
+3. **Parser support**: ✅ Full operator parsing
+   - ParseOperatorSymbol() handles all overloadable operators
+   - Supported: +, -, *, /, %, ==, !=, <, >, <=, >=, !, ~, &, |, ^, <<, >>, ++, --, true, false
+   - Syntax: `static func operator +(a: Type, b: Type): Type { ... }`
+4. **Analyzer validation**: ✅ Comprehensive compile-time checks
+   - ValidateOperatorOverload() ensures static modifier
+   - Validates parameter counts (unary = 1, binary = 2, +/- = 1 or 2)
+5. **Transpiler output**: ✅ Correct C# operator syntax
+   - Emits `public static ReturnType operator Symbol(params)`
+   - Forces public static modifiers for operators
+6. **Test coverage**: ✅ 9 new tests (4 parser + 5 transpiler) = 288 total
+7. **Example**: ✅ examples/operator_overloading.nl
+   - Vector2D with +, -, *, ==, != operators
+   - Complex struct with expression-bodied operators
+8. **Build status**: ✅ All 288 tests passing
+
+**Impact:** N# now supports operator overloading - major C# feature for custom types!
+
+### v1.28 (Testing, Async, and Tool Packaging) ✅ COMPLETE
+1. **Testing Support - CLI Integration (Task 009)**: ✅ COMPLETE
+   - Added `nlc test` command to CLI
+   - Discovers .tests.nl files in project directory
+   - Compiles test files with source files so tests can access symbols via imports
+   - Generates test .csproj with XUnit dependencies (Microsoft.NET.Test.Sdk, xunit, xunit.runner.visualstudio)
+   - Test declarations wrapped in public test class (namespace_Tests)
+   - Automatically adds `using Xunit;` when tests are present
+   - Tests run with `dotnet test` integration
+   - Created comprehensive example: examples/TestExample/ with Calculator and 6 passing tests
+2. **Async Implicit Wrapping (Task 004)**: ✅ COMPLETE
+   - Transpiler now accepts ProjectConfig parameter
+   - WrapAsyncReturnType() method wraps async function return types
+   - Reads `language.asyncDefaultType` from project.yml (defaults to ValueTask)
+   - Implicit wrapping: `func async Foo(): string` → `async ValueTask<string> Foo()`
+   - Explicit wrapping bypassed: `func async Bar(): Task<string>` → `async Task<string> Bar()` (no double wrapping)
+   - void async → ValueTask/Task (based on config)
+   - Updated all Transpiler instantiation points (MultiFileCompiler, CLI) to pass config
+3. **Global .NET Tool Configuration (Task 013)**: ✅ COMPLETE
+   - Updated Cli.csproj with PackAsTool=true
+   - Tool command name: nlc
+   - PackageId: nlc
+   - Version: 0.1.0
+   - Package metadata: authors, description, license (MIT), tags, URLs
+   - Successfully tested: `dotnet pack` creates nlc.0.1.0.nupkg
+   - Users can install globally: `dotnet tool install -g nlc`
+4. **Test status**: ✅ All 279 tests passing
+5. **Examples working**: ✅
+   - TestExample: 6 tests passing with Calculator
+   - WeatherDemo: Multi-file project runs successfully
+   - All CLI commands (build, run, test) verified
+
+**What works:**
+- Complete testing workflow: write .tests.nl files → `nlc test` → XUnit runs tests ✅
+- Async functions with implicit Task/ValueTask wrapping based on project config ✅
+- Global tool packaging ready for distribution ✅
+- All existing functionality preserved ✅
 
 ### v1.27 (Testing Support - Core Language Features) ✅ COMPLETE
 1. **Test declaration syntax**: ✅ `test "description" { ... }`
