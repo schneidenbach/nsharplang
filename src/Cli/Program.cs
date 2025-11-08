@@ -175,6 +175,24 @@ class Program
         var parser = new Parser(tokens, fileName);
         var compilationUnit = parser.ParseCompilationUnit();
 
+        // Semantic analysis
+        var analyzer = new Analyzer();
+        var analysisResult = analyzer.Analyze(compilationUnit);
+
+        // Report errors and warnings
+        foreach (var error in analysisResult.Errors)
+        {
+            var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
+            var location = $"{fileName}:{error.Line}:{error.Column}";
+            Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+        }
+
+        // Stop if there are errors
+        if (analysisResult.HasErrors)
+        {
+            throw new Exception($"Compilation failed with {analysisResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+        }
+
         // Transpilation
         var transpiler = new Transpiler(compilationUnit);
         return transpiler.Transpile();

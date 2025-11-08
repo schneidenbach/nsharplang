@@ -9,7 +9,7 @@ Lexer (Token stream)
     ↓
 Parser (AST)
     ↓
-[Analyzer - NOT YET IMPLEMENTED]
+Analyzer (Semantic analysis)
     ↓
 Transpiler (C# code)
     ↓
@@ -53,8 +53,24 @@ Executable
   - Convention-based visibility → explicit modifiers in C#
 - Generates clean, indented output
 
-### 6. CLI (`src/Cli/Program.cs`)
+### 6. Analyzer (`src/Compiler/Analyzer.cs`) - NEW!
+- Performs semantic analysis, type checking, and name resolution
+- Implements scope management with nested scopes (global, class, function, block)
+- Type inference for variables and expressions
+- Definite assignment checking for non-nullable fields in constructors
+- Convention-based visibility checking (PascalCase = public, camelCase = private)
+- Reports errors with line/column information
+- **Design**:
+  - Uses `TypeInfo` hierarchy for type representation
+  - Built-in types: int, long, float, double, bool, string, void, etc.
+  - Supports class, struct, record, interface, union, enum types
+  - Function return type resolution from declarations
+
+### 7. CLI (`src/Cli/Program.cs`)
 - Three commands: build, transpile, run
+- Integrates Analyzer to check code before transpilation
+- Reports errors/warnings with file:line:column format
+- Stops compilation if errors are found
 - For `run`: Creates temp project, compiles with dotnet, executes
 
 ## Important Implementation Details
@@ -76,16 +92,18 @@ Executable
 - Handles both `let i = 0` and `i := 0` forms
 
 ### Convention-based Visibility
-- **Not yet enforced** (Analyzer not implemented)
-- Transpiler currently uses explicit modifiers
-- **TODO**: Analyzer should infer public/private from PascalCase/camelCase
+- **Implemented in Analyzer** (warnings for non-conforming names)
+- PascalCase = public, camelCase = private (by convention)
+- Explicit modifiers (public, private, internal, protected) override convention
+- Transpiler emits explicit modifiers in generated C#
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (20 tests)
+- **Unit tests**: Lexer (27 tests), Parser (20 tests), Analyzer (47 tests)
+- **Total**: 94 tests, all passing
 - **No mocks**: Tests use real components
-- **End-to-end**: hello.nl example proves full pipeline
-- **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`
+- **End-to-end**: hello.nl and simple.nl examples prove full pipeline
+- **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`
 
 ## Build & Run
 
@@ -108,16 +126,16 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Known Limitations
 
-1. **No Analyzer**: Type checking, name resolution not implemented
-2. **No multi-file compilation**: Only single-file programs work
-3. **No project.yml support**: Dependency management not implemented
-4. **Limited error messages**: Need source location and context
-5. **No Analyzer not implemented**: Convention-based visibility not enforced
-6. **No definite assignment checking**: Should verify non-nullable fields are set
+1. **No external type resolution**: Analyzer doesn't know about types from using statements (e.g., System.Console)
+2. **Limited member type resolution**: Method/property lookup on types not fully implemented
+3. **Basic lambda type inference**: Lambda parameter types need more sophisticated inference
+4. **No multi-file compilation**: Only single-file programs work
+5. **No project.yml support**: Dependency management not implemented
 
 ## Next Implementation Priority
 
-1. **Analyzer**: Start with basic type checking and name resolution
-2. **Error messages**: Add CompilerError type with source location
+1. **Enhanced type system**: Member type resolution, generic type inference
+2. **External type support**: Resolve types from using statements and .NET assemblies
 3. **Multi-file**: Extend CLI to compile multiple files
 4. **Project system**: Parse project.yml and manage dependencies
+5. **Better error messages**: Include source code context in error output

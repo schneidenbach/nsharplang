@@ -16,6 +16,15 @@
 - [x] Example hello.nl demonstrating key features
 - [x] End-to-end compilation pipeline working
 
+### Phase 3: Semantic Analysis (NEW!)
+- [x] Analyzer implementation with type checking and type inference
+- [x] Name resolution and scope management
+- [x] Definite assignment analysis for non-nullable fields
+- [x] Convention-based visibility checking (PascalCase = public, camelCase = private)
+- [x] Error reporting with line/column information
+- [x] Integration with CLI build pipeline
+- [x] 47 analyzer tests, all passing (94 total tests)
+
 ## 🚧 In Progress
 
 None currently - core functionality complete!
@@ -23,11 +32,10 @@ None currently - core functionality complete!
 ## 📋 Next Steps
 
 ### High Priority
-1. **Analyzer Implementation**
-   - Type checking and type inference
-   - Name resolution and scope management
-   - Definite assignment analysis for non-nullable fields
-   - Convention-based visibility (PascalCase = public, camelCase = private)
+1. **Enhanced Type System**
+   - Member type resolution (method/property lookup on types)
+   - Generic type inference
+   - Better lambda type inference
 
 2. **Enhanced Language Features**
    - Match expressions (currently basic implementation)
@@ -66,10 +74,13 @@ None currently - core functionality complete!
 The compiler successfully:
 - Lexes all tokens including keywords, operators, literals, and string interpolation
 - Parses the full language grammar into a comprehensive AST
+- Performs semantic analysis with type checking and error reporting
 - Transpiles AST to clean, readable C# code
 - Compiles and runs .nl programs via the CLI
 
-**Working Example:** `examples/hello.nl` demonstrates variables, string interpolation, arrays, lambdas, LINQ, and loops.
+**Working Examples:**
+- `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops
+- `examples/simple.nl` - Basic functions and type inference
 
 ## 📝 Notes
 
@@ -77,4 +88,5 @@ The compiler successfully:
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
 - String enum values use const fields instead of traditional enums
-- All 47 unit tests passing
+- All 94 unit tests passing (47 lexer/parser + 47 analyzer)
+- Analyzer currently doesn't resolve external types from using statements (expected for v1)
