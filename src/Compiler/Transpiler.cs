@@ -12,6 +12,7 @@ public class Transpiler
     private readonly StringBuilder _output;
     private int _indentLevel;
     private const string IndentString = "    ";
+    private string? _currentTypeName; // Track current class/struct/record for constructor names
 
     public Transpiler(CompilationUnit compilationUnit)
     {
@@ -94,6 +95,9 @@ public class Transpiler
             case FieldDeclaration field:
                 TranspileFieldDeclaration(field);
                 break;
+            case PropertyDeclaration prop:
+                TranspilePropertyDeclaration(prop);
+                break;
             case ConstructorDeclaration ctor:
                 TranspileConstructorDeclaration(ctor);
                 break;
@@ -163,11 +167,13 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        _currentTypeName = cls.Name;
         foreach (var member in cls.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
+        _currentTypeName = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -193,11 +199,13 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        _currentTypeName = str.Name;
         foreach (var member in str.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
+        _currentTypeName = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -223,11 +231,13 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        _currentTypeName = rec.Name;
         foreach (var member in rec.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
+        _currentTypeName = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -381,11 +391,44 @@ public class Transpiler
         }
     }
 
+    private void TranspilePropertyDeclaration(PropertyDeclaration prop)
+    {
+        TranspileAttributes(prop.Attributes);
+
+        var modifiers = GetModifierString(prop.Modifiers);
+        var type = TranspileTypeReference(prop.Type);
+
+        // Apply convention-based visibility if no explicit modifier
+        if (!prop.Modifiers.HasFlag(Modifiers.Public) && !prop.Modifiers.HasFlag(Modifiers.Private) &&
+            !prop.Modifiers.HasFlag(Modifiers.Protected) && !prop.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            modifiers = char.IsUpper(prop.Name[0]) ? "public " + modifiers : "private " + modifiers;
+        }
+
+        WriteLine($"{modifiers}{type} {prop.Name}");
+        WriteLine("{");
+        _indentLevel++;
+
+        if (prop.GetBody != null)
+        {
+            WriteLine("get");
+            TranspileBlockStatement(prop.GetBody);
+        }
+
+        if (prop.SetBody != null)
+        {
+            WriteLine("set");
+            TranspileBlockStatement(prop.SetBody);
+        }
+
+        _indentLevel--;
+        WriteLine("}");
+    }
+
     private void TranspileConstructorDeclaration(ConstructorDeclaration ctor)
     {
         TranspileAttributes(ctor.Attributes);
 
-        // Get containing class name (we'll need to pass this in or track it)
         var modifiers = GetModifierString(ctor.Modifiers);
         if (!ctor.Modifiers.HasFlag(Modifiers.Public) && !ctor.Modifiers.HasFlag(Modifiers.Private) &&
             !ctor.Modifiers.HasFlag(Modifiers.Protected) && !ctor.Modifiers.HasFlag(Modifiers.Internal))
@@ -394,7 +437,8 @@ public class Transpiler
         }
 
         var parameters = string.Join(", ", ctor.Parameters.Select(TranspileParameter));
-        WriteLine($"{modifiers}ctor({parameters})");
+        var ctorName = _currentTypeName ?? "UnknownType";
+        WriteLine($"{modifiers}{ctorName}({parameters})");
         TranspileBlockStatement(ctor.Body);
     }
 
@@ -467,6 +511,9 @@ public class Transpiler
             case VariableDeclarationStatement varDecl:
                 TranspileVariableDeclaration(varDecl);
                 break;
+            case TupleDeconstructionStatement tupleDecl:
+                TranspileTupleDeconstruction(tupleDecl);
+                break;
             case BlockStatement block:
                 TranspileBlockStatement(block);
                 break;
@@ -532,6 +579,17 @@ public class Transpiler
         {
             WriteLine($"{keyword}{type} {varDecl.Name};");
         }
+    }
+
+    private void TranspileTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
+    {
+        var keyword = tupleDecl.Kind == VariableKind.Const ? "const " :
+                     tupleDecl.Kind == VariableKind.Readonly ? "readonly " : "";
+
+        // C# tuple deconstruction syntax: (var x, var y) = expr;
+        // or: var (x, y) = expr;
+        var names = string.Join(", ", tupleDecl.Names.Select(n => n == "_" ? "_" : n));
+        WriteLine($"{keyword}({names}) = {TranspileExpression(tupleDecl.Initializer)};");
     }
 
     private void TranspileIfStatement(IfStatement ifStmt)

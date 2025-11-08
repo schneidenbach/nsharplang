@@ -34,13 +34,19 @@
 - [x] Lambda parameter type inference (var → unknown → compatible)
 - [x] 4 new tests for external types (98 total tests)
 
-### Phase 5: Transpiler Enhancements (NEW!)
+### Phase 5: Transpiler Enhancements
 - [x] Indexer transpilation support (CRITICAL - was missing)
 - [x] Immutable array syntax and transpilation
 - [x] Parser fix: indexer detection before function parsing
 - [x] Collection expression syntax for immutable arrays (C# 12+)
 - [x] Comprehensive transpiler test suite (7 tests)
 - [x] All 105 tests passing (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
+
+### Phase 6: Advanced Features (NEW!)
+- [x] Constructor transpilation bug fix (emits class name not "ctor")
+- [x] Property get/set accessors (was marked as v2, now implemented!)
+- [x] Tuple deconstruction in variable declarations `(x, y) := expr`
+- [x] All 108 tests passing (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
 
 ## 🚧 In Progress
 
@@ -108,8 +114,11 @@ The compiler successfully:
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
 - String enum values use const fields instead of traditional enums
-- **All 105 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 6 transpiler)
+- **All 108 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
+- **Constructor transpilation bug fixed (v1.3)**
+- **Property get/set accessors fully implemented (v1.3)**
+- **Tuple deconstruction in variable declarations (v1.3)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

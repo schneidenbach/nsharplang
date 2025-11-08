@@ -103,6 +103,9 @@ public class Analyzer
             case FieldDeclaration field:
                 AnalyzeFieldDeclaration(field);
                 break;
+            case PropertyDeclaration prop:
+                AnalyzePropertyDeclaration(prop);
+                break;
             case ConstructorDeclaration ctor:
                 AnalyzeConstructorDeclaration(ctor);
                 break;
@@ -272,6 +275,33 @@ public class Analyzer
         }
     }
 
+    private void AnalyzePropertyDeclaration(PropertyDeclaration prop)
+    {
+        CheckVisibilityConvention(prop.Name, prop.Modifiers, prop.Line, prop.Column);
+
+        var propType = ResolveType(prop.Type);
+        DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
+
+        // Analyze getter
+        if (prop.GetBody != null)
+        {
+            PushScope(new Scope(ScopeKind.Function));
+            AnalyzeStatement(prop.GetBody);
+            // TODO: Verify getter returns the property type
+            PopScope();
+        }
+
+        // Analyze setter
+        if (prop.SetBody != null)
+        {
+            PushScope(new Scope(ScopeKind.Function));
+            // Implicitly declare 'value' parameter
+            DeclareSymbol("value", propType, prop.Line, prop.Column);
+            AnalyzeStatement(prop.SetBody);
+            PopScope();
+        }
+    }
+
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
         PushScope(new Scope(ScopeKind.Function));
@@ -350,6 +380,9 @@ public class Analyzer
                 break;
             case VariableDeclarationStatement varDecl:
                 AnalyzeVariableDeclaration(varDecl);
+                break;
+            case TupleDeconstructionStatement tupleDecl:
+                AnalyzeTupleDeconstruction(tupleDecl);
                 break;
             case BlockStatement block:
                 PushScope(new Scope(ScopeKind.Block));
@@ -449,6 +482,22 @@ public class Analyzer
         }
 
         DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column);
+    }
+
+    private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
+    {
+        // Analyze the initializer expression
+        var initType = AnalyzeExpression(tupleDecl.Initializer);
+
+        // TODO: Check if initType is a tuple type and has the right number of elements
+        // For now, just declare all variables with Unknown type
+        foreach (var name in tupleDecl.Names)
+        {
+            if (name != "_")  // Skip discard
+            {
+                DeclareSymbol(name, BuiltInTypes.Unknown, tupleDecl.Line, tupleDecl.Column);
+            }
+        }
     }
 
     private void AnalyzeIfStatement(IfStatement ifStmt)

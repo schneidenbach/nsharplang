@@ -135,11 +135,22 @@ public enum EnumType
     String
 }
 
-// Field/Property declaration
+// Field/Property declaration (auto-property)
 public record FieldDeclaration(
     string Name,
     TypeReference Type,
     Expression? Initializer,
+    Modifiers Modifiers,
+    List<AttributeNode> Attributes,
+    int Line,
+    int Column) : Declaration(Line, Column);
+
+// Property declaration with custom get/set
+public record PropertyDeclaration(
+    string Name,
+    TypeReference Type,
+    BlockStatement? GetBody,
+    BlockStatement? SetBody,
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,

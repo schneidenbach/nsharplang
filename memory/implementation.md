@@ -146,7 +146,24 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.2 (Latest)
+### v1.3 (Latest)
+1. **Constructor transpilation fix**: ✅ CRITICAL bug fixed - now emits class name instead of "ctor"
+   - Added _currentTypeName tracking in Transpiler
+   - Properly generates `ClassName(params)` syntax
+2. **Property get/set accessors**: ✅ Full custom property support
+   - New PropertyDeclaration AST node
+   - Parser distinguishes between auto-properties (fields) and custom properties
+   - Transpiler generates proper C# property syntax with get/set blocks
+   - Analyzer validates property bodies and adds implicit 'value' parameter to setters
+3. **Tuple deconstruction**: ✅ Variable declarations with tuple patterns
+   - New TupleDeconstructionStatement AST node
+   - Supports `(x, y) := expr` and `let (x, y) = expr` syntax
+   - Supports discard pattern `_` for unused values
+   - Parser uses lookahead to distinguish from tuple expressions
+   - Transpiles to C# tuple deconstruction `(x, y) = expr;`
+4. **Test coverage**: ✅ 108 tests total (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
+
+### v1.2
 1. **Indexer transpilation**: ✅ CRITICAL missing feature now implemented
    - Parser fixed to detect indexers before regular functions
    - Transpiler generates correct C# `this[...]` syntax with get/set blocks

@@ -638,7 +638,7 @@ public class Parser
         return new IndexerDeclaration(parameters, returnType, getBody, setBody, modifiers, attributes, line, column);
     }
 
-    private FieldDeclaration ParseFieldDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    private Declaration ParseFieldDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
     {
         var line = Current.Line;
         var column = Current.Column;
@@ -647,6 +647,45 @@ public class Parser
         Consume(TokenType.Colon, "Expected ':'");
         var type = ParseTypeReference();
 
+        // Check if this is a property with get/set
+        if (Check(TokenType.LeftBrace))
+        {
+            Advance(); // consume {
+
+            BlockStatement? getBody = null;
+            BlockStatement? setBody = null;
+
+            while (!Check(TokenType.RightBrace) && !IsAtEnd())
+            {
+                if (Check(TokenType.Identifier))
+                {
+                    var accessor = Current.Value;
+                    Advance();
+
+                    if (accessor == "get")
+                    {
+                        getBody = ParseBlock();
+                    }
+                    else if (accessor == "set")
+                    {
+                        setBody = ParseBlock();
+                    }
+                    else
+                    {
+                        throw new Exception($"Expected 'get' or 'set', got '{accessor}' at line {Current.Line}");
+                    }
+                }
+                else
+                {
+                    throw new Exception($"Expected accessor (get/set) at line {Current.Line}");
+                }
+            }
+
+            Consume(TokenType.RightBrace, "Expected '}' after property accessors");
+            return new PropertyDeclaration(name, type, getBody, setBody, modifiers, attributes, line, column);
+        }
+
+        // Otherwise it's a field
         Expression? initializer = null;
         if (Check(TokenType.Assign))
         {
@@ -813,11 +852,17 @@ public class Parser
         return ParseExpressionStatement();
     }
 
-    private VariableDeclarationStatement ParseVariableDeclaration(VariableKind kind)
+    private Statement ParseVariableDeclaration(VariableKind kind)
     {
         var line = Current.Line;
         var column = Current.Column;
         Advance(); // consume let/const/readonly
+
+        // Check if this is a tuple deconstruction: (x, y) := ...
+        if (Check(TokenType.LeftParen))
+        {
+            return ParseTupleDeconstruction(kind, line, column);
+        }
 
         var name = ConsumeIdentifier("Expected variable name");
 
@@ -836,6 +881,32 @@ public class Parser
         }
 
         return new VariableDeclarationStatement(name, type, initializer, kind, line, column);
+    }
+
+    private TupleDeconstructionStatement ParseTupleDeconstruction(VariableKind kind, int line, int column)
+    {
+        Consume(TokenType.LeftParen, "Expected '('");
+
+        var names = new List<string>();
+        do
+        {
+            var name = ConsumeIdentifier("Expected identifier or '_'");
+            names.Add(name);
+        } while (Match(TokenType.Comma));
+
+        Consume(TokenType.RightParen, "Expected ')'");
+
+        // Only support := for tuple deconstruction (not = or :)
+        if (!Check(TokenType.ColonAssign) && !Check(TokenType.Assign))
+        {
+            throw new Exception($"Tuple deconstruction requires ':=' or '=' at line {Current.Line}");
+        }
+
+        Advance(); // consume := or =
+
+        var initializer = ParseExpression();
+
+        return new TupleDeconstructionStatement(names, initializer, kind, line, column);
     }
 
     private IfStatement ParseIfStatement()
@@ -1059,7 +1130,8 @@ public class Parser
 
             if (Check(TokenType.Let))
             {
-                decl = ParseVariableDeclaration(VariableKind.Let);
+                var stmt = ParseVariableDeclaration(VariableKind.Let);
+                decl = stmt as VariableDeclarationStatement ?? throw new Exception("Expected variable declaration, not tuple deconstruction");
             }
             else
             {
@@ -1196,6 +1268,49 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
+
+        // Check for tuple deconstruction shorthand: (x, y) := expr
+        // Simple heuristic: (identifier, ... matches tuple deconstruction pattern
+        if (Check(TokenType.LeftParen) && _position + 1 < _tokens.Count &&
+            _tokens[_position + 1].Type == TokenType.Identifier &&
+            _position + 2 < _tokens.Count && _tokens[_position + 2].Type == TokenType.Comma)
+        {
+            // Look ahead to find the matching ) and check for :=
+            int parenDepth = 1;
+            int pos = 1;
+            bool isTupleDeconstruction = false;
+
+            while (_position + pos < _tokens.Count)
+            {
+                var token = _tokens[_position + pos];
+                if (token.Type == TokenType.LeftParen)
+                    parenDepth++;
+                else if (token.Type == TokenType.RightParen)
+                {
+                    parenDepth--;
+                    if (parenDepth == 0)
+                    {
+                        // Check if next token is := or =
+                        if (_position + pos + 1 < _tokens.Count)
+                        {
+                            var next = _tokens[_position + pos + 1];
+                            if (next.Type == TokenType.ColonAssign || next.Type == TokenType.Assign)
+                            {
+                                isTupleDeconstruction = true;
+                            }
+                        }
+                        break;
+                    }
+                }
+                pos++;
+            }
+
+            if (isTupleDeconstruction)
+            {
+                return ParseTupleDeconstruction(VariableKind.Let, line, column);
+            }
+        }
+
         var expr = ParseExpression();
 
         // Check for := shorthand declaration

@@ -20,6 +20,14 @@ public record VariableDeclarationStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Tuple deconstruction: (x, y) := GetPair()
+public record TupleDeconstructionStatement(
+    List<string> Names,  // Variable names (or "_" for discard)
+    Expression Initializer,
+    VariableKind Kind,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 public enum VariableKind
 {
     Let,      // let or :=
