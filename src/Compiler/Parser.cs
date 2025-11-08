@@ -251,38 +251,67 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Func, "Expected 'func'");
 
-        if (Check(TokenType.Star))
-        {
-            modifiers |= Modifiers.Generator;
-            Advance();
-        }
+        // Check for conversion operators: implicit operator TargetType / explicit operator TargetType
+        bool isConversionOperator = false;
+        bool isImplicitConversion = false;
 
         // Check for operator overloading: func operator +
         bool isOperatorOverload = false;
         string? operatorSymbol = null;
         string name;
 
-        if (Check(TokenType.Operator))
+        if (Check(TokenType.Implicit) || Check(TokenType.Explicit))
         {
-            isOperatorOverload = true;
-            Advance(); // consume 'operator'
+            // Conversion operator - no 'func' keyword
+            isConversionOperator = true;
+            isImplicitConversion = Check(TokenType.Implicit);
+            Advance(); // consume 'implicit' or 'explicit'
 
-            // Get the operator symbol
-            operatorSymbol = ParseOperatorSymbol();
-            name = "operator " + operatorSymbol; // For error reporting
+            Consume(TokenType.Operator, "Expected 'operator' after 'implicit' or 'explicit'");
+            name = isImplicitConversion ? "implicit operator" : "explicit operator";
         }
         else
         {
-            name = ConsumeIdentifier("Expected function name");
+            // Regular function or operator overload - starts with 'func'
+            Consume(TokenType.Func, "Expected 'func'");
+
+            if (Check(TokenType.Star))
+            {
+                modifiers |= Modifiers.Generator;
+                Advance();
+            }
+
+            if (Check(TokenType.Operator))
+            {
+                isOperatorOverload = true;
+                Advance(); // consume 'operator'
+
+                // Get the operator symbol
+                operatorSymbol = ParseOperatorSymbol();
+                name = "operator " + operatorSymbol; // For error reporting
+            }
+            else
+            {
+                name = ConsumeIdentifier("Expected function name");
+            }
         }
 
         var typeParams = ParseTypeParameters();
-        var parameters = ParseParameterList();
 
         TypeReference? returnType = null;
-        if (Check(TokenType.Colon))
+
+        // For conversion operators, the return type comes BEFORE the parameter list
+        // Syntax: implicit operator TargetType(source: SourceType): TargetType
+        if (isConversionOperator)
+        {
+            returnType = ParseTypeReference();
+        }
+
+        var parameters = ParseParameterList();
+
+        // For regular functions, return type comes AFTER parameters (with colon)
+        if (!isConversionOperator && Check(TokenType.Colon))
         {
             Advance();
             returnType = ParseTypeReference();
@@ -303,7 +332,7 @@ public class Parser
             body = ParseBlock();
         }
 
-        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, line, column);
+        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column);
     }
 
     private TestDeclaration ParseTestDeclaration()
@@ -738,8 +767,8 @@ public class Parser
             return ParseIndexerDeclaration(attributes, modifiers);
         }
 
-        // Function
-        if (Check(TokenType.Func))
+        // Function (including conversion operators)
+        if (Check(TokenType.Func) || Check(TokenType.Implicit) || Check(TokenType.Explicit))
         {
             return ParseFunctionDeclaration(attributes, modifiers);
         }
@@ -1305,7 +1334,7 @@ public class Parser
         }
 
         var functionDecl = new FunctionDeclaration(name, parameters, returnType, body, expressionBody,
-            typeParams, constraints, modifiers, new List<AttributeNode>(), false, null, line, column);
+            typeParams, constraints, modifiers, new List<AttributeNode>(), false, null, false, false, line, column);
 
         return new LocalFunctionStatement(functionDecl, line, column);
     }

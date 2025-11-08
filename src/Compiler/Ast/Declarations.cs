@@ -41,6 +41,8 @@ public record FunctionDeclaration(
     List<AttributeNode> Attributes,
     bool IsOperatorOverload,      // For operator overloads
     string? OperatorSymbol,        // The operator symbol (+, -, *, etc.)
+    bool IsConversionOperator,     // For implicit/explicit conversion operators
+    bool IsImplicitConversion,     // true = implicit, false = explicit
     int Line,
     int Column) : Declaration(Line, Column);
 

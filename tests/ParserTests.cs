@@ -2914,6 +2914,59 @@ func TestFunc() {
     }
 
     [Fact]
+    public void TestImplicitConversionOperator()
+    {
+        var source = @"
+            class Celsius {
+                Value: double
+
+                implicit operator Fahrenheit(c: Celsius) {
+                    return new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var conversion = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
+        Assert.NotNull(conversion);
+        Assert.True(conversion.IsConversionOperator);
+        Assert.True(conversion.IsImplicitConversion);
+        Assert.Equal("Fahrenheit", ((SimpleTypeReference)conversion.ReturnType!).Name);
+        Assert.Single(conversion.Parameters);
+        Assert.Equal("Celsius", ((SimpleTypeReference)conversion.Parameters[0].Type).Name);
+    }
+
+    [Fact]
+    public void TestExplicitConversionOperator()
+    {
+        var source = @"
+            struct Fraction {
+                Numerator: int
+                Denominator: int
+
+                explicit operator double(f: Fraction) {
+                    return f.Numerator / (double)f.Denominator
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var structDecl = cu.Declarations[0] as StructDeclaration;
+        Assert.NotNull(structDecl);
+
+        var conversion = structDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
+        Assert.NotNull(conversion);
+        Assert.True(conversion.IsConversionOperator);
+        Assert.False(conversion.IsImplicitConversion);
+        Assert.Equal("double", ((SimpleTypeReference)conversion.ReturnType!).Name);
+        Assert.Single(conversion.Parameters);
+        Assert.Equal("Fraction", ((SimpleTypeReference)conversion.Parameters[0].Type).Name);
+    }
+
+    [Fact]
     public void TestIndexFromEndExpression()
     {
         var source = @"

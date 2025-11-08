@@ -800,6 +800,121 @@ print person.ToString()                  // any expression
   }
   ```
 
+#### Operator Overloading
+- Full support for C# operator overloading
+- Enables natural syntax for custom types (Money, Vector, Complex, etc.)
+- Operators must be public static methods
+- Examples:
+  ```
+  struct Vector {
+      X: double
+      Y: double
+
+      // Binary operators
+      static func operator +(a: Vector, b: Vector): Vector {
+          return new Vector { X: a.X + b.X, Y: a.Y + b.Y }
+      }
+
+      static func operator -(a: Vector, b: Vector): Vector {
+          return new Vector { X: a.X - b.X, Y: a.Y - b.Y }
+      }
+
+      static func operator *(v: Vector, scalar: double): Vector {
+          return new Vector { X: v.X * scalar, Y: v.Y * scalar }
+      }
+
+      // Unary operators
+      static func operator -(v: Vector): Vector {
+          return new Vector { X: -v.X, Y: -v.Y }
+      }
+
+      // Comparison operators (must define both == and !=, both < and >)
+      static func operator ==(a: Vector, b: Vector): bool {
+          return a.X == b.X and a.Y == b.Y
+      }
+
+      static func operator !=(a: Vector, b: Vector): bool {
+          return !(a == b)
+      }
+  }
+
+  // Usage
+  v1 := new Vector { X: 1.0, Y: 2.0 }
+  v2 := new Vector { X: 3.0, Y: 4.0 }
+  sum := v1 + v2           // Calls operator +
+  scaled := v1 * 2.0       // Calls operator *
+  negated := -v1           // Calls unary operator -
+  equal := v1 == v2        // Calls operator ==
+  ```
+
+**Overloadable operators:**
+- Unary: `+`, `-`, `!`, `~`, `++`, `--`
+- Binary: `+`, `-`, `*`, `/`, `%`, `&`, `|`, `^`, `<<`, `>>`
+- Comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+**Operator constraints:**
+- Operators must be `static`
+- At least one parameter must be the containing type
+- Comparison operators must be defined in pairs (`==` with `!=`, `<` with `>`, `<=` with `>=`)
+
+#### Conversion Operators
+- User-defined type conversions (C# style)
+- Two types: `implicit` (safe) and `explicit` (may lose data/precision)
+- Enables natural casting and assignment between custom types
+- Syntax: `implicit operator TargetType(source: SourceType)` or `explicit operator`
+- Examples:
+  ```
+  class Celsius {
+      Value: double
+
+      // Implicit conversion - safe, no data loss
+      implicit operator Fahrenheit(c: Celsius) {
+          return new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+      }
+
+      // Explicit conversion - requires cast
+      explicit operator Kelvin(c: Celsius) {
+          return new Kelvin { Value: c.Value + 273.15 }
+      }
+  }
+
+  class Fahrenheit {
+      Value: double
+
+      implicit operator Celsius(f: Fahrenheit) {
+          return new Celsius { Value: (f.Value - 32.0) * 5.0 / 9.0 }
+      }
+  }
+
+  struct Fraction {
+      Numerator: int
+      Denominator: int
+
+      // Explicit - lossy conversion
+      explicit operator double(f: Fraction) {
+          return f.Numerator / (double)f.Denominator
+      }
+  }
+
+  // Usage
+  celsius := new Celsius { Value: 20.0 }
+  fahrenheit: Fahrenheit = celsius      // Implicit conversion (no cast)
+  kelvin := (Kelvin)celsius             // Explicit conversion (cast required)
+
+  frac := new Fraction { Numerator: 3, Denominator: 4 }
+  value := (double)frac                 // Explicit cast
+  ```
+
+**When to use implicit vs explicit:**
+- **Implicit**: Conversion is always safe, no data loss, no exceptions (e.g., Celsius → Fahrenheit)
+- **Explicit**: Conversion may lose data, precision, or throw exceptions (e.g., double → int, Fraction → double)
+
+**Conversion constraints:**
+- Conversions must be `static`
+- Cannot convert to/from `object` or interfaces
+- Cannot conflict with built-in conversions
+- No 'func' keyword - syntax is `implicit operator` or `explicit operator`
+
 #### Enums
 - Support both int and string enums
 - Compiler infers type from values

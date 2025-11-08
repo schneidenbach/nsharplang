@@ -87,6 +87,8 @@ public class Lexer
         { "params", TokenType.Params },
         { "checked", TokenType.Checked },
         { "unchecked", TokenType.Unchecked },
+        { "implicit", TokenType.Implicit },
+        { "explicit", TokenType.Explicit },
     };
 
     public Lexer(string source, string? fileName = null)

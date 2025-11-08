@@ -84,6 +84,8 @@ public enum TokenType
     Params,
     Checked,
     Unchecked,
+    Implicit,
+    Explicit,
 
     // Operators
     Plus,           // +

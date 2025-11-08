@@ -287,8 +287,8 @@ public class Transpiler
         {
             modifiers = GetModifierString(func.Modifiers);
 
-            // Operator overloads must be public static
-            if (func.IsOperatorOverload)
+            // Operator overloads and conversion operators must be public static
+            if (func.IsOperatorOverload || func.IsConversionOperator)
             {
                 modifiers = "public static ";
             }
@@ -313,10 +313,21 @@ public class Transpiler
             returnType = WrapAsyncReturnType(returnType, func.ReturnType);
         }
 
-        // Determine function name (operator keyword for overloads)
-        var functionName = func.IsOperatorOverload ? $"operator {func.OperatorSymbol}" : func.Name;
-
-        Write($"{modifiers}{returnType} {functionName}{typeParams}({parameters})");
+        // Determine function name (operator keyword for overloads and conversions)
+        string functionName;
+        if (func.IsConversionOperator)
+        {
+            // For conversion operators, the "return type" is actually the target type
+            // Syntax: public static implicit/explicit operator TargetType(SourceType source)
+            var conversionKeyword = func.IsImplicitConversion ? "implicit" : "explicit";
+            Write($"{modifiers}{conversionKeyword} operator {returnType}({parameters})");
+            functionName = null; // Skip the normal function signature below
+        }
+        else
+        {
+            functionName = func.IsOperatorOverload ? $"operator {func.OperatorSymbol}" : func.Name;
+            Write($"{modifiers}{returnType} {functionName}{typeParams}({parameters})");
+        }
 
         if (func.Constraints != null && func.Constraints.Count > 0)
         {

@@ -824,7 +824,7 @@ The compiler successfully:
 - [x] All tests passing
 - [x] Build successful with no errors
 
-### Phase 55: Collection Initializers with Indexers (v1.55 - LATEST!)
+### Phase 55: Collection Initializers with Indexers (v1.55)
 - [x] **Collection Initializer Enhancement**: Full implementation of C# 6 indexer initializers
   - Extended `PropertyInitializer` AST node to support both property and indexer initializers
   - Added `IndexExpression` field for indexer syntax (`["key"] = value`)
@@ -871,5 +871,52 @@ The compiler successfully:
   - Variable expressions in indexers
   - Nested dictionary initialization
 - [x] All 434 tests passing, 0 skipped (28 lexer + 57 parser + 63 analyzer + 44 transpiler + 242 other)
+- [x] Build successful with no errors
+
+### Phase 58: Conversion Operators (v1.58 - LATEST!)
+- [x] **Implicit/Explicit Conversion Operators**: Full C# conversion operator support
+  - Added `Implicit` and `Explicit` keywords to lexer (Token.cs)
+  - Extended `FunctionDeclaration` AST with `IsConversionOperator` and `IsImplicitConversion` flags
+  - Parser handles conversion operator syntax without `func` keyword
+  - Conversion operators parse return type BEFORE parameter list
+  - Transpiler emits proper C# conversion operator syntax
+- [x] **Syntax**:
+  - Implicit: `implicit operator TargetType(source: SourceType) { ... }`
+  - Explicit: `explicit operator TargetType(source: SourceType) { ... }`
+  - No return type annotation (target type IS the return type)
+  - No `func` keyword (unlike regular operator overloads)
+- [x] **Parser Enhancement**:
+  - `ParseMemberDeclaration` checks for `Implicit`/`Explicit` tokens
+  - `ParseFunctionDeclaration` handles conversion operators as special case
+  - Return type parsed before parameter list for conversions
+  - Supports both block and expression-bodied syntax
+- [x] **Transpiler Enhancement**:
+  - Emits `public static implicit operator TargetType(SourceType source)`
+  - Emits `public static explicit operator TargetType(SourceType source)`
+  - No duplicate return type in output
+- [x] **Test Coverage**: 7 new tests (2 lexer + 2 parser + 3 transpiler)
+  - TestImplicitKeyword, TestExplicitKeyword (Lexer)
+  - TestImplicitConversionOperator, TestExplicitConversionOperator (Parser)
+  - TestImplicitConversionOperatorTranspilation, TestExplicitConversionOperatorTranspilation, TestConversionOperatorExpressionBodied (Transpiler)
+- [x] **Comprehensive Example**: `examples/conversion_operators.nl`
+  - Temperature conversions (Celsius ↔ Fahrenheit, Celsius → Kelvin)
+  - Fraction to double conversion (explicit, lossy)
+  - Money to double conversion (implicit)
+  - Distance conversions (Meters ↔ Centimeters)
+  - Practical use cases demonstrating when to use implicit vs explicit
+  - Successfully compiles and runs with full functionality
+- [x] **Documentation**: Updated DESIGN.md
+  - Added "Operator Overloading" section with full examples
+  - Added "Conversion Operators" section with implicit/explicit guidelines
+  - Documented overloadable operators and constraints
+  - Clear guidelines on when to use implicit vs explicit conversions
+- [x] **Features Demonstrated**:
+  - User-defined type conversions
+  - Implicit conversions (safe, no data loss)
+  - Explicit conversions (lossy, requires cast)
+  - Expression-bodied conversion operators
+  - Natural casting syntax
+  - Type-safe conversion chains
+- [x] All 454 tests passing, 0 skipped (30 lexer + 59 parser + 63 analyzer + 47 transpiler + 255 other)
 - [x] Build successful with no errors
 

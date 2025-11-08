@@ -558,4 +558,24 @@ World
         Assert.Equal(TokenType.Unchecked, tokens[0].Type);
         Assert.Equal("unchecked", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestImplicitKeyword()
+    {
+        var source = "implicit";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // implicit + EOF
+        Assert.Equal(TokenType.Implicit, tokens[0].Type);
+        Assert.Equal("implicit", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestExplicitKeyword()
+    {
+        var source = "explicit";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // explicit + EOF
+        Assert.Equal(TokenType.Explicit, tokens[0].Type);
+        Assert.Equal("explicit", tokens[0].Value);
+    }
 }

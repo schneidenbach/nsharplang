@@ -1787,6 +1787,55 @@ struct Flags {
     }
 
     [Fact]
+    public void TestImplicitConversionOperatorTranspilation()
+    {
+        var source = @"
+class Celsius {
+    Value: double
+
+    implicit operator Fahrenheit(c: Celsius) {
+        return new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static implicit operator Fahrenheit(Celsius c)", result);
+        Assert.DoesNotContain("Fahrenheit Fahrenheit", result); // Should not duplicate return type
+    }
+
+    [Fact]
+    public void TestExplicitConversionOperatorTranspilation()
+    {
+        var source = @"
+struct Fraction {
+    Numerator: int
+    Denominator: int
+
+    explicit operator double(f: Fraction) {
+        return f.Numerator / (double)f.Denominator
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static explicit operator double(Fraction f)", result);
+    }
+
+    [Fact]
+    public void TestConversionOperatorExpressionBodied()
+    {
+        var source = @"
+class Meters {
+    Value: double
+
+    implicit operator Centimeters(m: Meters) => new Centimeters { Value: m.Value * 100.0 }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("public static implicit operator Centimeters(Meters m)", result);
+        Assert.Contains("=> new Centimeters", result);
+    }
+
+    [Fact]
     public void TestIndexFromEndTranspilation()
     {
         var source = @"
