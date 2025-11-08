@@ -557,16 +557,16 @@ public class Parser
             return ParseConstructorDeclaration(attributes, modifiers);
         }
 
+        // Indexer (must check before Function)
+        if (Check(TokenType.Func) && LookAhead(1).Type == TokenType.This)
+        {
+            return ParseIndexerDeclaration(attributes, modifiers);
+        }
+
         // Function
         if (Check(TokenType.Func))
         {
             return ParseFunctionDeclaration(attributes, modifiers);
-        }
-
-        // Indexer
-        if (Check(TokenType.Func) && LookAhead(1).Type == TokenType.This)
-        {
-            return ParseIndexerDeclaration(attributes, modifiers);
         }
 
         // Field/Property
@@ -1711,6 +1711,13 @@ public class Parser
             return ParseMatchExpression();
         }
 
+        // Immutable array literal
+        if (Check(TokenType.Immutable) && LookAhead(1).Type == TokenType.LeftBracket)
+        {
+            Advance(); // consume 'immutable'
+            return ParseArrayLiteral(isImmutable: true);
+        }
+
         // Array literal
         if (Check(TokenType.LeftBracket))
         {
@@ -1817,7 +1824,7 @@ public class Parser
         return new MatchExpression(value, cases, line, column);
     }
 
-    private Expression ParseArrayLiteral()
+    private Expression ParseArrayLiteral(bool isImmutable = false)
     {
         var line = Current.Line;
         var column = Current.Column;
@@ -1835,7 +1842,7 @@ public class Parser
 
         Consume(TokenType.RightBracket, "Expected ']'");
 
-        return new ArrayLiteralExpression(elements, false, line, column);
+        return new ArrayLiteralExpression(elements, isImmutable, line, column);
     }
 
     private Expression ParseTupleOrParenthesizedExpression()

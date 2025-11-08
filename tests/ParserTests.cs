@@ -452,4 +452,28 @@ public class ParserTests
         Assert.Equal("IReaderDuck", interfaceDecl.Name);
         Assert.True(interfaceDecl.IsDuckInterface);
     }
+
+    [Fact]
+    public void TestIndexerDeclaration()
+    {
+        var source = @"
+            class Dictionary<K, V> {
+                func this[key: K]: V {
+                    get { return storage[key] }
+                    set { storage[key] = value }
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+
+        var indexer = classDecl.Members[0] as IndexerDeclaration;
+        Assert.NotNull(indexer);
+        Assert.Single(indexer.Parameters);
+        Assert.Equal("key", indexer.Parameters[0].Name);
+        Assert.NotNull(indexer.GetBody);
+        Assert.NotNull(indexer.SetBody);
+    }
 }

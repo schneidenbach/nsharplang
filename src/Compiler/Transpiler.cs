@@ -97,6 +97,9 @@ public class Transpiler
             case ConstructorDeclaration ctor:
                 TranspileConstructorDeclaration(ctor);
                 break;
+            case IndexerDeclaration indexer:
+                TranspileIndexerDeclaration(indexer);
+                break;
             default:
                 throw new Exception($"Unsupported declaration type: {declaration.GetType().Name}");
         }
@@ -393,6 +396,34 @@ public class Transpiler
         var parameters = string.Join(", ", ctor.Parameters.Select(TranspileParameter));
         WriteLine($"{modifiers}ctor({parameters})");
         TranspileBlockStatement(ctor.Body);
+    }
+
+    private void TranspileIndexerDeclaration(IndexerDeclaration indexer)
+    {
+        TranspileAttributes(indexer.Attributes);
+
+        var modifiers = GetModifierString(indexer.Modifiers);
+        var type = TranspileTypeReference(indexer.Type);
+        var parameters = string.Join(", ", indexer.Parameters.Select(TranspileParameter));
+
+        WriteLine($"{modifiers}{type} this[{parameters}]");
+        WriteLine("{");
+        _indentLevel++;
+
+        if (indexer.GetBody != null)
+        {
+            WriteLine("get");
+            TranspileBlockStatement(indexer.GetBody);
+        }
+
+        if (indexer.SetBody != null)
+        {
+            WriteLine("set");
+            TranspileBlockStatement(indexer.SetBody);
+        }
+
+        _indentLevel--;
+        WriteLine("}");
     }
 
     private string TranspileParameter(Parameter param)
@@ -803,6 +834,13 @@ public class Transpiler
     private string TranspileArrayLiteral(ArrayLiteralExpression array)
     {
         var elements = string.Join(", ", array.Elements.Select(TranspileExpression));
+
+        if (array.IsImmutable)
+        {
+            // Use collection expression syntax for immutable arrays (C# 12+)
+            return $"[{elements}]";
+        }
+
         return $"new[] {{ {elements} }}";
     }
 
