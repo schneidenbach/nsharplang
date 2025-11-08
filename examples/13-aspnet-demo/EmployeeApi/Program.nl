@@ -3,7 +3,7 @@ import Microsoft.Extensions.DependencyInjection
 import Microsoft.EntityFrameworkCore
 import Microsoft.Extensions.Hosting
 
-package TaskManagementApi
+package EmployeeApi
 
 // Entry point for the ASP.NET Core application
 func Main(args: string[]) {
@@ -16,7 +16,7 @@ func Main(args: string[]) {
 
     // Add database context with SQLite
     builder.Services.AddDbContext<AppDbContext>((options) => {
-        options.UseSqlite("Data Source=tasks.db")
+        options.UseSqlite("Data Source=employees.db")
     })
 
     app := builder.Build()

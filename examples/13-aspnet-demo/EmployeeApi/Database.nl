@@ -1,6 +1,6 @@
 import Microsoft.EntityFrameworkCore
 
-package TaskManagementApi
+package EmployeeApi
 
 // Entity Framework Core database context
 class AppDbContext : DbContext {
@@ -9,6 +9,6 @@ class AppDbContext : DbContext {
         base(options) {
     }
 
-    // DbSet for TaskEntity - EF Core will auto-implement this
-    Tasks: DbSet<TaskEntity>?
+    // DbSet for EmployeeEntity - EF Core will auto-implement this
+    Employees: DbSet<EmployeeEntity>?
 }

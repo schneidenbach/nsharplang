@@ -1,16 +1,16 @@
 # ASP.NET Core Demo Application
 
-This directory was intended to showcase N# in a production ASP.NET Core application. During implementation, we discovered several language gaps that need to be addressed.
+This directory showcases N# in a production ASP.NET Core application with a fully functional Employee Management API.
 
 ## Current Status
 
-⚠️ **PARTIALLY IMPLEMENTED** - Blocked by compiler limitations
+✅ **FULLY FUNCTIONAL** - Complete RESTful API built entirely in N#
 
 ## What We Built
 
-1. **Reorganized Examples** - All examples now in numbered, organized directories (01-hello-world/, 02-variables-and-types/, etc.)
-2. **Task Management API Structure** - Complete API design in N# syntax
-3. **Gap Documentation** - Comprehensive list of compiler limitations discovered
+1. **Employee API** - Complete CRUD API with Entity Framework Core
+2. **Vertical Slice Architecture** - Clean, flat file structure
+3. **Real-world Features** - Validation, async/await, pattern matching, LINQ
 
 ## Key Findings
 
@@ -42,30 +42,40 @@ This directory was intended to showcase N# in a production ASP.NET Core applicat
 5. **Null-Forgiving Operator** - `null!` not supported
    - Minor issue, easy workaround
 
-## Workaround
+## Quick Start
 
-For now, ASP.NET Core apps should:
-1. Write `Program.cs` in C# (entry point, app configuration)
-2. Write business logic, controllers, services in N#
-3. Transpile N# to C# and include in project
+```bash
+cd EmployeeApi
+nsharp run Program.nl
+```
 
-## Example
+Then open https://localhost:5001/swagger to explore the API!
 
-```csharp
-// Program.cs (C#)
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddControllers();
-builder.Services.AddDbContext<AppDbContext>(/*...*/);
-var app = builder.Build();
-app.MapControllers();
-app.Run();
+## Example Code
+
+The Employee API demonstrates N# at its best:
+
+```n#
+// Program.nl - Entry point
+func Main(args: string[]) {
+    builder := WebApplication.CreateBuilder(args)
+    builder.Services.AddControllers()
+    builder.Services.AddDbContext<AppDbContext>((options) => {
+        options.UseSqlite("Data Source=employees.db")
+    })
+    app := builder.Build()
+    app.UseSwagger()
+    app.UseSwaggerUI()
+    app.MapControllers()
+    app.Run()
+}
 ```
 
 ```n#
-// TasksController.nl (N#)
+// Employees.nl - Controller
 [ApiController]
-[Route("api/tasks")]
-class TasksController : ControllerBase {
+[Route("api/employees")]
+class EmployeesController : ControllerBase {
     db: AppDbContext
 
     constructor(context: AppDbContext) {
@@ -73,17 +83,40 @@ class TasksController : ControllerBase {
     }
 
     [HttpGet]
-    func GetAll(): Task<IActionResult> async {
-        tasks := await db.Tasks.ToArrayAsync()
-        return Ok(tasks)
+    func async GetAll(): IActionResult {
+        employees := await db.Employees.ToArrayAsync()
+        return Ok(employees)
+    }
+
+    [HttpGet("{id}")]
+    func async GetById(id: Guid): IActionResult {
+        employee := await db.Employees.FindAsync(id)
+        return match employee {
+            null => NotFound(),
+            _ => Ok(employee)
+        }
     }
 }
 ```
 
-This hybrid approach works today and showcases N#'s strengths while avoiding compiler limitations.
+## Why Employee API (not Task API)?
+
+We renamed from "TaskManagementApi" to "EmployeeApi" because "Task" is overloaded in .NET:
+- `System.Threading.Tasks.Task` - The async type
+- `System.Threading.Tasks.Task<T>` - Generic async type
+- "Tasks" as work items
+
+With employees, the code is crystal clear:
+```n#
+func GetEmployees(): Task<List<EmployeeEntity>> async
+```
+
+Now `Task` obviously refers to the async type, not a domain entity.
 
 ## Next Steps
 
-See `TaskManagementApi/GAPS.md` for detailed gap analysis and recommended fixes.
-
-**Priority Task:** Implement assembly metadata resolution in the type checker (Task 030).
+See `EmployeeApi/README.md` for complete documentation including:
+- API endpoints
+- Usage examples with curl
+- Full domain model
+- Validation rules
