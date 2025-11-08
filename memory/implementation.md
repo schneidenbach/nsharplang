@@ -146,7 +146,33 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.18 (Latest - Print, Nameof, Typeof)
+### v1.19 (Latest - Expression-Bodied Members)
+1. **Expression-bodied properties**: ✅ Concise syntax for computed properties
+   - Added `ExpressionBody` field to `PropertyDeclaration` (Declarations.cs:155)
+   - Syntax: `PropName: type => expression`
+   - Type must be explicitly declared (C# compatible - no type inference for members)
+   - Parser detects `=>` after type annotation (Parser.cs:684-690)
+   - Analyzer validates expression type matches property type (Analyzer.cs:296-304)
+   - Transpiler emits C# expression-bodied property syntax (Transpiler.cs:551-556)
+2. **Expression-bodied methods**: ✅ Concise syntax for single-expression methods
+   - Added `ExpressionBody` field to `FunctionDeclaration` (Declarations.cs:36)
+   - Syntax: `func MethodName(...) => expression`
+   - Parser detects `=>` after parameters/constraints (Parser.cs:222-226)
+   - Analyzer validates expression type matches return type (Analyzer.cs:143-151)
+   - Transpiler emits C# expression-bodied method syntax (Transpiler.cs:194-198)
+3. **Test coverage**: ✅ 8 new tests (4 parser + 4 transpiler)
+   - `TestExpressionBodiedProperty`, `TestExpressionBodiedPropertyWithExplicitType` (Parser)
+   - `TestExpressionBodiedMethod`, `TestExpressionBodiedMethodWithComplexExpression` (Parser)
+   - `TestExpressionBodiedPropertyTranspilation`, `TestExpressionBodiedPropertyWithTypeTranspilation` (Transpiler)
+   - `TestExpressionBodiedMethodTranspilation`, `TestExpressionBodiedMethodComplexTranspilation` (Transpiler)
+4. **Example**: ✅ `examples/expression_bodied_members.nl`
+   - Demonstrates Person class with computed FullName and Age properties
+   - Calculator with expression-bodied Add/Multiply methods
+   - Rectangle with Area, Perimeter, and IsSquare computed properties
+   - Successfully compiles and runs
+5. **Test count**: ✅ 231 tests total, all passing (31 lexer + 68 parser + 67 analyzer + 55 transpiler)
+
+### v1.18 (Print, Nameof, Typeof)
 1. **Print statement**: ✅ Built-in print function for console output
    - Added `Print` keyword token (Token.cs:55)
    - Added `PrintStatement` AST node (Statements.cs:135-139)

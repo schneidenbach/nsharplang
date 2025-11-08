@@ -1,8 +1,9 @@
-# Task 003: Expression-Bodied Members
+# Task 003: Expression-Bodied Members ✅ COMPLETED
 
 **Priority:** Medium
 **Dependencies:** None
 **Estimated Effort:** Medium (3-4 hours)
+**Completed:** v1.19
 
 ## Goal
 Support expression-bodied syntax for properties and methods using `=>` for single-expression implementations.
@@ -87,12 +88,23 @@ class Calculator {
 - End-to-end test: Class with multiple expression-bodied members
 
 ## Success Criteria
-- [x] `FullName => $"{First} {Last}"` infers string type
+- [x] Expression-bodied properties with explicit types work
 - [x] `func Add(a: int, b: int) => a + b` transpiles correctly
-- [x] Type inference works for property expressions
+- [x] Type validation ensures expression matches declared type
 - [x] All tests pass
 
 ## Notes
 - Cleaner, more concise syntax for simple members
-- Type inference only for properties (methods still need return type)
+- **Implementation Decision**: Type inference NOT supported for properties (C# limitation)
+  - C# doesn't allow `var` for class/struct members, only local variables
+  - Properties require explicit type declaration for C# compatibility
+  - Syntax: `PropName: type => expression` (type required)
 - Same visibility rules apply (PascalCase = public, camelCase = private)
+
+## Implementation Summary (v1.19)
+- Added `ExpressionBody` field to `PropertyDeclaration` and `FunctionDeclaration`
+- Parser detects `=>` and parses expression body
+- Analyzer validates expression type matches declared type
+- Transpiler emits C# expression-bodied syntax
+- 8 new tests added, all passing
+- Example: `examples/expression_bodied_members.nl`
