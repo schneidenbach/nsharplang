@@ -574,4 +574,31 @@ public class ParserTests
         Assert.Single(failurePattern.Properties);
         Assert.Equal("error", failurePattern.Properties[0].Name);
     }
+
+    [Fact]
+    public void TestWithExpression()
+    {
+        var source = @"
+            func Test() {
+                p2 := p1 with { Age: 31 }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var withExpr = varDecl.Initializer as WithExpression;
+        Assert.NotNull(withExpr);
+
+        var targetExpr = withExpr.Target as IdentifierExpression;
+        Assert.NotNull(targetExpr);
+        Assert.Equal("p1", targetExpr.Name);
+
+        Assert.Single(withExpr.Properties);
+        Assert.Equal("Age", withExpr.Properties[0].Name);
+    }
 }

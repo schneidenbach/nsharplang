@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (21 tests), Analyzer (51 tests), Transpiler (6 tests)
-- **Total**: 105 tests, all passing
+- **Unit tests**: Lexer (27 tests), Parser (25 tests), Analyzer (51 tests), Transpiler (13 tests)
+- **Total**: 116 tests, all passing
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, transpiler output validation
+- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, match expressions, with expressions, transpiler output validation
 
 ## Build & Run
 
@@ -146,7 +146,19 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.6 (Latest - Match Expression Fixes)
+### v1.7 (Latest - With Expression Tests)
+1. **Verified with expressions**: ✅ With expressions were already implemented and working
+   - Parser support in `ParsePostfixExpression` (lines 1751-1769)
+   - Transpiler support in `TranspileWithExpression`
+   - Syntax: `p2 := p1 with { Age: 31 }`
+2. **Test coverage**: ✅ 116 tests total (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
+   - Added `TestWithExpression` parser test
+   - Added `TestWithExpressionTranspilation` transpiler test
+3. **Functionality confirmed**: ✅ Record mutation works end-to-end
+   - Created test example demonstrating with expressions
+   - Successfully compiles and runs with proper C# `with` syntax
+
+### v1.6 (Match Expression Fixes)
 1. **Pattern parsing for qualified names**: ✅ CRITICAL bug fixed - patterns can now use qualified type names
    - Updated `ParsePattern` to handle dotted names like `Result.Success`
    - Added while loop to consume `.` and additional identifiers

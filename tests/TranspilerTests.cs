@@ -262,4 +262,26 @@ func ProcessResult(r: Result): string {
         Assert.Contains("$\"Success: {value}\"", result);
         Assert.Contains("$\"Error: {error}\"", result);
     }
+
+    [Fact]
+    public void TestWithExpressionTranspilation()
+    {
+        var source = @"
+record Person {
+    Name: string
+    Age: int
+}
+
+func UpdateAge(p: Person): Person {
+    return p with { Age: 31 }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate with expression
+        Assert.Contains("with", result);
+        Assert.Contains("Age = 31", result);
+        Assert.Contains("p with {", result);
+    }
 }

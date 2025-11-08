@@ -67,7 +67,7 @@
 - [x] All 111 tests passing (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
 - [x] New example: unions_and_match.nl demonstrating unions, match, enums
 
-### Phase 9: Match Expression Fixes (v1.6 - LATEST!)
+### Phase 9: Match Expression Fixes (v1.6)
 - [x] Fixed pattern parsing to support qualified names (Result.Success)
 - [x] Fixed pattern transpilation to emit proper C# property patterns
 - [x] Pattern properties now transpile to `{ prop: var prop }` syntax
@@ -75,9 +75,15 @@
 - [x] Updated unions_and_match.nl to use actual match expressions
 - [x] All 114 tests passing (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
 
+### Phase 10: With Expression Tests (v1.7 - LATEST!)
+- [x] Verified with expressions already implemented and working
+- [x] Added comprehensive tests for with expressions (1 parser + 1 transpiler)
+- [x] Tested with expression end-to-end with record types
+- [x] All 116 tests passing (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
+
 ## 🚧 In Progress
 
-None currently - v1.6 complete!
+None currently - v1.7 complete!
 
 ## 📋 Next Steps
 
@@ -147,7 +153,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 114 unit tests passing** (27 lexer + 24 parser + 51 analyzer + 12 transpiler)
+- **All 116 unit tests passing** (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -160,4 +166,5 @@ The compiler successfully:
 - **Type alias resolution in type checking (v1.5)**
 - **String enum and top-level function fixes (v1.5)**
 - **Match expressions fully working with proper pattern transpilation (v1.6)**
+- **With expressions fully working for record mutation (v1.7)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)
