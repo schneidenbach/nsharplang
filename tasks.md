@@ -81,16 +81,24 @@
 - [x] Tested with expression end-to-end with record types
 - [x] All 116 tests passing (27 lexer + 25 parser + 51 analyzer + 13 transpiler)
 
-### Phase 11: Default Parameters and Named Arguments (v1.8 - LATEST!)
+### Phase 11: Default Parameters and Named Arguments (v1.8)
 - [x] Verified default parameter values already implemented and working
 - [x] Verified named arguments already implemented and working
 - [x] Added comprehensive tests for both features (2 parser + 2 transpiler)
 - [x] Tested end-to-end with function calls and various argument patterns
 - [x] All 120 tests passing (27 lexer + 27 parser + 51 analyzer + 15 transpiler)
 
+### Phase 12: Advanced Feature Test Coverage (v1.9 - LATEST!)
+- [x] Added comprehensive parser tests for async/await, iterators, using, switch, spread, modifiers
+- [x] Added comprehensive transpiler tests for all advanced features
+- [x] Verified all features already implemented in parser and transpiler
+- [x] Added 17 new tests (8 parser + 9 transpiler)
+- [x] All 137 tests passing (27 lexer + 35 parser + 51 analyzer + 24 transpiler)
+- [x] Features tested: async/await, func*, using statements, switch statements, spread operator, partial/abstract/sealed/virtual classes
+
 ## 🚧 In Progress
 
-None currently - v1.8 complete!
+None currently - v1.9 complete!
 
 ## 📋 Next Steps
 
@@ -160,7 +168,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 120 unit tests passing** (27 lexer + 27 parser + 51 analyzer + 15 transpiler)
+- **All 137 unit tests passing** (27 lexer + 35 parser + 51 analyzer + 24 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -175,4 +183,5 @@ The compiler successfully:
 - **Match expressions fully working with proper pattern transpilation (v1.6)**
 - **With expressions fully working for record mutation (v1.7)**
 - **Default parameter values and named arguments fully supported (v1.8)**
+- **Comprehensive test coverage for async/await, iterators, using, switch, spread, modifiers (v1.9)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)

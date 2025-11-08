@@ -109,12 +109,12 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (27 tests), Analyzer (51 tests), Transpiler (15 tests)
-- **Total**: 120 tests, all passing
+- **Unit tests**: Lexer (27 tests), Parser (35 tests), Analyzer (51 tests), Transpiler (24 tests)
+- **Total**: 137 tests, all passing
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
-- **New tests**: External type resolution, method overloading, lambda inference, indexer parsing, match expressions, with expressions, default parameters, named arguments, transpiler output validation
+- **Comprehensive coverage**: External types, method overloading, lambda inference, indexers, match/with expressions, default parameters, named arguments, async/await, iterators, using statements, switch statements, spread operator, class modifiers (partial/abstract/sealed/virtual)
 
 ## Build & Run
 
@@ -146,7 +146,31 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.8 (Latest - Default Parameters and Named Arguments)
+### v1.9 (Latest - Advanced Feature Test Coverage)
+1. **Parser test additions**: ✅ Added 8 comprehensive parser tests for advanced features
+   - TestAsyncAwait: Verifies async modifier and await expressions
+   - TestIteratorFunction: Verifies func* syntax and yield statements
+   - TestUsingStatement: Verifies resource management with using blocks
+   - TestSwitchStatement: Verifies case/default pattern syntax
+   - TestSpreadOperator: Verifies spread syntax in array literals
+   - TestPartialClass: Verifies partial modifier on classes
+   - TestAbstractAndSealedClasses: Verifies abstract/sealed modifiers
+   - TestVirtualMethods: Verifies virtual modifier and inheritance
+2. **Transpiler test additions**: ✅ Added 9 comprehensive transpiler tests
+   - TestAsyncAwaitTranspilation: Verifies async/await C# generation
+   - TestIteratorFunctionTranspilation: Verifies yield return generation
+   - TestUsingStatementTranspilation: Verifies using block generation
+   - TestSwitchStatementTranspilation: Verifies switch case generation
+   - TestSpreadOperatorTranspilation: Verifies spread handling
+   - TestPartialClassTranspilation: Verifies partial modifier emission
+   - TestAbstractClassTranspilation: Verifies abstract modifier emission
+   - TestSealedClassTranspilation: Verifies sealed modifier emission
+   - TestVirtualMethodTranspilation: Verifies virtual modifier preservation
+3. **Test count**: ✅ 137 tests total (27 lexer + 35 parser + 51 analyzer + 24 transpiler)
+4. **Coverage improvement**: All features specified in DESIGN.md now have test coverage
+5. **No new features**: All tested features were already fully implemented in parser/transpiler
+
+### v1.8 (Default Parameters and Named Arguments)
 1. **Default parameter values**: ✅ Feature already implemented in parser and transpiler
    - Parsed in `ParseParameterList` (lines 265-270)
    - Stored in Parameter AST node with DefaultValue field
