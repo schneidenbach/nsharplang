@@ -146,7 +146,36 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.4 (Latest - Error Handling)
+### v1.5 (Latest - Parser and Transpiler Improvements)
+1. **Qualified type names**: ✅ Support for dotted type names like `Result.Success`
+   - Updated `ParseBaseTypeReference` to handle `Type.Name` syntax
+   - Allows union case types to be referenced properly
+2. **Cast expression fixes**: ✅ CRITICAL bug fixed - qualified type casts now work
+   - Updated `IsCastExpression()` to handle qualified names
+   - Reordered parser checks: cast detection before tuple/parenthesized expressions
+   - New test: `TestQualifiedTypeCast` validates parsing
+3. **Type alias resolution**: ✅ Type aliases now work in type checking
+   - Added `ResolveTypeAlias()` helper method
+   - Updated `IsAssignable()` to resolve aliases before comparison
+   - `type UserId = int` now properly type-checks
+4. **String enum transpilation**: ✅ CRITICAL bug fixed - proper C# emission
+   - String enums now transpile to `static class` with `const string` fields
+   - Int enums continue to transpile to standard C# enums
+   - Prevents invalid `enum { const string ... }` syntax
+5. **Top-level function wrapping**: ✅ Major transpiler improvement
+   - Top-level functions now wrapped in internal static class
+   - Class name: `_{Namespace}_TopLevel` or `_TopLevel`
+   - Fixes C# compilation error (top-level statements after declarations)
+   - Matches DESIGN.md: "internal static methods on auto-generated class"
+6. **Test coverage**: ✅ 111 tests total (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
+   - Added `TestQualifiedTypeCast` parser test
+7. **New example**: ✅ `examples/unions_and_match.nl`
+   - Demonstrates discriminated unions
+   - Shows int and string enums
+   - Tests type aliases
+   - Proves end-to-end compilation
+
+### v1.4 (Error Handling)
 1. **Automatic exception capture**: ✅ MAJOR feature - error handling with tuple deconstruction
    - Pattern: `result, err := Function()` automatically wraps call in try-catch
    - Generates: `object? result = null; Exception? err = null; try { result = ... } catch (Exception ex) { err = ex; }`

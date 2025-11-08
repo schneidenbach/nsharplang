@@ -42,11 +42,39 @@ public class Transpiler
             WriteLine();
         }
 
-        // Top-level declarations
-        foreach (var declaration in _compilationUnit.Declarations)
+        // Separate top-level functions from other declarations
+        var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
+        var otherDeclarations = _compilationUnit.Declarations.Where(d => d is not FunctionDeclaration).ToList();
+
+        // Transpile non-function declarations first
+        foreach (var declaration in otherDeclarations)
         {
             TranspileDeclaration(declaration);
             WriteLine();
+        }
+
+        // Wrap top-level functions in a generated internal static class
+        if (topLevelFunctions.Count > 0)
+        {
+            var className = _compilationUnit.Namespace != null
+                ? $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel"
+                : "_TopLevel";
+
+            WriteLine($"internal static class {className}");
+            WriteLine("{");
+            _indentLevel++;
+
+            foreach (var func in topLevelFunctions)
+            {
+                // Top-level functions are always internal static
+                var originalModifiers = func.Modifiers;
+                var modifiedFunc = func with { Modifiers = originalModifiers | Modifiers.Internal | Modifiers.Static };
+                TranspileFunctionDeclaration(modifiedFunc);
+                WriteLine();
+            }
+
+            _indentLevel--;
+            WriteLine("}");
         }
 
         return _output.ToString();
@@ -283,17 +311,14 @@ public class Transpiler
 
         var modifiers = GetModifierString(enm.Modifiers);
 
-        Write($"{modifiers}enum {enm.Name}");
-
         // String enums in C# need to be handled differently (using constants or records)
         if (enm.Type == EnumType.String)
         {
-            WriteLine();
+            // For string enums, we'll generate a static class with string constants
+            WriteLine($"{modifiers}static class {enm.Name}");
             WriteLine("{");
             _indentLevel++;
 
-            // For string enums, we'll generate a class with string constants
-            WriteLine($"// String enum - using const fields");
             foreach (var member in enm.Members)
             {
                 var value = member.Value != null ? TranspileExpression(member.Value) : $"\"{member.Name}\"";
@@ -305,7 +330,7 @@ public class Transpiler
         }
         else
         {
-            WriteLine();
+            WriteLine($"{modifiers}enum {enm.Name}");
             WriteLine("{");
             _indentLevel++;
 

@@ -732,8 +732,15 @@ public class Parser
             return ParseFunctionTypeReference();
         }
 
-        // Simple or generic type
+        // Simple or generic type (possibly qualified with dots like Result.Success)
         var name = ConsumeIdentifier("Expected type name");
+
+        // Support qualified names like Result.Success
+        while (Check(TokenType.Dot))
+        {
+            Advance();
+            name += "." + ConsumeIdentifier("Expected identifier after '.'");
+        }
 
         if (Check(TokenType.Less))
         {
@@ -1880,13 +1887,7 @@ public class Parser
             return ParseArrayLiteral();
         }
 
-        // Tuple or parenthesized expression (lambdas are now handled at higher precedence)
-        if (Check(TokenType.LeftParen))
-        {
-            return ParseTupleOrParenthesizedExpression();
-        }
-
-        // Cast expression
+        // Cast expression (check before tuple/paren to handle (Type)expr)
         if (Check(TokenType.LeftParen) && IsCastExpression())
         {
             Advance();
@@ -1894,6 +1895,12 @@ public class Parser
             Consume(TokenType.RightParen, "Expected ')'");
             var castExpr = ParseUnaryExpression();
             return new CastExpression(castExpr, castType, CastKind.Hard, line, column);
+        }
+
+        // Tuple or parenthesized expression (lambdas are now handled at higher precedence)
+        if (Check(TokenType.LeftParen))
+        {
+            return ParseTupleOrParenthesizedExpression();
         }
 
         // Spread operator
@@ -2140,11 +2147,20 @@ public class Parser
 
             Advance();
 
-            // Simple type cast: (TypeName)
+            // Handle qualified names like Result.Success
+            while (Check(TokenType.Dot))
+            {
+                Advance(); // consume .
+                if (!Check(TokenType.Identifier))
+                    return false;
+                Advance(); // consume identifier
+            }
+
+            // Simple type cast: (TypeName) or (Qualified.TypeName)
             if (Check(TokenType.RightParen))
                 return true;
 
-            // Generic or complex type
+            // Generic or complex type (not supported in cast check yet)
             return false;
         }
         finally

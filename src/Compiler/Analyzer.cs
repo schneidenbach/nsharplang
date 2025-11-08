@@ -1270,22 +1270,38 @@ public class Analyzer
     // Type checking helpers
     private bool IsAssignable(TypeInfo target, TypeInfo source)
     {
-        if (target == source) return true;
-        if (source == BuiltInTypes.Null && target is NullableTypeInfo) return true;
-        if (source == BuiltInTypes.Never) return true;
-        if (source == BuiltInTypes.Unknown || target == BuiltInTypes.Unknown) return true;
+        // Resolve type aliases
+        var resolvedTarget = ResolveTypeAlias(target);
+        var resolvedSource = ResolveTypeAlias(source);
+
+        if (resolvedTarget == resolvedSource) return true;
+        if (resolvedSource == BuiltInTypes.Null && resolvedTarget is NullableTypeInfo) return true;
+        if (resolvedSource == BuiltInTypes.Never) return true;
+        if (resolvedSource == BuiltInTypes.Unknown || resolvedTarget == BuiltInTypes.Unknown) return true;
 
         // Handle external types (assume compatible if we can't resolve)
-        if (source is ExternalTypeInfo || target is ExternalTypeInfo) return true;
-        if (source is ReflectionTypeInfo || target is ReflectionTypeInfo) return true;
-        if (source is ReflectionMethodInfo || target is ReflectionMethodInfo) return true;
-        if (source is ReflectionMethodGroupInfo || target is ReflectionMethodGroupInfo) return true;
+        if (resolvedSource is ExternalTypeInfo || resolvedTarget is ExternalTypeInfo) return true;
+        if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
+        if (resolvedSource is ReflectionMethodInfo || resolvedTarget is ReflectionMethodInfo) return true;
+        if (resolvedSource is ReflectionMethodGroupInfo || resolvedTarget is ReflectionMethodGroupInfo) return true;
 
         // Same type name
-        if (target.ToString() == source.ToString()) return true;
+        if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
 
         // TODO: More sophisticated type compatibility checking
         return false;
+    }
+
+    private TypeInfo ResolveTypeAlias(TypeInfo type)
+    {
+        if (type is AliasTypeInfo alias)
+        {
+            // Resolve the aliased type reference to a TypeInfo
+            var resolved = ResolveType(alias.AliasedType);
+            // Recursively resolve in case of nested aliases
+            return ResolveTypeAlias(resolved);
+        }
+        return type;
     }
 
     private bool IsNumericType(TypeInfo type)

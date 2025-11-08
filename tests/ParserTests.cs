@@ -476,4 +476,35 @@ public class ParserTests
         Assert.NotNull(indexer.GetBody);
         Assert.NotNull(indexer.SetBody);
     }
+
+    [Fact]
+    public void TestQualifiedTypeCast()
+    {
+        var source = @"
+            func Test() {
+                s := (Result.Success)r
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+        Assert.Equal("s", varDecl.Name);
+
+        var castExpr = varDecl.Initializer as CastExpression;
+        Assert.NotNull(castExpr);
+        Assert.Equal(CastKind.Hard, castExpr.Kind);
+
+        var typeRef = castExpr.TargetType as SimpleTypeReference;
+        Assert.NotNull(typeRef);
+        Assert.Equal("Result.Success", typeRef.Name);
+
+        var targetExpr = castExpr.Expression as IdentifierExpression;
+        Assert.NotNull(targetExpr);
+        Assert.Equal("r", targetExpr.Name);
+    }
 }

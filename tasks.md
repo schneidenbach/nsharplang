@@ -48,7 +48,7 @@
 - [x] Tuple deconstruction in variable declarations `(x, y) := expr`
 - [x] All 108 tests passing (27 lexer + 21 parser + 51 analyzer + 9 transpiler)
 
-### Phase 7: Error Handling (v1.4 - LATEST!)
+### Phase 7: Error Handling (v1.4)
 - [x] Automatic exception capture pattern: `result, err := Function()`
 - [x] Parser support for `x, y := expr` syntax (without parens)
 - [x] Transpiler generates try-catch wrapper when second var is `err`
@@ -57,9 +57,19 @@
 - [x] Throw expressions already implemented (from v1.3)
 - [x] All 110 tests passing (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
 
+### Phase 8: Parser and Transpiler Improvements (v1.5 - LATEST!)
+- [x] Qualified type names in type references (Result.Success)
+- [x] Cast expression detection for qualified names
+- [x] Parser reordering: cast before tuple/paren for correct precedence
+- [x] Type alias resolution in IsAssignable (ResolveTypeAlias helper)
+- [x] String enum transpilation fix (static class instead of enum)
+- [x] Top-level function wrapping in internal static class
+- [x] All 111 tests passing (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
+- [x] New example: unions_and_match.nl demonstrating unions, match, enums
+
 ## 🚧 In Progress
 
-None currently - v1.4 complete!
+None currently - v1.5 complete!
 
 ## 📋 Next Steps
 
@@ -118,14 +128,18 @@ The compiler successfully:
 - `examples/hello.nl` - Variables, string interpolation, arrays, lambdas, LINQ, loops, external types ✅
 - `examples/simple.nl` - Basic functions and type inference ✅
 - `examples/error_handling.nl` - Automatic exception capture with `result, err := Function()` ✅
+- `examples/unions_and_match.nl` - Discriminated unions, enums (int and string), type aliases ✅
 
 ## 📝 Notes
 
 - The language transpiles to C# rather than emitting IL directly (simpler, leverages .NET toolchain)
 - Duck interfaces are internal-only (not emitted to C#)
 - Union types transpile to abstract base classes with nested record cases
-- String enum values use const fields instead of traditional enums
-- **All 110 unit tests passing** (27 lexer + 21 parser + 51 analyzer + 11 transpiler)
+- String enums transpile to static classes with const string fields
+- Int enums transpile to standard C# enums
+- Top-level functions are wrapped in internal static classes
+- Type aliases are emitted as comments (C# doesn't support type aliases at type level)
+- **All 111 unit tests passing** (27 lexer + 22 parser + 51 analyzer + 11 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -134,4 +148,7 @@ The compiler successfully:
 - **Tuple deconstruction in variable declarations (v1.3)**
 - **Automatic exception capture with `result, err := Function()` (v1.4)**
 - **Improved null-coalesce operator type inference (v1.4)**
+- **Qualified type names support (v1.5)**
+- **Type alias resolution in type checking (v1.5)**
+- **String enum and top-level function fixes (v1.5)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)
