@@ -196,9 +196,59 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 - Template for future N# projects
 
 **Next steps:**
-- Task 009: Testing support (.tests.nl files)
+- Task 009: Complete testing support (CLI and end-to-end)
 - Task 004: Async implicit wrapping
 - Task 013: Global .NET tool packaging
+
+### v1.27 (Testing Support - Core Language Features) ✅ COMPLETE
+1. **Test declaration syntax**: ✅ `test "description" { ... }`
+   - Added Test keyword token to lexer
+   - Created TestDeclaration AST node
+   - ParseTestDeclaration() method generates PascalCase method names
+   - Transpiles to XUnit [Fact] methods
+2. **Assert statement with smart transpilation**: ✅ Multiple assert patterns
+   - Added Assert keyword token to lexer
+   - Created AssertStatement AST node
+   - ParseAssertStatement() method parses condition expressions
+   - Smart transpilation based on expression type:
+     - `assert x == y` → `Assert.Equal(y, x)`
+     - `assert x != y` → `Assert.NotEqual(y, x)`
+     - `assert x != null` → `Assert.NotNull(x)` (optimized)
+     - `assert x > y` → `Assert.True(x > y)` (relational)
+     - `assert x` → `Assert.True(x)` (boolean)
+     - `assert x is Type` → `Assert.IsType<Type>(x)` (type check)
+3. **Test method naming**: ✅ Intelligent conversion
+   - Converts descriptions to valid C# identifiers
+   - "should add two numbers" → `ShouldAddTwoNumbers()`
+   - Handles special characters, punctuation, spaces
+   - PascalCase generation with proper capitalization
+4. **Analyzer support**: ✅ Test scope validation
+   - AnalyzeTestDeclaration() creates function-like scope
+   - AnalyzeAssertStatement() validates condition expressions
+   - Proper statement analysis within test bodies
+5. **Test coverage**: ✅ 9 new tests (2 parser + 7 transpiler)
+   - TestTestDeclaration: Verifies parsing of test syntax
+   - TestAssertStatement: Verifies assert parsing
+   - TestTestDeclarationTranspilation: End-to-end test generation
+   - TestAssertEqualTranspilation: == operator
+   - TestAssertNotEqualTranspilation: != operator
+   - TestAssertNotNullTranspilation: null checks
+   - TestAssertGreaterThanTranspilation: relational operators
+   - TestAssertBooleanTranspilation: boolean expressions
+   - TestMethodNameConversion: special character handling
+6. **Build status**: ✅ All 279 tests passing (270 existing + 9 new)
+
+**What works:**
+- Test declarations parse and transpile correctly ✅
+- Assert statements with all major patterns ✅
+- Smart XUnit assert generation ✅
+- Method name conversion handles edge cases ✅
+
+**Remaining work (Task 009):**
+- CLI: Detect and compile .tests.nl files separately
+- CLI: Generate test project with XUnit dependencies
+- CLI: `nlc test` command to run tests
+- Example: Create .tests.nl file for end-to-end validation
 
 ### v1.25 (Multi-File Compilation) ✅ COMPLETE
 1. **MultiFileCompiler class**: ✅ Two-pass compilation for multiple files
