@@ -34,12 +34,13 @@ public class DocumentManager
             var lexer = new Lexer(text, uri);
             state.Tokens = lexer.Tokenize();
 
-            var parser = new Parser(state.Tokens);
-            state.CompilationUnit = parser.Parse();
+            var parser = new Parser(state.Tokens, uri);
+            state.CompilationUnit = parser.ParseCompilationUnit();
 
             // Analyze the document
-            var analyzer = new Analyzer(uri, Environment.CurrentDirectory);
-            state.Diagnostics = analyzer.Analyze(state.CompilationUnit).ToList();
+            var analyzer = new Analyzer();
+            var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, Environment.CurrentDirectory);
+            state.Diagnostics = analysisResult.Errors;
 
             // Store symbol information for later use
             state.Symbols = ExtractSymbols(state.CompilationUnit);
@@ -58,13 +59,12 @@ public class DocumentManager
             {
                 Diagnostics = new List<CompilerError>
                 {
-                    new CompilerError(
-                        ErrorCode.SyntaxError,
+                    CompilerError.Create(
+                        ErrorCode.InvalidSyntax,
                         $"Internal error: {ex.Message}",
                         0,
                         0,
-                        uri,
-                        null
+                        ErrorSeverity.Error
                     )
                 }
             };

@@ -108,7 +108,7 @@ public class HoverHandler : HoverHandlerBase
     {
         return new HoverRegistrationOptions
         {
-            DocumentSelector = DocumentSelector.ForLanguage("nsharp")
+            // DocumentSelector will be set automatically
         };
     }
 

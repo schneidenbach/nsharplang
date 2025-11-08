@@ -123,9 +123,9 @@ public class CompletionHandler : CompletionHandlerBase
     {
         return new CompletionRegistrationOptions
         {
-            DocumentSelector = DocumentSelector.ForLanguage("nsharp"),
+            // DocumentSelector will be set automatically
             ResolveProvider = false, // We provide all info upfront
-            TriggerCharacters = new[] { ".", ":", " " }
+            TriggerCharacters = new Container<string>(".", ":", " ")
         };
     }
 

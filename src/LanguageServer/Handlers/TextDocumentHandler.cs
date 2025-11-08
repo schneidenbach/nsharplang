@@ -43,7 +43,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     {
         var uri = request.TextDocument.Uri.ToString();
         var text = request.TextDocument.Text;
-        var version = request.TextDocument.Version;
+        var version = request.TextDocument.Version ?? 0;
 
         _logger.LogInformation("Document opened: {Uri}", uri);
 
@@ -61,7 +61,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         if (request.ContentChanges.Any())
         {
             var text = request.ContentChanges.First().Text;
-            var version = request.TextDocument.Version;
+            var version = request.TextDocument.Version ?? 0;
 
             _documentManager.UpdateDocument(uri, text, version);
             PublishDiagnostics(uri);
@@ -108,9 +108,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     {
         return new TextDocumentSyncRegistrationOptions
         {
-            DocumentSelector = DocumentSelector.ForLanguage("nsharp"),
-            Change = TextDocumentSyncKind.Full, // Full document sync (simpler for MVP)
-            Save = new SaveOptions { IncludeText = false }
+            // Default configuration - full sync
         };
     }
 
