@@ -1105,4 +1105,117 @@ func main() {
         Assert.Contains("int Square(int x)", result);
         Assert.Contains("=> (x * x);", result);
     }
+
+    [Fact]
+    public void TestRelationalPatternTranspilation()
+    {
+        var source = "func classify(age: int): string {\n" +
+                     "    result := match age {\n" +
+                     "        < 13 => \"child\"\n" +
+                     "        >= 65 => \"senior\"\n" +
+                     "        _ => \"adult\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# switch expression with relational patterns
+        Assert.Contains("< 13", result);
+        Assert.Contains(">= 65", result);
+        Assert.Contains("_ =>", result);
+    }
+
+    [Fact]
+    public void TestAndPatternTranspilation()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    > 0 and < 100 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# and pattern
+        Assert.Contains("> 0 and < 100", result);
+    }
+
+    [Fact]
+    public void TestOrPatternTranspilation()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    < 0 or > 100 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# or pattern
+        Assert.Contains("< 0 or > 100", result);
+    }
+
+    [Fact]
+    public void TestNotPatternTranspilation()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    not 0 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# not pattern
+        Assert.Contains("not 0", result);
+    }
+
+    [Fact]
+    public void TestPositionalPatternTranspilation()
+    {
+        var source = "func check(point: (int, int)): string {\n" +
+                     "    result := match point {\n" +
+                     "        (0, 0) => \"origin\"\n" +
+                     "        (0, _) => \"y-axis\"\n" +
+                     "        _ => \"other\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile to C# positional pattern
+        Assert.Contains("(0, 0)", result);
+        Assert.Contains("(0, _)", result);
+    }
+
+    [Fact]
+    public void TestComplexCombinedPatternsTranspilation()
+    {
+        var source = "func check(value: int): string {\n" +
+                     "    result := match value {\n" +
+                     "        (> 0 and < 10) or (> 90 and < 100) => \"valid\"\n" +
+                     "        _ => \"other\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var result = Transpile(source);
+
+        // Should transpile with proper pattern combinations
+        Assert.Contains("(> 0 and < 10) or (> 90 and < 100)", result);
+    }
 }

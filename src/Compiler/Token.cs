@@ -55,6 +55,9 @@ public enum TokenType
     Print,
     Where,
     When,
+    AndKeyword,  // 'and' keyword for pattern matching
+    OrKeyword,   // 'or' keyword for pattern matching
+    NotKeyword,  // 'not' keyword for pattern matching
     Virtual,
     Abstract,
     Sealed,

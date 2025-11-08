@@ -1246,6 +1246,11 @@ public class Transpiler
             LiteralPattern lit => TranspileExpression(lit.Literal),
             IdentifierPattern ident => TranspileIdentifierPattern(ident),
             UnionCasePattern unionCase => TranspileUnionCasePattern(unionCase),
+            RelationalPattern relational => TranspileRelationalPattern(relational),
+            AndPattern and => TranspileAndPattern(and),
+            OrPattern or => TranspileOrPattern(or),
+            NotPattern not => TranspileNotPattern(not),
+            PositionalPattern positional => TranspilePositionalPattern(positional),
             _ => throw new Exception($"Unsupported pattern type: {pattern.GetType().Name}")
         };
     }
@@ -1278,6 +1283,37 @@ public class Transpiler
         }));
 
         return $"{pattern.CaseName} {{ {props} }}";
+    }
+
+    private string TranspileRelationalPattern(RelationalPattern pattern)
+    {
+        // C# 9+ relational patterns: < value, >= value, etc.
+        return $"{pattern.Operator} {TranspileExpression(pattern.Value)}";
+    }
+
+    private string TranspileAndPattern(AndPattern pattern)
+    {
+        // C# 9+ and pattern: pattern1 and pattern2
+        return $"{TranspilePattern(pattern.Left)} and {TranspilePattern(pattern.Right)}";
+    }
+
+    private string TranspileOrPattern(OrPattern pattern)
+    {
+        // C# 9+ or pattern: pattern1 or pattern2
+        return $"{TranspilePattern(pattern.Left)} or {TranspilePattern(pattern.Right)}";
+    }
+
+    private string TranspileNotPattern(NotPattern pattern)
+    {
+        // C# 9+ not pattern: not pattern
+        return $"not {TranspilePattern(pattern.Pattern)}";
+    }
+
+    private string TranspilePositionalPattern(PositionalPattern pattern)
+    {
+        // C# positional pattern: (pattern1, pattern2, ...)
+        var patterns = string.Join(", ", pattern.Patterns.Select(TranspilePattern));
+        return $"({patterns})";
     }
 
     private string TranspileTypeReference(TypeReference typeRef)

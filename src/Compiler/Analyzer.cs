@@ -814,6 +814,39 @@ public class Analyzer
                     }
                 }
                 break;
+
+            case RelationalPattern relationalPattern:
+                // Analyze the value expression and ensure it's compatible with valueType
+                var relationalValueType = AnalyzeExpression(relationalPattern.Value);
+                // The value type should be comparable (numeric, string, etc.)
+                // For now, we'll allow any relational pattern without strict type checking
+                break;
+
+            case AndPattern andPattern:
+                // Both patterns must be valid for the value type
+                AnalyzePattern(andPattern.Left, valueType);
+                AnalyzePattern(andPattern.Right, valueType);
+                break;
+
+            case OrPattern orPattern:
+                // Either pattern must be valid for the value type
+                AnalyzePattern(orPattern.Left, valueType);
+                AnalyzePattern(orPattern.Right, valueType);
+                break;
+
+            case NotPattern notPattern:
+                // The inner pattern must be valid for the value type
+                AnalyzePattern(notPattern.Pattern, valueType);
+                break;
+
+            case PositionalPattern positionalPattern:
+                // For tuple types, analyze each pattern against the corresponding element type
+                // For now, we'll just analyze each pattern with the same value type
+                foreach (var p in positionalPattern.Patterns)
+                {
+                    AnalyzePattern(p, valueType);
+                }
+                break;
         }
     }
 

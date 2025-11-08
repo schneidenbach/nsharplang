@@ -182,6 +182,37 @@ public record UnionCasePattern(
     int Column) : Pattern(Line, Column);
 public record PropertyPattern(string Name, string? BindingName);
 
+// Relational pattern (< value, >= value, etc.)
+public record RelationalPattern(
+    string Operator, // "<", ">", "<=", ">=", "==", "!="
+    Expression Value,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+// Logical patterns (and, or, not)
+public record AndPattern(
+    Pattern Left,
+    Pattern Right,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+public record OrPattern(
+    Pattern Left,
+    Pattern Right,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+public record NotPattern(
+    Pattern Pattern,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
+// Positional pattern for tuples/deconstructable types
+public record PositionalPattern(
+    List<Pattern> Patterns,
+    int Line,
+    int Column) : Pattern(Line, Column);
+
 // Spread expression (for arrays and function calls)
 public record SpreadExpression(
     Expression Expression,

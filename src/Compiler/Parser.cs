@@ -1277,8 +1277,98 @@ public class Parser
 
     private Pattern ParsePattern()
     {
+        // Parse with operator precedence: or > and > not > relational > primary
+        return ParseOrPattern();
+    }
+
+    private Pattern ParseOrPattern()
+    {
+        var left = ParseAndPattern();
+
+        while (Check(TokenType.OrKeyword))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            Advance(); // consume 'or'
+            var right = ParseAndPattern();
+            left = new OrPattern(left, right, line, column);
+        }
+
+        return left;
+    }
+
+    private Pattern ParseAndPattern()
+    {
+        var left = ParseNotPattern();
+
+        while (Check(TokenType.AndKeyword))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            Advance(); // consume 'and'
+            var right = ParseNotPattern();
+            left = new AndPattern(left, right, line, column);
+        }
+
+        return left;
+    }
+
+    private Pattern ParseNotPattern()
+    {
+        if (Check(TokenType.NotKeyword))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            Advance(); // consume 'not'
+            var pattern = ParseNotPattern(); // recursive for multiple nots
+            return new NotPattern(pattern, line, column);
+        }
+
+        return ParseRelationalPattern();
+    }
+
+    private Pattern ParseRelationalPattern()
+    {
         var line = Current.Line;
         var column = Current.Column;
+
+        // Check for relational operators (<, >, <=, >=, ==, !=)
+        if (Check(TokenType.Less) || Check(TokenType.Greater) ||
+            Check(TokenType.LessEqual) || Check(TokenType.GreaterEqual) ||
+            Check(TokenType.Equal) || Check(TokenType.NotEqual))
+        {
+            var op = Advance().Value;
+            // Parse only primary expressions (literals, identifiers, parenthesized expressions)
+            // NOT relational expressions, to avoid consuming the next pattern's operators
+            var value = ParsePrimaryExpression();
+            return new RelationalPattern(op, value, line, column);
+        }
+
+        return ParsePrimaryPattern();
+    }
+
+    private Pattern ParsePrimaryPattern()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+
+        // Positional pattern (tuple pattern): (pattern1, pattern2, ...)
+        if (Check(TokenType.LeftParen))
+        {
+            Advance(); // consume '('
+            var patterns = new List<Pattern>();
+
+            if (!Check(TokenType.RightParen))
+            {
+                do
+                {
+                    patterns.Add(ParsePattern());
+                } while (Match(TokenType.Comma));
+            }
+
+            Consume(TokenType.RightParen, "Expected ')' after positional pattern");
+            return new PositionalPattern(patterns, line, column);
+        }
 
         // Literal pattern
         if (Check(TokenType.IntLiteral) || Check(TokenType.StringLiteral) ||

@@ -1858,4 +1858,197 @@ func main() {
         Assert.NotNull(func.ReturnType);
         Assert.NotNull(func.ExpressionBody);
     }
+
+    [Fact]
+    public void TestRelationalPattern()
+    {
+        var source = "func classify(age: int): string {\n" +
+                     "    result := match age {\n" +
+                     "        < 13 => \"child\"\n" +
+                     "        >= 65 => \"senior\"\n" +
+                     "        _ => \"adult\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(3, matchExpr.Cases.Count);
+
+        // First case: < 13
+        var firstCase = matchExpr.Cases[0];
+        var firstPattern = Assert.IsType<RelationalPattern>(firstCase.Pattern);
+        Assert.Equal("<", firstPattern.Operator);
+        Assert.IsType<IntLiteralExpression>(firstPattern.Value);
+
+        // Second case: >= 65
+        var secondCase = matchExpr.Cases[1];
+        var secondPattern = Assert.IsType<RelationalPattern>(secondCase.Pattern);
+        Assert.Equal(">=", secondPattern.Operator);
+        Assert.IsType<IntLiteralExpression>(secondPattern.Value);
+
+        // Third case: wildcard
+        var thirdCase = matchExpr.Cases[2];
+        Assert.IsType<IdentifierPattern>(thirdCase.Pattern);
+    }
+
+    [Fact]
+    public void TestAndPattern()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    > 0 and < 100 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var andPattern = Assert.IsType<AndPattern>(firstCase.Pattern);
+        Assert.IsType<RelationalPattern>(andPattern.Left);
+        Assert.IsType<RelationalPattern>(andPattern.Right);
+    }
+
+    [Fact]
+    public void TestOrPattern()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    < 0 or > 100 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var orPattern = Assert.IsType<OrPattern>(firstCase.Pattern);
+        Assert.IsType<RelationalPattern>(orPattern.Left);
+        Assert.IsType<RelationalPattern>(orPattern.Right);
+    }
+
+    [Fact]
+    public void TestNotPattern()
+    {
+        var source = @"
+            func check(x: int): bool {
+                result := match x {
+                    not 0 => true
+                    _ => false
+                }
+                return result
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+
+        var firstCase = matchExpr.Cases[0];
+        var notPattern = Assert.IsType<NotPattern>(firstCase.Pattern);
+        Assert.IsType<LiteralPattern>(notPattern.Pattern);
+    }
+
+    [Fact]
+    public void TestPositionalPattern()
+    {
+        var source = "func check(point: (int, int)): string {\n" +
+                     "    result := match point {\n" +
+                     "        (0, 0) => \"origin\"\n" +
+                     "        (0, _) => \"y-axis\"\n" +
+                     "        (_, 0) => \"x-axis\"\n" +
+                     "        _ => \"other\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(4, matchExpr.Cases.Count);
+
+        // First case: (0, 0)
+        var firstCase = matchExpr.Cases[0];
+        var positionalPattern = Assert.IsType<PositionalPattern>(firstCase.Pattern);
+        Assert.Equal(2, positionalPattern.Patterns.Count);
+        Assert.IsType<LiteralPattern>(positionalPattern.Patterns[0]);
+        Assert.IsType<LiteralPattern>(positionalPattern.Patterns[1]);
+    }
+
+    [Fact]
+    public void TestComplexCombinedPatterns()
+    {
+        var source = "func check(value: int): string {\n" +
+                     "    result := match value {\n" +
+                     "        (> 0 and < 10) or (> 90 and < 100) => \"valid\"\n" +
+                     "        not (>= 50 and <= 60) => \"not middle\"\n" +
+                     "        _ => \"other\"\n" +
+                     "    }\n" +
+                     "    return result\n" +
+                     "}";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var matchExpr = varDecl.Initializer as MatchExpression;
+        Assert.NotNull(matchExpr);
+        Assert.Equal(3, matchExpr.Cases.Count);
+
+        // First case: complex or pattern with parenthesized and patterns
+        var firstCase = matchExpr.Cases[0];
+        var orPattern = Assert.IsType<OrPattern>(firstCase.Pattern);
+        Assert.IsType<PositionalPattern>(orPattern.Left);  // Parenthesized and pattern
+        Assert.IsType<PositionalPattern>(orPattern.Right); // Parenthesized and pattern
+
+        // Second case: not pattern with relational
+        var secondCase = matchExpr.Cases[1];
+        var notPattern = Assert.IsType<NotPattern>(secondCase.Pattern);
+        Assert.IsType<PositionalPattern>(notPattern.Pattern);
+    }
 }
