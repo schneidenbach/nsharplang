@@ -226,6 +226,7 @@ public enum Modifiers
     Generator = 1 << 12, // For func* (yield)
     Required = 1 << 13,  // C# 11 required properties
     Init = 1 << 14,      // C# 9 init-only properties
+    File = 1 << 15,      // C# 11 file-scoped types
 }
 
 // Attributes

@@ -518,4 +518,14 @@ World
         Assert.EndsWith("\"\"\"", tokens[0].Value);
         Assert.Contains("{name}", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestFileKeyword()
+    {
+        var source = "file";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // file + EOF
+        Assert.Equal(TokenType.File, tokens[0].Type);
+        Assert.Equal("file", tokens[0].Value);
+    }
 }

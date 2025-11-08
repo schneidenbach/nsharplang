@@ -2133,4 +2133,66 @@ func Test() {
         // Verify C# 9 target-typed new syntax with initializer
         Assert.Contains("Person p = new() { Name = \"Alice\", Age = 30 }", result);
     }
+
+    [Fact]
+    public void TestFileClassTranspilation()
+    {
+        var source = @"
+file class InternalHelper {
+    Name: string
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify file modifier emitted in C#
+        Assert.Contains("file class InternalHelper", result);
+    }
+
+    [Fact]
+    public void TestFileStructTranspilation()
+    {
+        var source = @"
+file struct Point {
+    X: double
+    Y: double
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify file modifier emitted in C#
+        Assert.Contains("file struct Point", result);
+    }
+
+    [Fact]
+    public void TestFileRecordTranspilation()
+    {
+        var source = @"
+file record Person {
+    Name: string
+    Age: int
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify file modifier emitted in C#
+        Assert.Contains("file record Person", result);
+    }
+
+    [Fact]
+    public void TestFileInterfaceTranspilation()
+    {
+        var source = @"
+file interface IHelper {
+    func DoWork(): void
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify file modifier emitted in C#
+        Assert.Contains("file interface IHelper", result);
+    }
 }

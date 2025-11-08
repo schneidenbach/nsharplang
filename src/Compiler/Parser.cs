@@ -248,6 +248,11 @@ public class Parser
                 modifiers |= Modifiers.Init;
                 Advance();
             }
+            else if (Check(TokenType.File))
+            {
+                modifiers |= Modifiers.File;
+                Advance();
+            }
             else
             {
                 break;

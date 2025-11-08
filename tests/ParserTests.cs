@@ -3415,5 +3415,71 @@ func Helper(): int {
         Assert.NotNull(newExpr.Initializer);
         Assert.Equal(2, newExpr.Initializer.Properties.Count);
     }
+
+    [Fact]
+    public void TestFileClassModifier()
+    {
+        var source = @"
+            file class InternalHelper {
+                Name: string
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = cu.Declarations[0] as ClassDeclaration;
+        Assert.NotNull(classDecl);
+        Assert.Equal("InternalHelper", classDecl.Name);
+        Assert.True(classDecl.Modifiers.HasFlag(Modifiers.File));
+    }
+
+    [Fact]
+    public void TestFileStructModifier()
+    {
+        var source = @"
+            file struct Point {
+                X: double
+                Y: double
+            }
+        ";
+
+        var cu = Parse(source);
+        var structDecl = cu.Declarations[0] as StructDeclaration;
+        Assert.NotNull(structDecl);
+        Assert.Equal("Point", structDecl.Name);
+        Assert.True(structDecl.Modifiers.HasFlag(Modifiers.File));
+    }
+
+    [Fact]
+    public void TestFileRecordModifier()
+    {
+        var source = @"
+            file record Person {
+                Name: string
+                Age: int
+            }
+        ";
+
+        var cu = Parse(source);
+        var recordDecl = cu.Declarations[0] as RecordDeclaration;
+        Assert.NotNull(recordDecl);
+        Assert.Equal("Person", recordDecl.Name);
+        Assert.True(recordDecl.Modifiers.HasFlag(Modifiers.File));
+    }
+
+    [Fact]
+    public void TestFileInterfaceModifier()
+    {
+        var source = @"
+            file interface IHelper {
+                func DoWork(): void
+            }
+        ";
+
+        var cu = Parse(source);
+        var interfaceDecl = cu.Declarations[0] as InterfaceDeclaration;
+        Assert.NotNull(interfaceDecl);
+        Assert.Equal("IHelper", interfaceDecl.Name);
+        Assert.True(interfaceDecl.Modifiers.HasFlag(Modifiers.File));
+    }
 }
 

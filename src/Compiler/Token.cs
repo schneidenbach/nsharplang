@@ -80,6 +80,7 @@ public enum TokenType
     Ref,
     Out,
     Lock,
+    File,
 
     // Operators
     Plus,           // +

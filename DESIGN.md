@@ -57,6 +57,7 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 - Explicit modifiers supported when needed:
   - `internal` - assembly-level access
   - `protected` - subclass access
+  - `file` - file-scoped access (C# 11)
 - Examples:
   ```
   class MyClass {
@@ -66,6 +67,45 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
       protected ProtectedField: int  // explicit protected
   }
   ```
+
+#### File-Scoped Types (C# 11)
+- Types marked with `file` modifier are only visible within the declaring file
+- Perfect for implementation details that shouldn't leak across files
+- Applies to: classes, structs, records, interfaces
+- Examples:
+  ```
+  // File-scoped helper class - only visible in this file
+  file class InternalCache {
+      func Get(key: string): string? { ... }
+  }
+
+  // File-scoped struct - lightweight data structure
+  file struct Point {
+      X: double
+      Y: double
+  }
+
+  // File-scoped interface - internal contract
+  file interface IHelper {
+      func Process(value: string): string
+  }
+
+  // File-scoped record - immutable data
+  file record Config {
+      AppName: string
+      Version: string
+  }
+
+  // Public class can use file-scoped types internally
+  class Application {
+      cache: InternalCache = new InternalCache()  // OK - same file
+      // ...
+  }
+  ```
+- Benefits:
+  - Prevents namespace pollution
+  - Encapsulates implementation details
+  - Enables cleaner API surface
 
 ### Type System
 - Discriminated unions (built-in, unlike Go)

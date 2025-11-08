@@ -1609,3 +1609,77 @@ Created `examples/target_typed_new.nl` demonstrating all use cases.
 - Cleaner when type is obvious from context
 - Modern C# 9+ feature for concise syntax
 - Works seamlessly with generics
+
+---
+
+## v1.43 - File-Scoped Types (C# 11)
+
+### Feature
+Implemented file-scoped types using the `file` modifier, restricting type visibility to the declaring file only (C# 11 feature).
+
+### Implementation Details
+- **Token** (Token.cs:83):
+  - Added `File` token type
+- **Lexer** (Lexer.cs:86):
+  - Added `"file"` keyword mapping to `TokenType.File`
+- **AST Modifiers** (Declarations.cs:229):
+  - Added `File = 1 << 15` to `Modifiers` enum
+- **Parser** (Parser.cs:251-255):
+  - Added `file` modifier parsing in `ParseModifiers()`
+  - Handles `file` before other modifiers
+- **Transpiler** (Transpiler.cs:1784):
+  - Added `file` to modifier string generation (emitted first)
+  - Correctly outputs `file class`, `file struct`, `file record`, `file interface`
+
+### Syntax Examples
+```n#
+// File-scoped class - only visible in this file
+file class InternalCache {
+    _data: Dictionary<string, string> = new Dictionary<string, string>()
+
+    func Get(key: string): string? { ... }
+}
+
+// File-scoped struct
+file struct Point {
+    X: double
+    Y: double
+}
+
+// File-scoped interface
+file interface IHelper {
+    func Process(value: string): string
+}
+
+// File-scoped record
+file record Config {
+    AppName: string
+    Version: string
+}
+
+// Public class can use file-scoped types internally
+class Application {
+    cache: InternalCache = new InternalCache()  // OK - same file
+}
+```
+
+### Tests Added
+- 1 lexer test: `TestFileKeyword()`
+- 4 parser tests: class, struct, record, interface with file modifier
+- 4 transpiler tests: verifying `file` keyword emitted in C#
+- All 385 tests passing
+
+### Example Files
+- Created `examples/file_scoped_simple.nl` demonstrating file-scoped types
+- Created `examples/file_scoped_types.nl` (more complex example)
+
+### DESIGN.md Updates
+- Added file-scoped types documentation to Visibility section
+- Documented syntax, use cases, and benefits
+
+### Benefits
+- Prevents namespace pollution across files
+- Encapsulates implementation details at file level
+- Cleaner API surface - internal helpers stay internal
+- C# 11 feature for better code organization
+- Perfect for helper classes, internal data structures, and private contracts

@@ -1781,6 +1781,7 @@ public class Transpiler
     {
         var parts = new List<string>();
 
+        if (modifiers.HasFlag(Modifiers.File)) parts.Add("file");
         if (modifiers.HasFlag(Modifiers.Public)) parts.Add("public");
         if (modifiers.HasFlag(Modifiers.Private)) parts.Add("private");
         if (modifiers.HasFlag(Modifiers.Protected)) parts.Add("protected");
