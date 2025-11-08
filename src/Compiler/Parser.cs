@@ -2400,13 +2400,32 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.New, "Expected 'new'");
 
-        var type = ParseTypeReference();
+        // Target-typed new (C# 9): new() or new { ... }
+        // Check if next token is '(' or '{' without a type
+        TypeReference? type = null;
         var args = new List<Argument>();
 
         if (Check(TokenType.LeftParen))
         {
+            // Target-typed new: new()
             Advance();
             args = ParseArgumentList();
+        }
+        else if (Check(TokenType.LeftBrace))
+        {
+            // Target-typed new with initializer only: new { ... }
+            // Leave type as null, will parse initializer below
+        }
+        else
+        {
+            // Traditional new: new TypeName() or new TypeName { ... }
+            type = ParseTypeReference();
+
+            if (Check(TokenType.LeftParen))
+            {
+                Advance();
+                args = ParseArgumentList();
+            }
         }
 
         ObjectInitializerExpression? initializer = null;

@@ -1963,4 +1963,68 @@ record Person(name: string, age: int) {
         Assert.Contains("record Person(string name, int age)", result);
         Assert.Contains("=> $\"{name} is {age} years old\"", result);
     }
+
+    [Fact]
+    public void TestTargetTypedNewTranspilation()
+    {
+        var source = @"
+class Person {
+    Name: string
+}
+
+func Test() {
+    let p: Person = new()
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 9 target-typed new syntax
+        Assert.Contains("Person p = new()", result);
+    }
+
+    [Fact]
+    public void TestTargetTypedNewWithArgumentsTranspilation()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+
+    constructor(name: string, age: int) {
+        Name = name
+        Age = age
+    }
+}
+
+func Test() {
+    let p: Person = new(""Alice"", 30)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 9 target-typed new syntax with arguments
+        Assert.Contains("Person p = new(\"Alice\", 30)", result);
+    }
+
+    [Fact]
+    public void TestTargetTypedNewWithInitializerTranspilation()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+}
+
+func Test() {
+    let p: Person = new { Name: ""Alice"", Age: 30 }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify C# 9 target-typed new syntax with initializer
+        Assert.Contains("Person p = new() { Name = \"Alice\", Age = 30 }", result);
+    }
 }

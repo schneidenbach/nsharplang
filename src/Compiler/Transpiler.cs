@@ -1434,21 +1434,45 @@ public class Transpiler
 
     private string TranspileNewExpression(NewExpression newExpr)
     {
-        var type = TranspileTypeReference(newExpr.Type);
-        var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
+        // Target-typed new (C# 9): new() or new { ... }
+        string result;
+        if (newExpr.Type == null)
         {
-            var prefix = "";
-            if (arg.Modifier == ArgumentModifier.Ref)
-                prefix = "ref ";
-            else if (arg.Modifier == ArgumentModifier.Out)
-                prefix = "out ";
+            // Target-typed new
+            var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
+            {
+                var prefix = "";
+                if (arg.Modifier == ArgumentModifier.Ref)
+                    prefix = "ref ";
+                else if (arg.Modifier == ArgumentModifier.Out)
+                    prefix = "out ";
 
-            var argValue = TranspileExpression(arg.Value);
-            var result = prefix + argValue;
-            return arg.Name != null ? $"{arg.Name}: {result}" : result;
-        }));
+                var argValue = TranspileExpression(arg.Value);
+                var argResult = prefix + argValue;
+                return arg.Name != null ? $"{arg.Name}: {argResult}" : argResult;
+            }));
 
-        var result = $"new {type}({args})";
+            result = $"new({args})";
+        }
+        else
+        {
+            // Traditional new
+            var type = TranspileTypeReference(newExpr.Type);
+            var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
+            {
+                var prefix = "";
+                if (arg.Modifier == ArgumentModifier.Ref)
+                    prefix = "ref ";
+                else if (arg.Modifier == ArgumentModifier.Out)
+                    prefix = "out ";
+
+                var argValue = TranspileExpression(arg.Value);
+                var argResult = prefix + argValue;
+                return arg.Name != null ? $"{arg.Name}: {argResult}" : argResult;
+            }));
+
+            result = $"new {type}({args})";
+        }
 
         if (newExpr.Initializer != null)
         {

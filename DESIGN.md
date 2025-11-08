@@ -203,6 +203,27 @@ result := match value {
 - Can call constructor then use struct-literal to set remaining properties
 - Compiler ensures all non-nullable properties are set before object is usable
 
+#### Target-Typed New (C# 9)
+- Allows omitting the type name when it's clear from context
+- Syntax: `let p: Person = new()` or `let p: Person = new("John", 30)`
+- Type is inferred from the variable declaration type
+- Works with constructor arguments and object initializers
+- Example:
+  ```
+  let person: Person = new("Alice", 30)
+  let point: Point = new { X: 3.0, Y: 4.0 }
+  let box: Box<int> = new(42)
+
+  func CreatePerson(): Person {
+      return new("Default", 0)  // Type inferred from return type
+  }
+  ```
+- Benefits:
+  - Reduces verbosity and code repetition
+  - Cleaner when type is obvious from context
+  - Works seamlessly with generics
+  - Modern C# 9+ feature
+
 #### Definite Assignment
 - Compiler performs flow analysis on constructor bodies
 - Non-nullable properties must be assigned in all code paths before constructor exits

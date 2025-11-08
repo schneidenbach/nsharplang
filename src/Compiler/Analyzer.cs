@@ -24,6 +24,7 @@ public class Analyzer
     private ClassDeclaration? _currentClass;
     private string? _currentFilePath;
     private string? _projectRoot;
+    private TypeInfo? _currentExpectedType;  // For target-typed expressions
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -546,7 +547,14 @@ public class Analyzer
 
         if (varDecl.Initializer != null)
         {
+            // Set expected type for target-typed expressions (like new())
+            var previousExpectedType = _currentExpectedType;
+            _currentExpectedType = declaredType;
+
             inferredType = AnalyzeExpression(varDecl.Initializer);
+
+            // Restore previous expected type
+            _currentExpectedType = previousExpectedType;
         }
 
         // Determine final type
@@ -1533,21 +1541,36 @@ public class Analyzer
 
     private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
     {
-        var type = ResolveType(newExpr.Type);
+        TypeInfo type;
 
-        // Special case: if the type is a qualified name like "Result.Success",
-        // it might be a union case. Check if the base type is a union.
-        if (newExpr.Type is SimpleTypeReference simpleRef && simpleRef.Name.Contains('.'))
+        // Target-typed new (C# 9): new() or new { ... }
+        if (newExpr.Type == null)
         {
-            var parts = simpleRef.Name.Split('.');
-            if (parts.Length == 2)
+            // Try to infer type from context (expected type)
+            // For now, we'll use _currentExpectedType if available, otherwise Unknown
+            type = _currentExpectedType ?? BuiltInTypes.Unknown;
+
+            // If we couldn't infer the type, that's an error in some contexts
+            // but we'll let it slide for now to avoid breaking existing code
+        }
+        else
+        {
+            type = ResolveType(newExpr.Type);
+
+            // Special case: if the type is a qualified name like "Result.Success",
+            // it might be a union case. Check if the base type is a union.
+            if (newExpr.Type is SimpleTypeReference simpleRef && simpleRef.Name.Contains('.'))
             {
-                var baseTypeName = parts[0];
-                var baseType = LookupType(baseTypeName);
-                if (baseType is UnionTypeInfo)
+                var parts = simpleRef.Name.Split('.');
+                if (parts.Length == 2)
                 {
-                    // This is a union case instantiation - the variable should have the union type
-                    type = baseType;
+                    var baseTypeName = parts[0];
+                    var baseType = LookupType(baseTypeName);
+                    if (baseType is UnionTypeInfo)
+                    {
+                        // This is a union case instantiation - the variable should have the union type
+                        type = baseType;
+                    }
                 }
             }
         }

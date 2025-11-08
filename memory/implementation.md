@@ -1409,3 +1409,57 @@ result := match arr {
 - Works with int[], string[], and other array types
 - Transpiles to clean C# 11 list pattern syntax
 
+
+## v1.39: Target-Typed New Expressions (C# 9)
+
+**Date**: November 8, 2025
+
+### Feature
+Implemented target-typed new expressions allowing type inference from context with `new()` syntax (C# 9 feature).
+
+### Implementation Details
+- **AST Nodes** (Expressions.cs:149-154):
+  - Modified `NewExpression.Type` to be nullable (`TypeReference?`)
+  - Null type indicates target-typed new
+- **Parser** (Parser.cs:2397-2453):
+  - Detects `new(` or `new {` without a type name
+  - Parses arguments and initializers same as traditional new
+  - Sets `Type` to null for target-typed new
+- **Analyzer** (Analyzer.cs):
+  - Added `_currentExpectedType` field to track expected type context
+  - Modified `AnalyzeVariableDeclaration` to set expected type before analyzing initializer
+  - `AnalyzeNewExpression` uses expected type when Type is null
+  - Type inference flows from variable declaration type to new expression
+- **Transpiler** (Transpiler.cs:1435-1485):
+  - Emits `new()` when Type is null
+  - Emits `new TypeName()` when Type is specified
+  - Handles both syntax styles with arguments and initializers
+
+### Syntax Examples
+```n#
+// Target-typed new with explicit type
+let person: Person = new("Alice", 30)
+let point: Point = new { X: 3.0, Y: 4.0 }
+
+// With generics
+let box: Box<int> = new(42)
+
+// Return type provides context
+func CreatePerson(): Person {
+    return new("Default", 0)
+}
+```
+
+### Tests Added
+- 3 parser tests: basic new(), with arguments, with initializer
+- 3 transpiler tests: verifying C# 9 output
+- All 356 tests passing
+
+### Example File
+Created `examples/target_typed_new.nl` demonstrating all use cases.
+
+### Benefits
+- Reduces code verbosity and repetition
+- Cleaner when type is obvious from context
+- Modern C# 9+ feature for concise syntax
+- Works seamlessly with generics

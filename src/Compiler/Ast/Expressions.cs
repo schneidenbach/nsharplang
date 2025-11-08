@@ -147,7 +147,7 @@ public record PropertyInitializer(string Name, Expression Value);
 
 // New expression
 public record NewExpression(
-    TypeReference Type,
+    TypeReference? Type,  // Nullable for target-typed new (C# 9)
     List<Argument> ConstructorArguments,
     ObjectInitializerExpression? Initializer,
     int Line,

@@ -3298,5 +3298,76 @@ func Helper(): int {
         Assert.Equal("name", recordDecl.PrimaryConstructorParameters[0].Name);
         Assert.Equal("age", recordDecl.PrimaryConstructorParameters[1].Name);
     }
+
+    [Fact]
+    public void TestTargetTypedNew()
+    {
+        var source = @"
+            func Test() {
+                let p: Person = new()
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+        Assert.Equal("p", varDecl.Name);
+
+        var newExpr = varDecl.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.Null(newExpr.Type);  // Target-typed new has no type
+        Assert.Empty(newExpr.ConstructorArguments);
+    }
+
+    [Fact]
+    public void TestTargetTypedNewWithArguments()
+    {
+        var source = @"
+            func Test() {
+                let p: Person = new(""Alice"", 30)
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var newExpr = varDecl.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.Null(newExpr.Type);  // Target-typed new
+        Assert.Equal(2, newExpr.ConstructorArguments.Count);
+    }
+
+    [Fact]
+    public void TestTargetTypedNewWithInitializer()
+    {
+        var source = @"
+            func Test() {
+                let p: Person = new { Name: ""Alice"", Age: 30 }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.NotNull(funcDecl.Body);
+
+        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        Assert.NotNull(varDecl);
+
+        var newExpr = varDecl.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.Null(newExpr.Type);  // Target-typed new
+        Assert.NotNull(newExpr.Initializer);
+        Assert.Equal(2, newExpr.Initializer.Properties.Count);
+    }
 }
 
