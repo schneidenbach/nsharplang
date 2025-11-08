@@ -2862,4 +2862,74 @@ func Test() {
         Assert.Contains("int[] explicitArray = [4, 5, 6]", result);
         Assert.Contains("List<string> list = [\"a\", \"b\", \"c\"]", result);
     }
+
+    [Fact]
+    public void TestPropertyTypeInferenceTranspilation()
+    {
+        var source = @"
+            class Person {
+                Name := ""Alice""
+                Age := 30
+                Score := 95.5
+                IsActive := true
+                Items := [1, 2, 3]
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Check that types were correctly inferred and emitted
+        Assert.Contains("public string Name { get; set; } = \"Alice\"", result);
+        Assert.Contains("public int Age { get; set; } = 30", result);
+        Assert.Contains("public double Score { get; set; } = 95.5", result);
+        Assert.Contains("public bool IsActive { get; set; } = true", result);
+        Assert.Contains("public int[] Items { get; set; } = [1, 2, 3]", result);
+    }
+
+    [Fact]
+    public void TestPropertyMixedExplicitAndInferredTypes()
+    {
+        var source = @"
+            class Data {
+                // Explicit type
+                ExplicitName: string = ""test""
+
+                // Inferred type
+                InferredName := ""inferred""
+
+                // Explicit type with different value
+                Count: int = 0
+
+                // Inferred type
+                Total := 100
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Explicit types
+        Assert.Contains("public string ExplicitName { get; set; } = \"test\"", result);
+        Assert.Contains("public int Count { get; set; } = 0", result);
+
+        // Inferred types
+        Assert.Contains("public string InferredName { get; set; } = \"inferred\"", result);
+        Assert.Contains("public int Total { get; set; } = 100", result);
+    }
+
+    [Fact]
+    public void TestPropertyTypeInferenceWithArrays()
+    {
+        var source = @"
+            class Container {
+                Numbers := [1, 2, 3, 4, 5]
+                EmptyArray := []
+            }
+        ";
+
+        var result = Transpile(source);
+
+        // Array types should be inferred
+        Assert.Contains("public int[] Numbers { get; set; } = [1, 2, 3, 4, 5]", result);
+        Assert.Contains("public object[] EmptyArray { get; set; } = []", result);
+    }
 }

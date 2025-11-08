@@ -367,17 +367,42 @@ public class Analyzer
     {
         CheckVisibilityConvention(field.Name, field.Modifiers, field.Line, field.Column);
 
-        var fieldType = ResolveType(field.Type);
-        DeclareSymbol(field.Name, fieldType, field.Line, field.Column);
+        TypeInfo fieldType;
 
-        if (field.Initializer != null)
+        // Handle type inference (when Type is null and Initializer exists)
+        if (field.Type == null)
         {
-            var initType = AnalyzeExpression(field.Initializer);
-            if (!IsAssignable(fieldType, initType))
+            if (field.Initializer == null)
             {
-                Error($"Cannot assign '{initType}' to '{fieldType}'", field.Line, field.Column);
+                Error($"Property '{field.Name}' must have either a type or an initializer", field.Line, field.Column);
+                fieldType = BuiltInTypes.Unknown;
+            }
+            else
+            {
+                // Infer type from initializer
+                fieldType = AnalyzeExpression(field.Initializer);
+
+                if (fieldType == BuiltInTypes.Unknown)
+                {
+                    Error($"Cannot infer type for property '{field.Name}' from initializer", field.Line, field.Column);
+                }
             }
         }
+        else
+        {
+            fieldType = ResolveType(field.Type);
+
+            if (field.Initializer != null)
+            {
+                var initType = AnalyzeExpression(field.Initializer);
+                if (!IsAssignable(fieldType, initType))
+                {
+                    Error($"Cannot assign '{initType}' to '{fieldType}'", field.Line, field.Column);
+                }
+            }
+        }
+
+        DeclareSymbol(field.Name, fieldType, field.Line, field.Column);
     }
 
     private void AnalyzePropertyDeclaration(PropertyDeclaration prop)
@@ -461,7 +486,8 @@ public class Analyzer
         {
             if (member is FieldDeclaration field)
             {
-                if (field.Initializer == null && !IsNullableType(ResolveType(field.Type)))
+                // Skip fields with type inference (they always have initializers)
+                if (field.Type != null && field.Initializer == null && !IsNullableType(ResolveType(field.Type)))
                 {
                     uninitializedFields.Add(field.Name);
                 }
@@ -1173,7 +1199,7 @@ public class Analyzer
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
                 if (member is FieldDeclaration field)
-                    propType = ResolveType(field.Type);
+                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
                 else if (member is PropertyDeclaration property)
                     propType = ResolveType(property.Type);
             }
@@ -1185,7 +1211,7 @@ public class Analyzer
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
                 if (member is FieldDeclaration field)
-                    propType = ResolveType(field.Type);
+                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
                 else if (member is PropertyDeclaration property)
                     propType = ResolveType(property.Type);
             }
@@ -1197,7 +1223,7 @@ public class Analyzer
                     (m is PropertyDeclaration pd && pd.Name == propPattern.Name));
 
                 if (member is FieldDeclaration field)
-                    propType = ResolveType(field.Type);
+                    propType = field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
                 else if (member is PropertyDeclaration property)
                     propType = ResolveType(property.Type);
             }
@@ -1468,7 +1494,7 @@ public class Analyzer
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
-                return ResolveType(field.Type);
+                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
             if (member is FunctionDeclaration func)
                 return new FunctionTypeInfo(func);
         }
@@ -1480,7 +1506,7 @@ public class Analyzer
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
-                return ResolveType(field.Type);
+                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
             if (member is FunctionDeclaration func)
                 return new FunctionTypeInfo(func);
         }
@@ -1492,7 +1518,7 @@ public class Analyzer
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
-                return ResolveType(field.Type);
+                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
             if (member is FunctionDeclaration func)
                 return new FunctionTypeInfo(func);
         }

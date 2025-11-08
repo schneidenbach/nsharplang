@@ -170,7 +170,7 @@ public enum PropertyModifier
 
 public record FieldDeclaration(
     string Name,
-    TypeReference Type,
+    TypeReference? Type,  // Nullable to support type inference with :=
     Expression? Initializer,
     Modifiers Modifiers,
     PropertyModifier PropertyModifier,

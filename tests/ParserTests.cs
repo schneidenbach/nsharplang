@@ -4370,5 +4370,71 @@ func Helper(): int {
         Assert.True(prop4.IsIndexerInitializer);
         Assert.NotNull(prop4.IndexExpression);
     }
+
+    [Fact]
+    public void TestPropertyWithTypeInference()
+    {
+        var source = @"
+            class Person {
+                Name := ""Alice""
+                Age := 30
+            }
+        ";
+
+        var tokens = new Lexer(source, "test").Tokenize();
+        var parser = new Parser(tokens, "test");
+        var ast = parser.ParseCompilationUnit();
+
+        var cls = ast.Declarations.OfType<ClassDeclaration>().First();
+        Assert.Equal(2, cls.Members.Count);
+
+        var nameProp = cls.Members[0] as FieldDeclaration;
+        Assert.NotNull(nameProp);
+        Assert.Equal("Name", nameProp.Name);
+        Assert.Null(nameProp.Type);  // Type is null (to be inferred)
+        Assert.NotNull(nameProp.Initializer);
+        var stringLit = nameProp.Initializer as StringLiteralExpression;
+        Assert.NotNull(stringLit);
+        Assert.Equal("\"Alice\"", stringLit.Value);
+
+        var ageProp = cls.Members[1] as FieldDeclaration;
+        Assert.NotNull(ageProp);
+        Assert.Equal("Age", ageProp.Name);
+        Assert.Null(ageProp.Type);  // Type is null (to be inferred)
+        Assert.NotNull(ageProp.Initializer);
+        var intLit = ageProp.Initializer as IntLiteralExpression;
+        Assert.NotNull(intLit);
+        Assert.Equal("30", intLit.Value);
+    }
+
+    [Fact]
+    public void TestPropertyWithMixedTypesAndInference()
+    {
+        var source = @"
+            class Data {
+                ExplicitType: string = ""test""
+                InferredType := ""inferred""
+            }
+        ";
+
+        var tokens = new Lexer(source, "test").Tokenize();
+        var parser = new Parser(tokens, "test");
+        var ast = parser.ParseCompilationUnit();
+
+        var cls = ast.Declarations.OfType<ClassDeclaration>().First();
+        Assert.Equal(2, cls.Members.Count);
+
+        // First property has explicit type
+        var explicitProp = cls.Members[0] as FieldDeclaration;
+        Assert.NotNull(explicitProp);
+        Assert.NotNull(explicitProp.Type);
+        Assert.Equal("string", (explicitProp.Type as SimpleTypeReference)?.Name);
+
+        // Second property uses inference
+        var inferredProp = cls.Members[1] as FieldDeclaration;
+        Assert.NotNull(inferredProp);
+        Assert.Null(inferredProp.Type);
+        Assert.NotNull(inferredProp.Initializer);
+    }
 }
 

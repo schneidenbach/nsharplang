@@ -949,8 +949,19 @@ public class Parser
 
         var name = ConsumeIdentifier("Expected field name");
 
-        Consume(TokenType.Colon, "Expected ':'");
-        var type = ParseTypeReference();
+        // Check for type inference with := syntax
+        TypeReference? type = null;
+        if (Check(TokenType.ColonAssign))
+        {
+            // Property with type inference: Name := value
+            Advance(); // consume :=
+            var initializerExpr = ParseExpression();
+            return new FieldDeclaration(name, null, initializerExpr, modifiers, propertyModifier, attributes, line, column);
+        }
+
+        // Otherwise, expect explicit type with :
+        Consume(TokenType.Colon, "Expected ':' or ':='");
+        type = ParseTypeReference();
 
         // Check for expression-bodied property: name: type => expr
         if (Check(TokenType.Arrow))

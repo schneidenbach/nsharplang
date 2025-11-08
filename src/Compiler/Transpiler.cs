@@ -666,7 +666,21 @@ public class Transpiler
         // Remove readonly and required from modifiers - they'll be handled separately
         var modifiersToEmit = field.Modifiers & ~(Modifiers.Readonly | Modifiers.Required);
         var modifiers = GetModifierString(modifiersToEmit);
-        var type = TranspileTypeReference(field.Type);
+
+        // Handle type inference - if Type is null, infer from initializer
+        string type;
+        if (field.Type == null)
+        {
+            if (field.Initializer == null)
+            {
+                throw new Exception($"Field '{field.Name}' must have either a type or an initializer");
+            }
+            type = InferTypeFromExpression(field.Initializer);
+        }
+        else
+        {
+            type = TranspileTypeReference(field.Type);
+        }
 
         // Determine visibility based on naming convention if no explicit modifier
         if (!field.Modifiers.HasFlag(Modifiers.Public) && !field.Modifiers.HasFlag(Modifiers.Private) &&
@@ -2046,5 +2060,45 @@ public class Transpiler
             // Type -> Task<Type> or ValueTask<Type>
             return $"{asyncDefaultType}<{returnTypeString}>";
         }
+    }
+
+    /// <summary>
+    /// Infers the C# type from an expression for property type inference.
+    /// This is a simple pattern-matching approach based on the expression structure.
+    /// </summary>
+    private string InferTypeFromExpression(Expression expr)
+    {
+        return expr switch
+        {
+            // Specific literal types
+            IntLiteralExpression => "int",
+            FloatLiteralExpression => "double",
+            StringLiteralExpression => "string",
+            BoolLiteralExpression => "bool",
+            NullLiteralExpression => "object", // Null literal - should be caught by analyzer
+
+            // Array literals
+            ArrayLiteralExpression array when array.Elements.Count > 0 =>
+                InferTypeFromExpression(array.Elements[0]) + "[]",
+            ArrayLiteralExpression => "object[]", // Empty array
+
+            // New expressions
+            NewExpression newExpr when newExpr.Type != null =>
+                TranspileTypeReference(newExpr.Type),
+
+            // Identifiers and member access - use object as fallback
+            // (actual type should be resolved by analyzer)
+            IdentifierExpression => "object",
+            MemberAccessExpression => "object",
+
+            // Function/method calls - fallback to object
+            CallExpression => "object",
+
+            // Binary expressions - try to infer from operands
+            BinaryExpression binary => InferTypeFromExpression(binary.Left),
+
+            // Default fallback
+            _ => "object"
+        };
     }
 }
