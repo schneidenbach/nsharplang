@@ -1432,13 +1432,13 @@ public class Transpiler
     {
         var elements = string.Join(", ", array.Elements.Select(TranspileExpression));
 
-        if (array.IsImmutable)
-        {
-            // Use collection expression syntax for immutable arrays (C# 12+)
-            return $"[{elements}]";
-        }
-
-        return $"new[] {{ {elements} }}";
+        // Use C# 12+ collection expression syntax for all array literals
+        // Collection expressions are target-typed, meaning they adapt to the expected type:
+        // - int[] arr = [1, 2, 3];              creates int[]
+        // - List<int> list = [1, 2, 3];          creates List<int>
+        // - HashSet<string> set = ["a", "b"];    creates HashSet<string>
+        // - ImmutableArray<int> imm = [1, 2, 3]; creates ImmutableArray<int>
+        return $"[{elements}]";
     }
 
     private string TranspileNewExpression(NewExpression newExpr)

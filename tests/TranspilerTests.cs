@@ -117,8 +117,9 @@ func GetNumbers(): int[] {
         var result = Transpile(source);
 
         Assert.Contains("int[] GetNumbers()", result);
-        // Mutable arrays should use new[] syntax
-        Assert.Contains("new[] { 1, 2, 3 }", result);
+        // Arrays now use C# 12 collection expression syntax
+        Assert.Contains("[1, 2, 3]", result);
+        Assert.DoesNotContain("new[]", result);
     }
 
     [Fact]
@@ -447,10 +448,79 @@ func Test() {
 
         var result = Transpile(source);
 
-        // Should generate array concatenation or spread syntax
-        Assert.Contains("var arr1 = new[] { 1, 2, 3 }", result);
+        // Should generate array with collection expression syntax
+        Assert.Contains("var arr1 = [1, 2, 3]", result);
         // Spread should be transpiled (implementation may vary)
         Assert.Contains("arr2", result);
+    }
+
+    [Fact]
+    public void TestCollectionExpressionListTranspilation()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    let numbers: List<int> = [1, 2, 3]
+    let names: List<string> = [""Alice"", ""Bob""]
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should use collection expression syntax with explicit types
+        Assert.Contains("List<int> numbers = [1, 2, 3]", result);
+        Assert.Contains("List<string> names = [\"Alice\", \"Bob\"]", result);
+        Assert.DoesNotContain("new[]", result);
+    }
+
+    [Fact]
+    public void TestCollectionExpressionHashSetTranspilation()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    let unique: HashSet<int> = [1, 2, 3]
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("HashSet<int> unique = [1, 2, 3]", result);
+        Assert.DoesNotContain("new[]", result);
+    }
+
+    [Fact]
+    public void TestCollectionExpressionQueueTranspilation()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    let queue: Queue<string> = [""first"", ""second"", ""third""]
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("Queue<string> queue = [\"first\", \"second\", \"third\"]", result);
+    }
+
+    [Fact]
+    public void TestCollectionExpressionIEnumerableTranspilation()
+    {
+        var source = @"
+using System.Collections.Generic
+
+func Test() {
+    let items: IEnumerable<int> = [1, 2, 3, 4, 5]
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("IEnumerable<int> items = [1, 2, 3, 4, 5]", result);
     }
 
     [Fact]

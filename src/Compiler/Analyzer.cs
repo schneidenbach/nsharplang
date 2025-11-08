@@ -1961,6 +1961,14 @@ public class Analyzer
             return ImplementsDuckInterface(resolvedSource, iface);
         }
 
+        // Collection expressions (C# 12): Allow array literals to be assigned to collection types
+        // e.g., List<int> numbers = [1, 2, 3];
+        if (resolvedSource is ArrayTypeInfo arrayType && IsCollectionType(resolvedTarget, out var collectionElementType))
+        {
+            // Check that the array element type is compatible with the collection element type
+            return IsAssignable(collectionElementType, arrayType.ElementType);
+        }
+
         // TODO: More sophisticated type compatibility checking
         return false;
     }
@@ -1975,6 +1983,90 @@ public class Analyzer
             return ResolveTypeAlias(resolved);
         }
         return type;
+    }
+
+    // Check if a type is a known generic collection type (List<T>, HashSet<T>, etc.)
+    private bool IsCollectionType(TypeInfo type, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+
+        // Handle GenericTypeInfo (parsed generic types like List<int>)
+        if (type is GenericTypeInfo genericType)
+        {
+            var typeName = genericType.Name;
+
+            // Check for common generic collection types
+            if (typeName == "List" ||
+                typeName == "HashSet" ||
+                typeName == "IList" ||
+                typeName == "ICollection" ||
+                typeName == "IEnumerable" ||
+                typeName == "ISet" ||
+                typeName == "Queue" ||
+                typeName == "Stack" ||
+                typeName == "LinkedList" ||
+                typeName == "Collection" ||
+                typeName == "ObservableCollection" ||
+                typeName == "SortedSet" ||
+                typeName == "IReadOnlyList" ||
+                typeName == "IReadOnlyCollection")
+            {
+                // Extract the element type from the first type argument
+                if (genericType.TypeArguments.Count > 0)
+                {
+                    elementType = genericType.TypeArguments[0];
+                    return true;
+                }
+            }
+        }
+
+        // Handle reflection types (external .NET types resolved via reflection)
+        if (type is ReflectionTypeInfo reflectionType)
+        {
+            var typeName = reflectionType.Type.Name;
+
+            // Check for common generic collection types
+            if (typeName.StartsWith("List`") ||
+                typeName.StartsWith("HashSet`") ||
+                typeName.StartsWith("IList`") ||
+                typeName.StartsWith("ICollection`") ||
+                typeName.StartsWith("IEnumerable`") ||
+                typeName.StartsWith("ISet`") ||
+                typeName.StartsWith("Queue`") ||
+                typeName.StartsWith("Stack`") ||
+                typeName.StartsWith("LinkedList`") ||
+                typeName.StartsWith("Collection`") ||
+                typeName.StartsWith("ObservableCollection`"))
+            {
+                // Extract the element type from the generic type argument
+                if (reflectionType.Type.IsGenericType && reflectionType.Type.GenericTypeArguments.Length > 0)
+                {
+                    var elementReflectionType = reflectionType.Type.GenericTypeArguments[0];
+                    elementType = new ReflectionTypeInfo(elementReflectionType);
+                    return true;
+                }
+            }
+        }
+
+        // Handle external type info (qualified names we couldn't fully resolve)
+        if (type is ExternalTypeInfo externalType)
+        {
+            var typeName = externalType.Name;
+
+            // Check common patterns
+            if (typeName.Contains("List<") ||
+                typeName.Contains("HashSet<") ||
+                typeName.Contains("IList<") ||
+                typeName.Contains("ICollection<") ||
+                typeName.Contains("IEnumerable<"))
+            {
+                // We can't easily extract the element type here, so we'll accept Unknown
+                elementType = BuiltInTypes.Unknown;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool ImplementsDuckInterface(TypeInfo source, InterfaceTypeInfo duckInterface)

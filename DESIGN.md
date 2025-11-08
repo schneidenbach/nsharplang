@@ -453,12 +453,23 @@ doWork(new MemoryReader())  // works via structural typing
 - Array type syntax: `int[]`, `string[]` (C# style)
 - Array initialization: `arr := [1, 2, 3]` (defaults to mutable array)
 - Immutable arrays: `arr := immutable [1, 2, 3]`
+- **Collection Expressions (C# 12)**: Array literals work with any collection type!
 - Spread operator: `...` for expanding collections
 - Examples:
   ```
-  numbers := [1, 2, 3]           // mutable array
-  names := immutable ["a", "b"]  // immutable array
-  items: int[] = [10, 20, 30]    // explicit type
+  // Arrays
+  numbers := [1, 2, 3]           // inferred as int[]
+  items: int[] = [10, 20, 30]    // explicit array type
+
+  // Collection expressions - array syntax works with any collection type!
+  let names: List<string> = ["Alice", "Bob", "Charlie"]       // Creates List<string>
+  let unique: HashSet<int> = [1, 2, 3, 4, 5]                 // Creates HashSet<int>
+  let tasks: Queue<string> = ["Task1", "Task2"]              // Creates Queue<string>
+  let history: Stack<int> = [10, 20, 30]                     // Creates Stack<int>
+  let sequence: IEnumerable<int> = [1, 2, 3]                 // Works with interfaces too!
+
+  // Immutable arrays
+  names := immutable ["a", "b"]  // ImmutableArray<string>
 
   // Spread in arrays
   arr1 := [1, 2, 3]
@@ -468,6 +479,9 @@ doWork(new MemoryReader())  // works via structural typing
   items := [1, 2, 3]
   Sum(...items)
   ```
+- Collection expressions are **target-typed** - the compiler creates the correct collection based on the variable's type
+- Supports: `List<T>`, `HashSet<T>`, `Queue<T>`, `Stack<T>`, `IEnumerable<T>`, `IList<T>`, `IReadOnlyList<T>`, and more
+- Transpiles to C# 12+ collection expression syntax: `List<int> numbers = [1, 2, 3];`
 
 #### Lambdas and Closures
 - C# style lambda syntax, no parentheses on parameters

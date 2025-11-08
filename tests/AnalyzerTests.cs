@@ -1226,4 +1226,74 @@ public class AnalyzerTests
             }
         ");
     }
+
+    [Fact]
+    public void CollectionExpression_ListAssignment_Valid()
+    {
+        AssertNoErrors(@"
+            using System.Collections.Generic
+
+            func Main() {
+                let numbers: List<int> = [1, 2, 3]
+            }
+        ");
+    }
+
+    [Fact]
+    public void CollectionExpression_HashSetAssignment_Valid()
+    {
+        AssertNoErrors(@"
+            using System.Collections.Generic
+
+            func Main() {
+                let unique: HashSet<string> = [""a"", ""b"", ""c""]
+            }
+        ");
+    }
+
+    [Fact]
+    public void CollectionExpression_QueueAssignment_Valid()
+    {
+        AssertNoErrors(@"
+            using System.Collections.Generic
+
+            func Main() {
+                let queue: Queue<int> = [1, 2, 3]
+            }
+        ");
+    }
+
+    [Fact]
+    public void CollectionExpression_IEnumerableAssignment_Valid()
+    {
+        AssertNoErrors(@"
+            using System.Collections.Generic
+
+            func Main() {
+                let items: IEnumerable<string> = [""a"", ""b""]
+            }
+        ");
+    }
+
+    [Fact]
+    public void CollectionExpression_TypeMismatch_Error()
+    {
+        AssertHasError(@"
+            using System.Collections.Generic
+
+            func Main() {
+                let numbers: List<int> = [""not"", ""ints""]
+            }
+        ", "Cannot assign 'string[]' to 'List<int>'");
+    }
+
+    [Fact]
+    public void CollectionExpression_ArrayStillWorks()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                let arr: int[] = [1, 2, 3]
+            }
+        ");
+    }
 }
