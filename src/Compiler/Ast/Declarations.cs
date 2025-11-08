@@ -152,11 +152,21 @@ public enum EnumType
 }
 
 // Field/Property declaration (auto-property)
+[Flags]
+public enum PropertyModifier
+{
+    None = 0,
+    Required = 1 << 0,   // C# 11 - property must be set during initialization
+    Init = 1 << 1,       // C# 9 - property can only be set during initialization
+    Readonly = 1 << 2    // Readonly fields (can only be set in constructor)
+}
+
 public record FieldDeclaration(
     string Name,
     TypeReference Type,
     Expression? Initializer,
     Modifiers Modifiers,
+    PropertyModifier PropertyModifier,
     List<AttributeNode> Attributes,
     int Line,
     int Column) : Declaration(Line, Column);
@@ -169,6 +179,7 @@ public record PropertyDeclaration(
     BlockStatement? SetBody,
     Expression? ExpressionBody,  // For expression-bodied properties (Prop: type => expr)
     Modifiers Modifiers,
+    PropertyModifier PropertyModifier,
     List<AttributeNode> Attributes,
     int Line,
     int Column) : Declaration(Line, Column);

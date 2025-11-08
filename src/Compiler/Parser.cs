@@ -879,6 +879,31 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
+
+        // Parse property modifiers (required, init, readonly) - can be combined
+        var propertyModifier = PropertyModifier.None;
+        while (Check(TokenType.Required) || Check(TokenType.Init) || Check(TokenType.Readonly))
+        {
+            if (Check(TokenType.Required))
+            {
+                propertyModifier |= PropertyModifier.Required;
+                modifiers |= Modifiers.Required;  // Also set in Modifiers for backward compat
+                Advance();
+            }
+            else if (Check(TokenType.Init))
+            {
+                propertyModifier |= PropertyModifier.Init;
+                modifiers |= Modifiers.Init;  // Also set in Modifiers for backward compat
+                Advance();
+            }
+            else if (Check(TokenType.Readonly))
+            {
+                propertyModifier |= PropertyModifier.Readonly;
+                modifiers |= Modifiers.Readonly;  // Also set in Modifiers for backward compat
+                Advance();
+            }
+        }
+
         var name = ConsumeIdentifier("Expected field name");
 
         Consume(TokenType.Colon, "Expected ':'");
@@ -889,7 +914,7 @@ public class Parser
         {
             Advance();
             var expressionBody = ParseExpression();
-            return new PropertyDeclaration(name, type, null, null, expressionBody, modifiers, attributes, line, column);
+            return new PropertyDeclaration(name, type, null, null, expressionBody, modifiers, propertyModifier, attributes, line, column);
         }
 
         // Check if this is a property with get/set
@@ -927,7 +952,7 @@ public class Parser
             }
 
             Consume(TokenType.RightBrace, "Expected '}' after property accessors");
-            return new PropertyDeclaration(name, type, getBody, setBody, null, modifiers, attributes, line, column);
+            return new PropertyDeclaration(name, type, getBody, setBody, null, modifiers, propertyModifier, attributes, line, column);
         }
 
         // Otherwise it's a field
@@ -938,7 +963,7 @@ public class Parser
             initializer = ParseExpression();
         }
 
-        return new FieldDeclaration(name, type, initializer, modifiers, attributes, line, column);
+        return new FieldDeclaration(name, type, initializer, modifiers, propertyModifier, attributes, line, column);
     }
 
     private TypeReference ParseTypeReference()

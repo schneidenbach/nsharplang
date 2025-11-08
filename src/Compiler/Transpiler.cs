@@ -673,12 +673,11 @@ public class Transpiler
     {
         TranspileAttributes(field.Attributes);
 
-        // Get modifiers, but exclude readonly and init from the modifier string since we handle them in accessors
-        var modifiersWithoutReadonlyAndInit = field.Modifiers & ~Modifiers.Readonly & ~Modifiers.Init;
-        var modifiers = GetModifierString(modifiersWithoutReadonlyAndInit);
+        var modifiers = GetModifierString(field.Modifiers);
         var type = TranspileTypeReference(field.Type);
-        var isReadonly = field.Modifiers.HasFlag(Modifiers.Readonly);
-        var isInit = field.Modifiers.HasFlag(Modifiers.Init);
+        var hasReadonly = field.PropertyModifier.HasFlag(PropertyModifier.Readonly);
+        var hasInit = field.PropertyModifier.HasFlag(PropertyModifier.Init);
+        var hasRequired = field.PropertyModifier.HasFlag(PropertyModifier.Required);
 
         // Determine visibility based on naming convention if no explicit modifier
         if (!field.Modifiers.HasFlag(Modifiers.Public) && !field.Modifiers.HasFlag(Modifiers.Private) &&
@@ -687,8 +686,14 @@ public class Transpiler
             modifiers = char.IsUpper(field.Name[0]) ? "public " + modifiers : "private " + modifiers;
         }
 
+        // Add required modifier if present
+        if (hasRequired)
+        {
+            modifiers += "required ";
+        }
+
         // For readonly or init fields, use { get; init; } instead of { get; set; }
-        var accessors = (isReadonly || isInit) ? "{ get; init; }" : "{ get; set; }";
+        var accessors = (hasReadonly || hasInit) ? "{ get; init; }" : "{ get; set; }";
 
         if (field.Initializer != null)
         {
@@ -704,16 +709,21 @@ public class Transpiler
     {
         TranspileAttributes(prop.Attributes);
 
-        // Exclude Init from modifier string - it's handled in accessors
-        var modifiersWithoutInit = prop.Modifiers & ~Modifiers.Init;
-        var modifiers = GetModifierString(modifiersWithoutInit);
-        var isInit = prop.Modifiers.HasFlag(Modifiers.Init);
+        var modifiers = GetModifierString(prop.Modifiers);
+        var hasInit = prop.PropertyModifier.HasFlag(PropertyModifier.Init);
+        var hasRequired = prop.PropertyModifier.HasFlag(PropertyModifier.Required);
 
         // Apply convention-based visibility if no explicit modifier
         if (!prop.Modifiers.HasFlag(Modifiers.Public) && !prop.Modifiers.HasFlag(Modifiers.Private) &&
             !prop.Modifiers.HasFlag(Modifiers.Protected) && !prop.Modifiers.HasFlag(Modifiers.Internal))
         {
             modifiers = char.IsUpper(prop.Name[0]) ? "public " + modifiers : "private " + modifiers;
+        }
+
+        // Add required modifier if present
+        if (hasRequired)
+        {
+            modifiers += "required ";
         }
 
         // Expression-bodied property
@@ -739,7 +749,7 @@ public class Transpiler
             if (prop.SetBody != null)
             {
                 // If init modifier is present, use init instead of set
-                WriteLine(isInit ? "init" : "set");
+                WriteLine(hasInit ? "init" : "set");
                 TranspileBlockStatement(prop.SetBody);
             }
 
