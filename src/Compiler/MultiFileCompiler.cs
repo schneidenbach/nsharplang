@@ -128,7 +128,7 @@ public class MultiFileCompiler
 
             try
             {
-                var transpiler = new Transpiler(compilationUnit);
+                var transpiler = new Transpiler(compilationUnit, _config);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;

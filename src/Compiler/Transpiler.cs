@@ -9,6 +9,7 @@ namespace NewCLILang.Compiler;
 public class Transpiler
 {
     private readonly CompilationUnit _compilationUnit;
+    private readonly ProjectConfig? _projectConfig;
     private readonly StringBuilder _output;
     private int _indentLevel;
     private const string IndentString = "    ";
@@ -16,9 +17,10 @@ public class Transpiler
     private bool _inInterface; // Track if we're currently inside an interface
     private List<InterfaceDeclaration> _duckInterfaces; // Track duck interfaces for automatic implementation
 
-    public Transpiler(CompilationUnit compilationUnit)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null)
     {
         _compilationUnit = compilationUnit;
+        _projectConfig = projectConfig;
         _output = new StringBuilder();
         _indentLevel = 0;
         _duckInterfaces = new List<InterfaceDeclaration>();
@@ -36,8 +38,17 @@ public class Transpiler
             .Where(i => i.IsDuckInterface)
             .ToList();
 
+        // Check if we have test declarations to add Xunit using
+        var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
+
         // Always add System namespace (needed for Console, Exception, etc.)
         WriteLine("using System;");
+
+        // Add Xunit using if we have test declarations
+        if (hasTests)
+        {
+            WriteLine("using Xunit;");
+        }
 
         // Usings
         foreach (var usingDirective in _compilationUnit.Usings)
@@ -55,7 +66,7 @@ public class Transpiler
             // FileImports are not emitted - their symbols are inlined
         }
 
-        if (_compilationUnit.Usings.Count > 0 || _compilationUnit.Imports.Count > 0)
+        if (_compilationUnit.Usings.Count > 0 || _compilationUnit.Imports.Count > 0 || hasTests)
             _output.AppendLine();
 
         // Namespace
@@ -65,11 +76,14 @@ public class Transpiler
             WriteLine();
         }
 
-        // Separate top-level functions from other declarations
+        // Separate top-level functions and tests from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
-        var otherDeclarations = _compilationUnit.Declarations.Where(d => d is not FunctionDeclaration).ToList();
+        var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
+        var otherDeclarations = _compilationUnit.Declarations
+            .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
+            .ToList();
 
-        // Transpile non-function declarations first
+        // Transpile non-function/non-test declarations first
         foreach (var declaration in otherDeclarations)
         {
             TranspileDeclaration(declaration);
@@ -94,6 +108,26 @@ public class Transpiler
                 var modifiedFunc = func with { Modifiers = originalModifiers | Modifiers.Internal | Modifiers.Static };
                 TranspileFunctionDeclaration(modifiedFunc);
                 WriteLine();
+            }
+
+            _indentLevel--;
+            WriteLine("}");
+        }
+
+        // Wrap test declarations in a public test class
+        if (testDeclarations.Count > 0)
+        {
+            var className = _compilationUnit.Namespace != null
+                ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
+                : "Tests";
+
+            WriteLine($"public class {className}");
+            WriteLine("{");
+            _indentLevel++;
+
+            foreach (var test in testDeclarations)
+            {
+                TranspileTestDeclaration(test);
             }
 
             _indentLevel--;
@@ -258,6 +292,12 @@ public class Transpiler
 
         var parameters = string.Join(", ", func.Parameters.Select(TranspileParameter));
         var returnType = func.ReturnType != null ? TranspileTypeReference(func.ReturnType) : "void";
+
+        // Handle async implicit wrapping
+        if (func.Modifiers.HasFlag(Modifiers.Async))
+        {
+            returnType = WrapAsyncReturnType(returnType, func.ReturnType);
+        }
 
         Write($"{modifiers}{returnType} {func.Name}{typeParams}({parameters})");
 
@@ -1661,5 +1701,34 @@ public class Transpiler
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// Wraps async function return types with Task/ValueTask based on project configuration.
+    /// If the return type is already Task/ValueTask, returns it as-is (explicit mode for nested scenarios).
+    /// Otherwise, wraps with the configured async default type.
+    /// </summary>
+    private string WrapAsyncReturnType(string returnTypeString, TypeReference? returnType)
+    {
+        // Check if return type is already Task or ValueTask (explicit mode - no wrapping)
+        if (returnTypeString.StartsWith("Task") || returnTypeString.StartsWith("ValueTask"))
+        {
+            return returnTypeString;
+        }
+
+        // Get the configured async default type (defaults to ValueTask)
+        var asyncDefaultType = _projectConfig?.Language?.AsyncDefaultType ?? "ValueTask";
+
+        // Wrap the return type
+        if (returnTypeString == "void")
+        {
+            // void -> Task or ValueTask (no generic parameter)
+            return asyncDefaultType;
+        }
+        else
+        {
+            // Type -> Task<Type> or ValueTask<Type>
+            return $"{asyncDefaultType}<{returnTypeString}>";
+        }
     }
 }

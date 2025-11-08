@@ -1,0 +1,7 @@
+name: TestExample
+version: 1.0.0
+outputType: library
+targetFramework: net9.0
+
+language:
+  asyncDefaultType: ValueTask

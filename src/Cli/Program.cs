@@ -23,6 +23,7 @@ class Program
             "run" => RunCommand(args.Skip(1).ToArray()),
             "transpile" => TranspileCommand(args.Skip(1).ToArray()),
             "new" => NewCommand(args.Skip(1).ToArray()),
+            "test" => TestCommand(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
@@ -49,7 +50,9 @@ class Program
             Console.WriteLine($"Building {sourceFile}...");
 
             var source = File.ReadAllText(sourceFile);
-            var csharpCode = CompileToCSharp(source, sourceFile);
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
+            var csharpCode = CompileToCSharp(source, sourceFile, projectConfig);
 
             // Write C# output
             var csharpFile = Path.ChangeExtension(sourceFile, ".g.cs");
@@ -139,7 +142,9 @@ class Program
         try
         {
             var source = File.ReadAllText(sourceFile);
-            var csharpCode = CompileToCSharp(source, sourceFile);
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
+            var csharpCode = CompileToCSharp(source, sourceFile, projectConfig);
 
             Console.WriteLine(csharpCode);
 
@@ -171,8 +176,12 @@ class Program
         {
             Console.WriteLine($"Running {sourceFile}...");
 
+            // Look for project.yml in the directory containing the source file
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+            var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
+
             var source = File.ReadAllText(sourceFile);
-            var csharpCode = CompileToCSharp(source, sourceFile);
+            var csharpCode = CompileToCSharp(source, sourceFile, projectConfig);
 
             // Write C# to temp file
             var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
@@ -180,10 +189,6 @@ class Program
 
             var csharpFile = Path.Combine(tempDir, "Program.cs");
             File.WriteAllText(csharpFile, csharpCode);
-
-            // Look for project.yml in the directory containing the source file
-            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-            var projectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
 
             // Create .csproj (with dependencies if project.yml exists)
             var projectFile = Path.Combine(tempDir, "TempProject.csproj");
@@ -337,7 +342,7 @@ class Program
 </Project>";
     }
 
-    static string CompileToCSharp(string source, string fileName)
+    static string CompileToCSharp(string source, string fileName, ProjectConfig? config = null)
     {
         // Lexical analysis
         var lexer = new Lexer(source, fileName);
@@ -367,7 +372,7 @@ class Program
         }
 
         // Transpilation
-        var transpiler = new Transpiler(compilationUnit);
+        var transpiler = new Transpiler(compilationUnit, config);
         return transpiler.Transpile();
     }
 
@@ -423,6 +428,146 @@ func Main() {{
         }
     }
 
+    static int TestCommand(string[] args)
+    {
+        var projectRoot = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Console.WriteLine($"Testing project in {projectRoot}...");
+
+            // Find all .tests.nl files
+            var testFiles = Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories);
+
+            if (testFiles.Length == 0)
+            {
+                Console.WriteLine("No test files (*.tests.nl) found.");
+                return 0;
+            }
+
+            Console.WriteLine($"Found {testFiles.Length} test file(s)");
+
+            // Load project config
+            var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
+
+            // Find all non-test .nl files (for project reference)
+            var sourceFiles = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories)
+                .Where(f => !f.EndsWith(".tests.nl"))
+                .ToArray();
+
+            // Compile ALL files together (source + tests) so tests can see source symbols
+            var allFiles = sourceFiles.Concat(testFiles).ToArray();
+            var compiler = new MultiFileCompiler(allFiles, projectRoot, projectConfig);
+            var result = compiler.Compile();
+
+            // Report errors and warnings
+            foreach (var error in result.Errors)
+            {
+                var severity = error.Severity == ErrorSeverity.Error ? "error" : "warning";
+                var location = $"{error.Line}:{error.Column}";
+                Console.Error.WriteLine($"{location}: {severity}: {error.Message}");
+            }
+
+            if (!result.Success)
+            {
+                return Error($"Compilation failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+            }
+
+            // Write C# files to temp directory
+            var tempDir = Path.Combine(Path.GetTempPath(), "nlc-tests");
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, true);
+            }
+            Directory.CreateDirectory(tempDir);
+
+            foreach (var kvp in result.TranspiledFiles)
+            {
+                var sourceFile = kvp.Key;
+                var csharpCode = kvp.Value;
+                var relativePath = Path.GetRelativePath(projectRoot, sourceFile);
+                var csharpFile = Path.Combine(tempDir, Path.ChangeExtension(relativePath, ".cs"));
+
+                var csharpDir = Path.GetDirectoryName(csharpFile);
+                if (csharpDir != null)
+                {
+                    Directory.CreateDirectory(csharpDir);
+                }
+
+                File.WriteAllText(csharpFile, csharpCode);
+            }
+
+            // Create test .csproj with XUnit dependencies
+            var projectFile = Path.Combine(tempDir, "TestProject.csproj");
+            File.WriteAllText(projectFile, GenerateTestCsProj(projectConfig));
+
+            // Build tests
+            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{projectFile}\" -v q",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+
+            buildResult?.WaitForExit();
+
+            if (buildResult?.ExitCode != 0)
+            {
+                var error = buildResult?.StandardError.ReadToEnd() ?? "";
+                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
+                return Error($"Test build failed:\n{error}{output}");
+            }
+
+            Console.WriteLine();
+
+            // Run tests
+            var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"test \"{projectFile}\" --no-build",
+                UseShellExecute = false
+            });
+
+            testRunResult?.WaitForExit();
+
+            return testRunResult?.ExitCode ?? 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Test failed: {ex.Message}");
+        }
+    }
+
+    static string GenerateTestCsProj(ProjectConfig? config)
+    {
+        config ??= ProjectFileParser.CreateDefault();
+
+        var dependencies = string.Join("\n    ",
+            config.Dependencies.Select(kvp =>
+                $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
+
+        return $@"<Project Sdk=""Microsoft.NET.Sdk"">
+  <PropertyGroup>
+    <TargetFramework>{config.TargetFramework}</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include=""Microsoft.NET.Test.Sdk"" Version=""17.8.0"" />
+    <PackageReference Include=""xunit"" Version=""2.6.0"" />
+    <PackageReference Include=""xunit.runner.visualstudio"" Version=""2.5.6"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    {dependencies}
+  </ItemGroup>
+</Project>";
+    }
+
     static int ShowHelp()
     {
         Console.WriteLine("NewCLILang Compiler (nlc)");
@@ -435,6 +580,7 @@ func Main() {{
         Console.WriteLine("  transpile <file.nl>  - Transpile .nl file to C# and print to stdout");
         Console.WriteLine("  run <file.nl>        - Compile and run single .nl file");
         Console.WriteLine("  run                  - Compile and run all .nl files in project");
+        Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
         Console.WriteLine();
