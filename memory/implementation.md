@@ -109,8 +109,8 @@ Executable
 
 ## Testing Strategy
 
-- **Unit tests**: Lexer (27 tests), Parser (41 tests), Analyzer (52 tests, 1 skipped), Transpiler (30 tests)
-- **Total**: 151 tests (150 passing, 1 skipped)
+- **Unit tests**: Lexer (27 tests), Parser (41 tests), Analyzer (53 tests), Transpiler (30 tests)
+- **Total**: 151 tests (151 passing, 0 skipped)
 - **No mocks**: Tests use real components
 - **End-to-end**: hello.nl and simple.nl examples prove full pipeline
 - **Test files**: `tests/LexerTests.cs`, `tests/ParserTests.cs`, `tests/AnalyzerTests.cs`, `tests/TranspilerTests.cs`
@@ -146,7 +146,34 @@ dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
 
 ## Recent Changes
 
-### v1.10 (Latest - Missing Feature Test Coverage)
+### v1.11 (Latest - Readonly Field Improvements)
+1. **Readonly field assignment validation**: ✅ Analyzer now enforces readonly semantics
+   - Added `_inConstructor` flag to track constructor context
+   - `CheckReadonlyFieldAssignment` method validates assignment target
+   - Error reported if readonly field assigned outside constructor
+   - Enabled previously skipped test: `ReadonlyField_SetOutsideConstructor_Error`
+2. **Readonly transpilation fix**: ✅ CRITICAL bug fixed - proper C# property syntax
+   - Readonly fields now transpile to `{ get; init; }` instead of invalid `readonly` modifier on properties
+   - Modifiers are filtered to exclude `Readonly` before transpiling
+   - Init-only setters allow setting in constructors and object initializers
+   - Updated transpiler test to expect new format
+3. **Interface method transpilation**: ✅ Fixed to omit modifiers (implicitly public in C#)
+   - Added `_inInterface` flag to track interface context
+   - Interface methods transpile without modifiers (implicitly public)
+   - Fixes C# compilation error for interface methods
+4. **Class method visibility inference**: ✅ Methods now get visibility from naming convention
+   - PascalCase methods = public (unless explicit modifier)
+   - camelCase methods = private (unless explicit modifier)
+   - Applies to all class/struct methods
+5. **Comprehensive example**: ✅ Created `examples/records_and_interfaces.nl`
+   - Demonstrates records with value equality
+   - Shows with expressions for non-destructive mutation
+   - Tests interface implementation with default methods
+   - Includes structs and readonly fields
+   - Proves end-to-end compilation and execution
+6. **Test count**: ✅ 151 tests total, all passing (27 lexer + 41 parser + 53 analyzer + 30 transpiler)
+
+### v1.10 (Missing Feature Test Coverage)
 1. **Parser test additions**: ✅ Added 6 comprehensive parser tests for missing features
    - TestTypeAlias: Verifies type alias declarations (type X = Y)
    - TestAttributes: Verifies attribute syntax on classes, methods, and fields

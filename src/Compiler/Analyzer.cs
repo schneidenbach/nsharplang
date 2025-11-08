@@ -18,6 +18,7 @@ public class Analyzer
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
+    private bool _inConstructor;
     private ClassDeclaration? _currentClass;
 
     public AnalysisResult Analyze(CompilationUnit unit)
@@ -28,6 +29,7 @@ public class Analyzer
         _usingAliases.Clear();
         _currentReturnType = null;
         _inLoop = false;
+        _inConstructor = false;
 
         // Process using statements
         foreach (var usingStmt in unit.Usings)
@@ -304,6 +306,7 @@ public class Analyzer
 
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
+        _inConstructor = true;
         PushScope(new Scope(ScopeKind.Function));
 
         // Add parameters to scope
@@ -323,6 +326,7 @@ public class Analyzer
         }
 
         PopScope();
+        _inConstructor = false;
     }
 
     private void CheckDefiniteAssignment(ConstructorDeclaration ctor, ClassDeclaration classDecl)
@@ -984,12 +988,46 @@ public class Analyzer
         var targetType = AnalyzeExpression(assignment.Target);
         var valueType = AnalyzeExpression(assignment.Value);
 
+        // Check for readonly field assignment outside constructor
+        CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);
+
         if (!IsAssignable(targetType, valueType))
         {
             Error($"Cannot assign '{valueType}' to '{targetType}'", assignment.Line, assignment.Column);
         }
 
         return targetType;
+    }
+
+    private void CheckReadonlyFieldAssignment(Expression target, int line, int column)
+    {
+        // Only check if we're not in a constructor
+        if (_inConstructor)
+            return;
+
+        // Check if target is a field access on 'this'
+        string? fieldName = null;
+        if (target is MemberAccessExpression { Object: ThisExpression } memberAccess)
+        {
+            fieldName = memberAccess.MemberName;
+        }
+        else if (target is IdentifierExpression ident)
+        {
+            // Direct field assignment (implicitly on 'this' in class context)
+            fieldName = ident.Name;
+        }
+
+        if (fieldName != null && _currentClass != null)
+        {
+            // Check if this is a readonly field
+            var field = _currentClass.Members.OfType<FieldDeclaration>()
+                .FirstOrDefault(f => f.Name == fieldName);
+
+            if (field != null && field.Modifiers.HasFlag(Modifiers.Readonly))
+            {
+                Error($"Cannot assign to readonly field '{fieldName}' outside of a constructor", line, column);
+            }
+        }
     }
 
     private TypeInfo AnalyzeLambda(LambdaExpression lambda)

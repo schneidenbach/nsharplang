@@ -613,8 +613,8 @@ class MyClass {
 
         var result = Transpile(source);
 
-        // Should emit readonly modifier
-        Assert.Contains("private readonly string id", result);
+        // Readonly fields transpile to properties with init accessors
+        Assert.Contains("private string id { get; init; }", result);
         Assert.Contains("public MyClass()", result);
         Assert.Contains("id = Guid.NewGuid().ToString()", result);
     }

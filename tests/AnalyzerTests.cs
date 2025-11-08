@@ -630,7 +630,7 @@ public class AnalyzerTests
         ");
     }
 
-    [Fact(Skip = "Readonly field validation not yet implemented in analyzer")]
+    [Fact]
     public void ReadonlyField_SetOutsideConstructor_Error()
     {
         AssertHasError(@"

@@ -13,6 +13,7 @@ public class Transpiler
     private int _indentLevel;
     private const string IndentString = "    ";
     private string? _currentTypeName; // Track current class/struct/record for constructor names
+    private bool _inInterface; // Track if we're currently inside an interface
 
     public Transpiler(CompilationUnit compilationUnit)
     {
@@ -141,7 +142,24 @@ public class Transpiler
     {
         TranspileAttributes(func.Attributes);
 
-        var modifiers = GetModifierString(func.Modifiers);
+        // Get modifiers - interface methods don't need modifiers in C# (they're implicitly public)
+        string modifiers;
+        if (_inInterface)
+        {
+            modifiers = "";
+        }
+        else
+        {
+            modifiers = GetModifierString(func.Modifiers);
+
+            // If no explicit visibility modifier, apply naming convention
+            if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
+                !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal))
+            {
+                modifiers = char.IsUpper(func.Name[0]) ? "public " + modifiers : "private " + modifiers;
+            }
+        }
+
         var typeParams = func.TypeParameters != null && func.TypeParameters.Count > 0
             ? $"<{string.Join(", ", func.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -295,11 +313,13 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
+        _inInterface = true; // Set flag while transpiling interface members
         foreach (var member in iface.Members)
         {
             TranspileDeclaration(member);
             WriteLine();
         }
+        _inInterface = false; // Reset flag
 
         _indentLevel--;
         WriteLine("}");
@@ -396,8 +416,11 @@ public class Transpiler
     {
         TranspileAttributes(field.Attributes);
 
-        var modifiers = GetModifierString(field.Modifiers);
+        // Get modifiers, but exclude readonly from the modifier string since we handle it separately
+        var modifiersWithoutReadonly = field.Modifiers & ~Modifiers.Readonly;
+        var modifiers = GetModifierString(modifiersWithoutReadonly);
         var type = TranspileTypeReference(field.Type);
+        var isReadonly = field.Modifiers.HasFlag(Modifiers.Readonly);
 
         // Determine visibility based on naming convention if no explicit modifier
         if (!field.Modifiers.HasFlag(Modifiers.Public) && !field.Modifiers.HasFlag(Modifiers.Private) &&
@@ -406,13 +429,16 @@ public class Transpiler
             modifiers = char.IsUpper(field.Name[0]) ? "public " + modifiers : "private " + modifiers;
         }
 
+        // For readonly fields, use { get; init; } instead of { get; set; }
+        var accessors = isReadonly ? "{ get; init; }" : "{ get; set; }";
+
         if (field.Initializer != null)
         {
-            WriteLine($"{modifiers}{type} {field.Name} {{ get; set; }} = {TranspileExpression(field.Initializer)};");
+            WriteLine($"{modifiers}{type} {field.Name} {accessors} = {TranspileExpression(field.Initializer)};");
         }
         else
         {
-            WriteLine($"{modifiers}{type} {field.Name} {{ get; set; }}");
+            WriteLine($"{modifiers}{type} {field.Name} {accessors}");
         }
     }
 

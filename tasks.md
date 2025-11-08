@@ -96,7 +96,7 @@
 - [x] All 137 tests passing (27 lexer + 35 parser + 51 analyzer + 24 transpiler)
 - [x] Features tested: async/await, func*, using statements, switch statements, spread operator, partial/abstract/sealed/virtual classes
 
-### Phase 13: Missing Feature Test Coverage (v1.10 - LATEST!)
+### Phase 13: Missing Feature Test Coverage (v1.10)
 - [x] Added comprehensive parser tests for type aliases, attributes, extension methods, static classes, readonly fields
 - [x] Added comprehensive transpiler tests for structs, type aliases, attributes, extension methods, static classes, readonly fields
 - [x] Added analyzer tests for readonly field validation
@@ -106,9 +106,20 @@
 - [x] All 150 tests passing, 1 skipped (27 lexer + 41 parser + 52 analyzer + 30 transpiler)
 - [x] Features tested: type aliases, attributes, extension methods, static classes, struct transpilation, readonly fields
 
+### Phase 14: Readonly Field Improvements (v1.11 - LATEST!)
+- [x] Implemented readonly field assignment validation in analyzer
+- [x] Readonly fields can only be assigned in constructors (enforced at compile-time)
+- [x] Fixed readonly transpilation to use C# `init` accessors instead of invalid `readonly` modifier on properties
+- [x] Fixed interface method transpilation to omit modifiers (implicitly public in C#)
+- [x] Added visibility inference for class methods based on naming convention (PascalCase = public)
+- [x] Enabled previously skipped test: ReadonlyField_SetOutsideConstructor_Error
+- [x] Updated transpiler test to expect `{ get; init; }` instead of `readonly`
+- [x] Created comprehensive example: examples/records_and_interfaces.nl
+- [x] All 151 tests passing, 0 skipped (27 lexer + 41 parser + 53 analyzer + 30 transpiler)
+
 ## 🚧 In Progress
 
-None currently - v1.10 complete!
+None currently - v1.11 complete!
 
 ## 📋 Next Steps
 
@@ -168,6 +179,7 @@ The compiler successfully:
 - `examples/simple.nl` - Basic functions and type inference ✅
 - `examples/error_handling.nl` - Automatic exception capture with `result, err := Function()` ✅
 - `examples/unions_and_match.nl` - Discriminated unions, enums (int and string), type aliases ✅
+- `examples/records_and_interfaces.nl` - Records, interfaces, structs, readonly fields, with expressions ✅
 
 ## 📝 Notes
 
@@ -178,7 +190,7 @@ The compiler successfully:
 - Int enums transpile to standard C# enums
 - Top-level functions are wrapped in internal static classes
 - Type aliases are emitted as comments (C# doesn't support type aliases at type level)
-- **All 150 unit tests passing, 1 skipped** (27 lexer + 41 parser + 52 analyzer + 30 transpiler)
+- **All 151 unit tests passing, 0 skipped** (27 lexer + 41 parser + 53 analyzer + 30 transpiler)
 - **External type resolution working via .NET reflection (v1.1)**
 - **Indexer transpilation now fully supported (v1.2)**
 - **Immutable arrays transpile to C# 12+ collection expressions (v1.2)**
@@ -197,4 +209,8 @@ The compiler successfully:
 - **Comprehensive test coverage for type aliases, attributes, extension methods, static classes, structs, readonly fields (v1.10)**
 - **Attribute parsing bug fixed - now correctly handles attributes on class members (v1.10)**
 - **Array type detection improved - distinguishes between Type[] and [Attribute] (v1.10)**
+- **Readonly field validation - assignment only allowed in constructors (v1.11)**
+- **Readonly fields transpile to init accessors { get; init; } (v1.11)**
+- **Interface methods transpile without modifiers (implicitly public) (v1.11)**
+- **Class methods get visibility from naming convention (PascalCase = public) (v1.11)**
 - Lambda parameters without explicit types use `var` which maps to `Unknown` type (compatible with all operations)
