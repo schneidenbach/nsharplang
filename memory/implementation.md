@@ -1,8 +1,8 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.58 - Conversion Operators (Current)
-**Tests:** 454 passing ✅ (+7 new tests)
-**Status:** Feature-complete! All DESIGN.md features implemented. Ready for tooling improvements.
+**Version:** v1.60 - Professional Error Messages (Current)
+**Tests:** 463 passing ✅ (+9 new tests)
+**Status:** Feature-complete! All DESIGN.md features implemented. Professional error messages complete. Ready for LSP.
 
 ## Architecture Overview
 
@@ -83,9 +83,37 @@ Executable
 ### 7. CLI (`src/Cli/Program.cs`)
 - Three commands: build, transpile, run
 - Integrates Analyzer to check code before transpilation
-- Reports errors/warnings with file:line:column format
+- Reports errors/warnings with professional formatting (Rust-quality)
 - Stops compilation if errors are found
 - For `run`: Creates temp project, compiles with dotnet, executes
+
+### 8. Error Reporting (`src/Compiler/ErrorReporting.cs`) - NEW in v1.60!
+- **ErrorCode enum**: Comprehensive error codes (NL001-NL999)
+  - Syntax errors (100-199)
+  - Type errors (200-299)
+  - Semantic errors (300-399)
+  - Function/method errors (400-499)
+  - Pattern matching errors (500-599)
+  - Operator errors (600-699)
+  - Import/using errors (700-799)
+  - Class/struct/interface errors (800-899)
+  - Warnings (900-999)
+- **CompilerError record**: Rich error information
+  - Error code for documentation lookup
+  - Message, location (file, line, column)
+  - Optional source snippet with position markers
+  - Optional helpful suggestions
+  - Rust-style formatting
+- **ErrorSuggestions helper**: Context-aware suggestions
+  - Type not found → "Did you mean X?" with Levenshtein distance
+  - Missing return → "Add return statement or change to void"
+  - Non-exhaustive match → Lists missing cases with suggestion
+  - Extensible for future error types
+- **Benefits**:
+  - Much clearer error messages for developers
+  - Professional appearance (matches Rust quality)
+  - Error codes enable documentation and tooling integration
+  - Foundation for Language Server Protocol
 
 ## Important Implementation Details
 
