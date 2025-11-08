@@ -1,0 +1,13 @@
+name: TaskManagementApi
+version: 1.0.0
+target: net9.0
+
+references:
+  - Microsoft.AspNetCore.App
+  - Microsoft.EntityFrameworkCore
+  - Microsoft.EntityFrameworkCore.Sqlite
+
+files:
+  - Program.nl
+  - Database.nl
+  - Tasks.nl

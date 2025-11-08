@@ -103,14 +103,14 @@ class TasksController : ControllerBase {
 
     // GET /api/tasks - Get all tasks
     [HttpGet]
-    func GetAll(): Task<IActionResult> async {
+    func async GetAll(): IActionResult {
         tasks := await db.Tasks.ToArrayAsync()
         return Ok(tasks)
     }
 
     // GET /api/tasks/{id} - Get task by ID
     [HttpGet("{id}")]
-    func GetById(id: Guid): Task<IActionResult> async {
+    func async GetById(id: Guid): IActionResult {
         task := await db.Tasks.FindAsync(id)
 
         return match task {
@@ -121,7 +121,7 @@ class TasksController : ControllerBase {
 
     // POST /api/tasks - Create a new task
     [HttpPost]
-    func Create([FromBody] dto: CreateTaskDto): Task<IActionResult> async {
+    func async Create(dto: CreateTaskDto): IActionResult {
         // Validate
         errors := ValidateCreateTask(dto)
         if errors.Length > 0 {
@@ -148,7 +148,7 @@ class TasksController : ControllerBase {
 
     // PUT /api/tasks/{id} - Update a task
     [HttpPut("{id}")]
-    func Update(id: Guid, [FromBody] dto: UpdateTaskDto): Task<IActionResult> async {
+    func async Update(id: Guid, dto: UpdateTaskDto): IActionResult {
         existing := await db.Tasks.FindAsync(id)
         if existing == null {
             return NotFound()
@@ -180,7 +180,7 @@ class TasksController : ControllerBase {
 
     // DELETE /api/tasks/{id} - Delete a task
     [HttpDelete("{id}")]
-    func Delete(id: Guid): Task<IActionResult> async {
+    func async Delete(id: Guid): IActionResult {
         task := await db.Tasks.FindAsync(id)
 
         if task == null {
@@ -195,7 +195,7 @@ class TasksController : ControllerBase {
 
     // GET /api/tasks/status/{status} - Get tasks by status
     [HttpGet("status/{status}")]
-    func GetByStatus(status: string): Task<IActionResult> async {
+    func async GetByStatus(status: string): IActionResult {
         tasks := await db.Tasks
             .Where((t) => t.Status == status)
             .ToArrayAsync()
@@ -205,7 +205,7 @@ class TasksController : ControllerBase {
 
     // GET /api/tasks/priority/{priority} - Get tasks by priority
     [HttpGet("priority/{priority}")]
-    func GetByPriority(priority: string): Task<IActionResult> async {
+    func async GetByPriority(priority: string): IActionResult {
         tasks := await db.Tasks
             .Where((t) => t.Priority == priority)
             .ToArrayAsync()

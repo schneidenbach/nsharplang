@@ -1799,4 +1799,459 @@ public class AnalyzerTests
 
         Assert.Empty(result.Errors);
     }
+
+    // ==================== Assembly Resolution Tests (Phase 1) ====================
+
+    [Fact]
+    public void AssemblyResolution_SystemConsole_Resolved()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.WriteLine(""Hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_SystemLinq_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Linq
+
+            func Main() {
+                numbers := [1, 2, 3, 4, 5]
+                evens := numbers.Where(x => x % 2 == 0)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_SystemCollections_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            func Main() {
+                list := new List<int>()
+                list.Add(1)
+                list.Add(2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_SystemIO_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.IO
+
+            func Main() {
+                path := Path.Combine(""folder"", ""file.txt"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_SystemThreadingTasks_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            func async GetDataAsync(): string {
+                await Task.Delay(100)
+                return ""data""
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_MultiplImports_AllResolved()
+    {
+        AssertNoErrors(@"
+            import System
+            import System.Linq
+            import System.Collections.Generic
+
+            func Main() {
+                Console.WriteLine(""Test"")
+                list := new List<int>()
+                result := list.Where(x => x > 0)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_StaticMethodCall_Resolved()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Math.Max(1, 2)
+                Math.Min(3, 4)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_GenericTypeInstantiation_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            func Main() {
+                dict := new Dictionary<string, int>()
+                dict[""key""] = 42
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_ExtensionMethodFromLinq_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Linq
+
+            func Main() {
+                numbers := [1, 2, 3]
+                first := numbers.First()
+                last := numbers.Last()
+                sum := numbers.Sum()
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_NestedTypeAccess_Resolved()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                separator := Environment.NewLine
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_PropertyAccess_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            func Main() {
+                list := new List<int>()
+                list.Add(1)
+                count := list.Count
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_ChainedMethodCalls_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Linq
+
+            func Main() {
+                numbers := [1, 2, 3, 4, 5]
+                result := numbers.Where(x => x > 2).Select(x => x * 2).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_SystemText_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Text
+
+            func Main() {
+                sb := new StringBuilder()
+                sb.Append(""Hello"")
+                sb.Append("" "")
+                sb.Append(""World"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_DateTime_Resolved()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                now := DateTime.Now
+                today := DateTime.Today
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_Guid_Resolved()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                id := Guid.NewGuid()
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_Task_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            func async DoWork() {
+                await Task.Delay(100)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_FileInfo_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.IO
+
+            func Main() {
+                fileInfo := new FileInfo(""test.txt"")
+                exists := fileInfo.Exists
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_Regex_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Text.RegularExpressions
+
+            func Main() {
+                pattern := new Regex(""[0-9]+"")
+                isMatch := pattern.IsMatch(""123"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_HttpClient_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Net.Http
+
+            func async GetData(): string {
+                client := new HttpClient()
+                return await client.GetStringAsync(""https://example.com"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_JsonSerializer_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Text.Json
+
+            func Main() {
+                json := JsonSerializer.Serialize(42)
+            }
+        ");
+    }
+
+    // ==================== Override Keyword Tests (Phase 2) ====================
+
+    [Fact]
+    public void Override_SimpleOverride_Valid()
+    {
+        AssertNoErrors(@"
+            import System
+
+            class Animal {
+                virtual func MakeSound() {
+                    Console.WriteLine(""Generic sound"")
+                }
+            }
+
+            class Dog : Animal {
+                override func MakeSound() {
+                    Console.WriteLine(""Bark"")
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_WithReturnType_Valid()
+    {
+        AssertNoErrors(@"
+            class Base {
+                virtual func GetValue(): int {
+                    return 0
+                }
+            }
+
+            class Derived : Base {
+                override func GetValue(): int {
+                    return 42
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_WithParameters_Valid()
+    {
+        AssertNoErrors(@"
+            class Base {
+                virtual func Process(x: int, y: int): int {
+                    return x + y
+                }
+            }
+
+            class Derived : Base {
+                override func Process(x: int, y: int): int {
+                    return x * y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_AsyncMethod_Valid()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            class Base {
+                virtual func async GetDataAsync(): string {
+                    return ""base""
+                }
+            }
+
+            class Derived : Base {
+                override func async GetDataAsync(): string {
+                    await Task.Delay(10)
+                    return ""derived""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_MultipleOverrides_Valid()
+    {
+        AssertNoErrors(@"
+            class Base {
+                virtual func Method1() { }
+                virtual func Method2() { }
+                virtual func Method3() { }
+            }
+
+            class Derived : Base {
+                override func Method1() { }
+                override func Method2() { }
+                override func Method3() { }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_InheritanceChain_Valid()
+    {
+        AssertNoErrors(@"
+            class A {
+                virtual func DoWork() { }
+            }
+
+            class B : A {
+                override func DoWork() { }
+            }
+
+            class C : B {
+                override func DoWork() { }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_WithBaseCall_Valid()
+    {
+        AssertNoErrors(@"
+            import System
+
+            class Base {
+                virtual func Initialize() {
+                    Console.WriteLine(""Base init"")
+                }
+            }
+
+            class Derived : Base {
+                override func Initialize() {
+                    base.Initialize()
+                    Console.WriteLine(""Derived init"")
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_PropertyWithMethods_Valid()
+    {
+        AssertNoErrors(@"
+            class Base {
+                virtual func GetName(): string {
+                    return ""Base""
+                }
+            }
+
+            class Derived : Base {
+                override func GetName(): string {
+                    return ""Derived""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_GenericMethod_Valid()
+    {
+        AssertNoErrors(@"
+            class Base {
+                virtual func Process<T>(item: T): T {
+                    return item
+                }
+            }
+
+            class Derived : Base {
+                override func Process<T>(item: T): T {
+                    return item
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Override_AbstractMethod_Valid()
+    {
+        AssertNoErrors(@"
+            import System
+
+            abstract class Base {
+                abstract func DoWork(): void
+            }
+
+            class Derived : Base {
+                override func DoWork(): void {
+                    Console.WriteLine(""Working"")
+                }
+            }
+        ");
+    }
 }
