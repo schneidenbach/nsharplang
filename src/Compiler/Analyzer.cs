@@ -1221,6 +1221,8 @@ public class Analyzer
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
+            CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
+            UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
             OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
@@ -1884,6 +1886,18 @@ public class Analyzer
         AnalyzeExpression(nameofExpr.Target);
         // nameof always returns string
         return BuiltInTypes.String;
+    }
+
+    private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
+    {
+        // Analyze the inner expression - type is preserved
+        return AnalyzeExpression(checkedExpr.Expression);
+    }
+
+    private TypeInfo AnalyzeUncheckedExpression(UncheckedExpression uncheckedExpr)
+    {
+        // Analyze the inner expression - type is preserved
+        return AnalyzeExpression(uncheckedExpr.Expression);
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)

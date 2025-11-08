@@ -85,6 +85,8 @@ public class Lexer
         { "lock", TokenType.Lock },
         { "file", TokenType.File },
         { "params", TokenType.Params },
+        { "checked", TokenType.Checked },
+        { "unchecked", TokenType.Unchecked },
     };
 
     public Lexer(string source, string? fileName = null)

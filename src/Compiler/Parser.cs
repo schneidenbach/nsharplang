@@ -2632,6 +2632,26 @@ public class Parser
             return new SizeOfExpression(type, line, column);
         }
 
+        // Checked expression
+        if (Check(TokenType.Checked))
+        {
+            Advance();
+            Consume(TokenType.LeftParen, "Expected '('");
+            var expr = ParseExpression();
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new CheckedExpression(expr, line, column);
+        }
+
+        // Unchecked expression
+        if (Check(TokenType.Unchecked))
+        {
+            Advance();
+            Consume(TokenType.LeftParen, "Expected '('");
+            var expr = ParseExpression();
+            Consume(TokenType.RightParen, "Expected ')'");
+            return new UncheckedExpression(expr, line, column);
+        }
+
         // New expression
         if (Check(TokenType.New))
         {

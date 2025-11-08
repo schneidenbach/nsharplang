@@ -902,6 +902,18 @@ type := typeof(Person)
 if obj.GetType() == typeof(string) { }
 ```
 
+**checked** - enforce overflow checking on arithmetic:
+```
+result := checked(a + b)              // Throws OverflowException on overflow
+safeSum := checked(int.MaxValue + 1)  // Runtime exception
+```
+
+**unchecked** - allow arithmetic overflow wrapping:
+```
+wrapped := unchecked(a - b)            // Wraps on overflow (default behavior)
+result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
+```
+
 #### Function Types
 - Use `Func<>` for all function types
 - `Func<void>` maps to `Action<>` under the hood

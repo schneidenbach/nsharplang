@@ -82,6 +82,8 @@ public enum TokenType
     Lock,
     File,
     Params,
+    Checked,
+    Unchecked,
 
     // Operators
     Plus,           // +

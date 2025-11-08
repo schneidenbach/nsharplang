@@ -1,7 +1,7 @@
 # N# (NewLang Sharp) Implementation Notes
 
-**Version:** v1.56 - Local Functions (C# 7)
-**Tests:** 441 passing ✅
+**Version:** v1.57 - Checked/Unchecked Expressions
+**Tests:** 447 passing ✅ (+6 new tests)
 **Status:** Production-ready for experimentation and learning
 
 ## Architecture Overview
@@ -2223,3 +2223,40 @@ var integers = mixed.OfType<int>().ToList();
 - Improve complex nested generic parsing (multiple type args with nested generics)
 - Add analyzer support for better error messages before C# compilation
 - Consider type argument inference hints for better diagnostics
+
+## v1.57 - Checked/Unchecked Expressions
+
+**Changes:**
+- Added `checked` and `unchecked` keywords to Token.cs and Lexer
+- Created `CheckedExpression` and `UncheckedExpression` AST nodes in Expressions.cs
+- Added parsing support in Parser.cs (similar to typeof/nameof pattern)
+- Added analysis in Analyzer.cs (preserves inner expression type)
+- Added transpilation in Transpiler.cs (direct mapping to C# checked/unchecked)
+- Added 6 new tests: 2 lexer + 2 parser + 2 transpiler
+- Created comprehensive example: `examples/checked_unchecked.nl`
+- Updated DESIGN.md with documentation
+
+**Features:**
+- `checked(expression)` - Throws `OverflowException` on arithmetic overflow at runtime
+- `unchecked(expression)` - Allows arithmetic overflow wrapping (default .NET behavior)
+- Works with any arithmetic expression (+, -, *, /)
+- Can be nested in complex expressions
+- Type-preserving (returns same type as inner expression)
+
+**Transpilation:**
+```
+// N# Input
+result := checked(a + b)
+wrapped := unchecked(max + 1)
+
+// C# Output
+var result = checked((a + b));
+var wrapped = unchecked((max + 1));
+```
+
+**Usage:**
+- Use `checked()` for critical calculations where overflow must be detected
+- Use `unchecked()` when wrap-around behavior is desired
+- Example: `examples/checked_unchecked.nl` demonstrates all use cases
+
+**Test Count:** 447 total (441 → 447)

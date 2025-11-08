@@ -1398,6 +1398,8 @@ public class Transpiler
             BaseExpression => "base",
             TypeOfExpression typeOf => $"typeof({TranspileTypeReference(typeOf.Type)})",
             NameofExpression nameOf => TranspileNameofExpression(nameOf),
+            CheckedExpression checkedExpr => $"checked({TranspileExpression(checkedExpr.Expression)})",
+            UncheckedExpression uncheckedExpr => $"unchecked({TranspileExpression(uncheckedExpr.Expression)})",
             RangeExpression range => TranspileRangeExpression(range),
             SizeOfExpression sizeOf => $"sizeof({TranspileTypeReference(sizeOf.Type)})",
             TupleExpression tuple => TranspileTupleExpression(tuple),

@@ -1870,6 +1870,62 @@ func main() {
     }
 
     [Fact]
+    public void TestCheckedExpression()
+    {
+        var source = @"
+func main() {
+    result := checked(a + b)
+    overflow := checked(int.MaxValue + 1)
+}
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.Single(cu.Declarations.OfType<FunctionDeclaration>());
+        var block = Assert.IsType<BlockStatement>(func.Body);
+        Assert.Equal(2, block.Statements.Count);
+
+        // Test checked(a + b)
+        var varDecl1 = Assert.IsType<VariableDeclarationStatement>(block.Statements[0]);
+        var checked1 = Assert.IsType<CheckedExpression>(varDecl1.Initializer);
+        var binary1 = Assert.IsType<BinaryExpression>(checked1.Expression);
+        Assert.Equal(BinaryOperator.Add, binary1.Operator);
+
+        // Test checked(int.MaxValue + 1)
+        var varDecl2 = Assert.IsType<VariableDeclarationStatement>(block.Statements[1]);
+        var checked2 = Assert.IsType<CheckedExpression>(varDecl2.Initializer);
+        var binary2 = Assert.IsType<BinaryExpression>(checked2.Expression);
+        Assert.Equal(BinaryOperator.Add, binary2.Operator);
+    }
+
+    [Fact]
+    public void TestUncheckedExpression()
+    {
+        var source = @"
+func main() {
+    result := unchecked(a - b)
+    wrap := unchecked(int.MinValue - 1)
+}
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.Single(cu.Declarations.OfType<FunctionDeclaration>());
+        var block = Assert.IsType<BlockStatement>(func.Body);
+        Assert.Equal(2, block.Statements.Count);
+
+        // Test unchecked(a - b)
+        var varDecl1 = Assert.IsType<VariableDeclarationStatement>(block.Statements[0]);
+        var unchecked1 = Assert.IsType<UncheckedExpression>(varDecl1.Initializer);
+        var binary1 = Assert.IsType<BinaryExpression>(unchecked1.Expression);
+        Assert.Equal(BinaryOperator.Subtract, binary1.Operator);
+
+        // Test unchecked(int.MinValue - 1)
+        var varDecl2 = Assert.IsType<VariableDeclarationStatement>(block.Statements[1]);
+        var unchecked2 = Assert.IsType<UncheckedExpression>(varDecl2.Initializer);
+        var binary2 = Assert.IsType<BinaryExpression>(unchecked2.Expression);
+        Assert.Equal(BinaryOperator.Subtract, binary2.Operator);
+    }
+
+    [Fact]
     public void TestExpressionBodiedProperty()
     {
         var source = @"

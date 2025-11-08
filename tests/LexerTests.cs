@@ -538,4 +538,24 @@ World
         Assert.Equal(TokenType.Params, tokens[0].Type);
         Assert.Equal("params", tokens[0].Value);
     }
+
+    [Fact]
+    public void TestCheckedKeyword()
+    {
+        var source = "checked";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // checked + EOF
+        Assert.Equal(TokenType.Checked, tokens[0].Type);
+        Assert.Equal("checked", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestUncheckedKeyword()
+    {
+        var source = "unchecked";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // unchecked + EOF
+        Assert.Equal(TokenType.Unchecked, tokens[0].Type);
+        Assert.Equal("unchecked", tokens[0].Value);
+    }
 }

@@ -324,6 +324,18 @@ public record SizeOfExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
+// Checked expression - throws on arithmetic overflow
+public record CheckedExpression(
+    Expression Expression,
+    int Line,
+    int Column) : Expression(Line, Column);
+
+// Unchecked expression - wraps on arithmetic overflow
+public record UncheckedExpression(
+    Expression Expression,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // This expression
 public record ThisExpression(int Line, int Column) : Expression(Line, Column);
 

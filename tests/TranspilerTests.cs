@@ -1191,6 +1191,40 @@ func main() {
     }
 
     [Fact]
+    public void TestCheckedExpressionTranspilation()
+    {
+        var source = @"
+func main() {
+    a := 1
+    b := 2
+    result := checked(a + b)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify transpiles to C# checked (note: binary expressions get extra parens)
+        Assert.Contains("checked((a + b))", result);
+    }
+
+    [Fact]
+    public void TestUncheckedExpressionTranspilation()
+    {
+        var source = @"
+func main() {
+    a := 1
+    b := 2
+    result := unchecked(a - b)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Verify transpiles to C# unchecked (note: binary expressions get extra parens)
+        Assert.Contains("unchecked((a - b))", result);
+    }
+
+    [Fact]
     public void TestExpressionBodiedPropertyTranspilation()
     {
         var source = @"
