@@ -53,6 +53,12 @@ public class ProjectConfig
     public List<string> References { get; set; } = new();
 
     /// <summary>
+    /// Project references (for test projects referencing other projects)
+    /// List of relative paths to other project directories
+    /// </summary>
+    public List<string> ProjectReferences { get; set; } = new();
+
+    /// <summary>
     /// Language-specific configuration
     /// </summary>
     public LanguageConfig Language { get; set; } = new();

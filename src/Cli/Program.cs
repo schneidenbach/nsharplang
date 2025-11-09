@@ -420,6 +420,26 @@ class Program
             config.Dependencies.Select(kvp =>
                 $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
 
+        var projectReferences = string.Join("\n    ",
+            config.ProjectReferences.Select(path =>
+                $@"<ProjectReference Include=""{path}"" />"));
+
+        var itemGroups = "";
+        if (!string.IsNullOrWhiteSpace(dependencies))
+        {
+            itemGroups += $@"  <ItemGroup>
+    {dependencies}
+  </ItemGroup>
+";
+        }
+        if (!string.IsNullOrWhiteSpace(projectReferences))
+        {
+            itemGroups += $@"  <ItemGroup>
+    {projectReferences}
+  </ItemGroup>
+";
+        }
+
         return $@"<Project Sdk=""{config.Sdk}"">
   <PropertyGroup>
     <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
@@ -427,10 +447,7 @@ class Program
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup>
-    {dependencies}
-  </ItemGroup>
-</Project>";
+{itemGroups}</Project>";
     }
 
     static string CompileToCSharp(string source, string fileName, ProjectConfig? config = null)

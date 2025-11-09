@@ -15,3 +15,5 @@ dependencies:
   Microsoft.EntityFrameworkCore.Design: "9.0.0"
   Swashbuckle.AspNetCore: "7.2.0"
   Microsoft.AspNetCore.OpenApi: "9.0.0"
+  Microsoft.AspNetCore.Mvc.Testing: "9.0.0"
+  Microsoft.EntityFrameworkCore.InMemory: "9.0.0"
