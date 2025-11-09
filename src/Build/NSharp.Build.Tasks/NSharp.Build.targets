@@ -1,0 +1,27 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)NSharp/</NSharpOutputPath>
+  </PropertyGroup>
+
+  <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile" AssemblyFile="$(MSBuildThisFileDirectory)NSharp.Build.Tasks.dll" />
+
+  <ItemGroup>
+    <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
+  </ItemGroup>
+
+  <Target Name="CompileNSharp" BeforeTargets="CoreCompile" Inputs="@(NSharpCompile)" Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(Filename).g.cs')">
+    <NSharpCompile
+      Sources="@(NSharpCompile)"
+      OutputPath="$(NSharpOutputPath)"
+      ProjectRoot="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </NSharpCompile>
+  </Target>
+
+  <Target Name="CleanNSharp" BeforeTargets="CoreClean">
+    <RemoveDir Directories="$(NSharpOutputPath)" />
+  </Target>
+
+</Project>
