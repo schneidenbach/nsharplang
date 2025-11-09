@@ -44,11 +44,11 @@ language:
             Assert.Equal("exe", config.OutputType);
             Assert.Equal("net9.0", config.TargetFramework);
             // Dependencies are migrated to References
-            Assert.Equal(2, config.References.Count);
-            var newtonsoft = config.References.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
+            Assert.Equal(2, config.Dependencies.Count);
+            var newtonsoft = config.Dependencies.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
             Assert.NotNull(newtonsoft);
             Assert.Equal("13.0.3", newtonsoft!.Version);
-            var systemText = config.References.FirstOrDefault(r => r.Nuget == "System.Text.Json");
+            var systemText = config.Dependencies.FirstOrDefault(r => r.Nuget == "System.Text.Json");
             Assert.NotNull(systemText);
             Assert.Equal("8.0.0", systemText!.Version);
             Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
@@ -78,7 +78,7 @@ language:
             Assert.Null(config.Entry);
             Assert.Equal("exe", config.OutputType); // default
             Assert.Equal("net9.0", config.TargetFramework); // default
-            Assert.Empty(config.References);
+            Assert.Empty(config.Dependencies);
             Assert.Equal("ValueTask", config.Language.AsyncDefaultType); // default
         }
         finally
@@ -235,7 +235,7 @@ version: 2.0.0
         Assert.Equal("TestProject", config.Name);
         Assert.Equal("exe", config.OutputType);
         Assert.Equal("net9.0", config.TargetFramework);
-        Assert.Empty(config.References);
+        Assert.Empty(config.Dependencies);
         Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
     }
 
@@ -279,10 +279,10 @@ references:
             File.WriteAllText(tempFile, yaml);
             var config = ProjectFileParser.Parse(tempFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
-            Assert.Equal("Microsoft.EntityFrameworkCore", config.References[0].Nuget);
-            Assert.Equal("9.0.0", config.References[0].Version);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.NuGet, config.Dependencies[0].Type);
+            Assert.Equal("Microsoft.EntityFrameworkCore", config.Dependencies[0].Nuget);
+            Assert.Equal("9.0.0", config.Dependencies[0].Version);
         }
         finally
         {
@@ -303,10 +303,10 @@ references:
             File.WriteAllText(tempFile, yaml);
             var config = ProjectFileParser.Parse(tempFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
-            Assert.Equal("Dapper", config.References[0].Nuget);
-            Assert.Null(config.References[0].Version);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.NuGet, config.Dependencies[0].Type);
+            Assert.Equal("Dapper", config.Dependencies[0].Nuget);
+            Assert.Null(config.Dependencies[0].Version);
         }
         finally
         {
@@ -327,10 +327,10 @@ references:
             File.WriteAllText(tempFile, yaml);
             var config = ProjectFileParser.Parse(tempFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
-            Assert.Equal("Dapper", config.References[0].Nuget);
-            Assert.Equal("2.1.28", config.References[0].Version);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.NuGet, config.Dependencies[0].Type);
+            Assert.Equal("Dapper", config.Dependencies[0].Nuget);
+            Assert.Equal("2.1.28", config.Dependencies[0].Version);
         }
         finally
         {
@@ -351,9 +351,9 @@ references:
             File.WriteAllText(tempFile, yaml);
             var config = ProjectFileParser.Parse(tempFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.Framework, config.References[0].Type);
-            Assert.Equal("Microsoft.AspNetCore.App", config.References[0].Framework);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.Framework, config.Dependencies[0].Type);
+            Assert.Equal("Microsoft.AspNetCore.App", config.Dependencies[0].Framework);
         }
         finally
         {
@@ -381,9 +381,9 @@ references:
             File.WriteAllText(projectFile, yaml);
             var config = ProjectFileParser.Parse(projectFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.Dll, config.References[0].Type);
-            Assert.Equal("MyLibrary.dll", config.References[0].Dll);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.Dll, config.Dependencies[0].Type);
+            Assert.Equal("MyLibrary.dll", config.Dependencies[0].Dll);
         }
         finally
         {
@@ -413,9 +413,9 @@ references:
             File.WriteAllText(projectFile, yaml);
             var config = ProjectFileParser.Parse(projectFile);
 
-            Assert.Single(config.References);
-            Assert.Equal(ReferenceType.Project, config.References[0].Type);
-            Assert.Equal("Shared/Shared.csproj", config.References[0].Project);
+            Assert.Single(config.Dependencies);
+            Assert.Equal(ReferenceType.Project, config.Dependencies[0].Type);
+            Assert.Equal("Shared/Shared.csproj", config.Dependencies[0].Project);
         }
         finally
         {
@@ -450,19 +450,19 @@ references:
             File.WriteAllText(projectFile, yaml);
             var config = ProjectFileParser.Parse(projectFile);
 
-            Assert.Equal(4, config.References.Count);
-            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
-            Assert.Equal("Dapper", config.References[0].Nuget);
-            Assert.Equal("2.1.28", config.References[0].Version);
+            Assert.Equal(4, config.Dependencies.Count);
+            Assert.Equal(ReferenceType.NuGet, config.Dependencies[0].Type);
+            Assert.Equal("Dapper", config.Dependencies[0].Nuget);
+            Assert.Equal("2.1.28", config.Dependencies[0].Version);
 
-            Assert.Equal(ReferenceType.Dll, config.References[1].Type);
-            Assert.Equal("Custom.dll", config.References[1].Dll);
+            Assert.Equal(ReferenceType.Dll, config.Dependencies[1].Type);
+            Assert.Equal("Custom.dll", config.Dependencies[1].Dll);
 
-            Assert.Equal(ReferenceType.Project, config.References[2].Type);
-            Assert.Equal("Shared/Shared.csproj", config.References[2].Project);
+            Assert.Equal(ReferenceType.Project, config.Dependencies[2].Type);
+            Assert.Equal("Shared/Shared.csproj", config.Dependencies[2].Project);
 
-            Assert.Equal(ReferenceType.Framework, config.References[3].Type);
-            Assert.Equal("Microsoft.AspNetCore.App", config.References[3].Framework);
+            Assert.Equal(ReferenceType.Framework, config.Dependencies[3].Type);
+            Assert.Equal("Microsoft.AspNetCore.App", config.Dependencies[3].Framework);
         }
         finally
         {
@@ -485,14 +485,14 @@ dependencies:
             var config = ProjectFileParser.Parse(tempFile);
 
             // Should be migrated to References
-            Assert.Equal(2, config.References.Count);
-            Assert.All(config.References, r => Assert.Equal(ReferenceType.NuGet, r.Type));
+            Assert.Equal(2, config.Dependencies.Count);
+            Assert.All(config.Dependencies, r => Assert.Equal(ReferenceType.NuGet, r.Type));
 
-            var newtonsoft = config.References.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
+            var newtonsoft = config.Dependencies.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
             Assert.NotNull(newtonsoft);
             Assert.Equal("13.0.3", newtonsoft!.Version);
 
-            var dapper = config.References.FirstOrDefault(r => r.Nuget == "Dapper");
+            var dapper = config.Dependencies.FirstOrDefault(r => r.Nuget == "Dapper");
             Assert.NotNull(dapper);
             Assert.Equal("2.1.28", dapper!.Version);
         }

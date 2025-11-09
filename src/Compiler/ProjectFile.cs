@@ -47,37 +47,15 @@ public class ProjectConfig
     /// <summary>
     /// References (NuGet packages, DLLs, projects, frameworks)
     /// </summary>
-    public List<Reference> References { get; set; } = new();
+    /// <summary>
+    /// Runtime dependencies (NuGet packages, framework references, DLL files)
+    /// </summary>
+    public List<Reference> Dependencies { get; set; } = new();
 
     /// <summary>
-    /// DEPRECATED: Use References instead with nuget type
-    /// NuGet package dependencies (package name -> version)
-    /// Kept for backwards compatibility
+    /// Test-specific dependencies (only included when running tests)
     /// </summary>
-    [Obsolete("Use References instead with nuget type")]
-    public Dictionary<string, string> Dependencies { get; set; } = new();
-
-    /// <summary>
-    /// Test-specific NuGet package dependencies (package name -> version)
-    /// These are only included when running tests, not in the main project build
-    /// </summary>
-    public Dictionary<string, string> TestDependencies { get; set; } = new();
-
-    /// <summary>
-    /// DEPRECATED: Use References instead with appropriate types
-    /// Assembly references (for external type resolution)
-    /// Kept for backwards compatibility
-    /// </summary>
-    [Obsolete("Use References instead with appropriate types")]
-    public List<string> LegacyReferences { get; set; } = new();
-
-    /// <summary>
-    /// DEPRECATED: Use References instead with project type
-    /// Project references (for test projects referencing other projects)
-    /// Kept for backwards compatibility
-    /// </summary>
-    [Obsolete("Use References instead with project type")]
-    public List<string> ProjectReferences { get; set; } = new();
+    public List<Reference> TestDependencies { get; set; } = new();
 
     /// <summary>
     /// Files to exclude from compilation
@@ -419,9 +397,6 @@ public class ProjectFileParser
 
         var config = deserializer.Deserialize<ProjectConfig>(yaml);
 
-        // Migrate legacy fields
-        MigrateLegacyFields(config);
-
         // Validate the configuration
         ValidateConfig(config, Path.GetDirectoryName(yamlPath) ?? Environment.CurrentDirectory);
 
@@ -458,76 +433,6 @@ public class ProjectFileParser
         };
     }
 
-    /// <summary>
-    /// Migrate legacy fields to new References system for backwards compatibility
-    /// </summary>
-    private static void MigrateLegacyFields(ProjectConfig config)
-    {
-        var migrated = false;
-
-        // Migrate old Dependencies field
-        #pragma warning disable CS0618 // Type or member is obsolete
-        if (config.Dependencies.Count > 0)
-        {
-            Console.WriteLine("Warning: 'dependencies' field is deprecated. Use 'references' instead.");
-
-            foreach (var (package, version) in config.Dependencies)
-            {
-                config.References.Add(new Reference
-                {
-                    Nuget = package,
-                    Version = version
-                });
-            }
-
-            config.Dependencies.Clear();
-            migrated = true;
-        }
-
-        // Migrate old LegacyReferences field (assembly names)
-        if (config.LegacyReferences.Count > 0)
-        {
-            Console.WriteLine("Warning: String-based 'references' field is deprecated. Use structured references instead.");
-
-            foreach (var reference in config.LegacyReferences)
-            {
-                // Try to determine if it's a NuGet package or assembly name
-                // If it looks like a file path, treat as DLL, otherwise as NuGet
-                if (reference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                    reference.Contains('/') || reference.Contains('\\'))
-                {
-                    config.References.Add(new Reference { Dll = reference });
-                }
-                else
-                {
-                    config.References.Add(new Reference { Nuget = reference });
-                }
-            }
-
-            config.LegacyReferences.Clear();
-            migrated = true;
-        }
-
-        // Migrate old ProjectReferences field
-        if (config.ProjectReferences.Count > 0)
-        {
-            Console.WriteLine("Warning: 'projectReferences' field is deprecated. Use 'references' with 'project' type instead.");
-
-            foreach (var projectRef in config.ProjectReferences)
-            {
-                config.References.Add(new Reference { Project = projectRef });
-            }
-
-            config.ProjectReferences.Clear();
-            migrated = true;
-        }
-        #pragma warning restore CS0618 // Type or member is obsolete
-
-        if (migrated)
-        {
-            Console.WriteLine("Legacy fields have been automatically migrated to the new 'references' format.");
-        }
-    }
 
     /// <summary>
     /// Validate project configuration
@@ -570,8 +475,8 @@ public class ProjectFileParser
             Console.WriteLine($"Warning: Target framework '{config.TargetFramework}' may not be valid. Expected format: netX.Y");
         }
 
-        // Validate references (skip file validation for NuGet and Framework references)
-        foreach (var reference in config.References)
+        // Validate dependencies (skip file validation for NuGet and Framework references)
+        foreach (var reference in config.Dependencies)
         {
             try
             {
@@ -583,7 +488,7 @@ public class ProjectFileParser
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Reference validation failed: {ex.Message}");
+                Console.WriteLine($"Warning: Dependency validation failed: {ex.Message}");
             }
         }
     }
@@ -599,8 +504,8 @@ entry: Program.nl
 outputType: exe
 targetFramework: net9.0
 
-# References - all external dependencies go here
-references:
+# Dependencies - all external dependencies go here
+dependencies:
   # NuGet packages (with version)
   # - nuget: Microsoft.EntityFrameworkCore
   #   version: 9.0.0

@@ -939,4 +939,25 @@ class Dog : Animal, IGreeter {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleUsingStatement()
+    {
+        var source = @"
+class Resource {
+    func Dispose(): void {
+    }
+}
+
+func Test(): void {
+    using r := new Resource() {
+        x := 1
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }

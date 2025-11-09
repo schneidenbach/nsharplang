@@ -426,13 +426,13 @@ class Program
         sb.AppendLine("    <Nullable>enable</Nullable>");
         sb.AppendLine("  </PropertyGroup>");
 
-        // Generate ItemGroup for references
-        if (config.References.Count > 0)
+        // Generate ItemGroup for dependencies
+        if (config.Dependencies.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine("  <ItemGroup>");
 
-            foreach (var reference in config.References)
+            foreach (var reference in config.Dependencies)
             {
                 switch (reference.Type)
                 {
@@ -464,37 +464,49 @@ class Program
             sb.AppendLine("  </ItemGroup>");
         }
 
-        // Handle legacy Dependencies field (for backward compatibility)
-        #pragma warning disable CS0618 // Type or member is obsolete
-        if (config.Dependencies.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("  <ItemGroup>");
-            foreach (var (package, version) in config.Dependencies)
-            {
-                sb.AppendLine($"    <PackageReference Include=\"{package}\" Version=\"{version}\" />");
-            }
-            sb.AppendLine("  </ItemGroup>");
-        }
-
-        // Handle test dependencies
+        // Generate ItemGroup for test dependencies
         if (config.TestDependencies.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine("  <ItemGroup>");
-            foreach (var (package, version) in config.TestDependencies)
+
+            foreach (var reference in config.TestDependencies)
             {
-                sb.AppendLine($"    <PackageReference Include=\"{package}\" Version=\"{version}\" />");
+                switch (reference.Type)
+                {
+                    case ReferenceType.NuGet:
+                        if (reference.Version != null)
+                            sb.AppendLine($"    <PackageReference Include=\"{reference.Nuget}\" Version=\"{reference.Version}\" />");
+                        else
+                            sb.AppendLine($"    <PackageReference Include=\"{reference.Nuget}\" Version=\"*\" />");
+                        break;
+
+                    case ReferenceType.Dll:
+                        var dllPath = Path.GetFullPath(reference.Dll!);
+                        sb.AppendLine($"    <Reference Include=\"{Path.GetFileNameWithoutExtension(reference.Dll)}\">");
+                        sb.AppendLine($"      <HintPath>{dllPath}</HintPath>");
+                        sb.AppendLine("    </Reference>");
+                        break;
+
+                    case ReferenceType.Project:
+                        var projectPath = Path.GetFullPath(reference.Project!);
+                        sb.AppendLine($"    <ProjectReference Include=\"{projectPath}\" />");
+                        break;
+
+                    case ReferenceType.Framework:
+                        sb.AppendLine($"    <FrameworkReference Include=\"{reference.Framework}\" />");
+                        break;
+                }
             }
+
             sb.AppendLine("  </ItemGroup>");
         }
 
-        // Handle legacy ProjectReferences field (for backward compatibility)
-        if (config.ProjectReferences.Count > 0)
+        if (false)
         {
             sb.AppendLine();
             sb.AppendLine("  <ItemGroup>");
-            foreach (var projectRef in config.ProjectReferences)
+            foreach (var projectRef in config.Dependencies)
             {
                 sb.AppendLine($"    <ProjectReference Include=\"{projectRef}\" />");
             }
@@ -703,10 +715,7 @@ func Main() {{
                     OutputType = "library",
                     TargetFramework = projectConfig.TargetFramework,
                     Sdk = projectConfig.Sdk,
-                    #pragma warning disable CS0618 // Type or member is obsolete
-                    Dependencies = projectConfig.Dependencies,
-                    #pragma warning restore CS0618 // Type or member is obsolete
-                    References = new List<Reference>(projectConfig.References)
+                    Dependencies = new List<Reference>(projectConfig.Dependencies)
                     {
                         new Reference { Dll = mainProjectDll }
                     },
@@ -834,11 +843,12 @@ func Main() {{
         // Merge both regular dependencies and test dependencies
         var allDependencies = config.Dependencies
             .Concat(config.TestDependencies)
-            .DistinctBy(kvp => kvp.Key); // Test dependencies override regular ones if same package
+            .Where(r => r.Type == ReferenceType.NuGet)
+            .DistinctBy(r => r.Nuget); // Test dependencies override regular ones if same package
 
         var dependencies = string.Join("\n    ",
-            allDependencies.Select(kvp =>
-                $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
+            allDependencies.Select(r =>
+                $@"<PackageReference Include=""{r.Nuget}"" Version=""{r.Version ?? "*"}"" />"));
 
         var assemblyReference = "";
         if (!string.IsNullOrEmpty(mainProjectDll))

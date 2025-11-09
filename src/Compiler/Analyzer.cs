@@ -3224,10 +3224,10 @@ public class Analyzer
 
         projectDirectory ??= Environment.CurrentDirectory;
 
-        // Load structured references (new format)
-        if (config.References != null && config.References.Count > 0)
+        // Load dependencies
+        if (config.Dependencies != null && config.Dependencies.Count > 0)
         {
-            foreach (var reference in config.References)
+            foreach (var reference in config.Dependencies)
             {
                 try
                 {
@@ -3240,16 +3240,15 @@ public class Analyzer
             }
         }
 
-        // Load test dependencies (also as NuGet packages)
-        #pragma warning disable CS0618 // Type or member is obsolete
+        // Load test dependencies
         if (config.TestDependencies != null && config.TestDependencies.Count > 0)
         {
-            foreach (var dependency in config.TestDependencies.Keys)
+            foreach (var dependency in config.TestDependencies.Where(r => r.Type == ReferenceType.NuGet))
             {
-                LoadReferencedAssemblyByName(dependency);
+                if (dependency.Nuget != null)
+                    LoadReferencedAssemblyByName(dependency.Nuget);
             }
         }
-        #pragma warning restore CS0618 // Type or member is obsolete
 
         // For ASP.NET projects, load common ASP.NET assemblies
         if (config.Sdk?.Contains("Web") == true)

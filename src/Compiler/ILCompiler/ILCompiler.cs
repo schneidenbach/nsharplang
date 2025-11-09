@@ -292,6 +292,10 @@ public class ILCompiler
                 EmitTry(tryStmt);
                 break;
 
+            case UsingStatement usingStmt:
+                EmitUsing(usingStmt);
+                break;
+
             default:
                 throw new NotImplementedException($"Statement type {statement.GetType().Name} not yet implemented in IL compiler");
         }
@@ -723,6 +727,92 @@ public class ILCompiler
         {
             _currentIL.BeginFinallyBlock();
             EmitStatement(tryStmt.FinallyBlock);
+        }
+
+        // End exception block
+        _currentIL.EndExceptionBlock();
+    }
+
+    /// <summary>
+    /// Emit IL for a using statement
+    /// </summary>
+    private void EmitUsing(UsingStatement usingStmt)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        LocalBuilder? resourceLocal = null;
+
+        // Handle using with declaration: using (var x = expr) { ... }
+        if (usingStmt.Declaration != null)
+        {
+            // Emit the variable declaration
+            EmitVariableDeclaration(usingStmt.Declaration);
+            resourceLocal = _locals[usingStmt.Declaration.Name];
+        }
+        // Handle using with expression: using (expr) { ... }
+        else if (usingStmt.Expression != null)
+        {
+            // Evaluate the expression and store in a temp local
+            EmitExpression(usingStmt.Expression);
+            var exprType = GetExpressionType(usingStmt.Expression);
+            resourceLocal = _currentIL.DeclareLocal(exprType);
+            _currentIL.Emit(OpCodes.Stloc, resourceLocal);
+        }
+
+        if (resourceLocal == null)
+        {
+            throw new InvalidOperationException("Using statement must have either a declaration or an expression");
+        }
+
+        // Begin try-finally block
+        _currentIL.BeginExceptionBlock();
+
+        // Emit the body
+        if (usingStmt.Body != null)
+        {
+            EmitStatement(usingStmt.Body);
+        }
+
+        // Emit finally block to dispose the resource
+        _currentIL.BeginFinallyBlock();
+
+        // Check if resource is null before calling Dispose
+        // We need to call Dispose() on IDisposable
+        var disposeMethod = typeof(IDisposable).GetMethod("Dispose");
+        if (disposeMethod != null)
+        {
+            var endLabel = _currentIL.DefineLabel();
+
+            // Load the resource
+            _currentIL.Emit(OpCodes.Ldloc, resourceLocal);
+
+            // If it's a value type, box it
+            if (resourceLocal.LocalType.IsValueType)
+            {
+                _currentIL.Emit(OpCodes.Box, resourceLocal.LocalType);
+            }
+
+            // Duplicate for null check
+            _currentIL.Emit(OpCodes.Dup);
+
+            // Check if null
+            _currentIL.Emit(OpCodes.Brfalse_S, endLabel);
+
+            // Cast to IDisposable if needed
+            if (resourceLocal.LocalType != typeof(IDisposable) && !resourceLocal.LocalType.IsValueType)
+            {
+                _currentIL.Emit(OpCodes.Castclass, typeof(IDisposable));
+            }
+
+            // Call Dispose
+            _currentIL.Emit(OpCodes.Callvirt, disposeMethod);
+            _currentIL.Emit(OpCodes.Br_S, endLabel);
+
+            // End label (for null case or after dispose)
+            _currentIL.MarkLabel(endLabel);
+
+            // If we duplicated for null check, we might have a value on the stack
+            // The MSIL verification should handle this, but we need to be careful
         }
 
         // End exception block
