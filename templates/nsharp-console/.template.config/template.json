@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "N# Team",
+  "classifications": ["Console", "N#"],
+  "identity": "NSharp.Console",
+  "name": "N# Console Application",
+  "shortName": "nsharp-console",
+  "tags": {
+    "language": "N#",
+    "type": "project"
+  },
+  "sourceName": "ConsoleApp",
+  "preferNameDirectory": true,
+  "symbols": {
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project",
+      "datatype": "choice",
+      "choices": [
+        {
+          "choice": "net9.0",
+          "description": ".NET 9.0"
+        },
+        {
+          "choice": "net8.0",
+          "description": ".NET 8.0"
+        }
+      ],
+      "defaultValue": "net9.0",
+      "replaces": "net9.0"
+    }
+  }
+}
