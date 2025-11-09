@@ -40,14 +40,13 @@ func main(args: string[]) {
 }
 ```
 
-**ConsoleApp.nlproj:**
-```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-  </PropertyGroup>
-</Project>
+**project.yml:**
+```yaml
+name: ConsoleApp
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net9.0
 ```
 
 ## Testing

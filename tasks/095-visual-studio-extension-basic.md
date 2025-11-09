@@ -2,7 +2,7 @@
 
 **Effort:** Very Large (40-50 hours)
 **Depends:** Tasks 042, 056
-**Ships:** VS recognizes .nlproj files
+**Ships:** VS recognizes project.yml files
 
 ## Goal
 
@@ -32,7 +32,7 @@ NSharp.VisualStudio/
 [PackageRegistration(UseManagedResourcesOnly = true)]
 [InstalledProductRegistration("#110", "#112", "1.0")]
 [ProvideProjectFactory(typeof(NSharpProjectFactory),
-    "N#", "N# Project Files (*.nlproj);*.nlproj", "nlproj", "nlproj",
+    "N#", "N# Project Files (project.yml)", "yml", "yml",
     @"Templates\Projects", LanguageVsTemplate = "NSharp")]
 [Guid(PackageGuidString)]
 public sealed class NSharpPackage : AsyncPackage
@@ -52,7 +52,7 @@ public sealed class NSharpPackage : AsyncPackage
 ## Features (Phase 1)
 
 - [ ] Syntax highlighting
-- [ ] .nlproj in "New Project" dialog
+- [ ] project.yml in "New Project" dialog
 - [ ] Solution Explorer integration
 - [ ] Build/Run from toolbar
 - [ ] Error list integration

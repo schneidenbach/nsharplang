@@ -7,7 +7,7 @@
 
 ### Foundation (041-044)
 - **041**: MSBuild Compile Task - 8-10h - `dotnet build` works
-- **042**: .nlproj Files - 6-8h - Project files recognized
+- **042**: dotnet build with project.yml - 6-8h - MSBuild SDK reads YAML
 - **043**: dotnet new Console - 4-5h - Template works
 - **044**: Publish SDK to NuGet - 3-4h - Packages published
 

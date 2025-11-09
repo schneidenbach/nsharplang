@@ -53,15 +53,16 @@ class WeatherController : ControllerBase {
 }
 ```
 
-**WebApi.nlproj:**
-```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-    <Sdk>Microsoft.NET.Sdk.Web</Sdk>
-  </PropertyGroup>
-</Project>
+**project.yml:**
+```yaml
+name: WebApi
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0
+sdk: Microsoft.NET.Sdk.Web
+
+dependencies:
+  - framework: Microsoft.AspNetCore.App
 ```
 
 ## Testing

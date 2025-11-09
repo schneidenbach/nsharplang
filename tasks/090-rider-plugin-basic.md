@@ -2,7 +2,7 @@
 
 **Effort:** Large (25-30 hours)
 **Depends:** Tasks 042, 056
-**Ships:** Rider recognizes .nlproj files
+**Ships:** Rider recognizes project.yml files
 
 ## Goal
 
@@ -43,7 +43,7 @@ Create IntelliJ Platform plugin:
 ## Features (Phase 1)
 
 - [ ] Syntax highlighting
-- [ ] .nlproj project recognition
+- [ ] project.yml project recognition
 - [ ] Build integration (calls dotnet build)
 - [ ] Run configurations
 

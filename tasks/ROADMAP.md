@@ -25,8 +25,8 @@ Each task delivers **immediate, tangible value** to developers. No massive under
 > Without `dotnet` integration, N# feels like a toy. This is the foundation for everything else.
 
 **Deliverables:**
-- MSBuild SDK (`Microsoft.NET.Sdk.NSharp`)
-- `.nlproj` project files
+- MSBuild SDK that reads `project.yml` (no XML!)
+- YAML-based project configuration
 - `dotnet new` templates
 - Full solution support
 
