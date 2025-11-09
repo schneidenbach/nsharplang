@@ -694,4 +694,249 @@ func testWithLocals(): int {
         // Should not throw
         compiler.Compile();
     }
+
+    // ==================== Interface Tests ====================
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleInterface()
+    {
+        var source = @"
+interface IReader {
+    func Read(): string
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileInterfaceWithMultipleMethods()
+    {
+        var source = @"
+interface IRepository {
+    func Get(id: int): string
+    func Save(value: string): void
+    func Delete(id: int): bool
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassImplementingInterface()
+    {
+        var source = @"
+interface IGreeter {
+    func Greet(): string
+}
+
+class SimpleGreeter : IGreeter {
+    func Greet(): string {
+        return ""Hello""
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassImplementingMultipleInterfaces()
+    {
+        var source = @"
+interface IReader {
+    func Read(): string
+}
+
+interface IWriter {
+    func Write(value: string): void
+}
+
+class ReadWriter : IReader, IWriter {
+    func Read(): string {
+        return ""data""
+    }
+
+    func Write(value: string): void {
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_SkipsDuckInterfaces()
+    {
+        var source = @"
+duck interface IReader {
+    func Read(): string
+}
+
+class FileReader {
+    func Read(): string {
+        return ""file contents""
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw - duck interface should be skipped
+        compiler.Compile();
+    }
+
+    // ==================== Virtual Method Tests ====================
+
+    [Fact]
+    public void ILCompiler_CanCompileVirtualMethod()
+    {
+        var source = @"
+class Animal {
+    virtual func MakeSound(): void {
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileVirtualMethodWithReturn()
+    {
+        var source = @"
+class Base {
+    virtual func GetValue(): int {
+        return 0
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileOverrideMethod()
+    {
+        var source = @"
+class Animal {
+    virtual func MakeSound(): void {
+    }
+}
+
+class Dog : Animal {
+    override func MakeSound(): void {
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileOverrideMethodWithReturnValue()
+    {
+        var source = @"
+class Base {
+    virtual func GetValue(): int {
+        return 0
+    }
+}
+
+class Derived : Base {
+    override func GetValue(): int {
+        return 42
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileInheritanceChainWithVirtualMethods()
+    {
+        var source = @"
+class A {
+    virtual func DoWork(): void {
+    }
+}
+
+class B : A {
+    override func DoWork(): void {
+    }
+}
+
+class C : B {
+    override func DoWork(): void {
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassWithBaseClass()
+    {
+        var source = @"
+class Animal {
+    Name: string
+
+    func GetName(): string {
+        return Name
+    }
+}
+
+class Dog : Animal {
+    Breed: string
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassWithBaseAndInterfaces()
+    {
+        var source = @"
+interface IGreeter {
+    func Greet(): string
+}
+
+class Animal {
+    Name: string
+}
+
+class Dog : Animal, IGreeter {
+    func Greet(): string {
+        return ""Woof""
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }

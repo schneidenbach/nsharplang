@@ -58,7 +58,7 @@ public class ILCompiler
             "Program",
             TypeAttributes.Public | TypeAttributes.Class);
 
-        // First pass: declare all types (classes, structs, etc.)
+        // First pass: declare all types (classes, structs, interfaces, etc.)
         foreach (var declaration in _compilationUnit.Declarations)
         {
             if (declaration is ClassDeclaration classDecl)
@@ -69,9 +69,13 @@ public class ILCompiler
             {
                 DeclareStruct(moduleBuilder, structDecl);
             }
+            else if (declaration is InterfaceDeclaration interfaceDecl)
+            {
+                DeclareInterface(moduleBuilder, interfaceDecl);
+            }
         }
 
-        // Second pass: declare all top-level functions and class members
+        // Second pass: declare all top-level functions and class/interface members
         foreach (var declaration in _compilationUnit.Declarations)
         {
             if (declaration is FunctionDeclaration funcDecl)
@@ -85,6 +89,10 @@ public class ILCompiler
             else if (declaration is StructDeclaration structDecl)
             {
                 DeclareStructMembers(structDecl);
+            }
+            else if (declaration is InterfaceDeclaration interfaceDecl)
+            {
+                DeclareInterfaceMembers(interfaceDecl);
             }
         }
 
@@ -857,10 +865,65 @@ public class ILCompiler
                     break;
             }
         }
+        // Check if it's an instance field (in current class or base classes)
+        else if (_currentTypeBuilder != null)
+        {
+            var fieldInfo = FindField(_currentTypeBuilder, ident.Name);
+            if (fieldInfo != null)
+            {
+                // Load 'this' pointer
+                _currentIL.Emit(OpCodes.Ldarg_0);
+                // Load the field
+                _currentIL.Emit(OpCodes.Ldfld, fieldInfo);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Undefined variable, parameter, or field: {ident.Name}");
+            }
+        }
         else
         {
             throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
         }
+    }
+
+    /// <summary>
+    /// Find a field in the current type or its base types
+    /// </summary>
+    private FieldInfo? FindField(TypeBuilder typeBuilder, string fieldName)
+    {
+        // Check in declared fields of current type
+        var fieldKey = $"{typeBuilder.Name}.{fieldName}";
+        if (_fields.TryGetValue(fieldKey, out var fieldBuilder))
+        {
+            return fieldBuilder;
+        }
+
+        // Check in base type
+        var baseType = typeBuilder.BaseType;
+        if (baseType != null && baseType != typeof(object))
+        {
+            // If base type is also a TypeBuilder in our compilation unit, check our fields dictionary
+            if (baseType is TypeBuilder baseTypeBuilder)
+            {
+                var baseFieldKey = $"{baseTypeBuilder.Name}.{fieldName}";
+                if (_fields.TryGetValue(baseFieldKey, out var baseFieldBuilder))
+                {
+                    return baseFieldBuilder;
+                }
+            }
+            else
+            {
+                // External type - use reflection
+                var field = baseType.GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null)
+                {
+                    return field;
+                }
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1739,9 +1802,48 @@ public class ILCompiler
         if (classDecl.Modifiers.HasFlag(Modifiers.Sealed))
             typeAttributes |= TypeAttributes.Sealed;
 
+        // Collect all potential base types (base class and interfaces)
+        var allBaseTypes = new List<Type>();
+
+        if (classDecl.BaseClass != null)
+        {
+            var resolvedType = ResolveType(classDecl.BaseClass);
+            allBaseTypes.Add(resolvedType);
+        }
+
+        if (classDecl.Interfaces != null && classDecl.Interfaces.Count > 0)
+        {
+            allBaseTypes.AddRange(classDecl.Interfaces.Select(ResolveType));
+        }
+
+        // Separate base class from interfaces
+        // A class can only have one base class, but multiple interfaces
+        Type? baseType = null;
+        var interfacesList = new List<Type>();
+
+        foreach (var type in allBaseTypes)
+        {
+            if (type.IsInterface)
+            {
+                interfacesList.Add(type);
+            }
+            else if (type.IsClass)
+            {
+                if (baseType != null)
+                {
+                    throw new InvalidOperationException($"Class {classDecl.Name} cannot have multiple base classes");
+                }
+                baseType = type;
+            }
+        }
+
+        // Define the type with base class and interfaces
+        var interfaces = interfacesList.Count > 0 ? interfacesList.ToArray() : null;
         var typeBuilder = moduleBuilder.DefineType(
             classDecl.Name,
-            typeAttributes);
+            typeAttributes,
+            baseType,
+            interfaces);
 
         _types[classDecl.Name] = typeBuilder;
     }
@@ -1759,6 +1861,96 @@ public class ILCompiler
             typeof(ValueType));
 
         _types[structDecl.Name] = typeBuilder;
+    }
+
+    /// <summary>
+    /// Declare an interface type (first pass)
+    /// </summary>
+    private void DeclareInterface(ModuleBuilder moduleBuilder, InterfaceDeclaration interfaceDecl)
+    {
+        // Skip duck interfaces - they are type-erased
+        if (interfaceDecl.IsDuckInterface)
+            return;
+
+        var typeAttributes = TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract;
+
+        // Determine base interfaces
+        Type[]? baseInterfaces = null;
+        if (interfaceDecl.BaseInterfaces != null && interfaceDecl.BaseInterfaces.Count > 0)
+        {
+            baseInterfaces = interfaceDecl.BaseInterfaces
+                .Select(ResolveType)
+                .ToArray();
+        }
+
+        // Define the interface type
+        var typeBuilder = moduleBuilder.DefineType(
+            interfaceDecl.Name,
+            typeAttributes,
+            null,  // Interfaces have no base class
+            baseInterfaces);
+
+        _types[interfaceDecl.Name] = typeBuilder;
+    }
+
+    /// <summary>
+    /// Declare interface members (second pass)
+    /// </summary>
+    private void DeclareInterfaceMembers(InterfaceDeclaration interfaceDecl)
+    {
+        // Skip duck interfaces - they are type-erased
+        if (interfaceDecl.IsDuckInterface)
+            return;
+
+        if (!_types.TryGetValue(interfaceDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Interface {interfaceDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        foreach (var member in interfaceDecl.Members)
+        {
+            if (member is FunctionDeclaration funcDecl)
+            {
+                // Interface methods are abstract by default
+                DeclareInterfaceMethod(typeBuilder, funcDecl);
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Declare an interface method
+    /// </summary>
+    private void DeclareInterfaceMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl)
+    {
+        var returnType = funcDecl.ReturnType != null
+            ? ResolveType(funcDecl.ReturnType)
+            : typeof(void);
+
+        var parameterTypes = funcDecl.Parameters
+            .Select(p => ResolveType(p.Type))
+            .ToArray();
+
+        // Interface methods are always public, abstract, and virtual
+        var methodAttributes = MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+
+        var methodBuilder = typeBuilder.DefineMethod(
+            funcDecl.Name,
+            methodAttributes,
+            returnType,
+            parameterTypes);
+
+        // Define parameter names
+        for (int i = 0; i < funcDecl.Parameters.Count; i++)
+        {
+            methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, funcDecl.Parameters[i].Name);
+        }
+
+        // Store method for reference (interface methods don't have bodies)
+        _methods[$"{typeBuilder.Name}.{funcDecl.Name}"] = methodBuilder;
     }
 
     /// <summary>
@@ -1976,7 +2168,7 @@ public class ILCompiler
             methodAttributes |= MethodAttributes.HideBySig;
 
         if (funcDecl.Modifiers.HasFlag(Modifiers.Virtual))
-            methodAttributes |= MethodAttributes.Virtual;
+            methodAttributes |= MethodAttributes.Virtual | MethodAttributes.NewSlot;
         if (funcDecl.Modifiers.HasFlag(Modifiers.Abstract))
             methodAttributes |= MethodAttributes.Abstract;
         if (funcDecl.Modifiers.HasFlag(Modifiers.Override))
