@@ -280,6 +280,10 @@ public class ILCompiler
                 EmitForeach(foreachStmt);
                 break;
 
+            case TryStatement tryStmt:
+                EmitTry(tryStmt);
+                break;
+
             default:
                 throw new NotImplementedException($"Statement type {statement.GetType().Name} not yet implemented in IL compiler");
         }
@@ -653,6 +657,68 @@ public class ILCompiler
 
         // Mark loop end
         _currentIL.MarkLabel(loopEnd);
+    }
+
+    /// <summary>
+    /// Emit IL for a try/catch/finally statement
+    /// </summary>
+    private void EmitTry(TryStatement tryStmt)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Begin exception block
+        _currentIL.BeginExceptionBlock();
+
+        // Emit the try block
+        EmitStatement(tryStmt.TryBlock);
+
+        // Emit catch clauses
+        foreach (var catchClause in tryStmt.CatchClauses)
+        {
+            // Determine exception type
+            Type exceptionType = typeof(Exception);
+            if (catchClause.ExceptionType != null)
+            {
+                exceptionType = ResolveType(catchClause.ExceptionType, _currentGenericParameters);
+            }
+
+            // Begin catch block
+            _currentIL.BeginCatchBlock(exceptionType);
+
+            // If there's a variable name, store the exception in a local
+            if (catchClause.VariableName != null)
+            {
+                LocalBuilder exceptionLocal;
+                if (_locals.TryGetValue(catchClause.VariableName, out var existingLocal))
+                {
+                    exceptionLocal = existingLocal;
+                }
+                else
+                {
+                    exceptionLocal = _currentIL.DeclareLocal(exceptionType);
+                    _locals[catchClause.VariableName] = exceptionLocal;
+                }
+                _currentIL.Emit(OpCodes.Stloc, exceptionLocal);
+            }
+            else
+            {
+                // If no variable name, pop the exception from the stack
+                _currentIL.Emit(OpCodes.Pop);
+            }
+
+            // Emit the catch block
+            EmitStatement(catchClause.Block);
+        }
+
+        // Emit finally block if present
+        if (tryStmt.FinallyBlock != null)
+        {
+            _currentIL.BeginFinallyBlock();
+            EmitStatement(tryStmt.FinallyBlock);
+        }
+
+        // End exception block
+        _currentIL.EndExceptionBlock();
     }
 
     /// <summary>

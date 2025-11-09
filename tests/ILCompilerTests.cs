@@ -545,4 +545,153 @@ func nestedLoops(matrix: int[][]) {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileTryCatch()
+    {
+        var source = @"
+func safeDivide(x: int, y: int): int {
+    try {
+        return x + y
+    } catch (Exception e) {
+        print e
+        return 0
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileTryCatchWithoutVariable()
+    {
+        var source = @"
+func safeDivide(x: int, y: int): int {
+    try {
+        return x + y
+    } catch (Exception) {
+        return 1
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileTryFinally()
+    {
+        var source = @"
+func doWork(): int {
+    x := 0
+    try {
+        x = 42
+        return x
+    } finally {
+        print ""cleanup""
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileTryCatchFinally()
+    {
+        var source = @"
+func complexOperation(): int {
+    try {
+        x := 10 + 2
+        return x
+    } catch (Exception e) {
+        print e
+        return 1
+    } finally {
+        print ""done""
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMultipleCatchClauses()
+    {
+        var source = @"
+func handleErrors(): int {
+    try {
+        x := 10 + 5
+        return x
+    } catch (DivideByZeroException) {
+        return 1
+    } catch (Exception e) {
+        print e
+        return 2
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileNestedTryCatch()
+    {
+        var source = @"
+func nestedExceptionHandling(): int {
+    try {
+        try {
+            return 10 + 5
+        } catch (DivideByZeroException) {
+            return 1
+        }
+    } catch (Exception e) {
+        print e
+        return 2
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileTryCatchWithLocalVariables()
+    {
+        var source = @"
+func testWithLocals(): int {
+    result := 0
+    try {
+        x := 10
+        y := 2
+        result = x + y
+    } catch (Exception e) {
+        print e
+        result = 1
+    } finally {
+        print result
+    }
+    return result
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }
