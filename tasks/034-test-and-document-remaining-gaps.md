@@ -1,9 +1,11 @@
 # Task 034: Test and Document Remaining ASP.NET Core Gaps
 
-**Priority:** Medium (Completeness - close out GAPS.md)
-**Dependencies:** Task 030 (Assembly Resolution) - Completed
-**Estimated Effort:** Small (2-3 hours)
-**Status:** Not started
+**Priority:** Low (Mostly complete - EmployeeApi working)
+**Dependencies:** Task 030 (Assembly Resolution) - Completed ✅
+**Estimated Effort:** Small (1-2 hours)
+**Status:** Partially complete - EmployeeApi example working with tests
+
+**Note:** Most gaps are resolved. ASP.NET Core example (13-aspnet-demo/EmployeeApi) works end-to-end with WebApplicationFactory tests. Entry point changed to lowercase `main()` per Go philosophy.
 
 ## Goal
 

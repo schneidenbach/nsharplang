@@ -93,8 +93,35 @@ public class Transpiler
             WriteLine();
         }
 
-        // Wrap top-level functions in a generated static class
-        if (topLevelFunctions.Count > 0)
+        // Separate main function from other top-level functions
+        var mainFunction = topLevelFunctions.FirstOrDefault(f =>
+            f.Name.Equals("main", StringComparison.OrdinalIgnoreCase));
+        var nonMainFunctions = topLevelFunctions.Where(f =>
+            !f.Name.Equals("main", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        // Generate Program class with Main entry point (for exe projects)
+        if (mainFunction != null)
+        {
+            WriteLine("public partial class Program");
+            WriteLine("{");
+            _indentLevel++;
+
+            // Transpile main as static Main (capitalize for C#)
+            var modifiedMain = mainFunction with
+            {
+                Name = "Main",  // Capitalize for C# entry point
+                Modifiers = mainFunction.Modifiers | Modifiers.Static | Modifiers.Public
+            };
+            TranspileFunctionDeclaration(modifiedMain);
+            WriteLine();
+
+            _indentLevel--;
+            WriteLine("}");
+            WriteLine();
+        }
+
+        // Wrap remaining top-level functions in a generated static class
+        if (nonMainFunctions.Count > 0)
         {
             string className;
             string visibility;
@@ -119,7 +146,7 @@ public class Transpiler
             WriteLine("{");
             _indentLevel++;
 
-            foreach (var func in topLevelFunctions)
+            foreach (var func in nonMainFunctions)
             {
                 // Package functions are public static, others are internal static
                 var originalModifiers = func.Modifiers;

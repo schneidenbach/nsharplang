@@ -7,7 +7,7 @@ import System
 package EmployeeApi
 
 // Entry point for the ASP.NET Core application
-func Main(args: string[]) {
+func main(args: string[]) {
     builder := WebApplication.CreateBuilder(args)
 
     // Add services to the container
@@ -48,8 +48,4 @@ func Main(args: string[]) {
     app.MapControllers()
 
     app.Run()
-}
-
-// Make Program class available for WebApplicationFactory testing
-class Program {
 }
