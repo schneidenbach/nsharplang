@@ -235,4 +235,185 @@ func add(x: int, y: int): int {
             }
         }
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleClass()
+    {
+        var source = @"
+class Point {
+    X: int
+    Y: int
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassWithConstructor()
+    {
+        var source = @"
+class Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        this.X = x
+        this.Y = y
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassWithMethod()
+    {
+        var source = @"
+class Calculator {
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileClassInstantiation()
+    {
+        var source = @"
+class Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        this.X = x
+        this.Y = y
+    }
+}
+
+func main() {
+    p := new Point(3, 4)
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileFieldAccess()
+    {
+        var source = @"
+class Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        this.X = x
+        this.Y = y
+    }
+}
+
+func main() {
+    p := new Point(3, 4)
+    x := p.X
+    y := p.Y
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileInstanceMethodCall()
+    {
+        var source = @"
+class Calculator {
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+}
+
+func main(): int {
+    calc := new Calculator()
+    return calc.Add(5, 3)
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileComplexClassProgram()
+    {
+        var source = @"
+class Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        this.X = x
+        this.Y = y
+    }
+
+    func DistanceSquared(): int {
+        return this.X * this.X + this.Y * this.Y
+    }
+}
+
+func main() {
+    p := new Point(3, 4)
+    dist := p.DistanceSquared()
+    print dist
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileStruct()
+    {
+        var source = @"
+struct Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        this.X = x
+        this.Y = y
+    }
+
+    func Sum(): int {
+        return this.X + this.Y
+    }
+}
+
+func main(): int {
+    p := new Point(3, 4)
+    return p.Sum()
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }

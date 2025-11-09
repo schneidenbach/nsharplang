@@ -25,6 +25,10 @@ public class ILCompiler
     // Global context
     private TypeBuilder? _programType;
     private Dictionary<string, MethodBuilder> _methods = new();
+    private Dictionary<string, ConstructorBuilder> _constructors = new();
+    private Dictionary<string, TypeBuilder> _types = new();
+    private Dictionary<string, FieldBuilder> _fields = new();
+    private TypeBuilder? _currentTypeBuilder;
 
     public ILCompiler(CompilationUnit compilationUnit, string assemblyName, string outputPath)
     {
@@ -52,25 +56,58 @@ public class ILCompiler
             "Program",
             TypeAttributes.Public | TypeAttributes.Class);
 
-        // First pass: declare all functions
+        // First pass: declare all types (classes, structs, etc.)
+        foreach (var declaration in _compilationUnit.Declarations)
+        {
+            if (declaration is ClassDeclaration classDecl)
+            {
+                DeclareClass(moduleBuilder, classDecl);
+            }
+            else if (declaration is StructDeclaration structDecl)
+            {
+                DeclareStruct(moduleBuilder, structDecl);
+            }
+        }
+
+        // Second pass: declare all top-level functions and class members
         foreach (var declaration in _compilationUnit.Declarations)
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
                 DeclareFunction(_programType, funcDecl);
             }
+            else if (declaration is ClassDeclaration classDecl)
+            {
+                DeclareClassMembers(classDecl);
+            }
+            else if (declaration is StructDeclaration structDecl)
+            {
+                DeclareStructMembers(structDecl);
+            }
         }
 
-        // Second pass: emit all function bodies
+        // Third pass: emit all function bodies
         foreach (var declaration in _compilationUnit.Declarations)
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
                 EmitFunctionBody(funcDecl);
             }
+            else if (declaration is ClassDeclaration classDecl)
+            {
+                EmitClassBodies(classDecl);
+            }
+            else if (declaration is StructDeclaration structDecl)
+            {
+                EmitStructBodies(structDecl);
+            }
         }
 
-        // Create the type
+        // Create all types
+        foreach (var typeBuilder in _types.Values)
+        {
+            typeBuilder.CreateType();
+        }
         _programType.CreateType();
 
         // Save the assembly to disk using PersistedAssemblyBuilder (.NET 9+)
@@ -373,6 +410,19 @@ public class ILCompiler
                 EmitAssignment(assignment);
                 break;
 
+            case NewExpression newExpr:
+                EmitNewObject(newExpr);
+                break;
+
+            case MemberAccessExpression memberAccess:
+                EmitMemberAccess(memberAccess);
+                break;
+
+            case ThisExpression:
+                // 'this' is always at argument 0 for instance methods and constructors
+                _currentIL.Emit(OpCodes.Ldarg_0);
+                break;
+
             default:
                 throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
         }
@@ -536,6 +586,56 @@ public class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        // Handle instance method calls (obj.Method())
+        if (call.Callee is MemberAccessExpression memberAccess)
+        {
+            // Emit the object (this will be the first argument to the instance method)
+            EmitExpression(memberAccess.Object);
+
+            var objectType = GetExpressionType(memberAccess.Object);
+
+            // Emit arguments
+            foreach (var arg in call.Arguments)
+            {
+                EmitExpression(arg.Value);
+            }
+
+            // Check if it's a user-defined type first
+            if (objectType is TypeBuilder typeBuilder)
+            {
+                // Check if it's a user-defined method
+                if (_methods.TryGetValue($"{typeBuilder.Name}.{memberAccess.MemberName}", out var methodBuilder))
+                {
+                    _currentIL.Emit(OpCodes.Callvirt, methodBuilder);
+                    return;
+                }
+
+                throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {typeBuilder.Name}");
+            }
+
+            // Find the method using reflection for built-in types
+            var parameterTypes = call.Arguments
+                .Select(arg => GetExpressionType(arg.Value))
+                .ToArray();
+
+            MethodInfo? method = objectType.GetMethod(memberAccess.MemberName, parameterTypes);
+
+            if (method != null)
+            {
+                if (method.IsVirtual)
+                {
+                    _currentIL.Emit(OpCodes.Callvirt, method);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Call, method);
+                }
+                return;
+            }
+
+            throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {objectType.Name}");
+        }
+
         // Handle special built-in functions
         if (call.Callee is IdentifierExpression ident)
         {
@@ -582,10 +682,134 @@ public class ILCompiler
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
 
-        // For now, only support simple identifier assignments
+        // Handle member access assignments (obj.Field = value)
+        if (assignment.Target is MemberAccessExpression memberAccess)
+        {
+            // Emit the object
+            EmitExpression(memberAccess.Object);
+
+            var objectType = GetExpressionType(memberAccess.Object);
+
+            // Handle compound assignment
+            if (assignment.Operator != AssignmentOperator.Assign)
+            {
+                // For compound assignments, we need to load the current value first
+                _currentIL.Emit(OpCodes.Dup); // Duplicate object reference
+
+                // Load current field/property value
+                if (objectType is TypeBuilder typeBuilder)
+                {
+                    if (_fields.TryGetValue($"{typeBuilder.Name}.{memberAccess.MemberName}", out var fieldBuilder))
+                    {
+                        _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
+                    }
+                    else if (_methods.TryGetValue($"{typeBuilder.Name}.get_{memberAccess.MemberName}", out var getterMethod))
+                    {
+                        _currentIL.Emit(OpCodes.Callvirt, getterMethod);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {typeBuilder.Name}");
+                    }
+                }
+                else
+                {
+                    var property = objectType.GetProperty(memberAccess.MemberName);
+                    if (property != null && property.GetMethod != null)
+                    {
+                        _currentIL.Emit(OpCodes.Callvirt, property.GetMethod);
+                    }
+                    else
+                    {
+                        var field = objectType.GetField(memberAccess.MemberName);
+                        if (field != null)
+                        {
+                            _currentIL.Emit(OpCodes.Ldfld, field);
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
+                        }
+                    }
+                }
+
+                // Emit right-hand side
+                EmitExpression(assignment.Value);
+
+                // Perform operation
+                switch (assignment.Operator)
+                {
+                    case AssignmentOperator.AddAssign:
+                        _currentIL.Emit(OpCodes.Add);
+                        break;
+                    case AssignmentOperator.SubtractAssign:
+                        _currentIL.Emit(OpCodes.Sub);
+                        break;
+                    case AssignmentOperator.MultiplyAssign:
+                        _currentIL.Emit(OpCodes.Mul);
+                        break;
+                    case AssignmentOperator.DivideAssign:
+                        _currentIL.Emit(OpCodes.Div);
+                        break;
+                    default:
+                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
+                }
+            }
+            else
+            {
+                // Simple assignment - just emit the value
+                EmitExpression(assignment.Value);
+            }
+
+            // Store to field/property
+            if (objectType is TypeBuilder tb)
+            {
+                if (_fields.TryGetValue($"{tb.Name}.{memberAccess.MemberName}", out var fb))
+                {
+                    _currentIL.Emit(OpCodes.Stfld, fb);
+                }
+                else if (_methods.TryGetValue($"{tb.Name}.set_{memberAccess.MemberName}", out var setterMethod))
+                {
+                    _currentIL.Emit(OpCodes.Callvirt, setterMethod);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {tb.Name}");
+                }
+            }
+            else
+            {
+                var prop = objectType.GetProperty(memberAccess.MemberName);
+                if (prop != null && prop.SetMethod != null)
+                {
+                    _currentIL.Emit(OpCodes.Callvirt, prop.SetMethod);
+                }
+                else
+                {
+                    var fld = objectType.GetField(memberAccess.MemberName);
+                    if (fld != null)
+                    {
+                        _currentIL.Emit(OpCodes.Stfld, fld);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
+                    }
+                }
+            }
+
+            // Assignment expressions return the assigned value
+            // For member assignments, we need to reload the value
+            EmitExpression(memberAccess.Object);
+            EmitMemberAccess(memberAccess);
+
+            return;
+        }
+
+        // Handle simple identifier assignments
         if (assignment.Target is not IdentifierExpression ident)
         {
-            throw new NotImplementedException("Only simple variable assignments are supported in IL compiler");
+            throw new NotImplementedException("Only simple variable and member assignments are supported in IL compiler");
         }
 
         // Handle compound assignment operators
@@ -681,6 +905,172 @@ public class ILCompiler
     }
 
     /// <summary>
+    /// Emit IL for a new object expression
+    /// </summary>
+    private void EmitNewObject(NewExpression newExpr)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (newExpr.Type == null)
+        {
+            throw new NotImplementedException("Target-typed new not yet supported in IL compiler");
+        }
+
+        var type = ResolveType(newExpr.Type);
+
+        // Emit arguments first
+        foreach (var arg in newExpr.ConstructorArguments)
+        {
+            EmitExpression(arg.Value);
+        }
+
+        // Find the constructor
+        ConstructorInfo? constructor = null;
+
+        // Check if it's a user-defined type
+        if (type is TypeBuilder typeBuilder)
+        {
+            // Look up constructor in our dictionary
+            var ctorKey = $"{typeBuilder.Name}..ctor";
+            if (_constructors.TryGetValue(ctorKey, out var ctorBuilder))
+            {
+                constructor = ctorBuilder;
+            }
+            else
+            {
+                throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
+            }
+        }
+        else
+        {
+            // Built-in type - use reflection
+            var parameterTypes = newExpr.ConstructorArguments
+                .Select(arg => GetExpressionType(arg.Value))
+                .ToArray();
+
+            if (parameterTypes.Length == 0)
+            {
+                // Default constructor
+                constructor = type.GetConstructor(Type.EmptyTypes);
+            }
+            else
+            {
+                // Constructor with parameters
+                constructor = type.GetConstructor(parameterTypes);
+            }
+
+            if (constructor == null)
+            {
+                throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
+            }
+        }
+
+        // Call constructor
+        _currentIL.Emit(OpCodes.Newobj, constructor);
+
+        // Handle object initializer if present
+        if (newExpr.Initializer != null)
+        {
+            // Duplicate the object reference for each property assignment
+            foreach (var propInit in newExpr.Initializer.Properties)
+            {
+                if (propInit.Name == null)
+                {
+                    throw new NotImplementedException("Indexer initializers not yet supported in IL compiler");
+                }
+
+                // Duplicate object reference
+                _currentIL.Emit(OpCodes.Dup);
+
+                // Emit property value
+                EmitExpression(propInit.Value);
+
+                // Find and call property setter or set field
+                var property = type.GetProperty(propInit.Name);
+                if (property != null && property.SetMethod != null)
+                {
+                    _currentIL.Emit(OpCodes.Callvirt, property.SetMethod);
+                }
+                else
+                {
+                    var field = type.GetField(propInit.Name);
+                    if (field != null)
+                    {
+                        _currentIL.Emit(OpCodes.Stfld, field);
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException($"Property or field {propInit.Name} not found on type {type.Name}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for member access (field or property)
+    /// </summary>
+    private void EmitMemberAccess(MemberAccessExpression memberAccess)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (memberAccess.IsNullConditional)
+        {
+            throw new NotImplementedException("Null-conditional member access not yet supported in IL compiler");
+        }
+
+        // Emit the object
+        EmitExpression(memberAccess.Object);
+
+        // Get the object type
+        var objectType = GetExpressionType(memberAccess.Object);
+
+        // Check if it's a user-defined type
+        if (objectType is TypeBuilder typeBuilder)
+        {
+            if (_fields.TryGetValue($"{typeBuilder.Name}.{memberAccess.MemberName}", out var fieldBuilder))
+            {
+                _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
+                return;
+            }
+
+            // Check for property getter
+            if (_methods.TryGetValue($"{typeBuilder.Name}.get_{memberAccess.MemberName}", out var getterMethod))
+            {
+                _currentIL.Emit(OpCodes.Callvirt, getterMethod);
+                return;
+            }
+
+            throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {typeBuilder.Name}");
+        }
+
+        // Try to find a property first
+        var property = objectType.GetProperty(memberAccess.MemberName);
+        if (property != null && property.GetMethod != null)
+        {
+            _currentIL.Emit(OpCodes.Callvirt, property.GetMethod);
+            return;
+        }
+
+        // Try to find a field
+        var field = objectType.GetField(memberAccess.MemberName);
+        if (field != null)
+        {
+            if (field.IsStatic)
+            {
+                _currentIL.Emit(OpCodes.Ldsfld, field);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Ldfld, field);
+            }
+            return;
+        }
+
+        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
+    }
+
+    /// <summary>
     /// Get the .NET type of an expression (simplified type inference)
     /// </summary>
     private Type GetExpressionType(Expression expression)
@@ -695,7 +1085,10 @@ public class ILCompiler
             IdentifierExpression ident => GetIdentifierType(ident),
             BinaryExpression binary => GetBinaryExpressionType(binary),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
-            CallExpression => typeof(object), // Simplified
+            NewExpression newExpr => newExpr.Type != null ? ResolveType(newExpr.Type) : typeof(object),
+            MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),
+            CallExpression call => GetCallExpressionType(call),
+            ThisExpression => _currentTypeBuilder ?? typeof(object),
             _ => typeof(object)
         };
     }
@@ -729,13 +1122,102 @@ public class ILCompiler
     }
 
     /// <summary>
+    /// Get the type of a member access expression
+    /// </summary>
+    private Type GetMemberAccessType(MemberAccessExpression memberAccess)
+    {
+        var objectType = GetExpressionType(memberAccess.Object);
+
+        // Check user-defined types first
+        if (objectType is TypeBuilder typeBuilder)
+        {
+            if (_fields.TryGetValue($"{typeBuilder.Name}.{memberAccess.MemberName}", out var fieldBuilder))
+            {
+                return fieldBuilder.FieldType;
+            }
+
+            // Check for property via getter
+            if (_methods.TryGetValue($"{typeBuilder.Name}.get_{memberAccess.MemberName}", out var getterMethod))
+            {
+                return getterMethod.ReturnType;
+            }
+
+            return typeof(object);
+        }
+
+        // Try to find a property
+        var property = objectType.GetProperty(memberAccess.MemberName);
+        if (property != null)
+        {
+            return property.PropertyType;
+        }
+
+        // Try to find a field
+        var field = objectType.GetField(memberAccess.MemberName);
+        if (field != null)
+        {
+            return field.FieldType;
+        }
+
+        return typeof(object);
+    }
+
+    /// <summary>
+    /// Get the type of a call expression
+    /// </summary>
+    private Type GetCallExpressionType(CallExpression call)
+    {
+        // Handle instance method calls
+        if (call.Callee is MemberAccessExpression memberAccess)
+        {
+            var objectType = GetExpressionType(memberAccess.Object);
+
+            // Check user-defined methods first
+            if (objectType is TypeBuilder typeBuilder)
+            {
+                if (_methods.TryGetValue($"{typeBuilder.Name}.{memberAccess.MemberName}", out var methodBuilder))
+                {
+                    return methodBuilder.ReturnType;
+                }
+
+                return typeof(object);
+            }
+
+            // Use reflection for built-in types
+            var parameterTypes = call.Arguments
+                .Select(arg => GetExpressionType(arg.Value))
+                .ToArray();
+
+            var method = objectType.GetMethod(memberAccess.MemberName, parameterTypes);
+            if (method != null)
+            {
+                return method.ReturnType;
+            }
+
+            return typeof(object);
+        }
+
+        // Handle static/global function calls
+        if (call.Callee is IdentifierExpression ident)
+        {
+            if (_methods.TryGetValue(ident.Name, out var methodBuilder))
+            {
+                return methodBuilder.ReturnType;
+            }
+        }
+
+        return typeof(object);
+    }
+
+    /// <summary>
     /// Resolve a type reference to a System.Type
     /// </summary>
     private Type ResolveType(TypeReference typeRef)
     {
         if (typeRef is SimpleTypeReference simpleType)
         {
-            return simpleType.Name switch
+            // Check for built-in types
+            var builtInType = simpleType.Name switch
             {
                 "int" => typeof(int),
                 "long" => typeof(long),
@@ -745,11 +1227,543 @@ public class ILCompiler
                 "string" => typeof(string),
                 "void" => typeof(void),
                 "object" => typeof(object),
-                _ => typeof(object) // Default to object for unknown types
+                _ => null
             };
+
+            if (builtInType != null)
+                return builtInType;
+
+            // Check for user-defined types
+            if (_types.TryGetValue(simpleType.Name, out var typeBuilder))
+            {
+                return typeBuilder;
+            }
+
+            // Default to object for unknown types
+            return typeof(object);
         }
 
         // TODO: Handle generic types, array types, etc.
         return typeof(object);
+    }
+
+    /// <summary>
+    /// Declare a class type (first pass)
+    /// </summary>
+    private void DeclareClass(ModuleBuilder moduleBuilder, ClassDeclaration classDecl)
+    {
+        var typeAttributes = TypeAttributes.Public | TypeAttributes.Class;
+
+        if (classDecl.Modifiers.HasFlag(Modifiers.Abstract))
+            typeAttributes |= TypeAttributes.Abstract;
+        if (classDecl.Modifiers.HasFlag(Modifiers.Sealed))
+            typeAttributes |= TypeAttributes.Sealed;
+
+        var typeBuilder = moduleBuilder.DefineType(
+            classDecl.Name,
+            typeAttributes);
+
+        _types[classDecl.Name] = typeBuilder;
+    }
+
+    /// <summary>
+    /// Declare a struct type (first pass)
+    /// </summary>
+    private void DeclareStruct(ModuleBuilder moduleBuilder, StructDeclaration structDecl)
+    {
+        var typeAttributes = TypeAttributes.Public | TypeAttributes.Sealed;
+
+        var typeBuilder = moduleBuilder.DefineType(
+            structDecl.Name,
+            typeAttributes,
+            typeof(ValueType));
+
+        _types[structDecl.Name] = typeBuilder;
+    }
+
+    /// <summary>
+    /// Declare class members (second pass)
+    /// </summary>
+    private void DeclareClassMembers(ClassDeclaration classDecl)
+    {
+        if (!_types.TryGetValue(classDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {classDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        // Check if there's any constructor declared
+        bool hasConstructor = classDecl.Members.Any(m => m is ConstructorDeclaration);
+
+        // If no constructor is declared, create a default parameterless constructor
+        if (!hasConstructor)
+        {
+            var defaultCtor = typeBuilder.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+
+            _constructors[$"{typeBuilder.Name}..ctor"] = defaultCtor;
+        }
+
+        foreach (var member in classDecl.Members)
+        {
+            switch (member)
+            {
+                case FieldDeclaration fieldDecl:
+                    DeclareField(typeBuilder, fieldDecl);
+                    break;
+                case ConstructorDeclaration ctorDecl:
+                    DeclareConstructor(typeBuilder, ctorDecl);
+                    break;
+                case FunctionDeclaration funcDecl:
+                    DeclareMethod(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    DeclareProperty(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Declare struct members (second pass)
+    /// </summary>
+    private void DeclareStructMembers(StructDeclaration structDecl)
+    {
+        if (!_types.TryGetValue(structDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {structDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        foreach (var member in structDecl.Members)
+        {
+            switch (member)
+            {
+                case FieldDeclaration fieldDecl:
+                    DeclareField(typeBuilder, fieldDecl);
+                    break;
+                case ConstructorDeclaration ctorDecl:
+                    DeclareConstructor(typeBuilder, ctorDecl);
+                    break;
+                case FunctionDeclaration funcDecl:
+                    DeclareMethod(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    DeclareProperty(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Declare a field
+    /// </summary>
+    private void DeclareField(TypeBuilder typeBuilder, FieldDeclaration fieldDecl)
+    {
+        if (fieldDecl.Type == null)
+        {
+            throw new InvalidOperationException($"Field {fieldDecl.Name} must have an explicit type in IL compiler");
+        }
+
+        var fieldType = ResolveType(fieldDecl.Type);
+        var fieldAttributes = FieldAttributes.Public;
+
+        if (fieldDecl.Modifiers.HasFlag(Modifiers.Static))
+            fieldAttributes |= FieldAttributes.Static;
+        if (fieldDecl.Modifiers.HasFlag(Modifiers.Private))
+        {
+            fieldAttributes &= ~FieldAttributes.Public;
+            fieldAttributes |= FieldAttributes.Private;
+        }
+
+        var fieldBuilder = typeBuilder.DefineField(
+            fieldDecl.Name,
+            fieldType,
+            fieldAttributes);
+
+        // Store field with qualified name (TypeName.FieldName)
+        _fields[$"{typeBuilder.Name}.{fieldDecl.Name}"] = fieldBuilder;
+
+        // If there's an initializer, we'll handle it in the constructor
+        // For now, just declare the field
+    }
+
+    /// <summary>
+    /// Declare a property (auto-property or with custom get/set)
+    /// </summary>
+    private void DeclareProperty(TypeBuilder typeBuilder, PropertyDeclaration propDecl)
+    {
+        var propertyType = ResolveType(propDecl.Type);
+
+        // Define the property
+        var propertyBuilder = typeBuilder.DefineProperty(
+            propDecl.Name,
+            PropertyAttributes.None,
+            propertyType,
+            null);
+
+        // For now, we'll implement simple auto-properties with a backing field
+        var backingFieldName = $"<{propDecl.Name}>k__BackingField";
+        var backingField = typeBuilder.DefineField(
+            backingFieldName,
+            propertyType,
+            FieldAttributes.Private);
+
+        // Define get method
+        if (propDecl.GetBody != null || propDecl.ExpressionBody != null)
+        {
+            var getMethod = typeBuilder.DefineMethod(
+                $"get_{propDecl.Name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                propertyType,
+                Type.EmptyTypes);
+
+            propertyBuilder.SetGetMethod(getMethod);
+
+            // Store the method for later body emission
+            _methods[$"{typeBuilder.Name}.get_{propDecl.Name}"] = getMethod;
+        }
+
+        // Define set method
+        if (propDecl.SetBody != null && !propDecl.PropertyModifier.HasFlag(PropertyModifier.Readonly))
+        {
+            var setMethod = typeBuilder.DefineMethod(
+                $"set_{propDecl.Name}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(void),
+                new[] { propertyType });
+
+            propertyBuilder.SetSetMethod(setMethod);
+
+            // Store the method for later body emission
+            _methods[$"{typeBuilder.Name}.set_{propDecl.Name}"] = setMethod;
+        }
+
+        // Store the backing field
+        _fields[$"{typeBuilder.Name}.{backingFieldName}"] = backingField;
+    }
+
+    /// <summary>
+    /// Declare a constructor
+    /// </summary>
+    private void DeclareConstructor(TypeBuilder typeBuilder, ConstructorDeclaration ctorDecl)
+    {
+        var parameterTypes = ctorDecl.Parameters
+            .Select(p => ResolveType(p.Type))
+            .ToArray();
+
+        var ctorBuilder = typeBuilder.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            parameterTypes);
+
+        // Define parameter names
+        for (int i = 0; i < ctorDecl.Parameters.Count; i++)
+        {
+            ctorBuilder.DefineParameter(i + 1, ParameterAttributes.None, ctorDecl.Parameters[i].Name);
+        }
+
+        // Store constructor for later body emission
+        _constructors[$"{typeBuilder.Name}..ctor"] = ctorBuilder;
+    }
+
+    /// <summary>
+    /// Declare a method (instance or static)
+    /// </summary>
+    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl)
+    {
+        var returnType = funcDecl.ReturnType != null
+            ? ResolveType(funcDecl.ReturnType)
+            : typeof(void);
+
+        var parameterTypes = funcDecl.Parameters
+            .Select(p => ResolveType(p.Type))
+            .ToArray();
+
+        var methodAttributes = MethodAttributes.Public;
+
+        if (funcDecl.Modifiers.HasFlag(Modifiers.Static))
+            methodAttributes |= MethodAttributes.Static;
+        else
+            methodAttributes |= MethodAttributes.HideBySig;
+
+        if (funcDecl.Modifiers.HasFlag(Modifiers.Virtual))
+            methodAttributes |= MethodAttributes.Virtual;
+        if (funcDecl.Modifiers.HasFlag(Modifiers.Abstract))
+            methodAttributes |= MethodAttributes.Abstract;
+        if (funcDecl.Modifiers.HasFlag(Modifiers.Override))
+            methodAttributes |= MethodAttributes.Virtual | MethodAttributes.ReuseSlot;
+
+        var methodBuilder = typeBuilder.DefineMethod(
+            funcDecl.Name,
+            methodAttributes,
+            returnType,
+            parameterTypes);
+
+        // Define parameter names
+        for (int i = 0; i < funcDecl.Parameters.Count; i++)
+        {
+            methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, funcDecl.Parameters[i].Name);
+        }
+
+        // Store method for later body emission
+        _methods[$"{typeBuilder.Name}.{funcDecl.Name}"] = methodBuilder;
+    }
+
+    /// <summary>
+    /// Emit class method bodies (third pass)
+    /// </summary>
+    private void EmitClassBodies(ClassDeclaration classDecl)
+    {
+        if (!_types.TryGetValue(classDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {classDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        // Check if there's any constructor declared
+        bool hasConstructor = classDecl.Members.Any(m => m is ConstructorDeclaration);
+
+        // If no constructor was declared, emit the default constructor body
+        if (!hasConstructor)
+        {
+            EmitDefaultConstructorBody(typeBuilder);
+        }
+
+        foreach (var member in classDecl.Members)
+        {
+            switch (member)
+            {
+                case ConstructorDeclaration ctorDecl:
+                    EmitConstructorBody(typeBuilder, ctorDecl);
+                    break;
+                case FunctionDeclaration funcDecl:
+                    EmitMethodBody(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    EmitPropertyBody(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Emit struct method bodies (third pass)
+    /// </summary>
+    private void EmitStructBodies(StructDeclaration structDecl)
+    {
+        if (!_types.TryGetValue(structDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {structDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        foreach (var member in structDecl.Members)
+        {
+            switch (member)
+            {
+                case ConstructorDeclaration ctorDecl:
+                    EmitConstructorBody(typeBuilder, ctorDecl);
+                    break;
+                case FunctionDeclaration funcDecl:
+                    EmitMethodBody(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    EmitPropertyBody(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Emit default constructor body (when no explicit constructor is defined)
+    /// </summary>
+    private void EmitDefaultConstructorBody(TypeBuilder typeBuilder)
+    {
+        if (!_constructors.TryGetValue($"{typeBuilder.Name}..ctor", out var constructorBuilder))
+        {
+            throw new InvalidOperationException($"Default constructor for {typeBuilder.Name} not declared");
+        }
+
+        _currentIL = constructorBuilder.GetILGenerator();
+
+        // Call base constructor (object..ctor)
+        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
+        if (objectCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Call, objectCtor);
+        }
+
+        // Return
+        _currentIL.Emit(OpCodes.Ret);
+
+        _currentIL = null;
+    }
+
+    /// <summary>
+    /// Emit constructor body
+    /// </summary>
+    private void EmitConstructorBody(TypeBuilder typeBuilder, ConstructorDeclaration ctorDecl)
+    {
+        if (!_constructors.TryGetValue($"{typeBuilder.Name}..ctor", out var constructorBuilder))
+        {
+            throw new InvalidOperationException($"Constructor for {typeBuilder.Name} not declared");
+        }
+
+        _currentIL = constructorBuilder.GetILGenerator();
+        _locals = new Dictionary<string, LocalBuilder>();
+        _parameters = new Dictionary<string, int>();
+
+        // Map parameter names to indices (parameters start at index 1 for instance methods, 0 is 'this')
+        for (int i = 0; i < ctorDecl.Parameters.Count; i++)
+        {
+            _parameters[ctorDecl.Parameters[i].Name] = i + 1;
+        }
+
+        // Call base constructor
+        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
+        if (objectCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Call, objectCtor);
+        }
+
+        // Emit constructor body
+        EmitStatement(ctorDecl.Body);
+
+        // Ensure constructor ends with a return
+        _currentIL.Emit(OpCodes.Ret);
+
+        // Clear context
+        _currentIL = null;
+        _locals = null;
+        _parameters = null;
+    }
+
+    /// <summary>
+    /// Emit method body (instance or static)
+    /// </summary>
+    private void EmitMethodBody(TypeBuilder typeBuilder, FunctionDeclaration funcDecl)
+    {
+        if (!_methods.TryGetValue($"{typeBuilder.Name}.{funcDecl.Name}", out var methodBuilder))
+        {
+            throw new InvalidOperationException($"Method {typeBuilder.Name}.{funcDecl.Name} not declared");
+        }
+
+        var returnType = funcDecl.ReturnType != null
+            ? ResolveType(funcDecl.ReturnType)
+            : typeof(void);
+
+        _currentIL = methodBuilder.GetILGenerator();
+        _locals = new Dictionary<string, LocalBuilder>();
+        _parameters = new Dictionary<string, int>();
+
+        // Map parameter names to indices
+        // For instance methods, parameters start at index 1 (0 is 'this')
+        // For static methods, parameters start at index 0
+        int startIndex = funcDecl.Modifiers.HasFlag(Modifiers.Static) ? 0 : 1;
+        for (int i = 0; i < funcDecl.Parameters.Count; i++)
+        {
+            _parameters[funcDecl.Parameters[i].Name] = startIndex + i;
+        }
+
+        // Emit method body
+        if (funcDecl.Body != null)
+        {
+            EmitStatement(funcDecl.Body);
+        }
+        else if (funcDecl.ExpressionBody != null)
+        {
+            EmitExpression(funcDecl.ExpressionBody);
+            _currentIL.Emit(OpCodes.Ret);
+        }
+
+        // Ensure method ends with a return
+        if (returnType == typeof(void))
+        {
+            _currentIL.Emit(OpCodes.Ret);
+        }
+
+        // Clear context
+        _currentIL = null;
+        _locals = null;
+        _parameters = null;
+    }
+
+    /// <summary>
+    /// Emit property getter/setter bodies
+    /// </summary>
+    private void EmitPropertyBody(TypeBuilder typeBuilder, PropertyDeclaration propDecl)
+    {
+        var propertyType = ResolveType(propDecl.Type);
+        var backingFieldName = $"<{propDecl.Name}>k__BackingField";
+
+        // Emit getter
+        if (propDecl.GetBody != null || propDecl.ExpressionBody != null)
+        {
+            if (!_methods.TryGetValue($"{typeBuilder.Name}.get_{propDecl.Name}", out var getMethod))
+            {
+                throw new InvalidOperationException($"Getter for {typeBuilder.Name}.{propDecl.Name} not declared");
+            }
+
+            _currentIL = getMethod.GetILGenerator();
+            _locals = new Dictionary<string, LocalBuilder>();
+            _parameters = new Dictionary<string, int>();
+
+            if (propDecl.GetBody != null)
+            {
+                EmitStatement(propDecl.GetBody);
+            }
+            else if (propDecl.ExpressionBody != null)
+            {
+                EmitExpression(propDecl.ExpressionBody);
+                _currentIL.Emit(OpCodes.Ret);
+            }
+
+            // Ensure getter ends with a return
+            _currentIL.Emit(OpCodes.Ret);
+
+            _currentIL = null;
+            _locals = null;
+            _parameters = null;
+        }
+
+        // Emit setter
+        if (propDecl.SetBody != null)
+        {
+            if (!_methods.TryGetValue($"{typeBuilder.Name}.set_{propDecl.Name}", out var setMethod))
+            {
+                throw new InvalidOperationException($"Setter for {typeBuilder.Name}.{propDecl.Name} not declared");
+            }
+
+            _currentIL = setMethod.GetILGenerator();
+            _locals = new Dictionary<string, LocalBuilder>();
+            _parameters = new Dictionary<string, int>();
+            _parameters["value"] = 1; // 'value' parameter is always at index 1 (0 is 'this')
+
+            EmitStatement(propDecl.SetBody);
+
+            // Ensure setter ends with a return
+            _currentIL.Emit(OpCodes.Ret);
+
+            _currentIL = null;
+            _locals = null;
+            _parameters = null;
+        }
     }
 }
