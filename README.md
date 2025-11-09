@@ -1,8 +1,42 @@
 # N# (NewLang Sharp)
 
-**C# with discriminated unions, structural typing, and Go-inspired syntax**
+**Go for .NET - A pragmatic language for .NET developers sick of XML bullshit**
 
-A pragmatic language targeting .NET/CLI with perfect C# interoperability.
+## Quick Start
+
+### 1. Install Template (Local Development)
+
+```bash
+# Clone and install
+git clone <repo-url>
+cd NewCLILang
+dotnet new install templates/nsharp-console/
+```
+
+### 2. Create Project
+
+```bash
+dotnet new nsharp-console -o MyApp
+cd MyApp
+```
+
+**Files created:**
+- `project.yml` - YOUR config (edit this)
+- `Program.nl` - YOUR code
+- `MyApp.csproj` - 4 lines (never touch)
+- `global.json` - SDK config
+- `NuGet.config` - Package sources (update path for local dev)
+
+### 3. Build and Run
+
+```bash
+dotnet build
+dotnet run
+```
+
+**Output:** `Hello, N#!`
+
+---
 
 ## Philosophy
 
@@ -10,6 +44,7 @@ A pragmatic language targeting .NET/CLI with perfect C# interoperability.
 - **Pragmatism**: Embraces .NET realities (including null)
 - **Perfect C# interop**: C# consumers can't tell they're using N#-compiled code
 - **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
+- **No XML**: YAML for config, minimal `.csproj` you never edit
 
 ## Why N#?
 
