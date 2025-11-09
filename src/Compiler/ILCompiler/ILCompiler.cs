@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -15,6 +16,15 @@ public class ILCompiler
     private readonly CompilationUnit _compilationUnit;
     private readonly string _assemblyName;
     private readonly string _outputPath;
+
+    // Context for current method being compiled
+    private ILGenerator? _currentIL;
+    private Dictionary<string, LocalBuilder>? _locals;
+    private Dictionary<string, int>? _parameters;
+
+    // Global context
+    private TypeBuilder? _programType;
+    private Dictionary<string, MethodBuilder> _methods = new();
 
     public ILCompiler(CompilationUnit compilationUnit, string assemblyName, string outputPath)
     {
@@ -38,21 +48,30 @@ public class ILCompiler
         var moduleBuilder = assemblyBuilder.DefineDynamicModule(_assemblyName);
 
         // Create Program class (entry point container)
-        var programType = moduleBuilder.DefineType(
+        _programType = moduleBuilder.DefineType(
             "Program",
             TypeAttributes.Public | TypeAttributes.Class);
 
-        // Emit all top-level functions as static methods on Program class
+        // First pass: declare all functions
         foreach (var declaration in _compilationUnit.Declarations)
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
-                EmitFunction(programType, funcDecl);
+                DeclareFunction(_programType, funcDecl);
+            }
+        }
+
+        // Second pass: emit all function bodies
+        foreach (var declaration in _compilationUnit.Declarations)
+        {
+            if (declaration is FunctionDeclaration funcDecl)
+            {
+                EmitFunctionBody(funcDecl);
             }
         }
 
         // Create the type
-        programType.CreateType();
+        _programType.CreateType();
 
         // For now, we can't save to disk with AssemblyBuilder in .NET Core/9
         // We would need to use a library like Mono.Cecil or System.Reflection.Metadata
@@ -61,9 +80,9 @@ public class ILCompiler
     }
 
     /// <summary>
-    /// Emit a function as a method
+    /// Declare a function (method signature only, no body)
     /// </summary>
-    private void EmitFunction(TypeBuilder typeBuilder, FunctionDeclaration function)
+    private void DeclareFunction(TypeBuilder typeBuilder, FunctionDeclaration function)
     {
         // Determine return type
         var returnType = function.ReturnType != null
@@ -82,32 +101,519 @@ public class ILCompiler
             returnType,
             parameterTypes);
 
-        // Special case: if this is "main", make it the entry point
-        if (function.Name.ToLower() == "main")
+        // Define parameter names
+        for (int i = 0; i < function.Parameters.Count; i++)
         {
-            // Entry point methods should return void or int
-            // and take no parameters or string[]
+            methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, function.Parameters[i].Name);
         }
+
+        // Store method builder for later reference
+        _methods[function.Name] = methodBuilder;
+    }
+
+    /// <summary>
+    /// Emit the body of a function
+    /// </summary>
+    private void EmitFunctionBody(FunctionDeclaration function)
+    {
+        if (!_methods.TryGetValue(function.Name, out var methodBuilder))
+        {
+            throw new InvalidOperationException($"Method {function.Name} not declared");
+        }
+
+        // Determine return type
+        var returnType = function.ReturnType != null
+            ? ResolveType(function.ReturnType)
+            : typeof(void);
 
         // Get IL generator
-        var il = methodBuilder.GetILGenerator();
+        _currentIL = methodBuilder.GetILGenerator();
+        _locals = new Dictionary<string, LocalBuilder>();
+        _parameters = new Dictionary<string, int>();
 
-        // For now, emit a simple return
-        // TODO: Emit the actual function body
+        // Map parameter names to indices
+        for (int i = 0; i < function.Parameters.Count; i++)
+        {
+            _parameters[function.Parameters[i].Name] = i;
+        }
+
+        // Emit function body
+        if (function.Body != null)
+        {
+            EmitStatement(function.Body);
+        }
+
+        // Ensure function ends with a return
         if (returnType == typeof(void))
         {
-            il.Emit(OpCodes.Ret);
+            _currentIL.Emit(OpCodes.Ret);
         }
-        else if (returnType == typeof(int))
+
+        // Clear context
+        _currentIL = null;
+        _locals = null;
+        _parameters = null;
+    }
+
+    /// <summary>
+    /// Emit IL for a statement
+    /// </summary>
+    private void EmitStatement(Statement statement)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (statement)
         {
-            il.Emit(OpCodes.Ldc_I4_0); // Return 0
-            il.Emit(OpCodes.Ret);
+            case BlockStatement block:
+                foreach (var stmt in block.Statements)
+                {
+                    EmitStatement(stmt);
+                }
+                break;
+
+            case VariableDeclarationStatement varDecl:
+                EmitVariableDeclaration(varDecl);
+                break;
+
+            case ReturnStatement ret:
+                EmitReturn(ret);
+                break;
+
+            case ExpressionStatement exprStmt:
+                EmitExpression(exprStmt.Expression);
+                // Pop the result if it's not used
+                if (GetExpressionType(exprStmt.Expression) != typeof(void))
+                {
+                    _currentIL.Emit(OpCodes.Pop);
+                }
+                break;
+
+            case IfStatement ifStmt:
+                EmitIf(ifStmt);
+                break;
+
+            case WhileStatement whileStmt:
+                EmitWhile(whileStmt);
+                break;
+
+            case PrintStatement printStmt:
+                EmitPrint(printStmt);
+                break;
+
+            default:
+                throw new NotImplementedException($"Statement type {statement.GetType().Name} not yet implemented in IL compiler");
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a print statement
+    /// </summary>
+    private void EmitPrint(PrintStatement printStmt)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Emit the value to print
+        EmitExpression(printStmt.Value);
+
+        // Box value types if necessary
+        var valueType = GetExpressionType(printStmt.Value);
+        if (valueType.IsValueType)
+        {
+            _currentIL.Emit(OpCodes.Box, valueType);
+        }
+
+        // Call Console.WriteLine(object)
+        var writeLineMethod = typeof(Console).GetMethod("WriteLine", new[] { typeof(object) });
+        if (writeLineMethod != null)
+        {
+            _currentIL.Emit(OpCodes.Call, writeLineMethod);
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a variable declaration
+    /// </summary>
+    private void EmitVariableDeclaration(VariableDeclarationStatement varDecl)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Determine type from initializer or explicit type
+        Type varType;
+        if (varDecl.Type != null)
+        {
+            varType = ResolveType(varDecl.Type);
+        }
+        else if (varDecl.Initializer != null)
+        {
+            varType = GetExpressionType(varDecl.Initializer);
         }
         else
         {
-            il.Emit(OpCodes.Ldnull); // Return null for reference types
-            il.Emit(OpCodes.Ret);
+            throw new InvalidOperationException("Variable must have either a type or an initializer");
         }
+
+        // Declare local
+        var local = _currentIL.DeclareLocal(varType);
+        _locals[varDecl.Name] = local;
+
+        // Emit initializer if present
+        if (varDecl.Initializer != null)
+        {
+            EmitExpression(varDecl.Initializer);
+            _currentIL.Emit(OpCodes.Stloc, local);
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a return statement
+    /// </summary>
+    private void EmitReturn(ReturnStatement ret)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (ret.Value != null)
+        {
+            EmitExpression(ret.Value);
+        }
+        _currentIL.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit IL for an if statement
+    /// </summary>
+    private void EmitIf(IfStatement ifStmt)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var elseLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        // Emit condition
+        EmitExpression(ifStmt.Condition);
+        _currentIL.Emit(OpCodes.Brfalse, elseLabel);
+
+        // Emit then branch
+        EmitStatement(ifStmt.ThenStatement);
+        if (ifStmt.ElseStatement != null)
+        {
+            _currentIL.Emit(OpCodes.Br, endLabel);
+        }
+
+        // Emit else branch
+        _currentIL.MarkLabel(elseLabel);
+        if (ifStmt.ElseStatement != null)
+        {
+            EmitStatement(ifStmt.ElseStatement);
+            _currentIL.MarkLabel(endLabel);
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a while statement
+    /// </summary>
+    private void EmitWhile(WhileStatement whileStmt)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var conditionLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        // Mark condition label
+        _currentIL.MarkLabel(conditionLabel);
+
+        // Emit condition
+        EmitExpression(whileStmt.Condition);
+        _currentIL.Emit(OpCodes.Brfalse, endLabel);
+
+        // Emit body
+        EmitStatement(whileStmt.Body);
+
+        // Jump back to condition
+        _currentIL.Emit(OpCodes.Br, conditionLabel);
+
+        // Mark end label
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// Emit IL for an expression
+    /// </summary>
+    private void EmitExpression(Expression expression)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (expression)
+        {
+            case IntLiteralExpression intLit:
+                EmitIntLiteral(intLit);
+                break;
+
+            case StringLiteralExpression strLit:
+                EmitStringLiteral(strLit);
+                break;
+
+            case BoolLiteralExpression boolLit:
+                _currentIL.Emit(boolLit.Value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+                break;
+
+            case IdentifierExpression ident:
+                EmitIdentifier(ident);
+                break;
+
+            case BinaryExpression binary:
+                EmitBinaryExpression(binary);
+                break;
+
+            case CallExpression call:
+                EmitCall(call);
+                break;
+
+            default:
+                throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for an integer literal
+    /// </summary>
+    private void EmitIntLiteral(IntLiteralExpression intLit)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var value = int.Parse(intLit.Value);
+
+        // Use optimized opcodes for small values
+        switch (value)
+        {
+            case -1: _currentIL.Emit(OpCodes.Ldc_I4_M1); break;
+            case 0: _currentIL.Emit(OpCodes.Ldc_I4_0); break;
+            case 1: _currentIL.Emit(OpCodes.Ldc_I4_1); break;
+            case 2: _currentIL.Emit(OpCodes.Ldc_I4_2); break;
+            case 3: _currentIL.Emit(OpCodes.Ldc_I4_3); break;
+            case 4: _currentIL.Emit(OpCodes.Ldc_I4_4); break;
+            case 5: _currentIL.Emit(OpCodes.Ldc_I4_5); break;
+            case 6: _currentIL.Emit(OpCodes.Ldc_I4_6); break;
+            case 7: _currentIL.Emit(OpCodes.Ldc_I4_7); break;
+            case 8: _currentIL.Emit(OpCodes.Ldc_I4_8); break;
+            default:
+                if (value >= sbyte.MinValue && value <= sbyte.MaxValue)
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4_S, (sbyte)value);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4, value);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a string literal
+    /// </summary>
+    private void EmitStringLiteral(StringLiteralExpression strLit)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Remove quotes from string value
+        var value = strLit.Value.Trim('"');
+        _currentIL.Emit(OpCodes.Ldstr, value);
+    }
+
+    /// <summary>
+    /// Emit IL for an identifier (variable or parameter)
+    /// </summary>
+    private void EmitIdentifier(IdentifierExpression ident)
+    {
+        if (_currentIL == null || _locals == null || _parameters == null)
+            throw new InvalidOperationException("No IL generator context");
+
+        // Check if it's a local variable
+        if (_locals.TryGetValue(ident.Name, out var local))
+        {
+            _currentIL.Emit(OpCodes.Ldloc, local);
+        }
+        // Check if it's a parameter
+        else if (_parameters.TryGetValue(ident.Name, out var paramIndex))
+        {
+            switch (paramIndex)
+            {
+                case 0: _currentIL.Emit(OpCodes.Ldarg_0); break;
+                case 1: _currentIL.Emit(OpCodes.Ldarg_1); break;
+                case 2: _currentIL.Emit(OpCodes.Ldarg_2); break;
+                case 3: _currentIL.Emit(OpCodes.Ldarg_3); break;
+                default:
+                    if (paramIndex <= 255)
+                    {
+                        _currentIL.Emit(OpCodes.Ldarg_S, (byte)paramIndex);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldarg, paramIndex);
+                    }
+                    break;
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a binary expression
+    /// </summary>
+    private void EmitBinaryExpression(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Emit left and right operands
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+
+        // Emit operator
+        switch (binary.Operator)
+        {
+            case BinaryOperator.Add:
+                _currentIL.Emit(OpCodes.Add);
+                break;
+            case BinaryOperator.Subtract:
+                _currentIL.Emit(OpCodes.Sub);
+                break;
+            case BinaryOperator.Multiply:
+                _currentIL.Emit(OpCodes.Mul);
+                break;
+            case BinaryOperator.Divide:
+                _currentIL.Emit(OpCodes.Div);
+                break;
+            case BinaryOperator.Modulo:
+                _currentIL.Emit(OpCodes.Rem);
+                break;
+            case BinaryOperator.Equal:
+                _currentIL.Emit(OpCodes.Ceq);
+                break;
+            case BinaryOperator.NotEqual:
+                _currentIL.Emit(OpCodes.Ceq);
+                _currentIL.Emit(OpCodes.Ldc_I4_0);
+                _currentIL.Emit(OpCodes.Ceq);
+                break;
+            case BinaryOperator.Less:
+                _currentIL.Emit(OpCodes.Clt);
+                break;
+            case BinaryOperator.Greater:
+                _currentIL.Emit(OpCodes.Cgt);
+                break;
+            case BinaryOperator.LessOrEqual:
+                _currentIL.Emit(OpCodes.Cgt);
+                _currentIL.Emit(OpCodes.Ldc_I4_0);
+                _currentIL.Emit(OpCodes.Ceq);
+                break;
+            case BinaryOperator.GreaterOrEqual:
+                _currentIL.Emit(OpCodes.Clt);
+                _currentIL.Emit(OpCodes.Ldc_I4_0);
+                _currentIL.Emit(OpCodes.Ceq);
+                break;
+            case BinaryOperator.And:
+                _currentIL.Emit(OpCodes.And);
+                break;
+            case BinaryOperator.Or:
+                _currentIL.Emit(OpCodes.Or);
+                break;
+            default:
+                throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a function call
+    /// </summary>
+    private void EmitCall(CallExpression call)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Handle special built-in functions
+        if (call.Callee is IdentifierExpression ident)
+        {
+            if (ident.Name == "print")
+            {
+                // Emit arguments
+                foreach (var arg in call.Arguments)
+                {
+                    EmitExpression(arg.Value);
+                }
+
+                // Call Console.WriteLine
+                var writeLineMethod = typeof(Console).GetMethod("WriteLine", new[] { typeof(object) });
+                if (writeLineMethod != null)
+                {
+                    _currentIL.Emit(OpCodes.Call, writeLineMethod);
+                }
+                return;
+            }
+
+            // Check if it's a user-defined function
+            if (_methods.TryGetValue(ident.Name, out var methodBuilder))
+            {
+                // Emit arguments
+                foreach (var arg in call.Arguments)
+                {
+                    EmitExpression(arg.Value);
+                }
+
+                // Call the method
+                _currentIL.Emit(OpCodes.Call, methodBuilder);
+                return;
+            }
+        }
+
+        throw new NotImplementedException($"Function call {call.Callee} not yet fully implemented in IL compiler");
+    }
+
+    /// <summary>
+    /// Get the .NET type of an expression (simplified type inference)
+    /// </summary>
+    private Type GetExpressionType(Expression expression)
+    {
+        return expression switch
+        {
+            IntLiteralExpression => typeof(int),
+            FloatLiteralExpression => typeof(double),
+            StringLiteralExpression => typeof(string),
+            BoolLiteralExpression => typeof(bool),
+            NullLiteralExpression => typeof(object),
+            IdentifierExpression ident => GetIdentifierType(ident),
+            BinaryExpression binary => GetBinaryExpressionType(binary),
+            CallExpression => typeof(object), // Simplified
+            _ => typeof(object)
+        };
+    }
+
+    /// <summary>
+    /// Get the type of an identifier
+    /// </summary>
+    private Type GetIdentifierType(IdentifierExpression ident)
+    {
+        if (_locals != null && _locals.TryGetValue(ident.Name, out var local))
+        {
+            return local.LocalType;
+        }
+
+        // TODO: Look up parameter types
+        return typeof(object);
+    }
+
+    /// <summary>
+    /// Get the type of a binary expression
+    /// </summary>
+    private Type GetBinaryExpressionType(BinaryExpression binary)
+    {
+        return binary.Operator switch
+        {
+            BinaryOperator.Equal or BinaryOperator.NotEqual or
+            BinaryOperator.Less or BinaryOperator.LessOrEqual or
+            BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => typeof(bool),
+            _ => GetExpressionType(binary.Left)
+        };
     }
 
     /// <summary>
