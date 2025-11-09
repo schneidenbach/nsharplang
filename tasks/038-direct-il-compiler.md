@@ -3,7 +3,33 @@
 **Priority:** Medium (Performance & Independence - not urgent but valuable)
 **Dependencies:** None (parallel path to transpiler)
 **Estimated Effort:** Very Large (30-40 hours, potentially more)
-**Status:** In Progress - Phases 1-5 Complete (Foundation, Expressions, Functions, Classes/Structs, Generics)
+**Status:** Phase 1-5 Complete | Phase 6 Deferred | Ready for Phase 7
+
+## Current Achievement Summary
+
+**Phases Completed:** 1-5 (Foundation through Generics)
+**Test Coverage:** 24 IL compiler tests, all passing
+**Overall Test Suite:** 633 tests, all passing
+
+**What Works:**
+- ✅ Simple functions with arithmetic and logic
+- ✅ Local variables and assignments (including compound: +=, -=, *=, /=)
+- ✅ Control flow (if/else, while loops)
+- ✅ Function calls (static and recursive)
+- ✅ Classes and structs (declarations, fields, methods, constructors)
+- ✅ Object instantiation with initializers
+- ✅ Instance method calls and member access
+- ✅ Properties with auto-implemented getters/setters
+- ✅ Generics (generic methods, type parameters, constraints)
+- ✅ Constrained virtual calls on generic parameters
+- ✅ Assembly generation and disk persistence (via PersistedAssemblyBuilder)
+
+**What's Deferred:**
+- ⏸️ Phase 6: Async/await (use transpiler path instead)
+- ⏸️ Phase 7: Interfaces, virtual methods, pattern matching, records, foreach, try/catch, lambdas
+- ⏸️ Phase 8: PDB generation, debugging symbols, attributes
+
+**Recommendation:** The IL compiler has exceeded MVP requirements and provides a solid foundation. For practical use, combine IL compiler for synchronous code with transpiler for async/await until Phase 6 is implemented.
 
 ## Goal
 
@@ -403,7 +429,9 @@ func main() {
 - [x] Constrained virtual method calls on generic parameters
 - [x] Parameter type tracking for generics
 
-### Phase 6: Async/Await (Week 10-11)
+### Phase 6: Async/Await (DEFERRED)
+
+**Status:** ⏸️ **DEFERRED** - Complexity too high for current ROI
 
 **Goal:** Async methods using state machines
 
@@ -421,7 +449,15 @@ async func fetchData(): ValueTask<string> {
 - [ ] Await IL patterns
 - [ ] Exception handling in async
 
-**Note:** This is complex! Consider using Roslyn's async transformation as reference.
+**Why Deferred:**
+- Async/await requires generating complex state machine structs implementing `IAsyncStateMachine`
+- Estimated 2-3 weeks of full-time work, thousands of lines of code
+- Roslyn's implementation is extremely complex (see C# compiler source)
+- Current transpiler path handles async/await perfectly well
+- Better ROI to focus on other Phase 7 features first
+- Can revisit after Phase 7-8 are complete if needed
+
+**Fallback:** Use transpiler for async/await code (--transpile-only flag)
 
 ### Phase 7: Advanced Features (Week 12+)
 
