@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)NSharp/</NSharpOutputPath>
+    <!-- Auto-detect project.yml -->
+    <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
   </PropertyGroup>
 
   <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile" AssemblyFile="$(MSBuildThisFileDirectory)NSharp.Build.Tasks.dll" />
@@ -14,7 +16,8 @@
     <NSharpCompile
       Sources="@(NSharpCompile)"
       OutputPath="$(NSharpOutputPath)"
-      ProjectRoot="$(MSBuildProjectDirectory)">
+      ProjectRoot="$(MSBuildProjectDirectory)"
+      ProjectFile="$(NSharpProjectFile)">
       <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
       <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
     </NSharpCompile>

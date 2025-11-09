@@ -21,6 +21,8 @@ public class NSharpCompile : Task
     [Required]
     public string ProjectRoot { get; set; } = string.Empty;
 
+    public string? ProjectFile { get; set; }
+
     [Output]
     public ITaskItem[] GeneratedFiles { get; set; } = Array.Empty<ITaskItem>();
 
@@ -38,8 +40,13 @@ public class NSharpCompile : Task
         {
             var sourceFiles = Sources.Select(s => s.ItemSpec).ToList();
 
-            // Create a default project config
-            var config = ProjectFileParser.CreateDefault();
+            // Load project config from project.yml if available, otherwise use default
+            var config = !string.IsNullOrEmpty(ProjectFile) && File.Exists(ProjectFile)
+                ? ProjectFileParser.Parse(ProjectFile)
+                : ProjectFileParser.CreateDefault();
+
+            Log.LogMessage(MessageImportance.Low,
+                $"Using config: {(string.IsNullOrEmpty(ProjectFile) ? "default" : ProjectFile)}");
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
             var result = compiler.Compile();
