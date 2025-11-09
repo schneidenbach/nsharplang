@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "N# Team",
+  "classifications": ["Console"],
+  "identity": "NSharp.Console",
+  "name": "N# Console Application",
+  "shortName": "nsharp-console",
+  "tags": {
+    "language": "N#",
+    "type": "project"
+  },
+  "sourceName": "ConsoleApp",
+  "preferNameDirectory": true
+}
