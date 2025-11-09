@@ -1,47 +1,35 @@
-# Task 042: .nlproj Project Files
+# Task 042: dotnet build with project.yml
 
 **Effort:** Small (6-8 hours)
 **Depends:** Task 041
-**Ships:** .nlproj files recognized by dotnet
+**Ships:** `dotnet build` works with project.yml
 
 ## Goal
 
-Create MSBuild SDK that enables .nlproj project files.
+Make `dotnet build` recognize and use project.yml files.
 
 ## Deliverable
 
-SDK with Sdk.props and Sdk.targets that dotnet recognizes.
+MSBuild SDK that reads project.yml and builds N# projects.
 
 ## Implementation
 
-Create `sdk/Microsoft.NET.Sdk.NSharp/Sdk/`:
+Update MSBuild task to auto-detect project.yml:
 
-**Sdk.props:**
+**MSBuild.targets:**
 ```xml
 <Project>
-  <PropertyGroup>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl" />
-  </ItemGroup>
-</Project>
-```
-
-**Sdk.targets:**
-```xml
-<Project>
-  <UsingTask TaskName="NSharpCompile"
+  <UsingTask TaskName="NSharpBuild"
              AssemblyFile="$(NSharpTasksPath)/NSharp.Build.Tasks.dll" />
 
-  <Target Name="CoreNSharpCompile"
-          BeforeTargets="CoreCompile">
-    <NSharpCompile Sources="@(NSharpCompile)"
-                   References="@(ReferencePath)"
-                   OutputPath="$(IntermediateOutputPath)" />
+  <Target Name="NSharpCompile" BeforeTargets="CoreCompile">
+    <!-- Auto-detect project.yml -->
+    <PropertyGroup>
+      <NSharpProjectFile Condition="Exists('project.yml')">project.yml</NSharpProjectFile>
+    </PropertyGroup>
+
+    <NSharpBuild ProjectFile="$(NSharpProjectFile)"
+                 OutputPath="$(IntermediateOutputPath)" />
 
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)/**/*.cs" />
@@ -50,30 +38,35 @@ Create `sdk/Microsoft.NET.Sdk.NSharp/Sdk/`:
 </Project>
 ```
 
-**Example .nlproj:**
-```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-  </PropertyGroup>
-</Project>
+**Keep using project.yml:**
+```yaml
+name: MyApp
+version: 1.0.0
+targetFramework: net9.0
+outputType: exe
+entry: Program.nl
+
+dependencies:
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
 ```
 
 ## Testing
 
 ```bash
-cat > MyApp.nlproj <<EOF
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-  </PropertyGroup>
-</Project>
+# Just use project.yml (no XML!)
+cat > project.yml <<EOF
+name: MyApp
+outputType: exe
+targetFramework: net9.0
+entry: Program.nl
 EOF
 
 cat > Program.nl <<EOF
 func main() { print "Works!" }
 EOF
 
+# Should work with dotnet CLI
 dotnet build
 dotnet run
 # Output: Works!
@@ -81,7 +74,8 @@ dotnet run
 
 ## Done When
 
-- [ ] .nlproj files build with dotnet
+- [ ] `dotnet build` finds project.yml automatically
 - [ ] All .nl files auto-discovered
 - [ ] Test files excluded from main build
-- [ ] References work correctly
+- [ ] Dependencies work correctly
+- [ ] NO XML REQUIRED!
