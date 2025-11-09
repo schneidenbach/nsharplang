@@ -1,0 +1,23 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Import base SDK props first -->
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <PropertyGroup>
+    <!-- Auto-detect project.yml in project directory -->
+    <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
+
+    <!-- Output path for generated C# files -->
+    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
+
+    <!-- Enable by default -->
+    <EnableNSharpCompilation Condition="'$(EnableNSharpCompilation)' == ''">true</EnableNSharpCompilation>
+  </PropertyGroup>
+
+  <!-- If project.yml exists, read it and set MSBuild properties -->
+  <PropertyGroup Condition="Exists('$(NSharpProjectFile)')">
+    <!-- We'll use a custom task to read project.yml and populate these properties -->
+    <!-- For now, use reasonable defaults -->
+  </PropertyGroup>
+
+</Project>

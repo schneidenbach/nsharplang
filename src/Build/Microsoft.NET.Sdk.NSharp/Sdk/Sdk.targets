@@ -1,0 +1,41 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Import base SDK targets first -->
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+  <!-- Reference the NSharp build tasks -->
+  <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
+
+  <!-- Auto-discover all .nl files (excluding tests) -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
+  </ItemGroup>
+
+  <!-- Compile N# files before C# compilation -->
+  <Target Name="CompileNSharp"
+          BeforeTargets="CoreCompile"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpCompile)' != ''"
+          Inputs="@(NSharpCompile);$(NSharpProjectFile)"
+          Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(Filename).g.cs')">
+
+    <Message Importance="High" Text="Compiling N# files from $(MSBuildProjectDirectory)..." />
+
+    <NSharpCompile
+      Sources="@(NSharpCompile)"
+      OutputPath="$(NSharpOutputPath)"
+      ProjectRoot="$(MSBuildProjectDirectory)"
+      ProjectFile="$(NSharpProjectFile)">
+      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </NSharpCompile>
+
+    <Message Importance="High" Text="N# compilation complete. Generated files added to C# compilation." />
+  </Target>
+
+  <!-- Clean generated files -->
+  <Target Name="CleanNSharp" BeforeTargets="CoreClean" Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <RemoveDir Directories="$(NSharpOutputPath)" />
+  </Target>
+
+</Project>

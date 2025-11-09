@@ -1,0 +1,12 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- Default to exe for N# projects -->
+    <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

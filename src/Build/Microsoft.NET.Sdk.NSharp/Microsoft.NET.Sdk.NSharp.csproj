@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <PackageId>Microsoft.NET.Sdk.NSharp</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>N# Team</Authors>
+    <Description>MSBuild SDK for N# language - enables dotnet build with project.yml</Description>
+    <PackageTags>nsharp;dotnet;sdk;msbuild</PackageTags>
+
+    <!-- This is an SDK package -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <DevelopmentDependency>true</DevelopmentDependency>
+  </PropertyGroup>
+
+  <!-- Include SDK files in the package -->
+  <ItemGroup>
+    <None Include="Sdk/**" Pack="true" PackagePath="Sdk/" />
+  </ItemGroup>
+
+  <!-- Include the build tasks DLL and dependencies -->
+  <ItemGroup>
+    <None Include="../NSharp.Build.Tasks/bin/$(Configuration)/net9.0/NSharp.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharp.Build.Tasks/bin/$(Configuration)/net9.0/Compiler.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharp.Build.Tasks/bin/$(Configuration)/net9.0/YamlDotNet.dll" Pack="true" PackagePath="tools/" />
+  </ItemGroup>
+
+  <!-- Reference the build tasks project to ensure it builds first -->
+  <ItemGroup>
+    <ProjectReference Include="../NSharp.Build.Tasks/NSharp.Build.Tasks.csproj" PrivateAssets="All" />
+  </ItemGroup>
+
+</Project>

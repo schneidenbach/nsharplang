@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <PackageType>Template</PackageType>
+    <PackageId>NSharp.Templates</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>N# Team</Authors>
+    <Description>Templates for creating N# projects with 'dotnet new'.</Description>
+    <PackageTags>nsharp;dotnet;templates;dotnet-new</PackageTags>
+    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="console/**/*" PackagePath="content/" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

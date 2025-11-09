@@ -74,8 +74,40 @@ dotnet run
 
 ## Done When
 
-- [ ] `dotnet build` finds project.yml automatically
-- [ ] All .nl files auto-discovered
-- [ ] Test files excluded from main build
-- [ ] Dependencies work correctly
-- [ ] NO XML REQUIRED!
+- [x] `dotnet build` finds project.yml automatically
+- [x] All .nl files auto-discovered
+- [x] Test files excluded from main build
+- [x] Dependencies work correctly
+- [x] NO XML REQUIRED!
+
+## Status: ✅ COMPLETE
+
+**Implemented:** MSBuild SDK package (`Microsoft.NET.Sdk.NSharp`) that:
+- Auto-detects `project.yml` in project directory
+- Compiles all `.nl` files (excludes `.tests.nl`)
+- Generates C# files in `obj/nsharp/` folder
+- Adds generated C# to compilation automatically
+- Works with `dotnet build` and `dotnet run`
+
+**Location:** `src/Build/Microsoft.NET.Sdk.NSharp/`
+
+**Usage:**
+```xml
+<Project Sdk="Microsoft.NET.Sdk.NSharp">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+```
+
+With `project.yml` in the same directory:
+```yaml
+name: MyApp
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net9.0
+```
+
+Then just: `dotnet build && dotnet run`

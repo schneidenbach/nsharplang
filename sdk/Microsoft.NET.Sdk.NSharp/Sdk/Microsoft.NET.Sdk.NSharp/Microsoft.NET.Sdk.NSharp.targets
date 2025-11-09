@@ -1,0 +1,4 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- This file is included when SDK is referenced in .csproj files directly -->
+  <!-- It's a convention for NuGet packages with build assets -->
+</Project>
