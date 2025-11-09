@@ -450,22 +450,8 @@ class Program
         // Load system assemblies
         analyzer.LoadSystemAssemblies();
 
-        // Load references from project config
-        if (config?.References != null)
-        {
-            foreach (var reference in config.References)
-            {
-                // Check if it's a file path or assembly name
-                if (File.Exists(reference))
-                {
-                    analyzer.LoadReferencedAssembly(reference);
-                }
-                else
-                {
-                    analyzer.LoadReferencedAssemblyByName(reference);
-                }
-            }
-        }
+        // Load assemblies from project configuration
+        analyzer.LoadFromProjectConfig(config);
 
         var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot, source);
 

@@ -1,6 +1,6 @@
 import Microsoft.EntityFrameworkCore
 
-package EmployeeApi
+package EmployeeApi.Database
 
 // Entity Framework Core database context
 class AppDbContext : DbContext {

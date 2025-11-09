@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NewCLILang.Compiler;
 using NewCLILang.Compiler.Ast;
@@ -39,7 +40,19 @@ public class DocumentManager
 
             // Analyze the document
             var analyzer = new Analyzer();
-            var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, Environment.CurrentDirectory);
+
+            // Load system assemblies
+            analyzer.LoadSystemAssemblies();
+
+            // Try to find and load project configuration
+            var filePath = UriToFilePath(uri);
+            var projectDir = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
+            var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
+
+            // Load assemblies from project configuration
+            analyzer.LoadFromProjectConfig(projectConfig);
+
+            var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
             state.Diagnostics = analysisResult.Errors;
 
             // Store symbol information for later use
@@ -118,5 +131,24 @@ public class DocumentManager
         }
 
         return symbols;
+    }
+
+    private string UriToFilePath(string uri)
+    {
+        // Convert file:// URI to local file path
+        if (uri.StartsWith("file://"))
+        {
+            var path = uri.Substring(7); // Remove "file://"
+
+            // On Windows, remove the leading slash from paths like /C:/...
+            if (Path.DirectorySeparatorChar == '\\' && path.Length > 2 && path[0] == '/' && path[2] == ':')
+            {
+                path = path.Substring(1);
+            }
+
+            return Uri.UnescapeDataString(path);
+        }
+
+        return uri;
     }
 }

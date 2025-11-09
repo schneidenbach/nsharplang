@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 using NewCLILang.Compiler;
@@ -7,19 +8,35 @@ namespace NewCLILang.Tests;
 
 public class AnalyzerTests
 {
-    private AnalysisResult Analyze(string source)
+    // Project config for ASP.NET Core tests
+    private static readonly ProjectConfig AspNetCoreConfig = new()
+    {
+        Sdk = "Microsoft.NET.Sdk.Web",
+        TargetFramework = "net9.0",
+        // For tests, we'll rely on the Sdk="Web" to trigger loading ASP.NET assemblies
+        // The LoadFromProjectConfig method will load these automatically
+    };
+
+    private AnalysisResult Analyze(string source, ProjectConfig? config = null)
     {
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
         var ast = parser.ParseCompilationUnit();
         var analyzer = new Analyzer();
+
+        // Load system assemblies
+        analyzer.LoadSystemAssemblies();
+
+        // Load from project config if provided
+        analyzer.LoadFromProjectConfig(config);
+
         return analyzer.Analyze(ast);
     }
 
-    private void AssertNoErrors(string source)
+    private void AssertNoErrors(string source, ProjectConfig? config = null)
     {
-        var result = Analyze(source);
+        var result = Analyze(source, config);
         Assert.False(result.HasErrors,
             result.Errors.Count > 0
                 ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
@@ -2253,5 +2270,288 @@ public class AnalyzerTests
                 }
             }
         ");
+    }
+
+    // ==================== ASP.NET Core Integration Tests (Task 034) ====================
+
+    [Fact]
+    public void AspNetCore_WebApplicationBuilder_Resolves()
+    {
+        // Gap 1: External Type Resolution from Imports
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_IsDevelopment_BooleanInference()
+    {
+        // Gap 2: Boolean Type Inference from External Methods
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                if app.Environment.IsDevelopment() {
+                    print ""Development mode""
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_NullCoalescing_WithNullableProperties()
+    {
+        // Gap 3: Null-Coalescing with nullable properties
+        AssertNoErrors(@"
+            record EmployeeDto {
+                Name: string?
+                Title: string?
+            }
+
+            func ProcessEmployee(dto: EmployeeDto): string {
+                name := dto.Name ?? ""Unnamed""
+                title := dto.Title ?? ""No title""
+                return name
+            }
+        ");
+    }
+
+    [Fact]
+    public void AspNetCore_ServicesConfiguration()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                builder.Services.AddControllers()
+                app := builder.Build()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_MiddlewareConfiguration()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                app.UseHttpsRedirection()
+                app.UseAuthorization()
+                app.MapControllers()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_ConditionalMiddleware()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                if app.Environment.IsDevelopment() {
+                    app.UseSwagger()
+                    app.UseSwaggerUI()
+                }
+
+                app.UseHttpsRedirection()
+                app.Run()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_MinimalApi_MapGet()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                app.MapGet(""/"", () => ""Hello from N#!"")
+                app.Run()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_ChainedConfiguration()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+
+            func ConfigureServices(builder: WebApplicationBuilder) {
+                builder.Services.AddControllers()
+                builder.Services.AddEndpointsApiExplorer()
+                builder.Services.AddSwaggerGen()
+            }
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                ConfigureServices(builder)
+                app := builder.Build()
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_EntityFramework_DbContext()
+    {
+        AssertNoErrors(@"
+            import Microsoft.EntityFrameworkCore
+
+            class AppDbContext : DbContext {
+                Employees: DbSet<Employee>
+
+                constructor(options: DbContextOptions<AppDbContext>) : base(options) {
+                }
+            }
+
+            class Employee {
+                Id: int
+                Name: string
+            }
+        ");
+    }
+
+    [Fact]
+    public void AspNetCore_ControllerBase_Inheritance()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Mvc
+
+            class EmployeesController : ControllerBase {
+                func GetAll(): IActionResult {
+                    return Ok()
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_ActionResult_Generic()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Mvc
+
+            record EmployeeDto {
+                Id: int
+                Name: string
+            }
+
+            class EmployeesController : ControllerBase {
+                func GetById(id: int): ActionResult<EmployeeDto> {
+                    dto := new EmployeeDto { Id: id, Name: ""Test"" }
+                    return Ok(dto)
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_BadRequest_WithAnonymousObject()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Mvc
+
+            class EmployeesController : ControllerBase {
+                func Validate(): IActionResult {
+                    errors := [""Error 1"", ""Error 2""]
+                    return BadRequest(new { errors: errors })
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_DateTime_StaticProperties()
+    {
+        AssertNoErrors(@"
+            import System
+
+            record Employee {
+                Id: int
+                Name: string
+                CreatedAt: DateTime
+            }
+
+            func CreateEmployee(): Employee {
+                return new Employee {
+                    Id: 1,
+                    Name: ""Test"",
+                    CreatedAt: DateTime.Now
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void AspNetCore_Guid_Generation()
+    {
+        AssertNoErrors(@"
+            import System
+
+            record Employee {
+                Id: Guid
+                Name: string
+            }
+
+            func CreateEmployee(): Employee {
+                return new Employee {
+                    Id: Guid.NewGuid(),
+                    Name: ""Test""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void AspNetCore_AsyncTask_WithAwait()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+            import Microsoft.AspNetCore.Mvc
+
+            class EmployeesController : ControllerBase {
+                func async GetDataAsync(): Task<IActionResult> {
+                    await Task.Delay(100)
+                    return Ok()
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_ExternalTypeChaining()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.Extensions.DependencyInjection
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                services := builder.Services
+                services.AddControllers()
+                app := builder.Build()
+            }
+        ", AspNetCoreConfig);
     }
 }

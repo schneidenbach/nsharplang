@@ -3215,6 +3215,65 @@ public class Analyzer
     }
 
     /// <summary>
+    /// Load assemblies from project configuration (References and Dependencies)
+    /// </summary>
+    public void LoadFromProjectConfig(ProjectConfig? config)
+    {
+        if (config == null)
+            return;
+
+        // Load explicit references
+        if (config.References != null)
+        {
+            foreach (var reference in config.References)
+            {
+                // Check if it's a file path or assembly name
+                if (File.Exists(reference))
+                {
+                    LoadReferencedAssembly(reference);
+                }
+                else
+                {
+                    LoadReferencedAssemblyByName(reference);
+                }
+            }
+        }
+
+        // Load assemblies from NuGet dependencies
+        // NuGet packages are restored and available in the runtime, so we can try loading by package name
+        if (config.Dependencies != null)
+        {
+            foreach (var dependency in config.Dependencies.Keys)
+            {
+                // Try to load the main assembly for this package
+                // Most packages have an assembly with the same name
+                LoadReferencedAssemblyByName(dependency);
+            }
+        }
+
+        // For ASP.NET projects, load common ASP.NET assemblies
+        if (config.Sdk?.Contains("Web") == true)
+        {
+            var aspNetAssemblies = new[]
+            {
+                "Microsoft.AspNetCore",
+                "Microsoft.AspNetCore.Http",
+                "Microsoft.AspNetCore.Http.Abstractions",
+                "Microsoft.AspNetCore.Mvc.Core",
+                "Microsoft.AspNetCore.Mvc.Abstractions",
+                "Microsoft.AspNetCore.Routing",
+                "Microsoft.Extensions.DependencyInjection",
+                "Microsoft.Extensions.DependencyInjection.Abstractions"
+            };
+
+            foreach (var assembly in aspNetAssemblies)
+            {
+                LoadReferencedAssemblyByName(assembly);
+            }
+        }
+    }
+
+    /// <summary>
     /// Process an import directive and attempt to load the corresponding assembly
     /// </summary>
     public void ProcessImportForAssemblyLoading(ImportDirective import)
