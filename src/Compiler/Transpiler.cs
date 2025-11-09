@@ -78,12 +78,8 @@ public class Transpiler
             WriteLine($"namespace {_compilationUnit.Package.Name};");
             WriteLine();
 
-            // If there are top-level functions in a package, add using static to bring them into scope
-            if (topLevelFunctions.Count > 0 || testDeclarations.Count > 0)
-            {
-                WriteLine($"using static {_compilationUnit.Package.Name};");
-                WriteLine();
-            }
+            // Note: We don't add 'using static' for the package namespace itself since that's invalid C#.
+            // Top-level functions are wrapped in static classes, and enums are accessed with qualified names.
         }
 
         // Transpile non-function/non-test declarations first

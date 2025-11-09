@@ -5,27 +5,27 @@ import Microsoft.EntityFrameworkCore
 import System.Threading.Tasks
 import System.Linq
 
+// ============================================================================
+// DOMAIN: Status Constants (String Enums - defined outside package)
+// ============================================================================
+
+// Employment status - string enum for better API ergonomics
+enum EmploymentStatus {
+    Active = "active",
+    OnLeave = "on_leave",
+    Terminated = "terminated"
+}
+
+// Department - string enum for better API ergonomics
+enum Department {
+    Engineering = "engineering",
+    Sales = "sales",
+    Marketing = "marketing",
+    HR = "hr",
+    Finance = "finance"
+}
+
 package EmployeeApi
-
-// ============================================================================
-// DOMAIN: Status Constants
-// ============================================================================
-
-// Employment status constants
-class EmploymentStatus {
-    static Active: string = "active"
-    static OnLeave: string = "on_leave"
-    static Terminated: string = "terminated"
-}
-
-// Department constants
-class Department {
-    static Engineering: string = "engineering"
-    static Sales: string = "sales"
-    static Marketing: string = "marketing"
-    static HR: string = "hr"
-    static Finance: string = "finance"
-}
 
 // ============================================================================
 // ENTITY: EmployeeEntity
