@@ -473,4 +473,76 @@ func process<T>(value: T): T {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileForeachOverArray()
+    {
+        var source = @"
+func sumArray(numbers: int[]): int {
+    sum := 0
+    foreach num in numbers {
+        sum = sum + num
+    }
+    return sum
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileForeachWithPrint()
+    {
+        var source = @"
+func printArray(numbers: int[]) {
+    foreach num in numbers {
+        print num
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileForeachOverList()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func countList(items: List<int>): int {
+    count := 0
+    foreach item in items {
+        count = count + 1
+    }
+    return count
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileNestedForeach()
+    {
+        var source = @"
+func nestedLoops(matrix: int[][]) {
+    foreach row in matrix {
+        foreach cell in row {
+            print cell
+        }
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }

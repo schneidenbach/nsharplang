@@ -276,6 +276,10 @@ public class ILCompiler
                 EmitPrint(printStmt);
                 break;
 
+            case ForeachStatement foreachStmt:
+                EmitForeach(foreachStmt);
+                break;
+
             default:
                 throw new NotImplementedException($"Statement type {statement.GetType().Name} not yet implemented in IL compiler");
         }
@@ -409,6 +413,246 @@ public class ILCompiler
 
         // Mark end label
         _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// Emit IL for a foreach statement
+    /// </summary>
+    private void EmitForeach(ForeachStatement foreachStmt)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Get the collection type
+        var collectionType = GetExpressionType(foreachStmt.Collection);
+
+        // Determine the element type from the collection
+        Type elementType;
+        Type? enumerableInterface = null;
+
+        if (collectionType.IsArray)
+        {
+            // Handle arrays
+            elementType = collectionType.GetElementType()!;
+        }
+        else
+        {
+            // Try to find IEnumerable<T>
+            enumerableInterface = collectionType.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
+
+            if (enumerableInterface == null && collectionType.IsGenericType &&
+                collectionType.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>))
+            {
+                enumerableInterface = collectionType;
+            }
+
+            if (enumerableInterface != null)
+            {
+                elementType = enumerableInterface.GetGenericArguments()[0];
+            }
+            else
+            {
+                // Fall back to non-generic IEnumerable (element type is object)
+                elementType = typeof(object);
+            }
+        }
+
+        // Emit the collection expression
+        EmitExpression(foreachStmt.Collection);
+
+        // Get the enumerator
+        MethodInfo? getEnumeratorMethod;
+        Type enumeratorType;
+
+        if (collectionType.IsArray)
+        {
+            // For arrays, we need to use a different approach
+            // Arrays don't have GetEnumerator in a straightforward way for IL
+            // We'll implement this as a for loop over array indices instead
+            EmitForeachForArray(foreachStmt, collectionType, elementType);
+            return;
+        }
+        else if (enumerableInterface != null)
+        {
+            // Get IEnumerable<T>.GetEnumerator()
+            getEnumeratorMethod = enumerableInterface.GetMethod("GetEnumerator");
+            enumeratorType = typeof(System.Collections.Generic.IEnumerator<>).MakeGenericType(elementType);
+        }
+        else
+        {
+            // Fall back to non-generic IEnumerable
+            getEnumeratorMethod = typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator");
+            enumeratorType = typeof(System.Collections.IEnumerator);
+        }
+
+        if (getEnumeratorMethod == null)
+        {
+            throw new InvalidOperationException($"Cannot find GetEnumerator method for type {collectionType}");
+        }
+
+        // Store the collection in a local temporarily (already on stack)
+        // Call GetEnumerator on the collection
+        _currentIL.Emit(OpCodes.Callvirt, getEnumeratorMethod);
+
+        // Store the enumerator in a local variable
+        var enumeratorLocal = _currentIL.DeclareLocal(enumeratorType);
+        _currentIL.Emit(OpCodes.Stloc, enumeratorLocal);
+
+        // Create a try-finally block for proper disposal
+        _currentIL.BeginExceptionBlock();
+
+        // Define labels for loop control
+        var loopStart = _currentIL.DefineLabel();
+        var loopEnd = _currentIL.DefineLabel();
+
+        // Mark the start of the loop
+        _currentIL.MarkLabel(loopStart);
+
+        // Load the enumerator and call MoveNext()
+        _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+        var moveNextMethod = enumeratorType.GetMethod("MoveNext") ?? typeof(System.Collections.IEnumerator).GetMethod("MoveNext");
+        if (moveNextMethod == null)
+        {
+            throw new InvalidOperationException("Cannot find MoveNext method");
+        }
+        _currentIL.Emit(OpCodes.Callvirt, moveNextMethod);
+
+        // If MoveNext returns false, exit the loop
+        _currentIL.Emit(OpCodes.Brfalse, loopEnd);
+
+        // Get the current element
+        _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+        var currentProperty = enumeratorType.GetProperty("Current");
+        if (currentProperty == null)
+        {
+            throw new InvalidOperationException("Cannot find Current property");
+        }
+        var getCurrentMethod = currentProperty.GetGetMethod();
+        if (getCurrentMethod == null)
+        {
+            throw new InvalidOperationException("Cannot find get_Current method");
+        }
+        _currentIL.Emit(OpCodes.Callvirt, getCurrentMethod);
+
+        // Declare the loop variable and store the current element
+        LocalBuilder loopVar;
+        if (_locals.TryGetValue(foreachStmt.VariableName, out var existingLocal))
+        {
+            loopVar = existingLocal;
+        }
+        else
+        {
+            loopVar = _currentIL.DeclareLocal(elementType);
+            _locals[foreachStmt.VariableName] = loopVar;
+        }
+        _currentIL.Emit(OpCodes.Stloc, loopVar);
+
+        // Emit the loop body
+        EmitStatement(foreachStmt.Body);
+
+        // Jump back to the loop start
+        _currentIL.Emit(OpCodes.Br, loopStart);
+
+        // Mark the end of the loop
+        _currentIL.MarkLabel(loopEnd);
+
+        // Begin the finally block to dispose the enumerator
+        _currentIL.BeginFinallyBlock();
+
+        // Check if enumerator is IDisposable and dispose it
+        if (typeof(IDisposable).IsAssignableFrom(enumeratorType))
+        {
+            _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+            var disposeMethod = typeof(IDisposable).GetMethod("Dispose");
+            if (disposeMethod != null)
+            {
+                _currentIL.Emit(OpCodes.Callvirt, disposeMethod);
+            }
+        }
+
+        // End the exception block
+        _currentIL.EndExceptionBlock();
+    }
+
+    /// <summary>
+    /// Emit IL for foreach over an array (using index-based iteration)
+    /// </summary>
+    private void EmitForeachForArray(ForeachStatement foreachStmt, Type arrayType, Type elementType)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Store the array in a local
+        var arrayLocal = _currentIL.DeclareLocal(arrayType);
+        _currentIL.Emit(OpCodes.Stloc, arrayLocal);
+
+        // Create index variable (int)
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+
+        // Initialize index to 0
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        // Define labels
+        var loopStart = _currentIL.DefineLabel();
+        var loopEnd = _currentIL.DefineLabel();
+
+        // Mark loop start
+        _currentIL.MarkLabel(loopStart);
+
+        // Check if index < array.Length
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+        _currentIL.Emit(OpCodes.Ldlen);
+        _currentIL.Emit(OpCodes.Conv_I4);
+        _currentIL.Emit(OpCodes.Bge, loopEnd);  // Branch if index >= length
+
+        // Load array element: array[index]
+        _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+
+        // Use appropriate array element load instruction
+        if (elementType == typeof(int))
+            _currentIL.Emit(OpCodes.Ldelem_I4);
+        else if (elementType == typeof(long))
+            _currentIL.Emit(OpCodes.Ldelem_I8);
+        else if (elementType == typeof(bool) || elementType == typeof(byte))
+            _currentIL.Emit(OpCodes.Ldelem_U1);
+        else if (elementType == typeof(double))
+            _currentIL.Emit(OpCodes.Ldelem_R8);
+        else if (elementType == typeof(float))
+            _currentIL.Emit(OpCodes.Ldelem_R4);
+        else if (elementType.IsValueType)
+            _currentIL.Emit(OpCodes.Ldelem, elementType);
+        else
+            _currentIL.Emit(OpCodes.Ldelem_Ref);
+
+        // Declare loop variable and store element
+        LocalBuilder loopVar;
+        if (_locals.TryGetValue(foreachStmt.VariableName, out var existingLocal))
+        {
+            loopVar = existingLocal;
+        }
+        else
+        {
+            loopVar = _currentIL.DeclareLocal(elementType);
+            _locals[foreachStmt.VariableName] = loopVar;
+        }
+        _currentIL.Emit(OpCodes.Stloc, loopVar);
+
+        // Emit loop body
+        EmitStatement(foreachStmt.Body);
+
+        // Increment index
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Add);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        // Jump back to loop start
+        _currentIL.Emit(OpCodes.Br, loopStart);
+
+        // Mark loop end
+        _currentIL.MarkLabel(loopEnd);
     }
 
     /// <summary>
