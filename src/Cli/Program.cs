@@ -40,7 +40,8 @@ class Program
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
-            return BuildMultiFile(Directory.GetCurrentDirectory(), keepGenerated);
+            // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated);
         }
 
         var sourceFile = args[0];
@@ -220,6 +221,153 @@ class Program
         }
     }
 
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false)
+    {
+        string? generatedCsprojPath = null;
+        string? generatedGlobalJsonPath = null;
+        string? generatedNuGetConfigPath = null;
+
+        try
+        {
+            Console.WriteLine($"Building project in {projectRoot}...");
+
+            // Check for project.yml
+            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            if (!File.Exists(projectYmlPath))
+            {
+                return Error("No project.yml found in current directory");
+            }
+
+            // Load project config
+            var config = ProjectFileParser.Parse(projectYmlPath);
+            var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
+
+            // Generate .csproj in the project directory
+            generatedCsprojPath = Path.Combine(projectRoot, $"{projectName}.csproj");
+            var csprojContent = $@"<Project Sdk=""Microsoft.NET.Sdk.NSharp"">
+  <PropertyGroup>
+    <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
+    <TargetFramework>{config.TargetFramework}</TargetFramework>
+  </PropertyGroup>
+</Project>";
+
+            File.WriteAllText(generatedCsprojPath, csprojContent);
+            Console.WriteLine($"Generated {projectName}.csproj");
+
+            // Generate global.json to point to local SDK (for now)
+            generatedGlobalJsonPath = Path.Combine(projectRoot, "global.json");
+            if (!File.Exists(generatedGlobalJsonPath))
+            {
+                var repoRoot = FindRepoRoot(projectRoot);
+                var globalJsonContent = $$"""
+{
+  "sdk": {
+    "version": "9.0.100"
+  },
+  "msbuild-sdks": {
+    "Microsoft.NET.Sdk.NSharp": "0.1.0"
+  }
+}
+""";
+                File.WriteAllText(generatedGlobalJsonPath, globalJsonContent);
+                Console.WriteLine("Generated global.json");
+            }
+            else
+            {
+                generatedGlobalJsonPath = null; // Don't delete if it already existed
+            }
+
+            // Generate NuGet.config to point to local SDK (for now)
+            generatedNuGetConfigPath = Path.Combine(projectRoot, "NuGet.config");
+            if (!File.Exists(generatedNuGetConfigPath))
+            {
+                var repoRoot = FindRepoRoot(projectRoot);
+                var sdkPath = Path.Combine(repoRoot, "src/Build/Microsoft.NET.Sdk.NSharp/bin/Debug");
+                var nugetConfigContent = $@"<?xml version=""1.0"" encoding=""utf-8""?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
+    <add key=""local"" value=""{sdkPath}"" />
+  </packageSources>
+</configuration>";
+                File.WriteAllText(generatedNuGetConfigPath, nugetConfigContent);
+                Console.WriteLine("Generated NuGet.config");
+            }
+            else
+            {
+                generatedNuGetConfigPath = null; // Don't delete if it already existed
+            }
+
+            // Call dotnet build
+            Console.WriteLine("Running dotnet build...");
+            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"build \"{generatedCsprojPath}\"",
+                WorkingDirectory = projectRoot,
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false
+            });
+
+            buildResult?.WaitForExit();
+
+            if (buildResult?.ExitCode != 0)
+            {
+                return Error("Build failed");
+            }
+
+            Console.WriteLine("Build successful!");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Build failed: {ex.Message}");
+        }
+        finally
+        {
+            // Delete generated files unless --keep-generated
+            if (!keepGenerated)
+            {
+                if (generatedCsprojPath != null && File.Exists(generatedCsprojPath))
+                {
+                    File.Delete(generatedCsprojPath);
+                    Console.WriteLine($"Deleted {Path.GetFileName(generatedCsprojPath)}");
+                }
+                if (generatedGlobalJsonPath != null && File.Exists(generatedGlobalJsonPath))
+                {
+                    File.Delete(generatedGlobalJsonPath);
+                    Console.WriteLine("Deleted global.json");
+                }
+                if (generatedNuGetConfigPath != null && File.Exists(generatedNuGetConfigPath))
+                {
+                    File.Delete(generatedNuGetConfigPath);
+                    Console.WriteLine("Deleted NuGet.config");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Generated files kept in: {projectRoot}");
+            }
+        }
+    }
+
+    static string FindRepoRoot(string startPath)
+    {
+        var current = new DirectoryInfo(startPath);
+        while (current != null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "src/Build/Microsoft.NET.Sdk.NSharp")))
+            {
+                return current.FullName;
+            }
+            current = current.Parent;
+        }
+        // Fallback: assume we're in the repo
+        return startPath;
+    }
+
     static int TranspileCommand(string[] args)
     {
         if (args.Length == 0)
@@ -256,7 +404,7 @@ class Program
         if (args.Length == 0)
         {
             // No args - run multi-file project in current directory
-            return RunMultiFile(Directory.GetCurrentDirectory());
+            return RunWithMSBuild(Directory.GetCurrentDirectory());
         }
 
         var sourceFile = args[0];
@@ -410,6 +558,74 @@ class Program
         catch (Exception ex)
         {
             return Error($"Run failed: {ex.Message}");
+        }
+    }
+
+    static int RunWithMSBuild(string projectRoot)
+    {
+        // Build first (generates .csproj, builds, deletes .csproj)
+        var buildResult = BuildWithMSBuild(projectRoot, keepGenerated: true); // Keep it for run
+        if (buildResult != 0)
+        {
+            return buildResult;
+        }
+
+        try
+        {
+            // Load config to get project name
+            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+            var config = ProjectFileParser.Parse(projectYmlPath);
+            var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
+            var csprojPath = Path.Combine(projectRoot, $"{projectName}.csproj");
+
+            // Run with dotnet run
+            Console.WriteLine();
+            Console.WriteLine("Running...");
+            Console.WriteLine();
+
+            var runResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"run --project \"{csprojPath}\" --no-build",
+                WorkingDirectory = projectRoot,
+                UseShellExecute = false
+            });
+
+            runResult?.WaitForExit();
+
+            return runResult?.ExitCode ?? 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Run failed: {ex.Message}");
+        }
+        finally
+        {
+            // Now delete the generated .csproj and config files
+            var config = ProjectFileParser.ParseFromDirectory(projectRoot);
+            if (config != null)
+            {
+                var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
+                var csprojPath = Path.Combine(projectRoot, $"{projectName}.csproj");
+                var globalJsonPath = Path.Combine(projectRoot, "global.json");
+                var nugetConfigPath = Path.Combine(projectRoot, "NuGet.config");
+
+                if (File.Exists(csprojPath))
+                {
+                    File.Delete(csprojPath);
+                    Console.WriteLine($"Deleted {Path.GetFileName(csprojPath)}");
+                }
+                if (File.Exists(globalJsonPath))
+                {
+                    File.Delete(globalJsonPath);
+                    Console.WriteLine("Deleted global.json");
+                }
+                if (File.Exists(nugetConfigPath))
+                {
+                    File.Delete(nugetConfigPath);
+                    Console.WriteLine("Deleted NuGet.config");
+                }
+            }
         }
     }
 
