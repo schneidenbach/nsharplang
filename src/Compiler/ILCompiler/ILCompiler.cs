@@ -21,6 +21,8 @@ public class ILCompiler
     private ILGenerator? _currentIL;
     private Dictionary<string, LocalBuilder>? _locals;
     private Dictionary<string, int>? _parameters;
+    private Dictionary<string, Type>? _parameterTypes;
+    private GenericTypeParameterBuilder[]? _currentGenericParameters;
 
     // Global context
     private TypeBuilder? _programType;
@@ -122,22 +124,45 @@ public class ILCompiler
     /// </summary>
     private void DeclareFunction(TypeBuilder typeBuilder, FunctionDeclaration function)
     {
-        // Determine return type
-        var returnType = function.ReturnType != null
-            ? ResolveType(function.ReturnType)
-            : typeof(void);
-
-        // Determine parameter types
-        var parameterTypes = function.Parameters
-            .Select(p => ResolveType(p.Type))
-            .ToArray();
-
-        // Create method
+        // Create method (without return type and parameter types yet if generic)
         var methodBuilder = typeBuilder.DefineMethod(
             function.Name,
-            MethodAttributes.Public | MethodAttributes.Static,
-            returnType,
-            parameterTypes);
+            MethodAttributes.Public | MethodAttributes.Static);
+
+        // Define generic parameters if present
+        GenericTypeParameterBuilder[]? genericParameters = null;
+        if (function.TypeParameters != null && function.TypeParameters.Count > 0)
+        {
+            var typeParamNames = function.TypeParameters.Select(tp => tp.Name).ToArray();
+            genericParameters = methodBuilder.DefineGenericParameters(typeParamNames);
+
+            // Apply constraints if present
+            if (function.Constraints != null)
+            {
+                foreach (var constraint in function.Constraints)
+                {
+                    var typeParam = genericParameters.FirstOrDefault(gp => gp.Name == constraint.TypeParameter);
+                    if (typeParam != null)
+                    {
+                        ApplyGenericConstraints(typeParam, constraint.Constraints);
+                    }
+                }
+            }
+        }
+
+        // Determine return type (may reference generic parameters)
+        var returnType = function.ReturnType != null
+            ? ResolveType(function.ReturnType, genericParameters)
+            : typeof(void);
+
+        // Determine parameter types (may reference generic parameters)
+        var parameterTypes = function.Parameters
+            .Select(p => ResolveType(p.Type, genericParameters))
+            .ToArray();
+
+        // Set return type and parameter types
+        methodBuilder.SetReturnType(returnType);
+        methodBuilder.SetParameters(parameterTypes);
 
         // Define parameter names
         for (int i = 0; i < function.Parameters.Count; i++)
@@ -159,20 +184,31 @@ public class ILCompiler
             throw new InvalidOperationException($"Method {function.Name} not declared");
         }
 
+        // Get generic parameters if the method is generic
+        _currentGenericParameters = null;
+        if (methodBuilder.IsGenericMethodDefinition)
+        {
+            _currentGenericParameters = methodBuilder.GetGenericArguments()
+                .Cast<GenericTypeParameterBuilder>()
+                .ToArray();
+        }
+
         // Determine return type
         var returnType = function.ReturnType != null
-            ? ResolveType(function.ReturnType)
+            ? ResolveType(function.ReturnType, _currentGenericParameters)
             : typeof(void);
 
         // Get IL generator
         _currentIL = methodBuilder.GetILGenerator();
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
+        _parameterTypes = new Dictionary<string, Type>();
 
-        // Map parameter names to indices
+        // Map parameter names to indices and types
         for (int i = 0; i < function.Parameters.Count; i++)
         {
             _parameters[function.Parameters[i].Name] = i;
+            _parameterTypes[function.Parameters[i].Name] = ResolveType(function.Parameters[i].Type, _currentGenericParameters);
         }
 
         // Emit function body
@@ -191,6 +227,8 @@ public class ILCompiler
         _currentIL = null;
         _locals = null;
         _parameters = null;
+        _parameterTypes = null;
+        _currentGenericParameters = null;
     }
 
     /// <summary>
@@ -279,7 +317,7 @@ public class ILCompiler
         Type varType;
         if (varDecl.Type != null)
         {
-            varType = ResolveType(varDecl.Type);
+            varType = ResolveType(varDecl.Type, _currentGenericParameters);
         }
         else if (varDecl.Initializer != null)
         {
@@ -613,22 +651,53 @@ public class ILCompiler
                 throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {typeBuilder.Name}");
             }
 
+            // Handle constrained calls on generic type parameters
+            if (objectType.IsGenericParameter)
+            {
+                // For generic type parameters, we need to find the method on the constraint
+                MethodInfo? method = null;
+
+                // Try to find the method on the constraints
+                var constraints = objectType.GetGenericParameterConstraints();
+                foreach (var constraint in constraints)
+                {
+                    // Get all methods with the matching name
+                    var methods = constraint.GetMethods().Where(m => m.Name == memberAccess.MemberName).ToArray();
+
+                    // For now, just take the first one with matching argument count
+                    method = methods.FirstOrDefault(m => m.GetParameters().Length == call.Arguments.Count);
+
+                    if (method != null)
+                        break;
+                }
+
+                if (method != null)
+                {
+                    // Use constrained callvirt for generic type parameters
+                    _currentIL.Emit(OpCodes.Constrained, objectType);
+                    _currentIL.Emit(OpCodes.Callvirt, method);
+                    return;
+                }
+
+                throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on generic type parameter {objectType.Name}");
+            }
+
             // Find the method using reflection for built-in types
-            var parameterTypes = call.Arguments
+            var argTypes = call.Arguments
                 .Select(arg => GetExpressionType(arg.Value))
                 .ToArray();
 
-            MethodInfo? method = objectType.GetMethod(memberAccess.MemberName, parameterTypes);
+            MethodInfo? methodInfo = objectType.GetMethod(memberAccess.MemberName, argTypes);
 
-            if (method != null)
+            if (methodInfo != null)
             {
-                if (method.IsVirtual)
+                if (methodInfo.IsVirtual)
                 {
-                    _currentIL.Emit(OpCodes.Callvirt, method);
+                    _currentIL.Emit(OpCodes.Callvirt, methodInfo);
                 }
                 else
                 {
-                    _currentIL.Emit(OpCodes.Call, method);
+                    _currentIL.Emit(OpCodes.Call, methodInfo);
                 }
                 return;
             }
@@ -916,7 +985,7 @@ public class ILCompiler
             throw new NotImplementedException("Target-typed new not yet supported in IL compiler");
         }
 
-        var type = ResolveType(newExpr.Type);
+        var type = ResolveType(newExpr.Type, _currentGenericParameters);
 
         // Emit arguments first
         foreach (var arg in newExpr.ConstructorArguments)
@@ -1085,7 +1154,7 @@ public class ILCompiler
             IdentifierExpression ident => GetIdentifierType(ident),
             BinaryExpression binary => GetBinaryExpressionType(binary),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
-            NewExpression newExpr => newExpr.Type != null ? ResolveType(newExpr.Type) : typeof(object),
+            NewExpression newExpr => newExpr.Type != null ? ResolveType(newExpr.Type, _currentGenericParameters) : typeof(object),
             MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),
             CallExpression call => GetCallExpressionType(call),
             ThisExpression => _currentTypeBuilder ?? typeof(object),
@@ -1103,7 +1172,11 @@ public class ILCompiler
             return local.LocalType;
         }
 
-        // TODO: Look up parameter types
+        if (_parameterTypes != null && _parameterTypes.TryGetValue(ident.Name, out var paramType))
+        {
+            return paramType;
+        }
+
         return typeof(object);
     }
 
@@ -1214,8 +1287,24 @@ public class ILCompiler
     /// </summary>
     private Type ResolveType(TypeReference typeRef)
     {
+        return ResolveType(typeRef, null);
+    }
+
+    /// <summary>
+    /// Resolve a type reference to a System.Type, with optional generic parameters
+    /// </summary>
+    private Type ResolveType(TypeReference typeRef, GenericTypeParameterBuilder[]? genericParameters)
+    {
         if (typeRef is SimpleTypeReference simpleType)
         {
+            // Check for generic type parameters first
+            if (genericParameters != null)
+            {
+                var genericParam = genericParameters.FirstOrDefault(gp => gp.Name == simpleType.Name);
+                if (genericParam != null)
+                    return genericParam;
+            }
+
             // Check for built-in types
             var builtInType = simpleType.Name switch
             {
@@ -1243,8 +1332,89 @@ public class ILCompiler
             return typeof(object);
         }
 
-        // TODO: Handle generic types, array types, etc.
+        if (typeRef is GenericTypeReference genericType)
+        {
+            // Resolve the base type by name
+            // The genericType.Name is the base generic type (e.g., "List", "IComparable")
+            Type? baseType = null;
+
+            // Try to resolve known generic types from System namespace
+            baseType = genericType.Name switch
+            {
+                "List" => typeof(System.Collections.Generic.List<>),
+                "IEnumerable" => typeof(System.Collections.Generic.IEnumerable<>),
+                "ICollection" => typeof(System.Collections.Generic.ICollection<>),
+                "IList" => typeof(System.Collections.Generic.IList<>),
+                "Dictionary" => typeof(System.Collections.Generic.Dictionary<,>),
+                "IDictionary" => typeof(System.Collections.Generic.IDictionary<,>),
+                "IComparable" => typeof(System.IComparable<>),
+                "Task" => typeof(System.Threading.Tasks.Task<>),
+                "ValueTask" => typeof(System.Threading.Tasks.ValueTask<>),
+                _ => null
+            };
+
+            // If not a known system type, try to resolve from user-defined types
+            if (baseType == null && _types.TryGetValue(genericType.Name, out var typeBuilder))
+            {
+                baseType = typeBuilder;
+            }
+
+            if (baseType == null)
+            {
+                // Unknown generic type, default to object
+                return typeof(object);
+            }
+
+            // Resolve type arguments
+            var typeArgs = genericType.TypeArguments
+                .Select(ta => ResolveType(ta, genericParameters))
+                .ToArray();
+
+            // Make the generic type
+            return baseType.MakeGenericType(typeArgs);
+        }
+
+        // TODO: Handle array types, nullable types, etc.
         return typeof(object);
+    }
+
+    /// <summary>
+    /// Apply generic constraints to a generic type parameter
+    /// </summary>
+    private void ApplyGenericConstraints(GenericTypeParameterBuilder typeParam, List<TypeReference> constraints)
+    {
+        var interfaceConstraints = new List<Type>();
+        Type? baseClassConstraint = null;
+
+        foreach (var constraint in constraints)
+        {
+            var constraintType = ResolveType(constraint, null);
+
+            if (constraintType.IsClass)
+            {
+                // Base class constraint (can only have one)
+                baseClassConstraint = constraintType;
+            }
+            else if (constraintType.IsInterface)
+            {
+                // Interface constraint (can have multiple)
+                interfaceConstraints.Add(constraintType);
+            }
+        }
+
+        // Set base class constraint
+        if (baseClassConstraint != null)
+        {
+            typeParam.SetBaseTypeConstraint(baseClassConstraint);
+        }
+
+        // Set interface constraints
+        if (interfaceConstraints.Count > 0)
+        {
+            typeParam.SetInterfaceConstraints(interfaceConstraints.ToArray());
+        }
+
+        // TODO: Handle other constraint types (struct, class, new(), unmanaged)
     }
 
     /// <summary>

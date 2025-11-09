@@ -416,4 +416,61 @@ func main(): int {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileGenericFunction()
+    {
+        var source = @"
+func identity<T>(value: T): T {
+    return value
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileGenericFunctionWithConstraint()
+    {
+        var source = @"
+func compare<T>(a: T, b: T): int where T: IComparable<T> {
+    return a.CompareTo(b)
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileGenericFunctionWithMultipleParameters()
+    {
+        var source = @"
+func swap<T, U>(first: T, second: U): bool {
+    return true
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileGenericFunctionWithLocalVariables()
+    {
+        var source = @"
+func process<T>(value: T): T {
+    temp := value
+    return temp
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }
