@@ -1,9 +1,30 @@
-# Task 038: Direct IL Compiler
+# Task 038: Direct IL Compiler (Renumbered to Task 056 in roadmap)
 
-**Priority:** Medium (Performance & Independence - not urgent but valuable)
+**Priority:** 🟢 P3-Low (Nice to have, not essential for 1.0)
+**Roadmap Position:** End (after all tooling, IDE plugins, and documentation)
 **Dependencies:** None (parallel path to transpiler)
-**Estimated Effort:** Very Large (30-40 hours, potentially more)
+**Estimated Effort:** Very Large (30-40 hours remaining)
 **Status:** Phase 1-5 Complete | Phase 6 Deferred | Phase 7 In Progress (4/8 features)
+
+## Why Low Priority?
+
+The transpiler approach:
+- ✅ Works great today
+- ✅ Leverages Roslyn's battle-tested optimizations
+- ✅ Easier to maintain
+- ✅ Better C# interop
+- ✅ Better debugging experience
+
+IL compiler benefits:
+- ⚡ Faster compilation (10-50x estimated)
+- 🎯 No C# dependency
+- ❌ More complex to maintain
+- ❌ Harder to debug
+- ❌ **Doesn't solve adoption problems**
+
+**Bottom line:** Developer experience and tooling matter 100x more than compilation speed. The transpiler is fast enough for all practical purposes. Focus on IDE plugins, formatter, docs, and .NET CLI integration first.
+
+**When to Prioritize:** After 1.0 release, if compilation speed becomes a measurable bottleneck. Not before.
 
 ## Current Achievement Summary
 

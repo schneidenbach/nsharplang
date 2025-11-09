@@ -16,27 +16,41 @@ export function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('nsharp');
     let serverPath = config.get<string>('languageServer.path');
 
-    // If no custom path, use the bundled/built server
+    // If no custom path, use the bundled server
     if (!serverPath) {
-        // Try to find the server in the compiled output
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (workspaceRoot) {
-            // Assume server is built at src/LanguageServer/bin/Debug/net9.0/LanguageServer.dll
-            serverPath = path.join(
-                workspaceRoot,
-                'src',
-                'LanguageServer',
-                'bin',
-                'Debug',
-                'net9.0',
-                'LanguageServer.dll'
-            );
+        // Look for the bundled server in the extension directory
+        serverPath = path.join(
+            context.extensionPath,
+            'server',
+            'LanguageServer.dll'
+        );
+
+        // Check if the bundled server exists
+        const fs = require('fs');
+        if (!fs.existsSync(serverPath)) {
+            // Fallback: try to find server in workspace (for development)
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+                const devServerPath = path.join(
+                    workspaceRoot,
+                    'src',
+                    'LanguageServer',
+                    'bin',
+                    'Debug',
+                    'net9.0',
+                    'LanguageServer.dll'
+                );
+                if (fs.existsSync(devServerPath)) {
+                    serverPath = devServerPath;
+                }
+            }
         }
     }
 
-    if (!serverPath) {
+    const fs = require('fs');
+    if (!serverPath || !fs.existsSync(serverPath)) {
         vscode.window.showErrorMessage(
-            'N# Language Server not found. Please build the server or configure the path in settings.'
+            'N# Language Server not found. Please ensure the extension is properly installed or configure the path in settings.'
         );
         return;
     }

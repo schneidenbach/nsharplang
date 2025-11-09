@@ -1,0 +1,486 @@
+# N# Language Development Roadmap
+
+**Last Updated:** 2025-11-09
+**Current Status:** v1.69 | 656 passing tests | Core language complete
+
+## Philosophy: Incremental Value
+
+Each task delivers **immediate, tangible value** to developers. No massive undertakings - build confidence through steady progress.
+
+---
+
+## Phase 1: Foundation (P0 - Critical for 1.0)
+
+### ✅ Task 037: Comprehensive IntelliSense
+**Status:** Complete
+**Impact:** Core IDE experience
+
+### Task 039: .NET CLI Integration
+**Status:** Not started
+**Priority:** 🔴 P0-Critical
+**Effort:** Large (20-30 hours)
+**Impact:** Makes N# a first-class .NET language
+
+**Why First:**
+> Without `dotnet` integration, N# feels like a toy. This is the foundation for everything else.
+
+**Deliverables:**
+- MSBuild SDK (`Microsoft.NET.Sdk.NSharp`)
+- `.nlproj` project files
+- `dotnet new` templates
+- Full solution support
+
+**Success Criteria:**
+```bash
+dotnet new nsharp-console -o MyApp
+cd MyApp
+dotnet build
+dotnet run
+dotnet test
+```
+
+---
+
+### Task 040: Code Formatter
+**Status:** Not started
+**Priority:** 🔴 P0-Critical
+**Effort:** Medium (15-20 hours)
+**Impact:** Essential for team collaboration
+
+**Why Critical:**
+> No formatter = style debates in every PR. Blocks team adoption.
+
+**Deliverables:**
+- `dotnet format` support for `.nl` files
+- `.editorconfig` integration
+- IDE format-on-save
+- CI verification mode
+
+**Success Criteria:**
+```bash
+dotnet format
+dotnet format --verify-no-changes  # for CI
+```
+
+---
+
+### Task 041: Official Website & Core Documentation
+**Status:** Not started
+**Priority:** 🔴 P0-Critical
+**Effort:** Large (25-30 hours)
+**Impact:** First impressions & discoverability
+
+**Why Critical:**
+> Ugly/missing docs = "toy language". Professional site = professional language.
+
+**Deliverables:**
+- https://nsharp.dev/ with professional design
+- Getting started guide (< 5 min to first app)
+- Language reference
+- C# migration guide
+- API reference
+
+**Success Criteria:**
+- Developer can get started in < 5 minutes
+- All core features documented
+- Searchable & mobile-friendly
+
+---
+
+### Task 042: NuGet Package Publishing
+**Status:** Not started
+**Priority:** 🔴 P0-Critical
+**Effort:** Medium (10-15 hours)
+**Depends on:** Task 039
+
+**Core Packages:**
+- `Microsoft.NET.Sdk.NSharp` - MSBuild SDK
+- `NSharp.Templates` - Project templates
+- `NSharp.Compiler` - Compiler API
+- `NSharp.LanguageServer` - LSP server
+
+**Success Criteria:**
+```bash
+dotnet new install NSharp.Templates
+dotnet workload install nsharp
+```
+
+---
+
+### Task 043: Error Message Polish
+**Status:** Needs improvement
+**Priority:** 🔴 P0-Critical
+**Effort:** Medium (12-15 hours)
+**Impact:** Developer confidence & productivity
+
+**Current:**
+```
+Error NL103: Undefined identifier 'Foo'
+  --> Program.nl:5:10
+```
+
+**Target (Rust/Elm quality):**
+```
+error NL103: cannot find type 'Foo' in this scope
+  --> Program.nl:5:10
+   |
+ 5 | x := new Foo()
+   |          ^^^ not found in this scope
+   |
+help: you might be missing an import
+   |
+ 1 + import MyNamespace
+   |
+note: there is a type 'Foo' in namespace 'MyNamespace'
+```
+
+---
+
+## Phase 2: Developer Tools (P1 - For 1.0-1.5)
+
+### Task 044: Linter & Analyzer
+**Status:** Not started
+**Priority:** 🟡 P1-High
+**Effort:** Large (20-25 hours)
+**Depends on:** Task 039
+
+**Deliverables:**
+- Static analysis rules
+- Best practice warnings
+- Unused code detection
+- Nullable reference warnings
+- `.editorconfig` severity configuration
+
+**Example Rules:**
+- `NL001`: Unused variable
+- `NL002`: Possible null reference
+- `NL003`: Async method without await
+- `NL004`: Use pattern matching instead
+
+---
+
+### Task 045: Code Fixes & Refactorings
+**Status:** Not started
+**Priority:** 🟡 P1-High
+**Effort:** Medium (12-15 hours)
+**Depends on:** Task 044
+
+**Quick Fixes:**
+- Add missing import
+- Remove unused variable
+- Add null check
+- Convert to pattern matching
+- Extract variable/method
+
+**Refactorings:**
+- Rename (F2)
+- Extract method
+- Extract interface
+- Change signature
+
+---
+
+### Task 046: CI/CD Templates
+**Status:** Not started
+**Priority:** 🟡 P1-High
+**Effort:** Small (8-10 hours)
+
+**Deliverables:**
+- GitHub Actions workflows
+- Azure Pipelines YAML
+- Docker images (SDK + Runtime)
+- Example configurations
+
+**Success Criteria:**
+```yaml
+# .github/workflows/build.yml works out of the box
+dotnet restore
+dotnet build
+dotnet test
+dotnet pack
+```
+
+---
+
+### Task 047: Test Coverage Integration
+**Status:** Not started
+**Priority:** 🟡 P1-Medium
+**Effort:** Small (5-7 hours)
+
+**Deliverables:**
+- Coverlet integration
+- HTML report generation
+- IDE line highlighting
+- Codecov/Coveralls support
+
+```bash
+dotnet test /p:CollectCoverage=true
+dotnet test /p:CoverletOutputFormat=opencover
+```
+
+---
+
+### Task 048: VS Code Polish
+**Status:** Partial (extension exists)
+**Priority:** 🟡 P1-Medium
+**Effort:** Medium (10-12 hours)
+
+**Still Needed:**
+- Debugging support (launch.json)
+- Task templates (build/run/test)
+- Better diagnostics display
+- Code actions (quick fixes)
+- Marketplace listing with screenshots
+
+---
+
+## Phase 3: IDE Integration (P1 - Essential for adoption)
+
+### Task 049: Debugging Support (Cross-IDE)
+**Status:** Not started
+**Priority:** 🟡 P1-High
+**Effort:** Large (25-30 hours)
+
+**Core Requirements:**
+- Breakpoints work
+- Step through (F10/F11)
+- Watch/Locals windows
+- Call stack
+- Conditional breakpoints
+
+**IDEs:**
+- VS Code (via debugger adapter)
+- Visual Studio (via debugger engine)
+- Rider (via IDEA debugger)
+
+**Why Before IDE Plugins:**
+> Debugger is shared infrastructure. Build once, use everywhere.
+
+---
+
+### Task 050: Rider Plugin
+**Status:** Not started
+**Priority:** 🟡 P1-High
+**Effort:** Large (25-30 hours)
+**Depends on:** Task 049 (debugging)
+
+**Deliverables:**
+- JetBrains Marketplace plugin
+- Language support via LSP
+- Project model integration
+- Run configurations
+- Debugging integration
+- Refactoring tools
+- Unit test runner
+
+**Why Before Visual Studio:**
+> Rider is popular with OSS developers and cross-platform teams. Easier to develop and test.
+
+---
+
+### Task 051: Visual Studio Extension
+**Status:** Not started
+**Priority:** 🟠 P1-Medium (but eventually critical for enterprise)
+**Effort:** Very Large (40-50 hours)
+**Depends on:** Task 049 (debugging), Task 050 (Rider - learn from it)
+
+**Deliverables:**
+- Visual Studio .vsix extension
+- Project templates in "New Project" dialog
+- Full IntelliSense integration
+- Syntax highlighting (semantic)
+- Error squiggles
+- Go to definition / Find references
+- Rename refactoring
+- Code snippets
+- Debugging support
+- Solution Explorer integration
+- Build/Run/Debug from toolbar
+
+**Why After Rider:**
+> VS extension is much more complex. Learn from Rider implementation first. Plus, many modern .NET devs use VS Code or Rider.
+
+---
+
+## Phase 4: Advanced Features (P2 - Polish)
+
+### Task 052: Framework Templates
+**Status:** Partial (ASP.NET works)
+**Priority:** 🟢 P2-Medium
+**Effort:** Medium (15-20 hours)
+
+**Templates:**
+- ASP.NET Core (Web API, MVC, Razor Pages)
+- Blazor (Server & WebAssembly)
+- MAUI (mobile apps)
+- Worker services
+- Class libraries
+
+---
+
+### Task 053: Performance & Benchmarking
+**Status:** Not started
+**Priority:** 🟢 P2-Medium
+**Effort:** Medium (12-15 hours)
+
+**Deliverables:**
+- BenchmarkDotNet integration
+- Compiler performance benchmarks
+- Runtime performance vs C#
+- Compilation time measurement
+- Memory usage profiling
+
+**Target:**
+> Compile 10,000 lines in < 1 second
+
+---
+
+### Task 054: Community & Release Automation
+**Status:** Not started
+**Priority:** 🟢 P2-Medium
+**Effort:** Medium (10-12 hours)
+
+**Infrastructure:**
+- Discord server
+- GitHub Discussions
+- Stack Overflow tag
+- Automated releases
+- Changelog generation
+- NuGet auto-publish
+
+---
+
+### Task 055: Source Generators & Advanced Interop
+**Status:** Not started
+**Priority:** 🟢 P2-Low
+**Effort:** Large (20-25 hours)
+
+**Features:**
+- Roslyn source generators work with N#
+- Nullable flow analysis improvements
+- Source Link support
+- Advanced C# interop patterns
+
+---
+
+## Phase 5: Future Exploration (P3 - Optional)
+
+### Task 056: IL Compiler Completion
+**Status:** Phases 1-5 complete, Phase 7 partial
+**Priority:** 🟢 P3-Low (Nice to have, not essential)
+**Effort:** Very Large (30-40 hours remaining)
+
+**Rationale for Low Priority:**
+> Transpilation to C# works great and leverages Roslyn's battle-tested optimizations. IL compiler is interesting but not essential for 1.0. Performance gains are nice but marginal compared to tooling gaps.
+
+**Remaining Work:**
+- Complete Phase 7 advanced features
+- Pattern matching IL emission
+- Records IL emission
+- Lambda expressions IL emission
+- Performance benchmarking vs transpiler
+
+**When to Prioritize:**
+> After 1.0 release, if compilation speed becomes a bottleneck. Not before.
+
+---
+
+## Priority Rationale
+
+### Why This Order?
+
+1. **.NET CLI Integration (039)** - Foundation for everything
+2. **Code Formatter (040)** - Unblocks teams immediately
+3. **Website & Docs (041)** - Discovery and credibility
+4. **NuGet (042)** - Distribution and installation
+5. **Error Messages (043)** - Developer confidence
+
+Then:
+
+6. **Tooling (044-048)** - Linter, code fixes, CI/CD, coverage
+7. **Debugging (049)** - Shared infrastructure for all IDEs
+8. **Rider (050)** - Faster to build, popular with OSS devs
+9. **Visual Studio (051)** - Harder to build, but essential long-term
+10. **Polish (052-055)** - Templates, performance, community
+11. **IL Compiler (056)** - Interesting but not essential
+
+### Why IL Compiler Last?
+
+The transpiler approach:
+- ✅ Works great today
+- ✅ Leverages Roslyn's optimizations
+- ✅ Easier to maintain
+- ✅ Better C# interop
+- ✅ Better debugging experience
+
+IL compiler benefits:
+- ⚡ Faster compilation (10-50x)
+- 🎯 No C# dependency
+- ❌ More complex to maintain
+- ❌ Harder to debug
+- ❌ Doesn't solve adoption problems
+
+**Bottom line:** Developer experience and tooling matter 100x more than compilation speed. Fix those first.
+
+---
+
+## Timeline Estimates
+
+### Minimum Viable 1.0 (P0 only)
+- Tasks 039-043: ~95-110 hours
+- **At 20 hrs/week:** 5-6 weeks
+- **At 40 hrs/week:** 2.5-3 weeks
+
+### Strong 1.0 (P0 + P1 tooling)
+- Tasks 039-048: ~185-210 hours
+- **At 20 hrs/week:** 9-10 weeks
+- **At 40 hrs/week:** 4.5-5 weeks
+
+### Complete 1.0 (P0 + P1 + IDE)
+- Tasks 039-051: ~285-325 hours
+- **At 20 hrs/week:** 14-16 weeks (3.5-4 months)
+- **At 40 hrs/week:** 7-8 weeks (2 months)
+
+### Full Professional (P0 + P1 + P2)
+- Tasks 039-055: ~350-390 hours
+- **At 20 hrs/week:** 17-20 weeks (4-5 months)
+- **At 40 hrs/week:** 9-10 weeks (2-2.5 months)
+
+---
+
+## Success Metrics
+
+### Developer Adoption (1.0 target)
+- ✅ 1,000+ VS Code extension installs
+- ✅ 500+ NuGet downloads
+- ✅ 100+ GitHub stars
+- ✅ 10+ production projects
+
+### Technical Quality (1.0 target)
+- ✅ <50ms IntelliSense response
+- ✅ <1s compile time (typical project)
+- ✅ 95%+ test coverage
+- ✅ World-class error messages
+
+### Community Validation (post-1.0)
+- ✅ Featured on .NET blog
+- ✅ Conference talks
+- ✅ Positive HackerNews discussion
+- ✅ Used by 5+ companies in production
+
+---
+
+## The Path Forward
+
+**Start here:** Task 039 (.NET CLI Integration)
+**Then:** Tasks 040-043 (formatter, docs, NuGet, errors)
+**Then:** Tasks 044-048 (tooling & polish)
+**Then:** Tasks 049-051 (debugging & IDE plugins)
+**Later:** Tasks 052-055 (advanced features)
+**Maybe:** Task 056 (IL compiler)
+
+**Each task delivers value immediately. No long waits for results.**
+
+---
+
+*"Incremental progress beats perfect plans."*
