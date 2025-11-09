@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -47,6 +48,12 @@ public class ProjectConfig
     public Dictionary<string, string> Dependencies { get; set; } = new();
 
     /// <summary>
+    /// Test-specific NuGet package dependencies (package name -> version)
+    /// These are only included when running tests, not in the main project build
+    /// </summary>
+    public Dictionary<string, string> TestDependencies { get; set; } = new();
+
+    /// <summary>
     /// Assembly references (for external type resolution)
     /// Can be assembly names (e.g., "Microsoft.AspNetCore") or file paths
     /// </summary>
@@ -59,6 +66,13 @@ public class ProjectConfig
     public List<string> ProjectReferences { get; set; } = new();
 
     /// <summary>
+    /// Files to exclude from compilation
+    /// Supports glob patterns (e.g., "*.tests.nl", "temp/**/*.nl")
+    /// By default, all .nl files are included except those matching exclude patterns
+    /// </summary>
+    public List<string> Exclude { get; set; } = new();
+
+    /// <summary>
     /// Language-specific configuration
     /// </summary>
     public LanguageConfig Language { get; set; } = new();
@@ -68,6 +82,55 @@ public class ProjectConfig
     /// </summary>
     [YamlIgnore]
     public string EffectiveName => Name ?? Path.GetFileName(Environment.CurrentDirectory) ?? "Project";
+
+    /// <summary>
+    /// Gets all .nl files in the project directory, excluding test files and files matching exclude patterns
+    /// </summary>
+    /// <param name="projectRoot">Root directory of the project</param>
+    /// <param name="includeTests">Whether to include .tests.nl files (default: false)</param>
+    /// <returns>Array of file paths</returns>
+    public string[] GetSourceFiles(string projectRoot, bool includeTests = false)
+    {
+        // Get all .nl files recursively
+        var allFiles = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories);
+
+        // Filter out test files if not including them
+        var files = includeTests
+            ? allFiles
+            : allFiles.Where(f => !f.EndsWith(".tests.nl")).ToArray();
+
+        // Apply exclude patterns
+        if (Exclude.Count > 0)
+        {
+            files = files.Where(file =>
+            {
+                var relativePath = Path.GetRelativePath(projectRoot, file);
+                return !Exclude.Any(pattern => MatchesPattern(relativePath, pattern));
+            }).ToArray();
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Simple glob pattern matching (supports * and **)
+    /// </summary>
+    private static bool MatchesPattern(string path, string pattern)
+    {
+        // Normalize path separators
+        path = path.Replace('\\', '/');
+        pattern = pattern.Replace('\\', '/');
+
+        // Convert glob pattern to regex
+        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+            .Replace("\\*\\*/", ".*?/")  // **/ matches any number of directories
+            .Replace("\\*\\*", ".*")      // ** matches anything
+            .Replace("\\*", "[^/]*")      // * matches anything except /
+            .Replace("\\?", ".")          // ? matches single character
+            + "$";
+
+        return System.Text.RegularExpressions.Regex.IsMatch(path, regexPattern);
+    }
 }
 
 /// <summary>

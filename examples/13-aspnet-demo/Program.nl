@@ -15,18 +15,25 @@ func Main(args: string[]) {
     builder.Services.AddEndpointsApiExplorer()
     builder.Services.AddSwaggerGen()
 
-    // Add database context with SQLite
-    builder.Services.AddDbContext<AppDbContext>(options => {
-        options.UseSqlite("Data Source=employees.db")
-    })
+    // Add database context with SQLite (skip for test environment)
+    if builder.Environment.EnvironmentName != "Testing" {
+        builder.Services.AddDbContext<AppDbContext>(options => {
+            options.UseSqlite("Data Source=employees.db")
+        })
+    }
 
     app := builder.Build()
 
-    // Ensure database is created
-    {
+    // Ensure database is created (skip for in-memory databases used in tests)
+    if !app.Environment.EnvironmentName.Contains("Test") {
         scope := app.Services.CreateScope()
         db := scope.ServiceProvider.GetRequiredService<AppDbContext>()
-        db.Database.EnsureCreated()
+
+        // Only call EnsureCreated for non-in-memory databases
+        if db.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory" {
+            db.Database.EnsureCreated()
+        }
+
         scope.Dispose()
     }
 
@@ -41,4 +48,8 @@ func Main(args: string[]) {
     app.MapControllers()
 
     app.Run()
+}
+
+// Make Program class available for WebApplicationFactory testing
+class Program {
 }

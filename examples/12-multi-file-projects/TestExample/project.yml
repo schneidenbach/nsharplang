@@ -3,5 +3,11 @@ version: 1.0.0
 outputType: library
 targetFramework: net9.0
 
+# All .nl files are automatically discovered (excluding .tests.nl files)
+# To exclude additional files, use the exclude list:
+# exclude:
+#   - temp/**/*.nl
+#   - old-code.nl
+
 language:
   asyncDefaultType: ValueTask

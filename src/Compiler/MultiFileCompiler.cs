@@ -22,8 +22,8 @@ public class MultiFileCompiler
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
         _projectRoot = projectRoot;
-        _config = config;
-        _sourceFiles = DiscoverSourceFiles(projectRoot);
+        _config = config ?? ProjectFileParser.CreateDefault();
+        _sourceFiles = DiscoverSourceFiles(projectRoot, _config);
     }
 
     public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config = null)
@@ -34,17 +34,18 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Discovers all .nl files in the project directory (excludes .tests.nl)
+    /// Discovers all .nl files in the project directory using ProjectConfig exclude patterns
+    /// (excludes .tests.nl files)
     /// </summary>
-    private static List<string> DiscoverSourceFiles(string projectRoot)
+    private static List<string> DiscoverSourceFiles(string projectRoot, ProjectConfig config)
     {
         if (!Directory.Exists(projectRoot))
         {
             return new List<string>();
         }
 
-        return Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories)
-            .Where(f => !f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
+        // Use ProjectConfig's GetSourceFiles method which respects exclude patterns
+        return config.GetSourceFiles(projectRoot, includeTests: false)
             .Select(f => Path.GetFullPath(f))
             .ToList();
     }

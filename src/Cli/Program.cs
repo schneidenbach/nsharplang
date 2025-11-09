@@ -564,10 +564,8 @@ func Main() {{
             // Load project config
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
 
-            // Find all non-test .nl files (for project reference)
-            var sourceFiles = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories)
-                .Where(f => !f.EndsWith(".tests.nl"))
-                .ToArray();
+            // Find all non-test .nl files using project config (respects exclude patterns)
+            var sourceFiles = projectConfig.GetSourceFiles(projectRoot, includeTests: false);
 
             // For exe projects, build main project first and reference it
             // For library projects, compile all together (current behavior)
@@ -716,6 +714,17 @@ func Main() {{
                     Directory.CreateDirectory(testOutputDir);
                     var targetDepsPath = Path.Combine(testOutputDir, Path.GetFileName(depsJsonPath));
                     File.Copy(depsJsonPath, targetDepsPath, true);
+
+                    // Create a dummy .csproj and .sln in output directory for WebApplicationFactory content root detection
+                    var dummyCsproj = Path.Combine(testOutputDir, "TestProject.csproj");
+                    File.WriteAllText(dummyCsproj, "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>" + projectConfig.TargetFramework + "</TargetFramework></PropertyGroup></Project>");
+
+                    var dummySln = Path.Combine(testOutputDir, "TestProject.sln");
+                    File.WriteAllText(dummySln, "Microsoft Visual Studio Solution File, Format Version 12.00");
+
+                    // Create project name subdirectory that WebApplicationFactory expects
+                    var projectContentRoot = Path.Combine(testOutputDir, projectConfig.EffectiveName);
+                    Directory.CreateDirectory(projectContentRoot);
                 }
             }
 
@@ -762,8 +771,13 @@ func Main() {{
     {
         config ??= ProjectFileParser.CreateDefault();
 
+        // Merge both regular dependencies and test dependencies
+        var allDependencies = config.Dependencies
+            .Concat(config.TestDependencies)
+            .DistinctBy(kvp => kvp.Key); // Test dependencies override regular ones if same package
+
         var dependencies = string.Join("\n    ",
-            config.Dependencies.Select(kvp =>
+            allDependencies.Select(kvp =>
                 $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
 
         var assemblyReference = "";
