@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using NewCLILang.Compiler;
@@ -166,5 +167,72 @@ func main() {
 
         // Should not throw
         compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileVariableAssignment()
+    {
+        var source = @"
+func testAssignment(): int {
+    x := 5
+    x = 10
+    return x
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileCompoundAssignment()
+    {
+        var source = @"
+func testCompoundAssignment(): int {
+    x := 5
+    x += 3
+    x -= 2
+    x *= 2
+    x /= 3
+    return x
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_SavesAssemblyToDisk()
+    {
+        var outputPath = Path.Combine(Path.GetTempPath(), "ILCompilerTest_" + Guid.NewGuid() + ".dll");
+        try
+        {
+            var source = @"
+func add(x: int, y: int): int {
+    return x + y
+}";
+            var compilationUnit = Parse(source);
+            var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", outputPath);
+
+            compiler.Compile();
+
+            // Verify that the file was created
+            Assert.True(File.Exists(outputPath), $"Assembly file should exist at {outputPath}");
+
+            // Verify that the file has content
+            var fileInfo = new FileInfo(outputPath);
+            Assert.True(fileInfo.Length > 0, "Assembly file should not be empty");
+        }
+        finally
+        {
+            // Clean up
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
     }
 }

@@ -38,11 +38,11 @@ public class ILCompiler
     /// </summary>
     public void Compile()
     {
-        // Create assembly builder
+        // Create assembly builder using PersistedAssemblyBuilder for .NET 9+
         var assemblyName = new AssemblyName(_assemblyName);
-        var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(
+        var assemblyBuilder = new PersistedAssemblyBuilder(
             assemblyName,
-            AssemblyBuilderAccess.RunAndCollect);
+            typeof(object).Assembly);
 
         // Create module builder
         var moduleBuilder = assemblyBuilder.DefineDynamicModule(_assemblyName);
@@ -73,10 +73,11 @@ public class ILCompiler
         // Create the type
         _programType.CreateType();
 
-        // For now, we can't save to disk with AssemblyBuilder in .NET Core/9
-        // We would need to use a library like Mono.Cecil or System.Reflection.Metadata
-        Console.WriteLine($"IL Compiler: Assembly '{_assemblyName}' compiled (in-memory only)");
-        Console.WriteLine("Note: Saving to disk requires additional library (Mono.Cecil or System.Reflection.Metadata)");
+        // Save the assembly to disk using PersistedAssemblyBuilder (.NET 9+)
+        using var stream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write);
+        assemblyBuilder.Save(stream);
+
+        Console.WriteLine($"IL Compiler: Assembly '{_assemblyName}' compiled and saved to '{_outputPath}'");
     }
 
     /// <summary>
@@ -368,6 +369,10 @@ public class ILCompiler
                 EmitCall(call);
                 break;
 
+            case AssignmentExpression assignment:
+                EmitAssignment(assignment);
+                break;
+
             default:
                 throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
         }
@@ -570,6 +575,112 @@ public class ILCompiler
     }
 
     /// <summary>
+    /// Emit IL for an assignment expression
+    /// </summary>
+    private void EmitAssignment(AssignmentExpression assignment)
+    {
+        if (_currentIL == null || _locals == null || _parameters == null)
+            throw new InvalidOperationException("No IL generator context");
+
+        // For now, only support simple identifier assignments
+        if (assignment.Target is not IdentifierExpression ident)
+        {
+            throw new NotImplementedException("Only simple variable assignments are supported in IL compiler");
+        }
+
+        // Handle compound assignment operators
+        if (assignment.Operator != AssignmentOperator.Assign)
+        {
+            // For compound assignments like +=, -=, etc., we need to:
+            // 1. Load the current value
+            // 2. Load the right-hand side
+            // 3. Perform the operation
+            // 4. Store the result
+
+            // Load current value
+            EmitIdentifier(ident);
+
+            // Load right-hand side
+            EmitExpression(assignment.Value);
+
+            // Perform the operation based on the assignment operator
+            switch (assignment.Operator)
+            {
+                case AssignmentOperator.AddAssign:
+                    _currentIL.Emit(OpCodes.Add);
+                    break;
+                case AssignmentOperator.SubtractAssign:
+                    _currentIL.Emit(OpCodes.Sub);
+                    break;
+                case AssignmentOperator.MultiplyAssign:
+                    _currentIL.Emit(OpCodes.Mul);
+                    break;
+                case AssignmentOperator.DivideAssign:
+                    _currentIL.Emit(OpCodes.Div);
+                    break;
+                case AssignmentOperator.NullCoalesceAssign:
+                    throw new NotImplementedException("Null coalesce assign not yet implemented in IL compiler");
+                default:
+                    throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented in IL compiler");
+            }
+        }
+        else
+        {
+            // Simple assignment: just emit the value
+            EmitExpression(assignment.Value);
+        }
+
+        // Store the value
+        if (_locals.TryGetValue(ident.Name, out var local))
+        {
+            _currentIL.Emit(OpCodes.Stloc, local);
+        }
+        else if (_parameters.TryGetValue(ident.Name, out var paramIndex))
+        {
+            // Store to parameter
+            if (paramIndex <= 255)
+            {
+                _currentIL.Emit(OpCodes.Starg_S, (byte)paramIndex);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Starg, paramIndex);
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
+        }
+
+        // Assignment expressions also return the assigned value, so we need to load it back
+        // This allows things like: x = y = 5
+        if (_locals.TryGetValue(ident.Name, out local))
+        {
+            _currentIL.Emit(OpCodes.Ldloc, local);
+        }
+        else if (_parameters.TryGetValue(ident.Name, out var paramIndex))
+        {
+            switch (paramIndex)
+            {
+                case 0: _currentIL.Emit(OpCodes.Ldarg_0); break;
+                case 1: _currentIL.Emit(OpCodes.Ldarg_1); break;
+                case 2: _currentIL.Emit(OpCodes.Ldarg_2); break;
+                case 3: _currentIL.Emit(OpCodes.Ldarg_3); break;
+                default:
+                    if (paramIndex <= 255)
+                    {
+                        _currentIL.Emit(OpCodes.Ldarg_S, (byte)paramIndex);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldarg, paramIndex);
+                    }
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
     /// Get the .NET type of an expression (simplified type inference)
     /// </summary>
     private Type GetExpressionType(Expression expression)
@@ -583,6 +694,7 @@ public class ILCompiler
             NullLiteralExpression => typeof(object),
             IdentifierExpression ident => GetIdentifierType(ident),
             BinaryExpression binary => GetBinaryExpressionType(binary),
+            AssignmentExpression assignment => GetExpressionType(assignment.Value),
             CallExpression => typeof(object), // Simplified
             _ => typeof(object)
         };

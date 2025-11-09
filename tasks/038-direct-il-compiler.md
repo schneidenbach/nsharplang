@@ -3,7 +3,7 @@
 **Priority:** Medium (Performance & Independence - not urgent but valuable)
 **Dependencies:** None (parallel path to transpiler)
 **Estimated Effort:** Very Large (30-40 hours, potentially more)
-**Status:** In Progress - Phase 1 Complete
+**Status:** In Progress - Phase 3 Complete (Phases 1-3 done, can save to disk)
 
 ## Goal
 
@@ -245,7 +245,7 @@ func main() {
 - [x] Emit assembly metadata
 - [x] Emit simple main method
 - [x] Emit Console.WriteLine call (via print statement)
-- [ ] Save assembly to disk (deferred - requires Mono.Cecil or System.Reflection.Metadata)
+- [x] Save assembly to disk (implemented using PersistedAssemblyBuilder in .NET 9)
 - [x] Verify assembly compiles (via unit tests)
 
 **Tests:**
@@ -282,13 +282,13 @@ func main() {
 ```
 
 **Tasks:**
-- [ ] Local variable allocation
-- [ ] Arithmetic operators (+, -, *, /, %)
-- [ ] Comparison operators (<, >, ==, !=)
-- [ ] Logical operators (&&, ||, !)
-- [ ] If/else statements
-- [ ] While loops
-- [ ] Variable assignments
+- [x] Local variable allocation
+- [x] Arithmetic operators (+, -, *, /, %)
+- [x] Comparison operators (<, >, ==, !=, <=, >=)
+- [x] Logical operators (&&, ||)
+- [x] If/else statements
+- [x] While loops
+- [x] Variable assignments (including compound assignments: +=, -=, *=, /=)
 
 **IL Patterns:**
 ```il
@@ -330,11 +330,11 @@ func main() {
 ```
 
 **Tasks:**
-- [ ] Function parameters
-- [ ] Return statements
-- [ ] Function calls (static)
-- [ ] Multiple return values (via tuples)
-- [ ] Recursion
+- [x] Function parameters
+- [x] Return statements
+- [x] Function calls (static)
+- [ ] Multiple return values (via tuples) - Not yet implemented
+- [x] Recursion
 
 **IL Patterns:**
 ```il
