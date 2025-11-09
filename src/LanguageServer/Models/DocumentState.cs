@@ -16,6 +16,7 @@ public class DocumentState
     public CompilationUnit? CompilationUnit { get; set; }
     public List<CompilerError>? Diagnostics { get; set; }
     public Dictionary<string, TypeInfo>? Symbols { get; set; }
+    public Dictionary<string, SymbolInfo>? SymbolsInfo { get; set; }  // Enhanced symbol info for intellisense
 
     public DocumentState(string uri, string text, int version)
     {

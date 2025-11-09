@@ -57,6 +57,7 @@ public class DocumentManager
 
             // Store symbol information for later use
             state.Symbols = ExtractSymbols(state.CompilationUnit);
+            state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit);
 
             _documents[uri] = state;
 
@@ -131,6 +132,177 @@ public class DocumentManager
         }
 
         return symbols;
+    }
+
+    private Dictionary<string, SymbolInfo> ExtractSymbolsInfo(CompilationUnit compilationUnit)
+    {
+        var symbols = new Dictionary<string, SymbolInfo>();
+
+        // Extract top-level function declarations
+        foreach (var decl in compilationUnit.Declarations)
+        {
+            if (decl is FunctionDeclaration funcDecl)
+            {
+                symbols[funcDecl.Name] = CreateFunctionSymbol(funcDecl, SymbolKind.Function);
+            }
+            else if (decl is ClassDeclaration classDecl)
+            {
+                symbols[classDecl.Name] = CreateTypeSymbol(classDecl);
+            }
+            else if (decl is StructDeclaration structDecl)
+            {
+                symbols[structDecl.Name] = CreateTypeSymbol(structDecl);
+            }
+            else if (decl is RecordDeclaration recordDecl)
+            {
+                symbols[recordDecl.Name] = CreateTypeSymbol(recordDecl);
+            }
+            else if (decl is InterfaceDeclaration interfaceDecl)
+            {
+                symbols[interfaceDecl.Name] = CreateTypeSymbol(interfaceDecl);
+            }
+            else if (decl is EnumDeclaration enumDecl)
+            {
+                symbols[enumDecl.Name] = CreateEnumSymbol(enumDecl);
+            }
+            else if (decl is UnionDeclaration unionDecl)
+            {
+                symbols[unionDecl.Name] = CreateUnionSymbol(unionDecl);
+            }
+        }
+
+        return symbols;
+    }
+
+    private SymbolInfo CreateFunctionSymbol(FunctionDeclaration func, SymbolKind kind)
+    {
+        return new SymbolInfo(func.Name, kind)
+        {
+            TypeName = func.ReturnType?.ToString(),
+            Parameters = func.Parameters.Select(p => new ParameterInfo(
+                p.Name,
+                p.Type.ToString(),
+                p.DefaultValue != null
+            )).ToList(),
+            Modifiers = func.Modifiers
+        };
+    }
+
+    private SymbolInfo CreateTypeSymbol(ClassDeclaration classDecl)
+    {
+        var symbol = new SymbolInfo(classDecl.Name, SymbolKind.Class)
+        {
+            Modifiers = classDecl.Modifiers
+        };
+        ExtractMembers(symbol, classDecl.Members);
+        return symbol;
+    }
+
+    private SymbolInfo CreateTypeSymbol(StructDeclaration structDecl)
+    {
+        var symbol = new SymbolInfo(structDecl.Name, SymbolKind.Struct)
+        {
+            Modifiers = structDecl.Modifiers
+        };
+        ExtractMembers(symbol, structDecl.Members);
+        return symbol;
+    }
+
+    private SymbolInfo CreateTypeSymbol(RecordDeclaration recordDecl)
+    {
+        var symbol = new SymbolInfo(recordDecl.Name, SymbolKind.Record)
+        {
+            Modifiers = recordDecl.Modifiers
+        };
+        ExtractMembers(symbol, recordDecl.Members);
+        return symbol;
+    }
+
+    private SymbolInfo CreateTypeSymbol(InterfaceDeclaration interfaceDecl)
+    {
+        var symbol = new SymbolInfo(interfaceDecl.Name, SymbolKind.Interface)
+        {
+            Modifiers = interfaceDecl.Modifiers
+        };
+        ExtractMembers(symbol, interfaceDecl.Members);
+        return symbol;
+    }
+
+    private SymbolInfo CreateEnumSymbol(EnumDeclaration enumDecl)
+    {
+        var symbol = new SymbolInfo(enumDecl.Name, SymbolKind.Enum)
+        {
+            Modifiers = enumDecl.Modifiers
+        };
+
+        // Add enum members
+        foreach (var member in enumDecl.Members)
+        {
+            symbol.Members.Add(new SymbolInfo(member.Name, SymbolKind.EnumMember)
+            {
+                TypeName = enumDecl.Name
+            });
+        }
+
+        return symbol;
+    }
+
+    private SymbolInfo CreateUnionSymbol(UnionDeclaration unionDecl)
+    {
+        var symbol = new SymbolInfo(unionDecl.Name, SymbolKind.Union)
+        {
+            Modifiers = unionDecl.Modifiers
+        };
+
+        // Add union cases as members
+        foreach (var case_ in unionDecl.Cases)
+        {
+            symbol.Members.Add(new SymbolInfo(case_.Name, SymbolKind.Class)
+            {
+                TypeName = unionDecl.Name
+            });
+        }
+
+        return symbol;
+    }
+
+    private void ExtractMembers(SymbolInfo symbol, List<Declaration> members)
+    {
+        foreach (var member in members)
+        {
+            if (member is FunctionDeclaration funcDecl)
+            {
+                symbol.Members.Add(CreateFunctionSymbol(funcDecl, SymbolKind.Method));
+            }
+            else if (member is PropertyDeclaration propDecl)
+            {
+                symbol.Members.Add(new SymbolInfo(propDecl.Name, SymbolKind.Property)
+                {
+                    TypeName = propDecl.Type.ToString(),
+                    Modifiers = propDecl.Modifiers
+                });
+            }
+            else if (member is FieldDeclaration fieldDecl)
+            {
+                symbol.Members.Add(new SymbolInfo(fieldDecl.Name, SymbolKind.Field)
+                {
+                    TypeName = fieldDecl.Type?.ToString(),
+                    Modifiers = fieldDecl.Modifiers
+                });
+            }
+            else if (member is ConstructorDeclaration ctorDecl)
+            {
+                symbol.Members.Add(new SymbolInfo(symbol.Name, SymbolKind.Constructor)
+                {
+                    Parameters = ctorDecl.Parameters.Select(p => new ParameterInfo(
+                        p.Name,
+                        p.Type.ToString(),
+                        p.DefaultValue != null
+                    )).ToList(),
+                    Modifiers = ctorDecl.Modifiers
+                });
+            }
+        }
     }
 
     private string UriToFilePath(string uri)

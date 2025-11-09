@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NewCLILang.Compiler;
+using NewCLILang.Compiler.Ast;
 using LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -68,18 +69,24 @@ public class CompletionHandler : CompletionHandlerBase
             InsertText = t
         }));
 
-        // Add types from the current document
-        if (doc?.Symbols != null)
+        // Add symbols from the current document (using enhanced symbol info)
+        if (doc?.SymbolsInfo != null)
         {
-            foreach (var (name, typeInfo) in doc.Symbols)
+            foreach (var (name, symbolInfo) in doc.SymbolsInfo)
             {
-                items.Add(new CompletionItem
+                var item = new CompletionItem
                 {
                     Label = name,
-                    Kind = GetCompletionItemKind(typeInfo),
-                    Detail = typeInfo.GetType().Name.Replace("TypeInfo", ""),
-                    InsertText = name
-                });
+                    Kind = GetCompletionItemKindFromSymbol(symbolInfo.Kind),
+                    Detail = GetSymbolDetail(symbolInfo),
+                    InsertText = name,
+                    Documentation = !string.IsNullOrEmpty(symbolInfo.Documentation) ? symbolInfo.Documentation : null
+                };
+
+                items.Add(item);
+
+                // For types with members, we could potentially add member completion here
+                // but that would be better done with context-aware completion (e.g., after a dot)
             }
         }
 
@@ -141,5 +148,76 @@ public class CompletionHandler : CompletionHandlerBase
             UnionTypeInfo => CompletionItemKind.Class,
             _ => CompletionItemKind.Variable
         };
+    }
+
+    private CompletionItemKind GetCompletionItemKindFromSymbol(LanguageServer.Models.SymbolKind kind)
+    {
+        return kind switch
+        {
+            LanguageServer.Models.SymbolKind.Class => CompletionItemKind.Class,
+            LanguageServer.Models.SymbolKind.Struct => CompletionItemKind.Struct,
+            LanguageServer.Models.SymbolKind.Record => CompletionItemKind.Class,
+            LanguageServer.Models.SymbolKind.Interface => CompletionItemKind.Interface,
+            LanguageServer.Models.SymbolKind.Enum => CompletionItemKind.Enum,
+            LanguageServer.Models.SymbolKind.Union => CompletionItemKind.Class,
+            LanguageServer.Models.SymbolKind.Function => CompletionItemKind.Function,
+            LanguageServer.Models.SymbolKind.Method => CompletionItemKind.Method,
+            LanguageServer.Models.SymbolKind.Property => CompletionItemKind.Property,
+            LanguageServer.Models.SymbolKind.Field => CompletionItemKind.Field,
+            LanguageServer.Models.SymbolKind.Parameter => CompletionItemKind.Variable,
+            LanguageServer.Models.SymbolKind.LocalVariable => CompletionItemKind.Variable,
+            LanguageServer.Models.SymbolKind.EnumMember => CompletionItemKind.EnumMember,
+            LanguageServer.Models.SymbolKind.Constructor => CompletionItemKind.Constructor,
+            _ => CompletionItemKind.Variable
+        };
+    }
+
+    private string GetSymbolDetail(LanguageServer.Models.SymbolInfo symbol)
+    {
+        var parts = new List<string>();
+
+        // Add modifiers
+        var modifiers = new List<string>();
+        if (symbol.Modifiers.HasFlag(Modifiers.Public)) modifiers.Add("public");
+        if (symbol.Modifiers.HasFlag(Modifiers.Private)) modifiers.Add("private");
+        if (symbol.Modifiers.HasFlag(Modifiers.Protected)) modifiers.Add("protected");
+        if (symbol.Modifiers.HasFlag(Modifiers.Internal)) modifiers.Add("internal");
+        if (symbol.Modifiers.HasFlag(Modifiers.Static)) modifiers.Add("static");
+        if (symbol.Modifiers.HasFlag(Modifiers.Abstract)) modifiers.Add("abstract");
+        if (symbol.Modifiers.HasFlag(Modifiers.Virtual)) modifiers.Add("virtual");
+        if (symbol.Modifiers.HasFlag(Modifiers.Override)) modifiers.Add("override");
+        if (symbol.Modifiers.HasFlag(Modifiers.Sealed)) modifiers.Add("sealed");
+        if (symbol.Modifiers.HasFlag(Modifiers.Async)) modifiers.Add("async");
+
+        if (modifiers.Any())
+        {
+            parts.Add(string.Join(" ", modifiers));
+        }
+
+        // Add kind
+        parts.Add(symbol.Kind.ToString().ToLower());
+
+        // Add name
+        parts.Add(symbol.Name);
+
+        // Add signature for functions/methods
+        if (symbol.Kind == LanguageServer.Models.SymbolKind.Function ||
+            symbol.Kind == LanguageServer.Models.SymbolKind.Method ||
+            symbol.Kind == LanguageServer.Models.SymbolKind.Constructor)
+        {
+            var paramList = string.Join(", ", symbol.Parameters.Select(p => $"{p.Name}: {p.TypeName}"));
+            parts.Add($"({paramList})");
+
+            if (!string.IsNullOrEmpty(symbol.TypeName))
+            {
+                parts.Add($": {symbol.TypeName}");
+            }
+        }
+        else if (!string.IsNullOrEmpty(symbol.TypeName))
+        {
+            parts.Add($": {symbol.TypeName}");
+        }
+
+        return string.Join(" ", parts);
     }
 }
