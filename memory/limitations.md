@@ -34,19 +34,18 @@ let result := Identity<int>(42)
 
 **Future:** Implement full generic type inference algorithm.
 
-### 3. Property Type Inference
-**Current:** Properties require explicit types.
+### 3. Property Type Inference (RESOLVED - Task 025)
+**Current:** ✅ Properties support type inference with `:=` syntax.
 
 ```
 class Person {
-    Name: string        // ✅ Type required
-    // Name := "Alice"  // ❌ Not supported (C# limitation)
+    Name: string = "Alice"    // Explicit type
+    Age := 30                 // Inferred as int
+    Items := [1, 2, 3]        // Inferred as int[]
 }
 ```
 
-**Why:** C# doesn't allow `var` for class/struct members, only local variables.
-
-**Future:** None (C# limitation).
+**Status:** Fully implemented in Task 025.
 
 ## Method Resolution
 
@@ -200,9 +199,43 @@ type StringList = List<string>
 
 **Future:** Source map generation for N# debugging.
 
+## ASP.NET Core Support
+
+### 16. Parameter Attributes
+**Current:** Parameter-level attributes not supported.
+
+```
+// Doesn't work:
+func Create([FromBody] dto: TaskDto): IActionResult
+
+// Workaround: ASP.NET Core infers [FromBody] automatically for complex types
+func Create(dto: TaskDto): IActionResult  // ✅ Works
+```
+
+**Why:** Parser doesn't support attributes on parameters yet.
+
+**Priority:** Low - ASP.NET Core's implicit binding works for most scenarios.
+
+### 17. Null-Forgiving Operator
+**Current:** The `!` null-forgiving operator is not supported.
+
+```
+// Doesn't work:
+length := name!.Length
+
+// Workaround: Use null-coalescing or explicit null check
+length := (name ?? "").Length  // ✅ Works
+```
+
+**Why:** Parser doesn't recognize `!` as a postfix operator.
+
+**Priority:** Low - workaround is simple and more explicit.
+
+**Note:** All critical ASP.NET Core gaps (external type resolution, boolean inference) were resolved in Task 030. See GAPS.md for full status.
+
 ## Tooling
 
-### 16. Code Formatter
+### 18. Code Formatter
 **Current:** No auto-formatter.
 
 **Future:** `nlc fmt` command (gofmt/rustfmt style).

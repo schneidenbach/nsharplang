@@ -3025,4 +3025,135 @@ func Test() {
 
         Assert.Contains("() =>", result);
     }
+
+    // ASP.NET Core Integration Tests (Task 034)
+
+    [Fact]
+    public void ExternalTypeResolution_WebApplication_Transpiles()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+
+package TestApp
+
+func Main(args: string[]) {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+    app.Run()
+}";
+
+        var result = Transpile(source);
+
+        Assert.Contains("var builder = WebApplication.CreateBuilder(args)", result);
+        Assert.Contains("var app = builder.Build()", result);
+        Assert.Contains("app.Run()", result);
+    }
+
+    [Fact]
+    public void BooleanInference_IsDevelopment_Transpiles()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+
+package TestApp
+
+func Main(args: string[]) {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+
+    if app.Environment.IsDevelopment() {
+        print ""Development mode""
+    }
+
+    app.Run()
+}";
+
+        var result = Transpile(source);
+
+        Assert.Contains("if (app.Environment.IsDevelopment())", result);
+        Assert.Contains("Console.WriteLine(\"Development mode\")", result);
+    }
+
+    [Fact]
+    public void NullCoalescing_WithNullableProperties_Transpiles()
+    {
+        var source = @"
+package TestApp
+
+record TaskDto {
+    Title: string?
+    Description: string?
+}
+
+func ProcessTask(dto: TaskDto) {
+    title := dto.Title ?? ""Untitled""
+    description := dto.Description ?? ""No description""
+    print title
+    print description
+}";
+
+        var result = Transpile(source);
+
+        Assert.Contains("var title = (dto.Title ?? \"Untitled\")", result);
+        Assert.Contains("var description = (dto.Description ?? \"No description\")", result);
+    }
+
+    [Fact]
+    public void Attributes_ClassAndMethodLevel_Transpile()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Mvc
+import System
+
+package TestApp
+
+[ApiController]
+[Route(""api/tasks"")]
+class TasksController : ControllerBase {
+
+    [HttpGet]
+    func GetAll(): IActionResult {
+        return Ok(""All tasks"")
+    }
+
+    [HttpGet(""{id}"")]
+    func GetById(id: Guid): IActionResult {
+        return Ok(id)
+    }
+
+    [HttpPost]
+    func Create(dto: string): IActionResult {
+        return Ok(dto)
+    }
+}";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[ApiController]", result);
+        Assert.Contains("[Route(\"api/tasks\")]", result);
+        Assert.Contains("[HttpGet]", result);
+        Assert.Contains("[HttpGet(\"{id}\")]", result);
+        Assert.Contains("[HttpPost]", result);
+    }
+
+    [Fact]
+    public void Properties_ImplicitGetSet_Transpile()
+    {
+        var source = @"
+import System
+
+package TestApp
+
+class TaskEntity {
+    Id: Guid
+    Title: string
+    CreatedAt: DateTime
+}";
+
+        var result = Transpile(source);
+
+        Assert.Contains("public Guid Id { get; set; }", result);
+        Assert.Contains("public string Title { get; set; }", result);
+        Assert.Contains("public DateTime CreatedAt { get; set; }", result);
+    }
 }
