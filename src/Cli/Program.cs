@@ -706,6 +706,19 @@ func Main() {{
             var projectFile = Path.Combine(tempDir, "TestProject.csproj");
             File.WriteAllText(projectFile, GenerateTestCsProj(projectConfig, mainProjectDll));
 
+            // Copy deps.json file if it exists (needed for WebApplicationFactory)
+            if (!string.IsNullOrEmpty(mainProjectDll))
+            {
+                var depsJsonPath = Path.ChangeExtension(mainProjectDll, ".deps.json");
+                if (File.Exists(depsJsonPath))
+                {
+                    var testOutputDir = Path.Combine(tempDir, "bin", "Debug", projectConfig!.TargetFramework);
+                    Directory.CreateDirectory(testOutputDir);
+                    var targetDepsPath = Path.Combine(testOutputDir, Path.GetFileName(depsJsonPath));
+                    File.Copy(depsJsonPath, targetDepsPath, true);
+                }
+            }
+
             // Build tests
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {

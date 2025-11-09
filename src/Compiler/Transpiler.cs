@@ -226,8 +226,18 @@ public class Transpiler
         // Convert test description to valid C# method name
         var methodName = TestDescriptionToMethodName(test.Description);
 
+        // Check if test contains await - if so, make it async
+        var containsAwait = ContainsAwait(test.Body);
+
         WriteLine("[Fact]");
-        WriteLine($"public void {methodName}()");
+        if (containsAwait)
+        {
+            WriteLine($"public async Task {methodName}()");
+        }
+        else
+        {
+            WriteLine($"public void {methodName}()");
+        }
         WriteLine("{");
         _indentLevel++;
 
@@ -2135,6 +2145,44 @@ public class Transpiler
 
             // Default fallback
             _ => "object"
+        };
+    }
+
+    /// <summary>
+    /// Checks if a statement or block contains any await expressions
+    /// </summary>
+    private bool ContainsAwait(Statement stmt)
+    {
+        return stmt switch
+        {
+            BlockStatement block => block.Statements.Any(ContainsAwait),
+            ExpressionStatement exprStmt => ContainsAwaitInExpression(exprStmt.Expression),
+            VariableDeclarationStatement varDecl => varDecl.Initializer != null && ContainsAwaitInExpression(varDecl.Initializer),
+            ReturnStatement retStmt => retStmt.Value != null && ContainsAwaitInExpression(retStmt.Value),
+            // For control flow, recursively check bodies
+            IfStatement ifStmt => ContainsAwait(ifStmt.ThenStatement) || (ifStmt.ElseStatement != null && ContainsAwait(ifStmt.ElseStatement)),
+            WhileStatement whileStmt => ContainsAwait(whileStmt.Body),
+            ForeachStatement foreachStmt => ContainsAwait(foreachStmt.Body),
+            TryStatement tryStmt => ContainsAwait(tryStmt.TryBlock) || tryStmt.CatchClauses.Any(c => ContainsAwait(c.Block)),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Checks if an expression contains any await expressions
+    /// </summary>
+    private bool ContainsAwaitInExpression(Expression expr)
+    {
+        return expr switch
+        {
+            AwaitExpression => true,
+            BinaryExpression binary => ContainsAwaitInExpression(binary.Left) || ContainsAwaitInExpression(binary.Right),
+            UnaryExpression unary => ContainsAwaitInExpression(unary.Operand),
+            CallExpression call => ContainsAwaitInExpression(call.Callee) || call.Arguments.Any(arg => ContainsAwaitInExpression(arg.Value)),
+            MemberAccessExpression member => ContainsAwaitInExpression(member.Object),
+            AssignmentExpression assign => ContainsAwaitInExpression(assign.Target) || ContainsAwaitInExpression(assign.Value),
+            NewExpression newExpr => newExpr.Initializer != null && ContainsAwaitInExpression(newExpr.Initializer),
+            _ => false
         };
     }
 }
