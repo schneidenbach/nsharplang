@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -18,6 +19,7 @@ namespace LanguageServer.Handlers;
 public class CompletionHandler : CompletionHandlerBase
 {
     private readonly DocumentManager _documentManager;
+    private readonly TypeResolver _typeResolver;
     private readonly ILogger<CompletionHandler> _logger;
 
     // N# Keywords for completion
@@ -38,9 +40,10 @@ public class CompletionHandler : CompletionHandlerBase
         "byte", "short", "char", "decimal", "uint", "ulong", "ushort", "sbyte"
     };
 
-    public CompletionHandler(DocumentManager documentManager, ILogger<CompletionHandler> logger)
+    public CompletionHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<CompletionHandler> logger)
     {
         _documentManager = documentManager;
+        _typeResolver = typeResolver;
         _logger = logger;
     }
 
@@ -50,6 +53,19 @@ public class CompletionHandler : CompletionHandlerBase
         var doc = _documentManager.GetDocument(uri);
 
         var items = new List<CompletionItem>();
+
+        // Check if this is member completion (triggered by '.')
+        if (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character))
+        {
+            var memberItems = GetMemberCompletionItems(doc.Text, request.Position.Line, request.Position.Character);
+            if (memberItems.Any())
+            {
+                _logger.LogDebug("Providing {Count} member completion items for {Uri}", memberItems.Count, uri);
+                return Task.FromResult(new CompletionList(memberItems));
+            }
+        }
+
+        // Otherwise, provide general completion items
 
         // Add keywords
         items.AddRange(Keywords.Select(k => new CompletionItem
@@ -84,9 +100,6 @@ public class CompletionHandler : CompletionHandlerBase
                 };
 
                 items.Add(item);
-
-                // For types with members, we could potentially add member completion here
-                // but that would be better done with context-aware completion (e.g., after a dot)
             }
         }
 
@@ -116,6 +129,105 @@ public class CompletionHandler : CompletionHandlerBase
         _logger.LogDebug("Providing {Count} completion items for {Uri}", items.Count, uri);
 
         return Task.FromResult(new CompletionList(items));
+    }
+
+    /// <summary>
+    /// Check if the completion is triggered after a dot (member access)
+    /// </summary>
+    private bool IsMemberCompletion(string text, int line, int character)
+    {
+        var lines = text.Split('\n');
+        if (line >= lines.Length) return false;
+
+        var lineText = lines[line];
+        if (character == 0) return false;
+
+        // Check if there's a dot before the cursor
+        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length));
+        return beforeCursor.TrimEnd().EndsWith(".");
+    }
+
+    /// <summary>
+    /// Get member completion items for the expression before the dot
+    /// </summary>
+    private List<CompletionItem> GetMemberCompletionItems(string text, int line, int character)
+    {
+        var items = new List<CompletionItem>();
+
+        try
+        {
+            var lines = text.Split('\n');
+            if (line >= lines.Length) return items;
+
+            var lineText = lines[line];
+            if (character == 0) return items;
+
+            // Get the identifier before the dot
+            var beforeDot = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
+            if (!beforeDot.EndsWith(".")) return items;
+
+            beforeDot = beforeDot.Substring(0, beforeDot.Length - 1).TrimEnd();
+
+            // Extract the identifier (simplified - could be improved with proper parsing)
+            var identifier = ExtractIdentifier(beforeDot);
+            if (string.IsNullOrEmpty(identifier))
+            {
+                _logger.LogDebug("Could not extract identifier from: {Text}", beforeDot);
+                return items;
+            }
+
+            _logger.LogDebug("Looking up members for identifier: {Identifier}", identifier);
+
+            // Try to resolve the type
+            var type = _typeResolver.ResolveType(identifier);
+            if (type != null)
+            {
+                _logger.LogDebug("Resolved type: {TypeName}", type.FullName);
+                var members = _typeResolver.GetMembers(type);
+
+                foreach (var member in members)
+                {
+                    items.Add(new CompletionItem
+                    {
+                        Label = member.Name,
+                        Kind = member.Kind switch
+                        {
+                            MemberKind.Method => CompletionItemKind.Method,
+                            MemberKind.Property => CompletionItemKind.Property,
+                            MemberKind.Field => CompletionItemKind.Field,
+                            MemberKind.Event => CompletionItemKind.Event,
+                            _ => CompletionItemKind.Text
+                        },
+                        Detail = member.Parameters != null
+                            ? $"{member.Name}({member.Parameters}): {member.Type}"
+                            : $"{member.Name}: {member.Type}",
+                        InsertText = member.Name,
+                        Documentation = !string.IsNullOrEmpty(member.Documentation)
+                            ? new MarkupContent
+                            {
+                                Kind = MarkupKind.Markdown,
+                                Value = member.Documentation
+                            }
+                            : null
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting member completion items");
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Extract the last identifier from a string (simplified)
+    /// </summary>
+    private string ExtractIdentifier(string text)
+    {
+        var parts = text.Split(new[] { ' ', '\t', '(', ')', '[', ']', '{', '}', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        return parts.LastOrDefault() ?? "";
     }
 
     public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)

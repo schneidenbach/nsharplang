@@ -38,10 +38,14 @@ class Program
                     .WithServices(services =>
                     {
                         services.AddSingleton<DocumentManager>();
+                        services.AddSingleton<XmlDocReader>();
+                        services.AddSingleton<TypeResolver>();
                     })
                     .WithHandler<TextDocumentHandler>()
                     .WithHandler<CompletionHandler>()
                     .WithHandler<HoverHandler>()
+                    .WithHandler<SignatureHelpHandler>()
+                    .WithHandler<DefinitionHandler>()
                     .OnInitialize(async (server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
