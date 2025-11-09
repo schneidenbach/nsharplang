@@ -3217,39 +3217,39 @@ public class Analyzer
     /// <summary>
     /// Load assemblies from project configuration (References and Dependencies)
     /// </summary>
-    public void LoadFromProjectConfig(ProjectConfig? config)
+    public void LoadFromProjectConfig(ProjectConfig? config, string? projectDirectory = null)
     {
         if (config == null)
             return;
 
-        // Load explicit references
-        if (config.References != null)
+        projectDirectory ??= Environment.CurrentDirectory;
+
+        // Load structured references (new format)
+        if (config.References != null && config.References.Count > 0)
         {
             foreach (var reference in config.References)
             {
-                // Check if it's a file path or assembly name
-                if (File.Exists(reference))
+                try
                 {
-                    LoadReferencedAssembly(reference);
+                    LoadProjectReference(reference, projectDirectory, config.TargetFramework);
                 }
-                else
+                catch (Exception ex)
                 {
-                    LoadReferencedAssemblyByName(reference);
+                    Console.WriteLine($"Warning: Failed to load reference: {ex.Message}");
                 }
             }
         }
 
-        // Load assemblies from NuGet dependencies
-        // NuGet packages are restored and available in the runtime, so we can try loading by package name
-        if (config.Dependencies != null)
+        // Load test dependencies (also as NuGet packages)
+        #pragma warning disable CS0618 // Type or member is obsolete
+        if (config.TestDependencies != null && config.TestDependencies.Count > 0)
         {
-            foreach (var dependency in config.Dependencies.Keys)
+            foreach (var dependency in config.TestDependencies.Keys)
             {
-                // Try to load the main assembly for this package
-                // Most packages have an assembly with the same name
                 LoadReferencedAssemblyByName(dependency);
             }
         }
+        #pragma warning restore CS0618 // Type or member is obsolete
 
         // For ASP.NET projects, load common ASP.NET assemblies
         if (config.Sdk?.Contains("Web") == true)
@@ -3270,6 +3270,136 @@ public class Analyzer
             {
                 LoadReferencedAssemblyByName(assembly);
             }
+        }
+    }
+
+    /// <summary>
+    /// Load a single project reference based on its type
+    /// </summary>
+    private void LoadProjectReference(Reference reference, string projectDirectory, string targetFramework)
+    {
+        switch (reference.Type)
+        {
+            case ReferenceType.NuGet:
+                LoadNuGetPackage(reference.Nuget!, reference.Version, targetFramework, projectDirectory);
+                break;
+
+            case ReferenceType.Dll:
+                var dllPath = Path.IsPathRooted(reference.Dll!)
+                    ? reference.Dll!
+                    : Path.Combine(projectDirectory, reference.Dll!);
+                LoadReferencedAssembly(dllPath);
+                break;
+
+            case ReferenceType.Project:
+                var projectPath = Path.IsPathRooted(reference.Project!)
+                    ? reference.Project!
+                    : Path.Combine(projectDirectory, reference.Project!);
+                LoadProjectReferenceFile(projectPath, targetFramework);
+                break;
+
+            case ReferenceType.Framework:
+                // Framework references like Microsoft.AspNetCore.App are implicit
+                // Just record them, they're provided by the runtime
+                Console.WriteLine($"Framework reference: {reference.Framework}");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Load a NuGet package assembly
+    /// </summary>
+    private void LoadNuGetPackage(string packageName, string? version, string targetFramework, string projectDirectory)
+    {
+        // Try to find package in:
+        // 1. bin/Debug/net9.0/ (after restore)
+        // 2. ~/.nuget/packages/packagename/version/
+        // 3. Load by name (runtime resolution)
+
+        var binPath = Path.Combine(projectDirectory, "bin", "Debug", targetFramework, $"{packageName}.dll");
+        if (File.Exists(binPath))
+        {
+            LoadReferencedAssembly(binPath);
+            return;
+        }
+
+        // Try NuGet cache
+        var nugetCache = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        nugetCache = Path.Combine(nugetCache, ".nuget", "packages", packageName.ToLowerInvariant());
+
+        if (Directory.Exists(nugetCache))
+        {
+            var versionDir = version != null
+                ? Path.Combine(nugetCache, version)
+                : Directory.GetDirectories(nugetCache).OrderByDescending(d => d).FirstOrDefault();
+
+            if (versionDir != null && Directory.Exists(versionDir))
+            {
+                // Try common paths for the DLL
+                var possiblePaths = new[]
+                {
+                    Path.Combine(versionDir, "lib", targetFramework, $"{packageName}.dll"),
+                    Path.Combine(versionDir, "lib", "net9.0", $"{packageName}.dll"),
+                    Path.Combine(versionDir, "lib", "net8.0", $"{packageName}.dll"),
+                    Path.Combine(versionDir, "lib", "netstandard2.1", $"{packageName}.dll"),
+                    Path.Combine(versionDir, "lib", "netstandard2.0", $"{packageName}.dll")
+                };
+
+                foreach (var path in possiblePaths)
+                {
+                    if (File.Exists(path))
+                    {
+                        LoadReferencedAssembly(path);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: try to load by name (runtime will resolve)
+        LoadReferencedAssemblyByName(packageName);
+    }
+
+    /// <summary>
+    /// Load a project reference (either .csproj or project.yml)
+    /// </summary>
+    private void LoadProjectReferenceFile(string projectPath, string targetFramework)
+    {
+        var projectDir = Path.GetDirectoryName(projectPath)!;
+
+        // Handle .csproj
+        if (projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+        {
+            var projectName = Path.GetFileNameWithoutExtension(projectPath);
+            var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{projectName}.dll");
+
+            if (File.Exists(outputPath))
+            {
+                LoadReferencedAssembly(outputPath);
+            }
+            else
+            {
+                Console.WriteLine($"Warning: Project reference '{projectName}' has not been built. Expected: {outputPath}");
+            }
+        }
+        // Handle project.yml (N# project)
+        else if (projectPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase))
+        {
+            var nsharpProject = ProjectFileParser.Parse(projectPath);
+            var outputPath = Path.Combine(projectDir, "bin", "Debug", targetFramework, $"{nsharpProject.EffectiveName}.dll");
+
+            if (File.Exists(outputPath))
+            {
+                LoadReferencedAssembly(outputPath);
+            }
+            else
+            {
+                Console.WriteLine($"Warning: N# project reference '{nsharpProject.EffectiveName}' has not been built. Expected: {outputPath}");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"Warning: Unknown project reference type: {projectPath}");
         }
     }
 

@@ -50,7 +50,7 @@ public class DocumentManager
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
 
             // Load assemblies from project configuration
-            analyzer.LoadFromProjectConfig(projectConfig);
+            analyzer.LoadFromProjectConfig(projectConfig, projectDir);
 
             var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
             state.Diagnostics = analysisResult.Errors;

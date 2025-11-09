@@ -1,9 +1,9 @@
 name: EmployeeApi
 version: 1.0.0
-target: net9.0
+targetFramework: net9.0
 sdk: Microsoft.NET.Sdk.Web
 entry: Program.nl
-output_type: exe
+outputType: exe
 
 # All .nl files are automatically discovered (excluding .tests.nl files)
 # To exclude additional files, use the exclude list:
@@ -11,11 +11,20 @@ output_type: exe
 #   - temp/**/*.nl
 #   - old-code.nl
 
-dependencies:
-  Microsoft.EntityFrameworkCore.Sqlite: "9.0.0"
-  Microsoft.EntityFrameworkCore.Design: "9.0.0"
-  Swashbuckle.AspNetCore: "7.2.0"
-  Microsoft.AspNetCore.OpenApi: "9.0.0"
+# References - all external dependencies
+references:
+  # Framework references
+  - framework: Microsoft.AspNetCore.App
+
+  # NuGet packages (with version)
+  - nuget: Microsoft.EntityFrameworkCore.Sqlite
+    version: 9.0.0
+  - nuget: Microsoft.EntityFrameworkCore.Design
+    version: 9.0.0
+  - nuget: Swashbuckle.AspNetCore
+    version: 7.2.0
+  - nuget: Microsoft.AspNetCore.OpenApi
+    version: 9.0.0
 
 testDependencies:
   Microsoft.AspNetCore.Mvc.Testing: "9.0.0"

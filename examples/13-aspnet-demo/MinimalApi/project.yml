@@ -1,6 +1,10 @@
 name: MinimalApi
 version: 1.0.0
-target: net9.0
+targetFramework: net9.0
 sdk: Microsoft.NET.Sdk.Web
 entry: Program.nl
-output_type: exe
+outputType: exe
+
+references:
+  # Framework references
+  - framework: Microsoft.AspNetCore.App

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using NewCLILang.Compiler;
 using Xunit;
 
@@ -42,9 +43,14 @@ language:
             Assert.Equal("Program.nl", config.Entry);
             Assert.Equal("exe", config.OutputType);
             Assert.Equal("net9.0", config.TargetFramework);
-            Assert.Equal(2, config.Dependencies.Count);
-            Assert.Equal("13.0.3", config.Dependencies["Newtonsoft.Json"]);
-            Assert.Equal("8.0.0", config.Dependencies["System.Text.Json"]);
+            // Dependencies are migrated to References
+            Assert.Equal(2, config.References.Count);
+            var newtonsoft = config.References.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
+            Assert.NotNull(newtonsoft);
+            Assert.Equal("13.0.3", newtonsoft!.Version);
+            var systemText = config.References.FirstOrDefault(r => r.Nuget == "System.Text.Json");
+            Assert.NotNull(systemText);
+            Assert.Equal("8.0.0", systemText!.Version);
             Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
         }
         finally
@@ -72,7 +78,7 @@ language:
             Assert.Null(config.Entry);
             Assert.Equal("exe", config.OutputType); // default
             Assert.Equal("net9.0", config.TargetFramework); // default
-            Assert.Empty(config.Dependencies);
+            Assert.Empty(config.References);
             Assert.Equal("ValueTask", config.Language.AsyncDefaultType); // default
         }
         finally
@@ -229,7 +235,7 @@ version: 2.0.0
         Assert.Equal("TestProject", config.Name);
         Assert.Equal("exe", config.OutputType);
         Assert.Equal("net9.0", config.TargetFramework);
-        Assert.Empty(config.Dependencies);
+        Assert.Empty(config.References);
         Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
     }
 
@@ -255,5 +261,277 @@ version: 2.0.0
         var config2 = new ProjectConfig { Name = null };
         Assert.NotNull(config2.EffectiveName);
         Assert.NotEmpty(config2.EffectiveName);
+    }
+
+    // ===== New Reference System Tests =====
+
+    [Fact]
+    public void TestParseReference_NuGet_WithVersion()
+    {
+        var yaml = @"name: TestProject
+references:
+  - nuget: Microsoft.EntityFrameworkCore
+    version: 9.0.0
+";
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
+            Assert.Equal("Microsoft.EntityFrameworkCore", config.References[0].Nuget);
+            Assert.Equal("9.0.0", config.References[0].Version);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_NuGet_WithoutVersion()
+    {
+        var yaml = @"name: TestProject
+references:
+  - nuget: Dapper
+";
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
+            Assert.Equal("Dapper", config.References[0].Nuget);
+            Assert.Null(config.References[0].Version);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_NuGet_Shorthand()
+    {
+        var yaml = @"name: TestProject
+references:
+  - nuget: Dapper@2.1.28
+";
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
+            Assert.Equal("Dapper", config.References[0].Nuget);
+            Assert.Equal("2.1.28", config.References[0].Version);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_Framework()
+    {
+        var yaml = @"name: TestProject
+references:
+  - framework: Microsoft.AspNetCore.App
+";
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.Framework, config.References[0].Type);
+            Assert.Equal("Microsoft.AspNetCore.App", config.References[0].Framework);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_Dll()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            // Create a dummy DLL file for validation
+            var dllFile = Path.Combine(tempDir, "MyLibrary.dll");
+            File.WriteAllText(dllFile, "dummy");
+
+            var yaml = @"name: TestProject
+references:
+  - dll: MyLibrary.dll
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+            var config = ProjectFileParser.Parse(projectFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.Dll, config.References[0].Type);
+            Assert.Equal("MyLibrary.dll", config.References[0].Dll);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_Project_CsProj()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+
+            // Create a dummy .csproj file for validation
+            var csprojFile = Path.Combine(sharedDir, "Shared.csproj");
+            File.WriteAllText(csprojFile, "<Project />");
+
+            var yaml = @"name: TestProject
+references:
+  - project: Shared/Shared.csproj
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+            var config = ProjectFileParser.Parse(projectFile);
+
+            Assert.Single(config.References);
+            Assert.Equal(ReferenceType.Project, config.References[0].Type);
+            Assert.Equal("Shared/Shared.csproj", config.References[0].Project);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestParseReference_MultipleTypes()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            // Create dummy files
+            var dllFile = Path.Combine(tempDir, "Custom.dll");
+            File.WriteAllText(dllFile, "dummy");
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+            var csprojFile = Path.Combine(sharedDir, "Shared.csproj");
+            File.WriteAllText(csprojFile, "<Project />");
+
+            var yaml = @"name: TestProject
+references:
+  - nuget: Dapper@2.1.28
+  - dll: Custom.dll
+  - project: Shared/Shared.csproj
+  - framework: Microsoft.AspNetCore.App
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+            var config = ProjectFileParser.Parse(projectFile);
+
+            Assert.Equal(4, config.References.Count);
+            Assert.Equal(ReferenceType.NuGet, config.References[0].Type);
+            Assert.Equal("Dapper", config.References[0].Nuget);
+            Assert.Equal("2.1.28", config.References[0].Version);
+
+            Assert.Equal(ReferenceType.Dll, config.References[1].Type);
+            Assert.Equal("Custom.dll", config.References[1].Dll);
+
+            Assert.Equal(ReferenceType.Project, config.References[2].Type);
+            Assert.Equal("Shared/Shared.csproj", config.References[2].Project);
+
+            Assert.Equal(ReferenceType.Framework, config.References[3].Type);
+            Assert.Equal("Microsoft.AspNetCore.App", config.References[3].Framework);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestBackwardCompatibility_Dependencies()
+    {
+        var yaml = @"name: TestProject
+dependencies:
+  Newtonsoft.Json: 13.0.3
+  Dapper: 2.1.28
+";
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+            var config = ProjectFileParser.Parse(tempFile);
+
+            // Should be migrated to References
+            Assert.Equal(2, config.References.Count);
+            Assert.All(config.References, r => Assert.Equal(ReferenceType.NuGet, r.Type));
+
+            var newtonsoft = config.References.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
+            Assert.NotNull(newtonsoft);
+            Assert.Equal("13.0.3", newtonsoft!.Version);
+
+            var dapper = config.References.FirstOrDefault(r => r.Nuget == "Dapper");
+            Assert.NotNull(dapper);
+            Assert.Equal("2.1.28", dapper!.Version);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestReference_Value_Property()
+    {
+        var nugetRef = new Reference { Nuget = "TestPackage" };
+        Assert.Equal("TestPackage", nugetRef.Value);
+
+        var dllRef = new Reference { Dll = "test.dll" };
+        Assert.Equal("test.dll", dllRef.Value);
+
+        var projectRef = new Reference { Project = "test.csproj" };
+        Assert.Equal("test.csproj", projectRef.Value);
+
+        var frameworkRef = new Reference { Framework = "Microsoft.AspNetCore.App" };
+        Assert.Equal("Microsoft.AspNetCore.App", frameworkRef.Value);
+    }
+
+    [Fact]
+    public void TestReference_Type_Property()
+    {
+        Assert.Equal(ReferenceType.NuGet, new Reference { Nuget = "Test" }.Type);
+        Assert.Equal(ReferenceType.Dll, new Reference { Dll = "test.dll" }.Type);
+        Assert.Equal(ReferenceType.Project, new Reference { Project = "test.csproj" }.Type);
+        Assert.Equal(ReferenceType.Framework, new Reference { Framework = "Test" }.Type);
+    }
+
+    [Fact]
+    public void TestReference_InvalidEmpty()
+    {
+        var emptyRef = new Reference();
+        Assert.Throws<InvalidOperationException>(() => emptyRef.Type);
+        Assert.Throws<InvalidOperationException>(() => emptyRef.Value);
     }
 }

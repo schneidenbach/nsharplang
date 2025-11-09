@@ -103,7 +103,7 @@ public class MultiFileCompiler
                 analyzer.LoadSystemAssemblies();
 
                 // Load assemblies from project configuration
-                analyzer.LoadFromProjectConfig(_config);
+                analyzer.LoadFromProjectConfig(_config, _projectRoot);
 
                 var result = analyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
 

@@ -417,38 +417,93 @@ class Program
     {
         config ??= ProjectFileParser.CreateDefault();
 
-        var dependencies = string.Join("\n    ",
-            config.Dependencies.Select(kvp =>
-                $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($@"<Project Sdk=""{config.Sdk}"">");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>");
+        sb.AppendLine($"    <TargetFramework>{config.TargetFramework}</TargetFramework>");
+        sb.AppendLine("    <LangVersion>latest</LangVersion>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("  </PropertyGroup>");
 
-        var projectReferences = string.Join("\n    ",
-            config.ProjectReferences.Select(path =>
-                $@"<ProjectReference Include=""{path}"" />"));
-
-        var itemGroups = "";
-        if (!string.IsNullOrWhiteSpace(dependencies))
+        // Generate ItemGroup for references
+        if (config.References.Count > 0)
         {
-            itemGroups += $@"  <ItemGroup>
-    {dependencies}
-  </ItemGroup>
-";
-        }
-        if (!string.IsNullOrWhiteSpace(projectReferences))
-        {
-            itemGroups += $@"  <ItemGroup>
-    {projectReferences}
-  </ItemGroup>
-";
+            sb.AppendLine();
+            sb.AppendLine("  <ItemGroup>");
+
+            foreach (var reference in config.References)
+            {
+                switch (reference.Type)
+                {
+                    case ReferenceType.NuGet:
+                        if (reference.Version != null)
+                            sb.AppendLine($"    <PackageReference Include=\"{reference.Nuget}\" Version=\"{reference.Version}\" />");
+                        else
+                            sb.AppendLine($"    <PackageReference Include=\"{reference.Nuget}\" Version=\"*\" />");
+                        break;
+
+                    case ReferenceType.Dll:
+                        var dllPath = Path.GetFullPath(reference.Dll!);
+                        sb.AppendLine($"    <Reference Include=\"{Path.GetFileNameWithoutExtension(reference.Dll)}\">");
+                        sb.AppendLine($"      <HintPath>{dllPath}</HintPath>");
+                        sb.AppendLine("    </Reference>");
+                        break;
+
+                    case ReferenceType.Project:
+                        var projectPath = Path.GetFullPath(reference.Project!);
+                        sb.AppendLine($"    <ProjectReference Include=\"{projectPath}\" />");
+                        break;
+
+                    case ReferenceType.Framework:
+                        sb.AppendLine($"    <FrameworkReference Include=\"{reference.Framework}\" />");
+                        break;
+                }
+            }
+
+            sb.AppendLine("  </ItemGroup>");
         }
 
-        return $@"<Project Sdk=""{config.Sdk}"">
-  <PropertyGroup>
-    <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
-    <TargetFramework>{config.TargetFramework}</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-{itemGroups}</Project>";
+        // Handle legacy Dependencies field (for backward compatibility)
+        #pragma warning disable CS0618 // Type or member is obsolete
+        if (config.Dependencies.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var (package, version) in config.Dependencies)
+            {
+                sb.AppendLine($"    <PackageReference Include=\"{package}\" Version=\"{version}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        // Handle test dependencies
+        if (config.TestDependencies.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var (package, version) in config.TestDependencies)
+            {
+                sb.AppendLine($"    <PackageReference Include=\"{package}\" Version=\"{version}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        // Handle legacy ProjectReferences field (for backward compatibility)
+        if (config.ProjectReferences.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var projectRef in config.ProjectReferences)
+            {
+                sb.AppendLine($"    <ProjectReference Include=\"{projectRef}\" />");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+        #pragma warning restore CS0618 // Type or member is obsolete
+
+        sb.AppendLine("</Project>");
+        return sb.ToString();
     }
 
     static string CompileToCSharp(string source, string fileName, ProjectConfig? config = null)
@@ -469,7 +524,7 @@ class Program
         analyzer.LoadSystemAssemblies();
 
         // Load assemblies from project configuration
-        analyzer.LoadFromProjectConfig(config);
+        analyzer.LoadFromProjectConfig(config, projectRoot);
 
         var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot, source);
 
@@ -648,8 +703,13 @@ func Main() {{
                     OutputType = "library",
                     TargetFramework = projectConfig.TargetFramework,
                     Sdk = projectConfig.Sdk,
+                    #pragma warning disable CS0618 // Type or member is obsolete
                     Dependencies = projectConfig.Dependencies,
-                    References = new List<string>(projectConfig.References) { mainProjectDll },
+                    #pragma warning restore CS0618 // Type or member is obsolete
+                    References = new List<Reference>(projectConfig.References)
+                    {
+                        new Reference { Dll = mainProjectDll }
+                    },
                     Language = projectConfig.Language
                 };
 
