@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NewCLILang.Compiler;
@@ -568,10 +569,103 @@ func Main() {{
                 .Where(f => !f.EndsWith(".tests.nl"))
                 .ToArray();
 
-            // Compile ALL files together (source + tests) so tests can see source symbols
-            var allFiles = sourceFiles.Concat(testFiles).ToArray();
-            var compiler = new MultiFileCompiler(allFiles, projectRoot, projectConfig);
-            var result = compiler.Compile();
+            // For exe projects, build main project first and reference it
+            // For library projects, compile all together (current behavior)
+            MultiFileCompilationResult result;
+            string? mainProjectDll = null;
+
+            if (projectConfig?.OutputType == "exe")
+            {
+                Console.WriteLine("Building main project first...");
+
+                // Build main project
+                var mainBuildDir = Path.Combine(Path.GetTempPath(), "nlc-main-build");
+                if (Directory.Exists(mainBuildDir))
+                {
+                    Directory.Delete(mainBuildDir, true);
+                }
+                Directory.CreateDirectory(mainBuildDir);
+
+                // Compile source files (excluding tests)
+                var mainCompiler = new MultiFileCompiler(sourceFiles, projectRoot, projectConfig);
+                var mainResult = mainCompiler.Compile();
+
+                foreach (var error in mainResult.Errors)
+                {
+                    Console.Error.WriteLine(error.Format());
+                }
+
+                if (!mainResult.Success)
+                {
+                    return Error($"Main project compilation failed with {mainResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+                }
+
+                // Write main project C# files
+                foreach (var kvp in mainResult.TranspiledFiles)
+                {
+                    var sourceFile = kvp.Key;
+                    var csharpCode = kvp.Value;
+                    var relativePath = Path.GetRelativePath(projectRoot, sourceFile);
+                    var csharpFile = Path.Combine(mainBuildDir, Path.ChangeExtension(relativePath, ".cs"));
+
+                    var csharpDir = Path.GetDirectoryName(csharpFile);
+                    if (csharpDir != null)
+                    {
+                        Directory.CreateDirectory(csharpDir);
+                    }
+
+                    File.WriteAllText(csharpFile, csharpCode);
+                }
+
+                // Create main project .csproj
+                var mainProjectFile = Path.Combine(mainBuildDir, $"{projectConfig.EffectiveName}.csproj");
+                File.WriteAllText(mainProjectFile, GenerateCsProj(projectConfig));
+
+                // Build main project
+                var mainBuildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "dotnet",
+                    Arguments = $"build \"{mainProjectFile}\" -v q",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                });
+
+                mainBuildResult?.WaitForExit();
+
+                if (mainBuildResult?.ExitCode != 0)
+                {
+                    var error = mainBuildResult?.StandardError.ReadToEnd() ?? "";
+                    var output = mainBuildResult?.StandardOutput.ReadToEnd() ?? "";
+                    return Error($"Main project build failed:\n{error}{output}");
+                }
+
+                mainProjectDll = Path.Combine(mainBuildDir, "bin", "Debug", projectConfig.TargetFramework, $"{projectConfig.EffectiveName}.dll");
+                Console.WriteLine($"Main project built successfully: {mainProjectDll}");
+
+                // Create a test config that includes reference to main project DLL
+                var testConfig = new ProjectConfig
+                {
+                    Name = projectConfig.Name + ".Tests",
+                    OutputType = "library",
+                    TargetFramework = projectConfig.TargetFramework,
+                    Sdk = projectConfig.Sdk,
+                    Dependencies = projectConfig.Dependencies,
+                    References = new List<string>(projectConfig.References) { mainProjectDll },
+                    Language = projectConfig.Language
+                };
+
+                // Now compile only test files with reference to main project
+                var testCompiler = new MultiFileCompiler(testFiles, projectRoot, testConfig);
+                result = testCompiler.Compile();
+            }
+            else
+            {
+                // Library project: compile all together (current behavior)
+                var allFiles = sourceFiles.Concat(testFiles).ToArray();
+                var compiler = new MultiFileCompiler(allFiles, projectRoot, projectConfig);
+                result = compiler.Compile();
+            }
 
             // Report errors and warnings with rich formatting
             foreach (var error in result.Errors)
@@ -610,7 +704,7 @@ func Main() {{
 
             // Create test .csproj with XUnit dependencies
             var projectFile = Path.Combine(tempDir, "TestProject.csproj");
-            File.WriteAllText(projectFile, GenerateTestCsProj(projectConfig));
+            File.WriteAllText(projectFile, GenerateTestCsProj(projectConfig, mainProjectDll));
 
             // Build tests
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -651,13 +745,24 @@ func Main() {{
         }
     }
 
-    static string GenerateTestCsProj(ProjectConfig? config)
+    static string GenerateTestCsProj(ProjectConfig? config, string? mainProjectDll = null)
     {
         config ??= ProjectFileParser.CreateDefault();
 
         var dependencies = string.Join("\n    ",
             config.Dependencies.Select(kvp =>
                 $@"<PackageReference Include=""{kvp.Key}"" Version=""{kvp.Value}"" />"));
+
+        var assemblyReference = "";
+        if (!string.IsNullOrEmpty(mainProjectDll))
+        {
+            assemblyReference = $@"
+  <ItemGroup>
+    <Reference Include=""{Path.GetFileNameWithoutExtension(mainProjectDll)}"">
+      <HintPath>{mainProjectDll}</HintPath>
+    </Reference>
+  </ItemGroup>";
+        }
 
         return $@"<Project Sdk=""Microsoft.NET.Sdk"">
   <PropertyGroup>
@@ -675,7 +780,7 @@ func Main() {{
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     {dependencies}
-  </ItemGroup>
+  </ItemGroup>{assemblyReference}
 </Project>";
     }
 
