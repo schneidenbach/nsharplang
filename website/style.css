@@ -281,6 +281,54 @@ body {
     color: var(--text-light);
 }
 
+/* Documentation Section */
+.documentation {
+    background-color: var(--bg-light);
+}
+
+.doc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 40px;
+    margin-top: 40px;
+}
+
+.doc-section {
+    background-color: var(--bg-white);
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.doc-section h3 {
+    font-size: 1.4rem;
+    margin-bottom: 20px;
+    color: var(--text-color);
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 10px;
+}
+
+.doc-section ul {
+    list-style: none;
+}
+
+.doc-section li {
+    margin-bottom: 12px;
+    line-height: 1.6;
+}
+
+.doc-section a {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.doc-section a:hover {
+    color: var(--secondary-color);
+    text-decoration: underline;
+}
+
 /* Footer */
 .footer {
     background-color: var(--text-color);

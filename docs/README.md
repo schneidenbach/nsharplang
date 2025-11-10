@@ -56,9 +56,14 @@ dotnet run
 ### Language Guides
 
 - **[Basics](guide/basics.md)** - Variables, functions, control flow, and core syntax
-- **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, and async _(coming soon)_
-- **[Types](guide/types.md)** - Classes, enums, and the type system _(coming soon)_
-- **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching _(coming soon)_
+- **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, async, and generics
+- **[Types](guide/types.md)** - Classes, unions, records, duck interfaces, and the type system
+- **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
+
+### Migration & Interop
+
+- **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - syntax mapping and strategies
+- **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
 
 ### Examples
 
