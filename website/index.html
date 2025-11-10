@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="N# - A pragmatic, simple language for the CLR. Go for .NET.">
+    <title>N# - Go for .NET</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">N# - Go for .NET</h1>
+                <p class="hero-subtitle">Pragmatic, simple language for the CLR</p>
+                <div class="hero-buttons">
+                    <a href="#quick-start" class="btn btn-primary">Get Started</a>
+                    <a href="#features" class="btn btn-secondary">View Features</a>
+                    <a href="https://github.com/anthropics/NewCLILang" class="btn btn-secondary" target="_blank">GitHub</a>
+                </div>
+            </div>
+            <div class="hero-code">
+                <pre><code>package main
+
+import "System"
+
+func main() {
+    Console.WriteLine("Hello, N#!")
+}</code></pre>
+            </div>
+        </div>
+    </header>
+
+    <!-- Quick Start Section -->
+    <section id="quick-start" class="section quick-start">
+        <div class="container">
+            <h2 class="section-title">Quick Start</h2>
+            <p class="section-subtitle">Get up and running in 3 commands</p>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Install Templates</h3>
+                    <pre><code>dotnet new install NSharp.Templates</code></pre>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Create Project</h3>
+                    <pre><code>dotnet new nsharp-console -o MyApp</code></pre>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Run</h3>
+                    <pre><code>cd MyApp && dotnet run</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="section features">
+        <div class="container">
+            <h2 class="section-title">Why N#?</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Simple Syntax</h3>
+                    <p>Go-inspired syntax with no semicolons, short variable declarations with <code>:=</code>, and convention-based visibility.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔗</div>
+                    <h3>Full .NET Interop</h3>
+                    <p>Perfect interoperability with C# and the entire .NET ecosystem. Use any NuGet package seamlessly.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Modern Type System</h3>
+                    <p>Discriminated unions, structural typing, and pattern matching that C# lacks. Pragmatic approach to nullability.</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🛠️</div>
+                    <h3>Great Tooling</h3>
+                    <p>VS Code extension with IntelliSense, syntax highlighting, and full MSBuild integration.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section id="download" class="section download">
+        <div class="container">
+            <h2 class="section-title">Get N#</h2>
+            <div class="download-options">
+                <div class="download-option">
+                    <h3>📦 NuGet SDK</h3>
+                    <pre><code>Microsoft.NET.Sdk.NSharp</code></pre>
+                    <p>MSBuild SDK for .NET projects</p>
+                </div>
+                <div class="download-option">
+                    <h3>🎨 VS Code Extension</h3>
+                    <pre><code>ext install nsharp</code></pre>
+                    <p>Syntax highlighting and IntelliSense</p>
+                </div>
+                <div class="download-option">
+                    <h3>💻 Source Code</h3>
+                    <pre><code>github.com/anthropics/NewCLILang</code></pre>
+                    <p>Open source on GitHub</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 N# Language. Open source project.</p>
+            <div class="footer-links">
+                <a href="https://github.com/anthropics/NewCLILang">GitHub</a>
+                <a href="https://github.com/anthropics/NewCLILang/issues">Issues</a>
+                <a href="https://github.com/anthropics/NewCLILang/blob/main/README.md">Documentation</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
