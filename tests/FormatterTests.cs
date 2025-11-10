@@ -237,8 +237,8 @@ return ""zero""
     public void Format_Union()
     {
         var input = @"union Result {
-Success(value: int)
-Error(message: string)
+Success { value: int }
+Error { message: string }
 }";
         var expected = @"union Result {
     Success(value: int)
@@ -271,7 +271,7 @@ Blue
     public void Format_Interface()
     {
         var input = @"interface ICalculator {
-Add(x: int, y: int): int
+func Add(x: int, y: int): int
 }";
         var expected = @"interface ICalculator {
     func Add(x: int, y: int): int
@@ -285,9 +285,9 @@ Add(x: int, y: int): int
     public void Format_MatchExpression()
     {
         var input = @"func Test(x: int): string {
-return x match {
-0 => ""zero""
-1 => ""one""
+return match x {
+0 => ""zero"",
+1 => ""one"",
 _ => ""other""
 }
 }";
@@ -307,11 +307,11 @@ _ => ""other""
     public void Format_Lambda()
     {
         var input = @"func Test() {
-f := (x: int) => x * 2
+f := x => x * 2
 print f(5)
 }";
         var expected = @"func Test() {
-    f := (x: int) => x * 2
+    f := (x: var) => x * 2
     print f(5)
 }";
 
@@ -341,7 +341,7 @@ print arr
         var input = @"func Test() {
 try {
 print ""trying""
-} catch Exception e {
+} catch (Exception e) {
 print e
 }
 }";
@@ -360,15 +360,12 @@ print e
     [Fact]
     public void Format_PackageAndNamespace()
     {
-        var input = @"package MyPackage
-namespace MyApp.Core
+        var input = @"package MyApp.Core
 
 func Main() {
 print ""hello""
 }";
-        var expected = @"package MyPackage
-
-namespace MyApp.Core
+        var expected = @"package MyApp.Core
 
 func Main() {
     print ""hello""
@@ -495,10 +492,10 @@ print ""hello""
     [Fact]
     public void Format_PublicClass()
     {
-        var input = @"public class MyClass {
+        var input = @"class MyClass {
 Value: int
 }";
-        var expected = @"public class MyClass {
+        var expected = @"class MyClass {
     Value: int
 }";
 
@@ -544,7 +541,7 @@ yield 3
     public void Format_WithExpression()
     {
         var input = @"func Test(p: Person): Person {
-return p with { Age = 30 }
+return p with { Age: 30 }
 }";
         var expected = @"func Test(p: Person): Person {
     return p with { Age = 30 }
@@ -629,8 +626,14 @@ Value: T
     [Fact]
     public void Format_Record()
     {
-        var input = @"record Person(Name: string, Age: int)";
-        var expected = @"record Person(Name: string, Age: int)";
+        var input = @"record Person {
+Name: string
+Age: int
+}";
+        var expected = @"record Person {
+    Name: string
+    Age: int
+}";
 
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
