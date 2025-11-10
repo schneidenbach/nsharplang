@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NSharpLang.Cli</RootNamespace>
+
+    <!-- Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>nlc</ToolCommandName>
+    <PackageId>NSharpLang.Cli</PackageId>
+
+    <!-- Package Metadata -->
+    <Version>0.1.0</Version>
+    <Authors>N# Team</Authors>
+    <Description>N# (NewLang Sharp) - A tight, pragmatic language for .NET with Go-level simplicity</Description>
+    <PackageProjectUrl>https://github.com/anthropics/newclilang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/anthropics/newclilang</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>dotnet;language;compiler;nlang;csharp;transpiler</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
+  </ItemGroup>
+
+  <!-- Add references for external type resolution -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

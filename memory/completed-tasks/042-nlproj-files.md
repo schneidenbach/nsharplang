@@ -89,7 +89,7 @@ dotnet run
 - Adds generated C# to compilation automatically
 - Works with `dotnet build` and `dotnet run`
 
-**Location:** `src/Build/Microsoft.NET.Sdk.NSharp/`
+**Location:** `src/Microsoft.NET.Sdk.NSharp/`
 
 **Usage:**
 ```xml

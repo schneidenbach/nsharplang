@@ -65,7 +65,7 @@ func main() {
   <packageSources>
     <clear />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="local" value="PATH_TO_REPO/src/Build/Microsoft.NET.Sdk.NSharp/bin/Debug" />
+    <add key="local" value="PATH_TO_REPO/src/Microsoft.NET.Sdk.NSharp/bin/Debug" />
   </packageSources>
 </configuration>
 ```

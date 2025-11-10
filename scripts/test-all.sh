@@ -66,7 +66,7 @@ fi
 
 section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing SDK to local NuGet feed..."
-if dotnet pack src/Build/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj -o ~/.nuget/local-feed -v q; then
+if dotnet pack src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj -o ~/.nuget/local-feed -v q; then
     handle_success "SDK packed"
 else
     handle_error "SDK pack"

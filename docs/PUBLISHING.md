@@ -159,7 +159,7 @@ Check that packages appear at:
 To publish a new version:
 
 1. Update version in `.csproj` files:
-   - `sdk/Microsoft.NET.Sdk.NSharp/Sdk/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj`
+   - `src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj`
    - `templates/NSharp.Templates.csproj`
 
 2. Update version references in templates:

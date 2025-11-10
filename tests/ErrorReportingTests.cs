@@ -1,8 +1,8 @@
 using Xunit;
-using NewCLILang.Compiler;
+using NSharpLang.Compiler;
 using System.Collections.Generic;
 
-namespace NewCLILang.Tests;
+namespace NSharpLang.Tests;
 
 public class ErrorReportingTests
 {

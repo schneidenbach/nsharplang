@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <RootNamespace>NSharpLang.LanguageServer</RootNamespace>
+
+    <!-- Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>nsharp-lsp</ToolCommandName>
+    <PackageId>NSharpLang.LanguageServer</PackageId>
+
+    <!-- Package Metadata -->
+    <Version>1.0.0</Version>
+    <Authors>N# Team</Authors>
+    <Description>N# Language Server Protocol (LSP) server - Provides IntelliSense for N# in any LSP-compatible editor</Description>
+    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>nsharp;dotnet;lsp;language-server;intellisense</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -122,7 +122,7 @@ nsharp.coverage.format = opencover,lcov
 ## Files to Modify
 
 ```
-src/Build/Microsoft.NET.Sdk.NSharp/
+src/Microsoft.NET.Sdk.NSharp/
   ├── Sdk/Sdk.targets          # Add Coverlet integration
   └── build/                    # Coverage configuration
 

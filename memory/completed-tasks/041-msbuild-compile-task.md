@@ -14,7 +14,7 @@ MSBuild task that integrates N# compiler into dotnet build pipeline.
 
 ## Implementation
 
-Create `src/Build/NSharp.Build.Tasks/NSharpCompile.cs`:
+Create `src/NSharpLang.Build.Tasks/NSharpCompile.cs`:
 
 ```csharp
 using Microsoft.Build.Framework;

@@ -1,9 +1,9 @@
 using System.Linq;
-using NewCLILang.Compiler;
-using NewCLILang.Compiler.Ast;
+using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using Xunit;
 
-namespace NewCLILang.Tests;
+namespace NSharpLang.Tests;
 
 public class CodeFixTests
 {
