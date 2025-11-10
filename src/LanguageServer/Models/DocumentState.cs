@@ -15,8 +15,13 @@ public class DocumentState
     public List<Token>? Tokens { get; set; }
     public CompilationUnit? CompilationUnit { get; set; }
     public List<CompilerError>? Diagnostics { get; set; }
+    public List<Diagnostic>? LinterDiagnostics { get; set; }  // Linter diagnostics from static analysis
     public Dictionary<string, TypeInfo>? Symbols { get; set; }
     public Dictionary<string, SymbolInfo>? SymbolsInfo { get; set; }  // Enhanced symbol info for intellisense
+
+    // Convenience properties
+    public CompilationUnit? Ast => CompilationUnit;
+    public string? Source => Text;
 
     public DocumentState(string uri, string text, int version)
     {
