@@ -10,7 +10,7 @@ using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudio.Utilities;
 
-namespace NSharp.VisualStudio.LanguageServer
+namespace NSharpLang.VisualStudio.LanguageServer
 {
     /// <summary>
     /// Language Server Protocol client for N# in Visual Studio.

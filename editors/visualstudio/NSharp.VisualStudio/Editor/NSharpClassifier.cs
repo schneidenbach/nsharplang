@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 
-namespace NSharp.VisualStudio.Editor
+namespace NSharpLang.VisualStudio.Editor
 {
     /// <summary>
     /// Classifier that classifies N# code tokens.

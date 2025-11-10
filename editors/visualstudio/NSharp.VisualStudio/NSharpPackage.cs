@@ -4,7 +4,7 @@ using System.Threading;
 using Microsoft.VisualStudio.Shell;
 using Task = System.Threading.Tasks.Task;
 
-namespace NSharp.VisualStudio
+namespace NSharpLang.VisualStudio
 {
     /// <summary>
     /// This is the main package class for the N# Visual Studio extension.

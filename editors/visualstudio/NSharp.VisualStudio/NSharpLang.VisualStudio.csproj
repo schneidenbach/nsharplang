@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
-    <RootNamespace>NSharp.VisualStudio</RootNamespace>
+    <RootNamespace>NSharpLang.VisualStudio</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <AssemblyName>NSharp.VisualStudio</AssemblyName>
+    <AssemblyName>NSharpLang.VisualStudio</AssemblyName>
     <GeneratePkgDefFile>true</GeneratePkgDefFile>
     <UseCodebase>true</UseCodebase>
     <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>

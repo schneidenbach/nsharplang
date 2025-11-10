@@ -16,7 +16,7 @@ dotnet nuget add source ~/.nuget/local-feed --name nsharp-local
 # 2. Build and pack SDK to local feed
 echo "🔨 Building and packing SDK..."
 # Build the build tasks first
-dotnet build src/NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj -c Release -v q
+dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
 # Pack the SDK
 dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o ~/.nuget/local-feed -v q
 

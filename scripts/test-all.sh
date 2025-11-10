@@ -34,7 +34,7 @@ handle_success() {
 }
 
 # Change to repo root
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
 
 section "Step 1: Clean Previous Build Artifacts"
@@ -48,7 +48,7 @@ handle_success "Cleaned build artifacts"
 
 section "Step 2: Build N# Compiler"
 echo "Building compiler and CLI..."
-if dotnet build src/Compiler/Compiler.csproj -v q; then
+if dotnet build src/NSharpLang.Compiler/Compiler.csproj -v q; then
     handle_success "Compiler built"
 else
     handle_error "Compiler build"
@@ -163,7 +163,7 @@ else
         echo "  Location: $nl_file"
 
         # Try to compile with CLI
-        if dotnet run --project src/Cli/Cli.csproj -- build "$nl_file" > /dev/null 2>&1; then
+        if dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build "$nl_file" > /dev/null 2>&1; then
             handle_success "Legacy example: $example_name"
         else
             # Some examples might be meant to fail or have special requirements

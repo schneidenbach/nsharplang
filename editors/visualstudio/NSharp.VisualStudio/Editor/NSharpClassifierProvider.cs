@@ -3,7 +3,7 @@ using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
 
-namespace NSharp.VisualStudio.Editor
+namespace NSharpLang.VisualStudio.Editor
 {
     /// <summary>
     /// Classifier provider. It adds the classifier to the set of classifiers.

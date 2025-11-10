@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="NSharp.Build.targets" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="NSharpLang.Build.targets" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
