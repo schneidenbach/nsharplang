@@ -1,16 +1,1 @@
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-  </PropertyGroup>
-
-  <!-- Exclude test files and nested projects from build -->
-  <ItemGroup>
-    <NSharpCompile Remove="**/*.tests.nl" />
-    <NSharpCompile Remove="MinimalApi/**/*.nl" />
-  </ItemGroup>
-
-</Project>
+<Project Sdk="Microsoft.NET.Sdk.NSharp" />

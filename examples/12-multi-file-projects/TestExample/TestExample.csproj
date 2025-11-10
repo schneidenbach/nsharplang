@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.NSharp">
-
   <PropertyGroup>
+    <!-- Override default (Exe) for library projects -->
+    <!-- TODO: Read from project.yml when MSBuild supports early property evaluation -->
     <OutputType>Library</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
-
 </Project>

@@ -3,6 +3,6 @@
     "version": "9.0.100"
   },
   "msbuild-sdks": {
-    "Microsoft.NET.Sdk.NSharp": "0.1.0"
+    "Microsoft.NET.Sdk.NSharp": "1.0.0"
   }
 }
