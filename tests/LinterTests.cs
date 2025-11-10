@@ -347,6 +347,112 @@ func main() {
 
     #endregion
 
+    #region NL004: Async Without Await Tests
+
+    [Fact]
+    public void NL004_DetectsAsyncWithoutAwait()
+    {
+        var source = @"
+async func process(): Task {
+    x := 5
+    return Task.CompletedTask
+}";
+        var diagnostics = Lint(source);
+
+        var asyncWarnings = diagnostics.Where(d => d.Code == "NL004").ToList();
+        Assert.NotEmpty(asyncWarnings);
+        Assert.Contains(asyncWarnings, d => d.Message.Contains("process"));
+    }
+
+    [Fact]
+    public void NL004_NoWarningForAsyncWithAwait()
+    {
+        var source = @"
+async func process(): Task {
+    await Task.Delay(100)
+}";
+        var diagnostics = Lint(source);
+
+        var asyncWarnings = diagnostics.Where(d => d.Code == "NL004").ToList();
+        Assert.Empty(asyncWarnings);
+    }
+
+    [Fact]
+    public void NL004_NoWarningForNonAsyncFunction()
+    {
+        var source = @"
+func process() {
+    x := 5
+}";
+        var diagnostics = Lint(source);
+
+        var asyncWarnings = diagnostics.Where(d => d.Code == "NL004").ToList();
+        Assert.Empty(asyncWarnings);
+    }
+
+    [Fact]
+    public void NL004_DetectsAsyncWithoutAwaitInClass()
+    {
+        var source = @"
+class MyClass {
+    async func process(): Task {
+        x := 5
+        return Task.CompletedTask
+    }
+}";
+        var diagnostics = Lint(source);
+
+        var asyncWarnings = diagnostics.Where(d => d.Code == "NL004").ToList();
+        Assert.NotEmpty(asyncWarnings);
+    }
+
+    #endregion
+
+    #region .editorconfig Configuration Tests
+
+    [Fact]
+    public void LinterConfig_DefaultSeverities()
+    {
+        var config = LinterConfig.Default();
+
+        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL001"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL002"));
+        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL003"));
+        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL004"));
+        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL005"));
+    }
+
+    [Fact]
+    public void LinterConfig_CanOverrideSeverity()
+    {
+        var config = LinterConfig.Default();
+        config.RuleSeverities["NL001"] = DiagnosticSeverity.Error;
+
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL001"));
+    }
+
+    [Fact]
+    public void Linter_UsesSeverityFromConfig()
+    {
+        var source = "func main() { x := 5 }";
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var ast = parser.ParseCompilationUnit();
+
+        var config = LinterConfig.Default();
+        config.RuleSeverities["NL001"] = DiagnosticSeverity.Error;
+
+        var linter = new Linter(config);
+        var diagnostics = linter.Lint(ast, "test.nl");
+
+        var unusedVarDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
+        Assert.NotNull(unusedVarDiag);
+        Assert.Equal(DiagnosticSeverity.Error, unusedVarDiag!.Severity);
+    }
+
+    #endregion
+
     #region Integration Tests
 
     [Fact]
