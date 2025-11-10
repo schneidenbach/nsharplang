@@ -1,0 +1,41 @@
+# N# Runtime Dockerfile (Multi-stage)
+# Use this for production deployments
+# Final size: ~200MB (runtime only)
+
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-env
+
+# Install N# CLI
+RUN dotnet tool install -g nlc
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+WORKDIR /app
+
+# Copy project configuration files
+COPY *.csproj ./
+COPY project.yml ./
+
+# Restore dependencies (cached layer)
+RUN dotnet restore
+
+# Copy source code
+COPY . ./
+
+# Build and publish
+RUN dotnet publish -c Release -o out
+
+# Runtime stage
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
+
+WORKDIR /app
+
+# Copy built artifacts from build stage
+COPY --from=build-env /app/out .
+
+# Set the entrypoint (replace YourApp with your actual assembly name)
+# This will be determined by the OutputAssembly in project.yml
+ENTRYPOINT ["dotnet", "YourApp.dll"]
+
+# Expose default ports (adjust as needed)
+# EXPOSE 80
+# EXPOSE 443

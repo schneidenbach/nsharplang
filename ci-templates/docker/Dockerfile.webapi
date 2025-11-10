@@ -1,0 +1,51 @@
+# N# Web API Dockerfile (Multi-stage, optimized)
+# Use this for ASP.NET Core Web APIs
+# Final size: ~200MB
+
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+
+# Install N# CLI
+RUN dotnet tool install -g nlc
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+WORKDIR /src
+
+# Copy project files for dependency restore
+COPY *.csproj ./
+COPY project.yml ./
+RUN dotnet restore
+
+# Copy all source files
+COPY . .
+
+# Build and publish
+RUN dotnet publish -c Release -o /app/publish
+
+# Runtime stage
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+
+WORKDIR /app
+
+# Copy published output
+COPY --from=build /app/publish .
+
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
+# Expose ports
+EXPOSE 8080
+EXPOSE 8081
+
+# Health check (adjust URL as needed)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# Set environment variables
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Entrypoint (replace YourApp with your actual assembly name from project.yml)
+ENTRYPOINT ["dotnet", "YourApp.dll"]

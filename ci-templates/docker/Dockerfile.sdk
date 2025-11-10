@@ -1,0 +1,32 @@
+# N# SDK Dockerfile
+# Use this for development and building N# applications
+# Size: ~1.5GB (includes full SDK)
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS base
+
+# Install N# CLI tools
+RUN dotnet tool install -g nlc && \
+    dotnet tool install -g NSharp.LanguageServer
+
+# Add .NET tools to PATH
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+# Install N# templates
+RUN dotnet new install NSharp.Templates
+
+# Verify installation
+RUN nlc --version
+
+WORKDIR /app
+
+# Copy project files
+COPY . .
+
+# Restore dependencies
+RUN dotnet restore
+
+# Build the application
+RUN dotnet build
+
+# Default command
+ENTRYPOINT ["dotnet", "run"]

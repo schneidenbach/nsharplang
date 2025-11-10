@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # N# Web API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapi
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Database=Server=db;Database=myapp;User=sa;Password=YourStrong@Passw0rd
+    depends_on:
+      - db
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # SQL Server (if needed)
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong@Passw0rd
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Redis (if needed for caching)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+volumes:
+  sqldata:
+
+networks:
+  app-network:
+    driver: bridge
