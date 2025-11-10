@@ -869,6 +869,10 @@ public class ILCompiler
                 _currentIL.Emit(OpCodes.Ldarg_0);
                 break;
 
+            case MatchExpression match:
+                EmitMatchExpression(match);
+                break;
+
             default:
                 throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
         }
@@ -2526,6 +2530,268 @@ public class ILCompiler
             _currentIL = null;
             _locals = null;
             _parameters = null;
+        }
+    }
+
+    /// <summary>
+    /// Emit IL for a match expression (pattern matching)
+    /// </summary>
+    private void EmitMatchExpression(MatchExpression match)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var endLabel = _currentIL.DefineLabel();
+        var caseLabels = new Label[match.Cases.Count];
+        var nextCaseLabels = new Label[match.Cases.Count];
+
+        // Define labels for each case
+        for (int i = 0; i < match.Cases.Count; i++)
+        {
+            caseLabels[i] = _currentIL.DefineLabel();
+            nextCaseLabels[i] = _currentIL.DefineLabel();
+        }
+
+        // Store the matched value in a local (we'll need it for multiple comparisons)
+        var matchValueType = GetExpressionType(match.Value);
+        EmitExpression(match.Value);
+        var matchLocal = _currentIL.DeclareLocal(matchValueType);
+        _currentIL.Emit(OpCodes.Stloc, matchLocal);
+
+        // Generate code for each case
+        for (int i = 0; i < match.Cases.Count; i++)
+        {
+            var matchCase = match.Cases[i];
+
+            // Emit pattern matching test
+            _currentIL.Emit(OpCodes.Ldloc, matchLocal);
+            EmitPatternTest(matchCase.Pattern, matchValueType, caseLabels[i], nextCaseLabels[i]);
+
+            // Check guard if present
+            if (matchCase.Guard != null)
+            {
+                EmitExpression(matchCase.Guard);
+                _currentIL.Emit(OpCodes.Brfalse, nextCaseLabels[i]); // If guard is false, try next case
+            }
+
+            // Mark the label for this case body
+            _currentIL.MarkLabel(caseLabels[i]);
+
+            // Emit the case body
+            EmitExpression(matchCase.Expression);
+            _currentIL.Emit(OpCodes.Br, endLabel); // Jump to end after executing case
+
+            // Mark the label for the next case
+            _currentIL.MarkLabel(nextCaseLabels[i]);
+        }
+
+        // If no case matched, throw MatchException
+        _currentIL.Emit(OpCodes.Ldstr, "No matching case in match expression");
+        var matchExceptionCtor = typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) });
+        if (matchExceptionCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Newobj, matchExceptionCtor);
+            _currentIL.Emit(OpCodes.Throw);
+        }
+
+        // Mark the end label
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// Emit IL to test if a pattern matches, jumping to successLabel if it does, otherwise falling through to failLabel
+    /// </summary>
+    private void EmitPatternTest(Pattern pattern, Type matchValueType, Label successLabel, Label failLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (pattern)
+        {
+            case LiteralPattern literalPattern:
+                // Compare value with literal
+                // Stack: [value]
+                EmitExpression(literalPattern.Literal);
+                // Stack: [value, literal]
+
+                // Use appropriate comparison based on type
+                if (matchValueType == typeof(string))
+                {
+                    var stringEquals = typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) });
+                    if (stringEquals != null)
+                    {
+                        _currentIL.Emit(OpCodes.Call, stringEquals);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                    }
+                }
+                else if (matchValueType.IsValueType)
+                {
+                    _currentIL.Emit(OpCodes.Ceq);
+                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ceq);
+                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                }
+                break;
+
+            case IdentifierPattern identPattern:
+                // Wildcard pattern or variable binding - always matches
+                if (identPattern.Name == "_")
+                {
+                    // Discard pattern - pop the value and jump to success
+                    _currentIL.Emit(OpCodes.Pop);
+                    _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                else
+                {
+                    // Variable binding - store the value in a local and jump to success
+                    if (_locals == null)
+                    {
+                        _locals = new Dictionary<string, LocalBuilder>();
+                    }
+
+                    var local = _currentIL.DeclareLocal(matchValueType);
+                    _locals[identPattern.Name] = local;
+                    _currentIL.Emit(OpCodes.Stloc, local);
+                    _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                break;
+
+            case UnionCasePattern unionPattern:
+                // Union case pattern - check if value is instance of the union case type
+                // This requires the union to be compiled as a class hierarchy
+                // For now, we'll do a simple type check
+
+                // Assuming union cases are compiled as subclasses, we can use isinst
+                // to check if the value is an instance of the case type
+
+                // Get the union case type (this would be the subclass name)
+                var unionCaseTypeName = unionPattern.CaseName;
+
+                // For now, just emit a placeholder that checks type by name
+                // In a full implementation, we'd need to resolve the actual union case type
+                _currentIL.Emit(OpCodes.Dup);
+                _currentIL.Emit(OpCodes.Callvirt, typeof(object).GetMethod("GetType")!);
+                _currentIL.Emit(OpCodes.Callvirt, typeof(Type).GetProperty("Name")!.GetGetMethod()!);
+                _currentIL.Emit(OpCodes.Ldstr, unionCaseTypeName);
+                var stringEqualsMethod = typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) });
+                if (stringEqualsMethod != null)
+                {
+                    _currentIL.Emit(OpCodes.Call, stringEqualsMethod);
+                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                }
+                _currentIL.Emit(OpCodes.Pop); // Pop the original value
+                break;
+
+            case RelationalPattern relationalPattern:
+                // Relational pattern (< value, >= value, etc.)
+                // Stack: [value]
+                EmitExpression(relationalPattern.Value);
+                // Stack: [value, relational_value]
+
+                switch (relationalPattern.Operator)
+                {
+                    case "<":
+                        _currentIL.Emit(OpCodes.Clt);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                        break;
+                    case ">":
+                        _currentIL.Emit(OpCodes.Cgt);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                        break;
+                    case "<=":
+                        _currentIL.Emit(OpCodes.Cgt);
+                        _currentIL.Emit(OpCodes.Brfalse, successLabel);
+                        break;
+                    case ">=":
+                        _currentIL.Emit(OpCodes.Clt);
+                        _currentIL.Emit(OpCodes.Brfalse, successLabel);
+                        break;
+                    case "==":
+                        _currentIL.Emit(OpCodes.Ceq);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                        break;
+                    case "!=":
+                        _currentIL.Emit(OpCodes.Ceq);
+                        _currentIL.Emit(OpCodes.Brfalse, successLabel);
+                        break;
+                }
+                break;
+
+            case AndPattern andPattern:
+                // Both patterns must match
+                var andNextLabel = _currentIL.DefineLabel();
+
+                // Test first pattern
+                _currentIL.Emit(OpCodes.Dup); // Duplicate value for second test
+                EmitPatternTest(andPattern.Left, matchValueType, andNextLabel, failLabel);
+
+                // First pattern didn't match, clean up and fail
+                _currentIL.Emit(OpCodes.Pop);
+                _currentIL.Emit(OpCodes.Br, failLabel);
+
+                // First pattern matched, test second
+                _currentIL.MarkLabel(andNextLabel);
+                EmitPatternTest(andPattern.Right, matchValueType, successLabel, failLabel);
+                break;
+
+            case OrPattern orPattern:
+                // Either pattern can match
+                var orNextLabel = _currentIL.DefineLabel();
+
+                // Test first pattern
+                _currentIL.Emit(OpCodes.Dup); // Duplicate value for second test
+                EmitPatternTest(orPattern.Left, matchValueType, successLabel, orNextLabel);
+
+                // First pattern didn't match, try second
+                _currentIL.MarkLabel(orNextLabel);
+                EmitPatternTest(orPattern.Right, matchValueType, successLabel, failLabel);
+                break;
+
+            case NotPattern notPattern:
+                // Pattern must NOT match
+                var notMatchLabel = _currentIL.DefineLabel();
+
+                // Test the inner pattern
+                _currentIL.Emit(OpCodes.Dup);
+                EmitPatternTest(notPattern.Pattern, matchValueType, notMatchLabel, successLabel);
+
+                // Pattern matched, so not pattern fails
+                _currentIL.MarkLabel(notMatchLabel);
+                _currentIL.Emit(OpCodes.Pop);
+                _currentIL.Emit(OpCodes.Br, failLabel);
+                break;
+
+            case TypePattern typePatternWithName:
+                // Type pattern with variable binding
+                var type = ResolveType(typePatternWithName.Type);
+                _currentIL.Emit(OpCodes.Isinst, type);
+                _currentIL.Emit(OpCodes.Dup);
+                var notNullLabel = _currentIL.DefineLabel();
+                _currentIL.Emit(OpCodes.Brtrue, notNullLabel);
+                _currentIL.Emit(OpCodes.Pop);
+                _currentIL.Emit(OpCodes.Br, failLabel);
+
+                _currentIL.MarkLabel(notNullLabel);
+                if (typePatternWithName.BindingName != null)
+                {
+                    if (_locals == null)
+                    {
+                        _locals = new Dictionary<string, LocalBuilder>();
+                    }
+                    var local = _currentIL.DeclareLocal(type);
+                    _locals[typePatternWithName.BindingName] = local;
+                    _currentIL.Emit(OpCodes.Stloc, local);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Pop);
+                }
+                _currentIL.Emit(OpCodes.Br, successLabel);
+                break;
+
+            default:
+                throw new NotImplementedException($"Pattern type {pattern.GetType().Name} not yet implemented in IL compiler");
         }
     }
 }
