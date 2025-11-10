@@ -5,6 +5,12 @@ This plugin provides basic language support for N# (NewLang Sharp) in JetBrains 
 ## Features
 
 - **Syntax Highlighting**: Full syntax highlighting for `.nl` files
+- **IntelliSense via LSP**: Language Server Protocol integration for intelligent code completion
+- **Code Completion**: Context-aware auto-completion
+- **Signature Help**: Function parameter hints and documentation
+- **Hover Documentation**: Type information and documentation on hover
+- **Go to Definition**: Navigate to symbol definitions
+- **Find References**: Find all usages of a symbol
 - **File Recognition**: Automatic detection of N# files and `project.yml` files
 - **Project Icons**: Custom icons for N# files and projects in the project view
 - **Build Integration**: Build and rebuild N# projects using `dotnet build`
@@ -60,8 +66,9 @@ Or create a run configuration:
 ## Requirements
 
 - JetBrains Rider 2024.1 or later
-- .NET SDK 8.0 or later
+- .NET SDK 9.0 or later
 - N# SDK installed (see main project documentation)
+- N# Language Server (bundled with SDK or plugin)
 
 ## Development
 
@@ -106,6 +113,8 @@ src/main/
 │   │   └── NSharpIconProvider.kt      # Icon provider
 │   ├── lexer/
 │   │   └── NSharpLexer.kt             # Lexical analyzer
+│   ├── lsp/
+│   │   └── NSharpLanguageServerSupportProvider.kt  # LSP integration
 │   ├── parser/
 │   │   └── NSharpParser.kt            # Parser
 │   ├── project/
@@ -129,19 +138,33 @@ src/main/
 
 ## Known Limitations
 
-- **Basic Parser**: The current parser is minimal and doesn't build a full AST
-- **No Advanced IntelliSense**: Code completion and navigation require LSP integration (coming in future version)
+- **Basic Parser**: The current parser is minimal and doesn't build a full AST (used only for syntax highlighting)
 - **No Debugging**: Debugging support requires additional Rider-specific integration
 - **No Refactorings**: Advanced refactorings are not yet implemented
 
+## LSP Integration
+
+The plugin integrates with the N# Language Server to provide IntelliSense features. The Language Server is located in one of these locations:
+
+1. Bundled with plugin: `<plugin-path>/nsharp/server/LanguageServer.dll`
+2. User SDK: `~/.nsharp/sdk/LanguageServer.dll`
+3. System installation: Found via `dotnet --list-sdks`
+
+The LSP integration provides:
+- Auto-completion with context awareness
+- Signature help for functions and methods
+- Hover documentation with type information
+- Go to definition
+- Find all references
+- Error squiggles with diagnostics
+
 ## Future Enhancements
 
-See [Task 091: Rider Plugin (LSP)](../../tasks/091-rider-plugin-lsp.md) for planned improvements:
-- Language Server Protocol (LSP) integration
-- Advanced IntelliSense features
-- Go to definition / Find usages
-- Refactoring tools
-- Better error detection
+Planned improvements:
+- Debugging integration with Rider debugger
+- Advanced refactorings (rename, extract method, etc.)
+- Code lens (references, implementations)
+- Inlay hints for types and parameters
 
 ## Contributing
 
