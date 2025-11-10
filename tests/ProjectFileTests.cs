@@ -23,8 +23,10 @@ outputType: exe
 targetFramework: net9.0
 
 dependencies:
-  Newtonsoft.Json: 13.0.3
-  System.Text.Json: 8.0.0
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
+  - nuget: System.Text.Json
+    version: 8.0.0
 
 language:
   asyncDefaultType: ValueTask
@@ -43,7 +45,7 @@ language:
             Assert.Equal("Program.nl", config.Entry);
             Assert.Equal("exe", config.OutputType);
             Assert.Equal("net9.0", config.TargetFramework);
-            // Dependencies are migrated to References
+            // Check dependencies (new list format)
             Assert.Equal(2, config.Dependencies.Count);
             var newtonsoft = config.Dependencies.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
             Assert.NotNull(newtonsoft);
@@ -269,7 +271,7 @@ version: 2.0.0
     public void TestParseReference_NuGet_WithVersion()
     {
         var yaml = @"name: TestProject
-references:
+dependencies:
   - nuget: Microsoft.EntityFrameworkCore
     version: 9.0.0
 ";
@@ -294,7 +296,7 @@ references:
     public void TestParseReference_NuGet_WithoutVersion()
     {
         var yaml = @"name: TestProject
-references:
+dependencies:
   - nuget: Dapper
 ";
         var tempFile = Path.GetTempFileName();
@@ -318,7 +320,7 @@ references:
     public void TestParseReference_NuGet_Shorthand()
     {
         var yaml = @"name: TestProject
-references:
+dependencies:
   - nuget: Dapper@2.1.28
 ";
         var tempFile = Path.GetTempFileName();
@@ -342,7 +344,7 @@ references:
     public void TestParseReference_Framework()
     {
         var yaml = @"name: TestProject
-references:
+dependencies:
   - framework: Microsoft.AspNetCore.App
 ";
         var tempFile = Path.GetTempFileName();
@@ -374,7 +376,7 @@ references:
             File.WriteAllText(dllFile, "dummy");
 
             var yaml = @"name: TestProject
-references:
+dependencies:
   - dll: MyLibrary.dll
 ";
             var projectFile = Path.Combine(tempDir, "project.yml");
@@ -406,7 +408,7 @@ references:
             File.WriteAllText(csprojFile, "<Project />");
 
             var yaml = @"name: TestProject
-references:
+dependencies:
   - project: Shared/Shared.csproj
 ";
             var projectFile = Path.Combine(tempDir, "project.yml");
@@ -440,7 +442,7 @@ references:
             File.WriteAllText(csprojFile, "<Project />");
 
             var yaml = @"name: TestProject
-references:
+dependencies:
   - nuget: Dapper@2.1.28
   - dll: Custom.dll
   - project: Shared/Shared.csproj
@@ -470,37 +472,12 @@ references:
         }
     }
 
-    [Fact]
-    public void TestBackwardCompatibility_Dependencies()
-    {
-        var yaml = @"name: TestProject
-dependencies:
-  Newtonsoft.Json: 13.0.3
-  Dapper: 2.1.28
-";
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(tempFile, yaml);
-            var config = ProjectFileParser.Parse(tempFile);
-
-            // Should be migrated to References
-            Assert.Equal(2, config.Dependencies.Count);
-            Assert.All(config.Dependencies, r => Assert.Equal(ReferenceType.NuGet, r.Type));
-
-            var newtonsoft = config.Dependencies.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
-            Assert.NotNull(newtonsoft);
-            Assert.Equal("13.0.3", newtonsoft!.Version);
-
-            var dapper = config.Dependencies.FirstOrDefault(r => r.Nuget == "Dapper");
-            Assert.NotNull(dapper);
-            Assert.Equal("2.1.28", dapper!.Version);
-        }
-        finally
-        {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
-        }
-    }
+    // REMOVED: TestBackwardCompatibility_Dependencies
+    // We no longer support the old dictionary format for dependencies.
+    // Breaking changes are acceptable - use the new list format:
+    // dependencies:
+    //   - nuget: PackageName
+    //     version: 1.0.0
 
     [Fact]
     public void TestReference_Value_Property()

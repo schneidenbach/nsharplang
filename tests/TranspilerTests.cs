@@ -2946,7 +2946,8 @@ func Test() {
 
         var result = Transpile(source);
 
-        Assert.Contains("public static partial class MathUtils", result);
+        Assert.Contains("public static partial class Functions_MathUtils", result);
+        Assert.Contains("using static MathUtils.Functions_MathUtils;", result);
         Assert.Contains("public static int Add(int a, int b)", result);
     }
 
@@ -2974,7 +2975,8 @@ func Test() {
 
         var result = Transpile(source);
 
-        Assert.Contains("public static partial class MyCompany.Utils", result);
+        Assert.Contains("public static partial class Functions_MyCompany.Utils", result);
+        Assert.Contains("using static MyCompany.Utils.Functions_MyCompany.Utils;", result);
     }
 
     // Lambda syntax tests (Task 033)

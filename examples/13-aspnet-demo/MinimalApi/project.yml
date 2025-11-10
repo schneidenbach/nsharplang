@@ -5,6 +5,6 @@ sdk: Microsoft.NET.Sdk.Web
 entry: Program.nl
 outputType: exe
 
-references:
+dependencies:
   # Framework references
   - framework: Microsoft.AspNetCore.App
