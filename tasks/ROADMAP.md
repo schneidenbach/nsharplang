@@ -1,7 +1,7 @@
 # N# Language Development Roadmap
 
 **Last Updated:** 2025-11-09
-**Current Status:** v1.69 | 656 passing tests | Core language complete
+**Current Status:** v1.70 | 743 passing tests | Core language complete | Formatter complete
 
 ## Philosophy: Incremental Value
 
@@ -28,25 +28,25 @@ Each task delivers **immediate, tangible value** to developers. No massive under
 
 ---
 
-### Task 040: Code Formatter
-**Status:** Not started
+### ✅ Task 040: Code Formatter
+**Status:** Complete
 **Priority:** 🔴 P0-Critical
-**Effort:** Medium (15-20 hours)
 **Impact:** Essential for team collaboration
 
-**Why Critical:**
-> No formatter = style debates in every PR. Blocks team adoption.
+**Completed:**
+- ✅ `nlc format` command for `.nl` files
+- ✅ MSBuild target: `dotnet build /t:FormatNSharp`
+- ✅ `.editorconfig` integration (indent_style, indent_size)
+- ✅ IDE format-on-save (VS Code)
+- ✅ CI verification mode (`--verify-no-changes`)
+- ✅ Exit code 1 for formatting violations (CI integration)
 
-**Deliverables:**
-- `dotnet format` support for `.nl` files
-- `.editorconfig` integration
-- IDE format-on-save
-- CI verification mode
-
-**Success Criteria:**
+**Usage:**
 ```bash
-dotnet format
-dotnet format --verify-no-changes  # for CI
+nlc format                          # Format all .nl files
+nlc format --verify-no-changes      # CI verification
+dotnet build /t:FormatNSharp        # MSBuild integration
+dotnet build /t:FormatNSharp /p:FormatVerify=true  # MSBuild verify
 ```
 
 ---

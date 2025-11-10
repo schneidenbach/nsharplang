@@ -86,4 +86,18 @@
     <RemoveDir Directories="$(NSharpOutputPath)" />
   </Target>
 
+  <!-- Format N# files -->
+  <Target Name="FormatNSharp" Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <PropertyGroup>
+      <NSharpCliPath Condition="'$(NSharpCliPath)' == ''">nlc</NSharpCliPath>
+      <FormatVerifyFlag Condition="'$(FormatVerify)' == 'true'">--verify-no-changes</FormatVerifyFlag>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="Formatting N# files..." />
+
+    <Exec Command="$(NSharpCliPath) format $(FormatVerifyFlag)"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          IgnoreExitCode="false" />
+  </Target>
+
 </Project>

@@ -1058,6 +1058,10 @@ func Main() {{
     {
         try
         {
+            // Check for --verify-no-changes flag
+            var verifyOnly = args.Contains("--verify-no-changes");
+            args = args.Where(a => a != "--verify-no-changes").ToArray();
+
             string[] files;
 
             if (args.Length == 0)
@@ -1080,6 +1084,7 @@ func Main() {{
             }
 
             var formattedCount = 0;
+            var filesNeedingFormatting = new List<string>();
 
             foreach (var file in files)
             {
@@ -1091,7 +1096,10 @@ func Main() {{
 
                 try
                 {
-                    Console.WriteLine($"Formatting {file}...");
+                    if (!verifyOnly)
+                    {
+                        Console.WriteLine($"Formatting {file}...");
+                    }
 
                     var source = File.ReadAllText(file);
 
@@ -1111,10 +1119,20 @@ func Main() {{
                     var formatter = new Formatter(config);
                     var formatted = formatter.Format(ast);
 
-                    // Write back to file
-                    File.WriteAllText(file, formatted);
-
-                    formattedCount++;
+                    if (verifyOnly)
+                    {
+                        // Verify mode: check if file would change
+                        if (source != formatted)
+                        {
+                            filesNeedingFormatting.Add(file);
+                        }
+                    }
+                    else
+                    {
+                        // Format mode: write back to file
+                        File.WriteAllText(file, formatted);
+                        formattedCount++;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1122,8 +1140,28 @@ func Main() {{
                 }
             }
 
-            Console.WriteLine($"Formatted {formattedCount} file(s)");
-            return 0;
+            if (verifyOnly)
+            {
+                if (filesNeedingFormatting.Count > 0)
+                {
+                    Console.Error.WriteLine($"Error: {filesNeedingFormatting.Count} file(s) need formatting:");
+                    foreach (var file in filesNeedingFormatting)
+                    {
+                        Console.Error.WriteLine($"  - {file}");
+                    }
+                    return 1;
+                }
+                else
+                {
+                    Console.WriteLine("All files are properly formatted");
+                    return 0;
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Formatted {formattedCount} file(s)");
+                return 0;
+            }
         }
         catch (Exception ex)
         {
@@ -1292,7 +1330,8 @@ func Main() {{
         Console.WriteLine("  help                 - Show this help message");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --keep-generated     - Keep generated .cs files for debugging (build command)");
+        Console.WriteLine("  --keep-generated         - Keep generated .cs files for debugging (build command)");
+        Console.WriteLine("  --verify-no-changes      - Verify files are formatted correctly (format command, for CI)");
         Console.WriteLine();
 
         return 0;
