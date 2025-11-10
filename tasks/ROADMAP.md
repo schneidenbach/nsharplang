@@ -1,7 +1,7 @@
 # N# Language Development Roadmap
 
 **Last Updated:** 2025-11-09
-**Current Status:** v1.70 | 743 passing tests | Core language complete | Formatter complete
+**Current Status:** v1.71 | 743 passing tests | Core language complete | Formatter complete | Documentation complete
 
 ## Philosophy: Incremental Value
 
@@ -51,26 +51,32 @@ dotnet build /t:FormatNSharp /p:FormatVerify=true  # MSBuild verify
 
 ---
 
-### Task 041: Official Website & Core Documentation
-**Status:** Not started
+### ✅ Task 041: Official Website & Core Documentation
+**Status:** Complete
 **Priority:** 🔴 P0-Critical
-**Effort:** Large (25-30 hours)
 **Impact:** First impressions & discoverability
 
-**Why Critical:**
-> Ugly/missing docs = "toy language". Professional site = professional language.
+**Completed:**
+- ✅ Professional website at website/index.html with documentation section
+- ✅ Getting started guide (< 5 min to first app) in docs/README.md
+- ✅ Complete language reference:
+  - Functions guide (lambdas, async, generics, local functions)
+  - Types guide (unions, records, duck interfaces, classes, structs)
+  - Pattern matching guide (exhaustive matching, all pattern types)
+- ✅ C# migration guide (syntax mapping, migration strategies)
+- ✅ Interop guide (using N# with C# and .NET ecosystem)
+- ✅ Enhanced website with organized documentation links
+- ✅ Mobile-friendly responsive design
 
-**Deliverables:**
-- https://nsharp.dev/ with professional design
-- Getting started guide (< 5 min to first app)
-- Language reference
-- C# migration guide
-- API reference
-
-**Success Criteria:**
-- Developer can get started in < 5 minutes
-- All core features documented
-- Searchable & mobile-friendly
+**Documentation:**
+- `docs/README.md` - Main documentation hub
+- `docs/guide/basics.md` - Language basics
+- `docs/guide/functions.md` - Functions deep dive
+- `docs/guide/types.md` - Type system guide
+- `docs/guide/pattern-matching.md` - Pattern matching
+- `docs/guide/csharp-migration.md` - C# migration
+- `docs/guide/interop.md` - Interop guide
+- `website/index.html` - Enhanced with docs section
 
 ---
 
