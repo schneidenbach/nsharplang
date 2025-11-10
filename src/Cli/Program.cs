@@ -1214,8 +1214,12 @@ func Main() {{
                     var parser = new Parser(tokens, file);
                     var ast = parser.ParseCompilationUnit();
 
+                    // Load linter config from .editorconfig
+                    var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
+                    var linterConfig = LinterConfig.FromEditorConfig(fileDir);
+
                     // Lint
-                    var linter = new Linter();
+                    var linter = new Linter(linterConfig);
                     var diagnostics = linter.Lint(ast, file);
 
                     if (diagnostics.Count > 0)

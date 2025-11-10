@@ -1,0 +1,47 @@
+# Example .editorconfig for N# projects
+# Copy this to .editorconfig and customize as needed
+
+root = true
+
+# All files
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# N# files
+[*.nl]
+indent_style = space
+indent_size = 4
+
+# Linter rule severities
+# Options: error, warning, info (or suggestion)
+
+# NL001: Unused variable
+dotnet_diagnostic.NL001.severity = warning
+
+# NL002: Missing import
+dotnet_diagnostic.NL002.severity = error
+
+# NL003: Unnecessary null check on value types
+dotnet_diagnostic.NL003.severity = warning
+
+# NL004: Async function without await
+dotnet_diagnostic.NL004.severity = warning
+
+# NL005: Use pattern matching (future)
+dotnet_diagnostic.NL005.severity = info
+
+# C# files
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# YAML files
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false

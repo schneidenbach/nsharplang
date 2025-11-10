@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NewCLILang.Compiler.Ast;
 
@@ -31,13 +32,133 @@ public record Diagnostic(
     string? Suggestion = null);
 
 /// <summary>
+/// Linter configuration from .editorconfig
+/// </summary>
+public class LinterConfig
+{
+    public Dictionary<string, DiagnosticSeverity> RuleSeverities { get; set; } = new();
+
+    public static LinterConfig Default()
+    {
+        return new LinterConfig
+        {
+            RuleSeverities = new Dictionary<string, DiagnosticSeverity>
+            {
+                { "NL001", DiagnosticSeverity.Warning }, // Unused variable
+                { "NL002", DiagnosticSeverity.Error },   // Missing import
+                { "NL003", DiagnosticSeverity.Warning }, // Unnecessary null check
+                { "NL004", DiagnosticSeverity.Warning }, // Async without await
+                { "NL005", DiagnosticSeverity.Info },    // Use pattern matching
+            }
+        };
+    }
+
+    public static LinterConfig FromEditorConfig(string directoryPath)
+    {
+        var config = Default();
+
+        // Look for .editorconfig files starting from directoryPath and walking up
+        var current = new DirectoryInfo(directoryPath);
+        while (current != null)
+        {
+            var editorConfigPath = Path.Combine(current.FullName, ".editorconfig");
+            if (File.Exists(editorConfigPath))
+            {
+                ParseEditorConfig(editorConfigPath, config);
+
+                // Check for root=true
+                var lines = File.ReadAllLines(editorConfigPath);
+                if (lines.Any(l => l.Trim().Equals("root=true", StringComparison.OrdinalIgnoreCase) ||
+                                   l.Trim().Equals("root = true", StringComparison.OrdinalIgnoreCase)))
+                {
+                    break; // Stop at root
+                }
+            }
+            current = current.Parent;
+        }
+
+        return config;
+    }
+
+    private static void ParseEditorConfig(string path, LinterConfig config)
+    {
+        try
+        {
+            var lines = File.ReadAllLines(path);
+            bool inNSharpSection = false;
+
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+
+                // Check for [*.nl] section
+                if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
+                {
+                    var pattern = trimmed[1..^1];
+                    inNSharpSection = pattern.Contains("*.nl") || pattern.Contains(".nl");
+                    continue;
+                }
+
+                // Parse rule severities in [*.nl] section
+                if (inNSharpSection && trimmed.Contains("="))
+                {
+                    var parts = trimmed.Split('=', 2);
+                    if (parts.Length == 2)
+                    {
+                        var key = parts[0].Trim();
+                        var value = parts[1].Trim();
+
+                        // Handle dotnet_diagnostic.NL001.severity = warning
+                        if (key.StartsWith("dotnet_diagnostic.") && key.EndsWith(".severity"))
+                        {
+                            var ruleCode = key["dotnet_diagnostic.".Length..^".severity".Length];
+
+                            var severity = value.ToLower() switch
+                            {
+                                "error" => DiagnosticSeverity.Error,
+                                "warning" => DiagnosticSeverity.Warning,
+                                "info" or "suggestion" => DiagnosticSeverity.Info,
+                                _ => (DiagnosticSeverity?)null
+                            };
+
+                            if (severity.HasValue)
+                            {
+                                config.RuleSeverities[ruleCode] = severity.Value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // If parsing fails, use defaults
+        }
+    }
+
+    public DiagnosticSeverity GetSeverity(string ruleCode)
+    {
+        return RuleSeverities.TryGetValue(ruleCode, out var severity)
+            ? severity
+            : DiagnosticSeverity.Warning;
+    }
+}
+
+/// <summary>
 /// Main linter class that analyzes code and returns diagnostics
 /// </summary>
 public class Linter
 {
+    private readonly LinterConfig _config;
+
+    public Linter(LinterConfig? config = null)
+    {
+        _config = config ?? LinterConfig.Default();
+    }
+
     public List<Diagnostic> Lint(CompilationUnit ast, string? filePath = null)
     {
-        var visitor = new LintVisitor(filePath);
+        var visitor = new LintVisitor(filePath, _config);
         visitor.Visit(ast);
         return visitor.Diagnostics;
     }
@@ -49,17 +170,21 @@ public class Linter
 internal class LintVisitor
 {
     private readonly string? _filePath;
+    private readonly LinterConfig _config;
     private readonly List<Diagnostic> _diagnostics = new();
     private readonly Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
     private readonly Stack<Dictionary<string, (int Line, int Column, bool Used)>> _scopeStack = new();
     private readonly List<string> _importedNamespaces = new();
+    private bool _hasAwaitInFunction = false;
+    private bool _inAsyncFunction = false;
 
     public List<Diagnostic> Diagnostics => _diagnostics;
 
-    public LintVisitor(string? filePath = null)
+    public LintVisitor(string? filePath = null, LinterConfig? config = null)
     {
         _filePath = filePath;
+        _config = config ?? LinterConfig.Default();
     }
 
     public void Visit(CompilationUnit unit)
@@ -113,13 +238,18 @@ internal class LintVisitor
             var (varName, (line, column, used)) = (kvp.Key, kvp.Value);
             if (!used && !_usedVariables.Contains(varName))
             {
-                _diagnostics.Add(new Diagnostic(
+                AddDiagnostic(
                     "NL001",
                     $"Unused variable '{varName}'",
                     new Location(line, column, _filePath),
-                    DiagnosticSeverity.Warning));
+                    _config.GetSeverity("NL001"));
             }
         }
+    }
+
+    private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null)
+    {
+        _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion));
     }
 
     private void VisitDeclaration(Declaration declaration)
@@ -161,6 +291,12 @@ internal class LintVisitor
 
     private void VisitFunction(FunctionDeclaration func)
     {
+        // NL004: Check for async without await
+        var wasInAsync = _inAsyncFunction;
+        var hadAwait = _hasAwaitInFunction;
+        _inAsyncFunction = func.Modifiers.HasFlag(Modifiers.Async);
+        _hasAwaitInFunction = false;
+
         if (func.Body != null)
         {
             PushScope();
@@ -186,6 +322,29 @@ internal class LintVisitor
             VisitExpression(func.ExpressionBody);
             PopScope();
         }
+
+        // NL004: Async method without await
+        if (_inAsyncFunction && !_hasAwaitInFunction && func.Body != null)
+        {
+            // Check if return type is Task or Task<T> (might need async for other reasons)
+            var needsAwait = true;
+
+            // If the function returns a Task synchronously (e.g., Task.CompletedTask), that's ok
+            // For now, we'll warn on all async without await
+            if (needsAwait)
+            {
+                AddDiagnostic(
+                    "NL004",
+                    $"Async function '{func.Name}' does not use 'await'",
+                    new Location(func.Line, func.Column, _filePath),
+                    _config.GetSeverity("NL004"),
+                    "Consider removing 'async' or use 'await' with async operations");
+            }
+        }
+
+        // Restore state
+        _inAsyncFunction = wasInAsync;
+        _hasAwaitInFunction = hadAwait;
     }
 
     private void VisitClass(ClassDeclaration classDecl)
@@ -413,11 +572,11 @@ internal class LintVisitor
                             _ => "value type"
                         };
 
-                        _diagnostics.Add(new Diagnostic(
+                        AddDiagnostic(
                             "NL003",
                             $"Unnecessary null check: '{typeName}' is never null",
                             new Location(condition.Line, condition.Column, _filePath),
-                            DiagnosticSeverity.Warning));
+                            _config.GetSeverity("NL003"));
                     }
                 }
             }
@@ -513,6 +672,7 @@ internal class LintVisitor
                 break;
 
             case AwaitExpression awaitExpr:
+                _hasAwaitInFunction = true; // Track that we're using await
                 VisitExpression(awaitExpr.Expression);
                 break;
 
@@ -630,12 +790,12 @@ internal class LintVisitor
             // Check if the namespace is already imported
             if (!_importedNamespaces.Contains(requiredNamespace))
             {
-                _diagnostics.Add(new Diagnostic(
+                AddDiagnostic(
                     "NL002",
                     $"'{ident.Name}' not found",
                     new Location(ident.Line, ident.Column, _filePath),
-                    DiagnosticSeverity.Error,
-                    $"Add 'import {requiredNamespace}'"));
+                    _config.GetSeverity("NL002"),
+                    $"Add 'import {requiredNamespace}'");
             }
         }
     }
@@ -678,12 +838,12 @@ internal class LintVisitor
             {
                 if (!_importedNamespaces.Contains(requiredNamespace))
                 {
-                    _diagnostics.Add(new Diagnostic(
+                    AddDiagnostic(
                         "NL002",
                         $"'{typeName}' not found",
                         new Location(line, column, _filePath),
-                        DiagnosticSeverity.Error,
-                        $"Add 'import {requiredNamespace}'"));
+                        _config.GetSeverity("NL002"),
+                        $"Add 'import {requiredNamespace}'");
                 }
             }
         }
