@@ -1,0 +1,12 @@
+name: WebApi
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0
+sdk: Microsoft.NET.Sdk.Web
+
+dependencies:
+  - framework: Microsoft.AspNetCore.App
+  - nuget: Swashbuckle.AspNetCore
+    version: 7.2.0
+  - nuget: Microsoft.AspNetCore.OpenApi
+    version: 9.0.0
