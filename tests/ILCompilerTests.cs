@@ -1207,4 +1207,112 @@ record Person(id: int, name: string): IIdentifiable {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleLambdaExpression()
+    {
+        var source = @"
+func TestLambda() {
+    add := (x, y) => x + y
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleLambdaBlock()
+    {
+        var source = @"
+func TestLambda() {
+    add := (x, y) => {
+        return x + y
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileLambdaWithClosure()
+    {
+        var source = @"
+func TestClosure() {
+    multiplier := 5
+    multiply := (x) => x * multiplier
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileLambdaWithMultipleCapturedVariables()
+    {
+        var source = @"
+func TestMultipleCaptured() {
+    a := 10
+    b := 20
+    add := (x) => x + a + b
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileNestedLambdas()
+    {
+        var source = @"
+func TestNestedLambdas() {
+    outer := (x) => {
+        inner := (y) => x + y
+        return x
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileLambdaWithNoParameters()
+    {
+        var source = @"
+func TestNoParams() {
+    getValue := () => 42
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileLambdaWithVoidReturn()
+    {
+        var source = @"
+func TestVoidLambda() {
+    action := (x) => {
+        y := x + 1
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }
