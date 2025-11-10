@@ -5,8 +5,10 @@ import Microsoft.EntityFrameworkCore
 import System.Threading.Tasks
 import System.Linq
 
+package EmployeeApi
+
 // ============================================================================
-// DOMAIN: Status Constants (String Enums - defined outside package)
+// DOMAIN: Status Constants (String Enums)
 // ============================================================================
 
 // Employment status - string enum for better API ergonomics
@@ -24,8 +26,6 @@ enum Department {
     HR = "hr",
     Finance = "finance"
 }
-
-package EmployeeApi
 
 // ============================================================================
 // ENTITY: EmployeeEntity
