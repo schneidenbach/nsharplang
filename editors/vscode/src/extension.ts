@@ -117,6 +117,13 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Register debug configuration command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('nsharp.generateDebugConfig', async () => {
+            await generateDebugConfig();
+        })
+    );
+
     // Start the client (this will also launch the server)
     client.start();
 
@@ -153,6 +160,125 @@ function formatDocument(document: vscode.TextDocument): string {
             // Ignore cleanup errors
         }
     }
+}
+
+async function generateDebugConfig() {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder open');
+        return;
+    }
+
+    const workspacePath = workspaceFolder.uri.fsPath;
+    const vscodePath = path.join(workspacePath, '.vscode');
+
+    // Create .vscode directory if it doesn't exist
+    if (!fs.existsSync(vscodePath)) {
+        fs.mkdirSync(vscodePath, { recursive: true });
+    }
+
+    // Read project.yml to get project name and target framework
+    const projectYmlPath = path.join(workspacePath, 'project.yml');
+    let projectName = path.basename(workspacePath);
+    let targetFramework = 'net9.0';
+    let outputType = 'exe';
+
+    if (fs.existsSync(projectYmlPath)) {
+        try {
+            const projectYml = fs.readFileSync(projectYmlPath, 'utf-8');
+            const nameMatch = projectYml.match(/^name:\s*(.+)$/m);
+            const frameworkMatch = projectYml.match(/^targetFramework:\s*(.+)$/m);
+            const outputTypeMatch = projectYml.match(/^outputType:\s*(.+)$/m);
+
+            if (nameMatch) projectName = nameMatch[1].trim();
+            if (frameworkMatch) targetFramework = frameworkMatch[1].trim();
+            if (outputTypeMatch) outputType = outputTypeMatch[1].trim();
+        } catch (error) {
+            console.error('Failed to parse project.yml:', error);
+        }
+    }
+
+    // Generate launch.json
+    const launchJsonPath = path.join(vscodePath, 'launch.json');
+    const launchJson = generateLaunchJson(projectName, targetFramework, outputType);
+
+    // Check if launch.json already exists
+    if (fs.existsSync(launchJsonPath)) {
+        const overwrite = await vscode.window.showWarningMessage(
+            'launch.json already exists. Overwrite?',
+            'Yes',
+            'No'
+        );
+        if (overwrite !== 'Yes') {
+            return;
+        }
+    }
+
+    fs.writeFileSync(launchJsonPath, launchJson, 'utf-8');
+
+    // Generate tasks.json
+    const tasksJsonPath = path.join(vscodePath, 'tasks.json');
+    const tasksJson = generateTasksJson();
+
+    // Check if tasks.json already exists
+    if (fs.existsSync(tasksJsonPath)) {
+        const overwrite = await vscode.window.showWarningMessage(
+            'tasks.json already exists. Overwrite?',
+            'Yes',
+            'No'
+        );
+        if (overwrite !== 'Yes') {
+            vscode.window.showInformationMessage('Debug configuration created: launch.json');
+            return;
+        }
+    }
+
+    fs.writeFileSync(tasksJsonPath, tasksJson, 'utf-8');
+
+    vscode.window.showInformationMessage('Debug configuration created successfully!');
+}
+
+function generateLaunchJson(projectName: string, targetFramework: string, outputType: string): string {
+    const config = {
+        version: '0.2.0',
+        configurations: [
+            {
+                name: 'Launch N#',
+                type: 'coreclr',
+                request: 'launch',
+                preLaunchTask: 'build',
+                program: `\${workspaceFolder}/bin/Debug/${targetFramework}/${projectName}.dll`,
+                args: [],
+                cwd: '\${workspaceFolder}',
+                console: 'internalConsole',
+                stopAtEntry: false
+            },
+            {
+                name: 'Attach to Process',
+                type: 'coreclr',
+                request: 'attach'
+            }
+        ]
+    };
+
+    return JSON.stringify(config, null, 2);
+}
+
+function generateTasksJson(): string {
+    const config = {
+        version: '2.0.0',
+        tasks: [
+            {
+                label: 'build',
+                command: 'dotnet',
+                type: 'process',
+                args: ['build'],
+                problemMatcher: '$msCompile'
+            }
+        ]
+    };
+
+    return JSON.stringify(config, null, 2);
 }
 
 export function deactivate(): Thenable<void> | undefined {

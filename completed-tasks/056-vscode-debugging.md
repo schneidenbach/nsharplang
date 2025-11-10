@@ -2,11 +2,11 @@
 
 **Effort:** Medium (6-8 hours)
 **Depends:** Task 042
-**Ships:** Debugging works in VS Code
+**Ships:** Debugging works
 
 ## Goal
 
-Enable debugging N# code in VS Code.
+Enable debugging N# code in any IDE that's connected to it, starting with VS Code.
 
 ## Deliverable
 
