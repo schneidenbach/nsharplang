@@ -69,6 +69,10 @@ public class ILCompiler
             {
                 DeclareStruct(moduleBuilder, structDecl);
             }
+            else if (declaration is RecordDeclaration recordDecl)
+            {
+                DeclareRecord(moduleBuilder, recordDecl);
+            }
             else if (declaration is InterfaceDeclaration interfaceDecl)
             {
                 DeclareInterface(moduleBuilder, interfaceDecl);
@@ -90,6 +94,10 @@ public class ILCompiler
             {
                 DeclareStructMembers(structDecl);
             }
+            else if (declaration is RecordDeclaration recordDecl)
+            {
+                DeclareRecordMembers(recordDecl);
+            }
             else if (declaration is InterfaceDeclaration interfaceDecl)
             {
                 DeclareInterfaceMembers(interfaceDecl);
@@ -110,6 +118,10 @@ public class ILCompiler
             else if (declaration is StructDeclaration structDecl)
             {
                 EmitStructBodies(structDecl);
+            }
+            else if (declaration is RecordDeclaration recordDecl)
+            {
+                EmitRecordBodies(recordDecl);
             }
         }
 
@@ -2793,5 +2805,499 @@ public class ILCompiler
             default:
                 throw new NotImplementedException($"Pattern type {pattern.GetType().Name} not yet implemented in IL compiler");
         }
+    }
+
+    /// <summary>
+    /// Declare a record type (first pass)
+    /// </summary>
+    private void DeclareRecord(ModuleBuilder moduleBuilder, RecordDeclaration recordDecl)
+    {
+        // Records can be either classes (record class, default) or structs (record struct)
+        TypeAttributes typeAttributes;
+        Type? baseType;
+
+        if (recordDecl.IsStruct)
+        {
+            // Record struct: value type, sealed
+            typeAttributes = TypeAttributes.Public | TypeAttributes.Sealed;
+            baseType = typeof(ValueType);
+        }
+        else
+        {
+            // Record class: reference type, sealed by default
+            typeAttributes = TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed;
+            baseType = typeof(object);
+        }
+
+        // Handle interfaces
+        Type[]? interfaces = null;
+        if (recordDecl.Interfaces != null && recordDecl.Interfaces.Count > 0)
+        {
+            interfaces = recordDecl.Interfaces.Select(ResolveType).ToArray();
+        }
+
+        var typeBuilder = moduleBuilder.DefineType(
+            recordDecl.Name,
+            typeAttributes,
+            baseType,
+            interfaces);
+
+        _types[recordDecl.Name] = typeBuilder;
+    }
+
+    /// <summary>
+    /// Declare record members (second pass)
+    /// </summary>
+    private void DeclareRecordMembers(RecordDeclaration recordDecl)
+    {
+        if (!_types.TryGetValue(recordDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {recordDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        // Declare fields for primary constructor parameters (as backing fields for auto-properties)
+        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                var fieldType = ResolveType(param.Type);
+
+                // Define backing field
+                var backingFieldName = $"<{param.Name}>k__BackingField";
+                var backingField = typeBuilder.DefineField(
+                    backingFieldName,
+                    fieldType,
+                    FieldAttributes.Private | FieldAttributes.InitOnly);
+
+                _fields[$"{recordDecl.Name}.{backingFieldName}"] = backingField;
+
+                // Define property
+                var property = typeBuilder.DefineProperty(
+                    param.Name,
+                    PropertyAttributes.None,
+                    fieldType,
+                    null);
+
+                // Define getter
+                var getter = typeBuilder.DefineMethod(
+                    $"get_{param.Name}",
+                    MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                    fieldType,
+                    Type.EmptyTypes);
+
+                _methods[$"{recordDecl.Name}.get_{param.Name}"] = getter;
+                property.SetGetMethod(getter);
+            }
+
+            // Declare primary constructor
+            var paramTypes = recordDecl.PrimaryConstructorParameters
+                .Select(p => ResolveType(p.Type))
+                .ToArray();
+
+            var constructor = typeBuilder.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                paramTypes);
+
+            _constructors[$"{recordDecl.Name}..ctor"] = constructor;
+        }
+        else
+        {
+            // No primary constructor - create default parameterless constructor
+            var defaultCtor = typeBuilder.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                Type.EmptyTypes);
+
+            _constructors[$"{recordDecl.Name}..ctor"] = defaultCtor;
+        }
+
+        // Declare other members
+        foreach (var member in recordDecl.Members)
+        {
+            switch (member)
+            {
+                case FieldDeclaration fieldDecl:
+                    DeclareField(typeBuilder, fieldDecl);
+                    break;
+                case ConstructorDeclaration ctorDecl:
+                    DeclareConstructor(typeBuilder, ctorDecl);
+                    break;
+                case FunctionDeclaration funcDecl:
+                    DeclareMethod(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    DeclareProperty(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        // Declare Equals(object) override
+        var equalsMethod = typeBuilder.DefineMethod(
+            "Equals",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(bool),
+            new[] { typeof(object) });
+
+        _methods[$"{recordDecl.Name}.Equals"] = equalsMethod;
+
+        // Declare GetHashCode override
+        var getHashCodeMethod = typeBuilder.DefineMethod(
+            "GetHashCode",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+
+        _methods[$"{recordDecl.Name}.GetHashCode"] = getHashCodeMethod;
+
+        // Declare ToString override
+        var toStringMethod = typeBuilder.DefineMethod(
+            "ToString",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(string),
+            Type.EmptyTypes);
+
+        _methods[$"{recordDecl.Name}.ToString"] = toStringMethod;
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Emit record method bodies (third pass)
+    /// </summary>
+    private void EmitRecordBodies(RecordDeclaration recordDecl)
+    {
+        if (!_types.TryGetValue(recordDecl.Name, out var typeBuilder))
+        {
+            throw new InvalidOperationException($"Type {recordDecl.Name} not declared");
+        }
+
+        _currentTypeBuilder = typeBuilder;
+
+        // Emit property getters for primary constructor parameters
+        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                var getterKey = $"{recordDecl.Name}.get_{param.Name}";
+                if (_methods.TryGetValue(getterKey, out var getter))
+                {
+                    var il = getter.GetILGenerator();
+                    var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                    if (_fields.TryGetValue(backingFieldKey, out var backingField))
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldfld, backingField);
+                        il.Emit(OpCodes.Ret);
+                    }
+                }
+            }
+
+            // Emit primary constructor body
+            var ctorKey = $"{recordDecl.Name}..ctor";
+            if (_constructors.TryGetValue(ctorKey, out var constructor))
+            {
+                var il = constructor.GetILGenerator();
+
+                // Call base constructor
+                il.Emit(OpCodes.Ldarg_0);
+                var baseType = typeBuilder.BaseType;
+                var baseCtor = baseType?.GetConstructor(Type.EmptyTypes);
+                if (baseCtor != null)
+                {
+                    il.Emit(OpCodes.Call, baseCtor);
+                }
+
+                // Initialize backing fields from parameters
+                for (int i = 0; i < recordDecl.PrimaryConstructorParameters.Count; i++)
+                {
+                    var param = recordDecl.PrimaryConstructorParameters[i];
+                    var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                    if (_fields.TryGetValue(backingFieldKey, out var backingField))
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldarg, i + 1); // +1 because arg_0 is 'this'
+                        il.Emit(OpCodes.Stfld, backingField);
+                    }
+                }
+
+                il.Emit(OpCodes.Ret);
+            }
+        }
+        else
+        {
+            // Emit default parameterless constructor
+            var ctorKey = $"{recordDecl.Name}..ctor";
+            if (_constructors.TryGetValue(ctorKey, out var constructor))
+            {
+                var il = constructor.GetILGenerator();
+
+                // Call base constructor
+                il.Emit(OpCodes.Ldarg_0);
+                var baseType = typeBuilder.BaseType;
+                var baseCtor = baseType?.GetConstructor(Type.EmptyTypes);
+                if (baseCtor != null)
+                {
+                    il.Emit(OpCodes.Call, baseCtor);
+                }
+
+                il.Emit(OpCodes.Ret);
+            }
+        }
+
+        // Emit Equals method
+        EmitRecordEquals(recordDecl, typeBuilder);
+
+        // Emit GetHashCode method
+        EmitRecordGetHashCode(recordDecl, typeBuilder);
+
+        // Emit ToString method
+        EmitRecordToString(recordDecl, typeBuilder);
+
+        // Emit other member bodies
+        foreach (var member in recordDecl.Members)
+        {
+            switch (member)
+            {
+                case FunctionDeclaration funcDecl:
+                    EmitMethodBody(typeBuilder, funcDecl);
+                    break;
+                case PropertyDeclaration propDecl:
+                    EmitPropertyBody(typeBuilder, propDecl);
+                    break;
+            }
+        }
+
+        _currentTypeBuilder = null;
+    }
+
+    /// <summary>
+    /// Emit Equals method for record
+    /// </summary>
+    private void EmitRecordEquals(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        var equalsKey = $"{recordDecl.Name}.Equals";
+        if (!_methods.TryGetValue(equalsKey, out var equalsMethod))
+            return;
+
+        var il = equalsMethod.GetILGenerator();
+        var returnFalse = il.DefineLabel();
+        var compareFields = il.DefineLabel();
+
+        // if (obj == null) return false;
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Brfalse, returnFalse);
+
+        // if (!(obj is RecordType)) return false;
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Isinst, typeBuilder);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Brtrue, compareFields);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Br, returnFalse);
+
+        // RecordType other = (RecordType)obj;
+        il.MarkLabel(compareFields);
+        var otherLocal = il.DeclareLocal(typeBuilder);
+        il.Emit(OpCodes.Stloc, otherLocal);
+
+        // Compare each field
+        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                if (_fields.TryGetValue(backingFieldKey, out var backingField))
+                {
+                    var fieldType = backingField.FieldType;
+
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, backingField);
+                    il.Emit(OpCodes.Ldloc, otherLocal);
+                    il.Emit(OpCodes.Ldfld, backingField);
+
+                    // Use Equals for reference types and == for value types
+                    if (fieldType.IsValueType)
+                    {
+                        il.Emit(OpCodes.Ceq);
+                        il.Emit(OpCodes.Brfalse, returnFalse);
+                    }
+                    else
+                    {
+                        // Call static Object.Equals for proper null handling
+                        var objectEqualsMethod = typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) });
+                        if (objectEqualsMethod != null)
+                        {
+                            il.Emit(OpCodes.Call, objectEqualsMethod);
+                            il.Emit(OpCodes.Brfalse, returnFalse);
+                        }
+                    }
+                }
+            }
+        }
+
+        // All fields are equal, return true
+        il.Emit(OpCodes.Ldc_I4_1);
+        il.Emit(OpCodes.Ret);
+
+        // Return false
+        il.MarkLabel(returnFalse);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit GetHashCode method for record
+    /// </summary>
+    private void EmitRecordGetHashCode(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        var getHashCodeKey = $"{recordDecl.Name}.GetHashCode";
+        if (!_methods.TryGetValue(getHashCodeKey, out var getHashCodeMethod))
+            return;
+
+        var il = getHashCodeMethod.GetILGenerator();
+        var hashCodeLocal = il.DeclareLocal(typeof(int));
+
+        // int hash = 17;
+        il.Emit(OpCodes.Ldc_I4, 17);
+        il.Emit(OpCodes.Stloc, hashCodeLocal);
+
+        // Combine hash codes from all fields
+        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                if (_fields.TryGetValue(backingFieldKey, out var backingField))
+                {
+                    var fieldType = backingField.FieldType;
+
+                    // hash = hash * 23 + field.GetHashCode();
+                    il.Emit(OpCodes.Ldloc, hashCodeLocal);
+                    il.Emit(OpCodes.Ldc_I4, 23);
+                    il.Emit(OpCodes.Mul);
+
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, backingField);
+
+                    if (fieldType.IsValueType)
+                    {
+                        // For value types, box and call GetHashCode
+                        il.Emit(OpCodes.Box, fieldType);
+                    }
+
+                    // Call GetHashCode (handles null for reference types)
+                    var getHashCodeMethodInfo = typeof(object).GetMethod("GetHashCode", Type.EmptyTypes);
+                    if (getHashCodeMethodInfo != null)
+                    {
+                        il.Emit(OpCodes.Callvirt, getHashCodeMethodInfo);
+                    }
+
+                    il.Emit(OpCodes.Add);
+                    il.Emit(OpCodes.Stloc, hashCodeLocal);
+                }
+            }
+        }
+
+        il.Emit(OpCodes.Ldloc, hashCodeLocal);
+        il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit ToString method for record
+    /// </summary>
+    private void EmitRecordToString(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        var toStringKey = $"{recordDecl.Name}.ToString";
+        if (!_methods.TryGetValue(toStringKey, out var toStringMethod))
+            return;
+
+        var il = toStringMethod.GetILGenerator();
+
+        // Build string: "RecordName { Prop1 = value1, Prop2 = value2 }"
+        if (recordDecl.PrimaryConstructorParameters == null || recordDecl.PrimaryConstructorParameters.Count == 0)
+        {
+            // No properties, just return the type name
+            il.Emit(OpCodes.Ldstr, recordDecl.Name);
+            il.Emit(OpCodes.Ret);
+            return;
+        }
+
+        // Use StringBuilder for efficient string concatenation
+        var stringBuilderType = typeof(System.Text.StringBuilder);
+        var sbCtor = stringBuilderType.GetConstructor(Type.EmptyTypes);
+        var appendStringMethod = stringBuilderType.GetMethod("Append", new[] { typeof(string) });
+        var appendObjectMethod = stringBuilderType.GetMethod("Append", new[] { typeof(object) });
+        var toStringMethodInfo = stringBuilderType.GetMethod("ToString", Type.EmptyTypes);
+
+        if (sbCtor == null || appendStringMethod == null || appendObjectMethod == null || toStringMethodInfo == null)
+        {
+            // Fallback: just return type name
+            il.Emit(OpCodes.Ldstr, recordDecl.Name);
+            il.Emit(OpCodes.Ret);
+            return;
+        }
+
+        var sbLocal = il.DeclareLocal(stringBuilderType);
+        il.Emit(OpCodes.Newobj, sbCtor);
+        il.Emit(OpCodes.Stloc, sbLocal);
+
+        // Append "RecordName { "
+        il.Emit(OpCodes.Ldloc, sbLocal);
+        il.Emit(OpCodes.Ldstr, $"{recordDecl.Name} {{ ");
+        il.Emit(OpCodes.Callvirt, appendStringMethod);
+        il.Emit(OpCodes.Pop);
+
+        // Append each property
+        for (int i = 0; i < recordDecl.PrimaryConstructorParameters.Count; i++)
+        {
+            var param = recordDecl.PrimaryConstructorParameters[i];
+            var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+
+            if (_fields.TryGetValue(backingFieldKey, out var backingField))
+            {
+                // Append "PropName = "
+                il.Emit(OpCodes.Ldloc, sbLocal);
+                il.Emit(OpCodes.Ldstr, $"{param.Name} = ");
+                il.Emit(OpCodes.Callvirt, appendStringMethod);
+                il.Emit(OpCodes.Pop);
+
+                // Append value
+                il.Emit(OpCodes.Ldloc, sbLocal);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldfld, backingField);
+
+                // Box value types
+                if (backingField.FieldType.IsValueType)
+                {
+                    il.Emit(OpCodes.Box, backingField.FieldType);
+                }
+
+                il.Emit(OpCodes.Callvirt, appendObjectMethod);
+                il.Emit(OpCodes.Pop);
+
+                // Append ", " if not last property
+                if (i < recordDecl.PrimaryConstructorParameters.Count - 1)
+                {
+                    il.Emit(OpCodes.Ldloc, sbLocal);
+                    il.Emit(OpCodes.Ldstr, ", ");
+                    il.Emit(OpCodes.Callvirt, appendStringMethod);
+                    il.Emit(OpCodes.Pop);
+                }
+            }
+        }
+
+        // Append " }"
+        il.Emit(OpCodes.Ldloc, sbLocal);
+        il.Emit(OpCodes.Ldstr, " }");
+        il.Emit(OpCodes.Callvirt, appendStringMethod);
+        il.Emit(OpCodes.Pop);
+
+        // Return sb.ToString()
+        il.Emit(OpCodes.Ldloc, sbLocal);
+        il.Emit(OpCodes.Callvirt, toStringMethodInfo);
+        il.Emit(OpCodes.Ret);
     }
 }

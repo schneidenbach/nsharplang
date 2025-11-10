@@ -1117,4 +1117,94 @@ func classify(x: int, y: int): string {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileSimpleRecord()
+    {
+        var source = @"
+record Person {
+    Name: string
+    Age: int
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileRecordWithPrimaryConstructor()
+    {
+        var source = @"
+record Point(x: int, y: int) {}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileRecordStruct()
+    {
+        var source = @"
+record struct Point {
+    X: int
+    Y: int
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileRecordStructWithPrimaryConstructor()
+    {
+        var source = @"
+record struct Vector2D(x: int, y: int) {}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileRecordWithMethods()
+    {
+        var source = @"
+record Person(name: string, age: int) {
+    func GetInfo(): int {
+        return 42
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileRecordWithInterface()
+    {
+        var source = @"
+interface IIdentifiable {
+    func GetId(): int
+}
+
+record Person(id: int, name: string): IIdentifiable {
+    func GetId(): int {
+        return 123
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }
