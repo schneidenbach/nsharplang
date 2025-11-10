@@ -1,0 +1,3 @@
+TODO: Create a preview screenshot showing N# code with syntax highlighting.
+This placeholder should be replaced with an actual PNG file.
+Recommended size: 400x300 or larger.

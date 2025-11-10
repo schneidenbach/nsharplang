@@ -1,0 +1,2 @@
+TODO: Create a 32x32 PNG icon for the N# extension.
+This placeholder should be replaced with an actual PNG file.
