@@ -1,13 +1,15 @@
 # N# Visual Studio Extension - Development Guide
 
-## Current Status (Task 095 - Phase 1)
+## Current Status (Tasks 095 & 096)
 
 ### ✅ Completed
+
+**Task 095: Basic Extension (Foundation)**
 
 1. **Project Structure**
    - Created proper .csproj targeting .NET Framework 4.8 (required for VS extensions)
    - Added required NuGet packages: Microsoft.VisualStudio.SDK, Microsoft.VSSDK.BuildTools
-   - Set up proper directory structure: Editor/, ProjectSystem/, Resources/, Properties/
+   - Set up proper directory structure: Editor/, LanguageServer/, ProjectSystem/, Resources/, Properties/
 
 2. **Basic VSPackage (NSharpPackage.cs)**
    - Asynchronous package initialization
@@ -26,9 +28,23 @@
    - Targets Community, Professional, and Enterprise editions
    - Proper metadata and installation targets
 
-5. **Build Success**
+**Task 096: IntelliSense via LSP (Foundation)**
+
+5. **Language Server Protocol Integration**
+   - `NSharpLanguageClient.cs`: ILanguageClient implementation
+   - Connects to N# Language Server for IntelliSense
+   - Multi-strategy language server path resolution:
+     - Dotnet tool installations (~/.dotnet/tools/.store)
+     - NuGet packages (~/.nuget/packages)
+     - Program Files installation
+     - Development builds (src/LanguageServer/bin)
+   - Automatic process management and lifecycle
+   - Added dependencies: Microsoft.VisualStudio.LanguageServer.Client, Microsoft.VisualStudio.Threading
+
+6. **Build Success**
    - Project builds successfully on macOS with .NET SDK
    - All compilation errors resolved
+   - LSP integration compiles without errors
 
 ### 🚧 Not Yet Implemented
 
@@ -218,10 +234,27 @@ To contribute to the VS extension:
 2. **macOS/Linux developers**: Can contribute to code structure, but final validation needs Windows
 3. **Documentation**: Always welcome regardless of platform
 
+## IntelliSense Features (via LSP)
+
+Once the extension is installed on Windows, the Language Server Protocol integration will provide:
+
+- ✅ **Auto-completion (Ctrl+Space)**: Type inference and member suggestions
+- ✅ **Signature help (Ctrl+Shift+Space)**: Function parameter info
+- ✅ **Quick Info (hover)**: Type information and documentation
+- ✅ **Go to Definition (F12)**: Jump to symbol definition
+- ✅ **Find All References (Shift+F12)**: Find usages
+- ✅ **Rename (Ctrl+R, R)**: Symbol renaming with preview
+- ✅ **Diagnostics**: Real-time error squiggles and warnings
+- ✅ **Document Symbols**: Outline/breadcrumb navigation
+
+The language server runs as a separate process and communicates via JSON-RPC. The
+`NSharpLanguageClient` manages the lifecycle and connection automatically.
+
 ## Related Tasks
 
-- **Task 096**: Visual Studio IntelliSense (LSP integration)
-- **Task 042**: NuGet Package Publishing (dependency)
+- **Task 095**: Visual Studio Extension (Basic) - COMPLETED
+- **Task 096**: Visual Studio IntelliSense (LSP integration) - FOUNDATION COMPLETE
+- **Task 042**: NuGet Package Publishing (dependency) - COMPLETED
 - **Task 056**: VS Code Debugging (completed - reference implementation)
 
 ## References
