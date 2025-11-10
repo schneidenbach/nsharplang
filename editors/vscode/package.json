@@ -26,6 +26,12 @@
     "onLanguage:nsharp"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "nsharp.generateDebugConfig",
+        "title": "N#: Generate Debug Configuration"
+      }
+    ],
     "languages": [
       {
         "id": "nsharp",
