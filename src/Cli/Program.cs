@@ -25,6 +25,7 @@ class Program
             "transpile" => TranspileCommand(args.Skip(1).ToArray()),
             "new" => NewCommand(args.Skip(1).ToArray()),
             "test" => TestCommand(args.Skip(1).ToArray()),
+            "format" => FormatCommand(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
@@ -1052,6 +1053,79 @@ func Main() {{
         }
     }
 
+    static int FormatCommand(string[] args)
+    {
+        try
+        {
+            string[] files;
+
+            if (args.Length == 0)
+            {
+                // Format all .nl files in current directory (recursively)
+                files = Directory.GetFiles(".", "*.nl", SearchOption.AllDirectories)
+                    .Where(f => !f.EndsWith(".tests.nl"))
+                    .ToArray();
+            }
+            else
+            {
+                // Format specified files
+                files = args;
+            }
+
+            if (files.Length == 0)
+            {
+                Console.WriteLine("No .nl files found to format");
+                return 0;
+            }
+
+            var formattedCount = 0;
+
+            foreach (var file in files)
+            {
+                if (!File.Exists(file))
+                {
+                    Console.Error.WriteLine($"File not found: {file}");
+                    continue;
+                }
+
+                try
+                {
+                    Console.WriteLine($"Formatting {file}...");
+
+                    var source = File.ReadAllText(file);
+
+                    // Lexical analysis
+                    var lexer = new Lexer(source, file);
+                    var tokens = lexer.Tokenize();
+
+                    // Parsing
+                    var parser = new Parser(tokens, file);
+                    var ast = parser.ParseCompilationUnit();
+
+                    // Format
+                    var formatter = new Formatter();
+                    var formatted = formatter.Format(ast);
+
+                    // Write back to file
+                    File.WriteAllText(file, formatted);
+
+                    formattedCount++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error formatting {file}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine($"Formatted {formattedCount} file(s)");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Format failed: {ex.Message}");
+        }
+    }
+
     static string GenerateTestCsProj(ProjectConfig? config, string? mainProjectDll = null)
     {
         config ??= ProjectFileParser.CreateDefault();
@@ -1110,6 +1184,7 @@ func Main() {{
         Console.WriteLine("  run <file.nl>        - Compile and run single .nl file");
         Console.WriteLine("  run                  - Compile and run all .nl files in project");
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
+        Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
         Console.WriteLine();
