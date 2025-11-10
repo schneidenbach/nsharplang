@@ -26,6 +26,7 @@ class Program
             "new" => NewCommand(args.Skip(1).ToArray()),
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
+            "lint" => LintCommand(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
@@ -1130,6 +1131,103 @@ func Main() {{
         }
     }
 
+    static int LintCommand(string[] args)
+    {
+        try
+        {
+            string[] files;
+
+            if (args.Length == 0)
+            {
+                // Lint all .nl files in current directory (recursively)
+                files = Directory.GetFiles(".", "*.nl", SearchOption.AllDirectories);
+            }
+            else
+            {
+                // Lint specified files
+                files = args;
+            }
+
+            if (files.Length == 0)
+            {
+                Console.WriteLine("No .nl files found to lint");
+                return 0;
+            }
+
+            var totalDiagnostics = 0;
+
+            foreach (var file in files)
+            {
+                if (!File.Exists(file))
+                {
+                    Console.Error.WriteLine($"File not found: {file}");
+                    continue;
+                }
+
+                try
+                {
+                    var source = File.ReadAllText(file);
+
+                    // Lexical analysis
+                    var lexer = new Lexer(source, file);
+                    var tokens = lexer.Tokenize();
+
+                    // Parsing
+                    var parser = new Parser(tokens, file);
+                    var ast = parser.ParseCompilationUnit();
+
+                    // Lint
+                    var linter = new Linter();
+                    var diagnostics = linter.Lint(ast, file);
+
+                    if (diagnostics.Count > 0)
+                    {
+                        Console.WriteLine($"\n{file}:");
+                        foreach (var diag in diagnostics)
+                        {
+                            PrintDiagnostic(diag);
+                        }
+                        totalDiagnostics += diagnostics.Count;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error linting {file}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine($"\nFound {totalDiagnostics} issue(s)");
+            return totalDiagnostics > 0 ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            return Error($"Lint failed: {ex.Message}");
+        }
+    }
+
+    static void PrintDiagnostic(Diagnostic diag)
+    {
+        var color = diag.Severity switch
+        {
+            DiagnosticSeverity.Error => ConsoleColor.Red,
+            DiagnosticSeverity.Warning => ConsoleColor.Yellow,
+            _ => ConsoleColor.Gray
+        };
+
+        Console.ForegroundColor = color;
+        Console.Write($"  {diag.Severity.ToString().ToLower()}");
+        Console.ResetColor();
+        Console.WriteLine($" [{diag.Code}]: {diag.Message}");
+        Console.WriteLine($"    --> {diag.Location.FilePath}:{diag.Location.Line}:{diag.Location.Column}");
+
+        if (!string.IsNullOrEmpty(diag.Suggestion))
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"    help: {diag.Suggestion}");
+            Console.ResetColor();
+        }
+    }
+
     static string GenerateTestCsProj(ProjectConfig? config, string? mainProjectDll = null)
     {
         config ??= ProjectFileParser.CreateDefault();
@@ -1189,6 +1287,7 @@ func Main() {{
         Console.WriteLine("  run                  - Compile and run all .nl files in project");
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
+        Console.WriteLine("  lint [files...]      - Lint .nl files and show diagnostics");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
         Console.WriteLine();
