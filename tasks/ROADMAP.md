@@ -15,29 +15,16 @@ Each task delivers **immediate, tangible value** to developers. No massive under
 **Status:** Complete
 **Impact:** Core IDE experience
 
-### Task 039: .NET CLI Integration
-**Status:** Not started
-**Priority:** 🔴 P0-Critical
-**Effort:** Large (20-30 hours)
+### ✅ Task 039: .NET CLI Integration
+**Status:** Complete
 **Impact:** Makes N# a first-class .NET language
 
-**Why First:**
-> Without `dotnet` integration, N# feels like a toy. This is the foundation for everything else.
-
-**Deliverables:**
-- MSBuild SDK that reads `project.yml` (no XML!)
-- YAML-based project configuration
-- `dotnet new` templates
-- Full solution support
-
-**Success Criteria:**
-```bash
-dotnet new nsharp-console -o MyApp
-cd MyApp
-dotnet build
-dotnet run
-dotnet test
-```
+**Completed:**
+- ✅ MSBuild SDK that reads `project.yml` (no XML!)
+- ✅ YAML-based project configuration
+- ✅ `dotnet new` templates (nsharp-console, nsharp-webapi)
+- ✅ Minimal .csproj format: `<Project Sdk="Microsoft.NET.Sdk.NSharp" />`
+- ✅ Full `dotnet build`, `dotnet run`, `dotnet test` integration
 
 ---
 
