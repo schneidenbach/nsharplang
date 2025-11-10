@@ -1,7 +1,7 @@
 # N# Language Development Roadmap
 
-**Last Updated:** 2025-11-09
-**Current Status:** v1.72 | 743 passing tests | Core language complete | Formatter complete | Documentation complete | NuGet packages ready | Elm-style error messages active
+**Last Updated:** 2025-11-10
+**Current Status:** v1.73 | 765 passing tests | Core language complete | Formatter complete | Documentation complete | NuGet packages ready | Test coverage integrated
 
 ## Philosophy: Incremental Value
 
@@ -309,20 +309,23 @@ cp ci-templates/azure-pipelines/azure-pipelines.yml .
 
 ---
 
-### Task 047: Test Coverage Integration
-**Status:** Not started
+### ✅ Task 047: Test Coverage Integration
+**Status:** Complete
 **Priority:** 🟡 P1-Medium
 **Effort:** Small (5-7 hours)
 
-**Deliverables:**
-- Coverlet integration
-- HTML report generation
-- IDE line highlighting
-- Codecov/Coveralls support
+**Completed:**
+- ✅ Coverlet.MSBuild integration in SDK
+- ✅ Coverage collection with multiple format support
+- ✅ HTML report generation target with ReportGenerator
+- ✅ Automatic exclusion of generated files
+- ✅ Codecov/Coveralls compatible output (opencover format)
 
+**Usage:**
 ```bash
 dotnet test /p:CollectCoverage=true
-dotnet test /p:CoverletOutputFormat=opencover
+dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat="json,lcov,opencover"
+dotnet test /p:CollectCoverage=true /p:GenerateCoverageReport=true
 ```
 
 ---
