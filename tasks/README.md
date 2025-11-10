@@ -66,13 +66,13 @@ Each task file contains:
 ## Dependencies
 
 ```
-041 (MSBuild) → 042 (.nlproj) → 043 (template) → 044 (NuGet)
-                                                 ↓
+041 (MSBuild) → 042 (project.yml) → 043 (template) → 044 (NuGet)
+                                                       ↓
 045 (formatter) → 046 (CLI) → 047 (config) → 048 (VS Code)
-                                                 ↓
-                                              049 (website)
-                                                 ↓
-                                              050 (docs)
+                                                       ↓
+                                                    049 (website)
+                                                       ↓
+                                                    050 (docs)
 
 051 (errors), 052 (linter), 053 (lint cmd) - Independent
 
