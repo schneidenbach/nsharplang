@@ -14,6 +14,8 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
 using LspDiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
+using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
+using DiagnosticSeverity = NSharpLang.Compiler.DiagnosticSeverity;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -158,7 +160,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         };
     }
 
-    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(Diagnostic diagnostic)
+    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
     {
         // Convert linter diagnostic to LSP diagnostic
         var line = Math.Max(0, diagnostic.Location.Line - 1); // LSP is 0-indexed

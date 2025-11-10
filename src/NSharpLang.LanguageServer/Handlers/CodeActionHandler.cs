@@ -11,7 +11,13 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using LspCodeAction = OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAction;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
-using CompilerCodeAction = NewCLILang.Compiler.CodeAction;
+using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
+using LspCodeActionKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeActionKind;
+using CompilerCodeAction = NSharpLang.Compiler.CodeAction;
+using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
+using CompilerCodeActionKind = NSharpLang.Compiler.CodeActionKind;
+using DocumentState = NSharpLang.LanguageServer.Models.DocumentState;
+using DocumentUri = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -103,8 +109,8 @@ public class CodeActionHandler : CodeActionHandlerBase
         return Task.FromResult<CommandOrCodeActionContainer?>(new CommandOrCodeActionContainer(codeActions));
     }
 
-    private Diagnostic? ConvertToCompilerDiagnostic(
-        OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic lspDiagnostic,
+    private CompilerDiagnostic? ConvertToCompilerDiagnostic(
+        LspDiagnostic lspDiagnostic,
         DocumentState doc)
     {
         // Find matching diagnostic from the linter
@@ -128,7 +134,7 @@ public class CodeActionHandler : CodeActionHandlerBase
     private LspCodeAction ConvertToLspCodeAction(
         CompilerCodeAction action,
         DocumentUri uri,
-        OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic? diagnostic)
+        LspDiagnostic? diagnostic)
     {
         // Convert text edits
         var changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>();
@@ -157,25 +163,32 @@ public class CodeActionHandler : CodeActionHandlerBase
         // Link to the diagnostic if provided
         if (diagnostic != null)
         {
-            lspAction.Diagnostics = new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic>(diagnostic);
+            lspAction.Diagnostics = new Container<LspDiagnostic>(diagnostic);
         }
 
         return lspAction;
     }
 
-    private CodeActionKind ConvertCodeActionKind(NewCLILang.Compiler.CodeActionKind kind)
+    private LspCodeActionKind ConvertCodeActionKind(CompilerCodeActionKind kind)
     {
         return kind switch
         {
-            NewCLILang.Compiler.CodeActionKind.QuickFix => CodeActionKind.QuickFix,
-            NewCLILang.Compiler.CodeActionKind.Refactor => CodeActionKind.Refactor,
-            NewCLILang.Compiler.CodeActionKind.RefactorExtract => CodeActionKind.RefactorExtract,
-            NewCLILang.Compiler.CodeActionKind.RefactorInline => CodeActionKind.RefactorInline,
-            NewCLILang.Compiler.CodeActionKind.RefactorRewrite => CodeActionKind.RefactorRewrite,
-            NewCLILang.Compiler.CodeActionKind.Source => CodeActionKind.Source,
-            NewCLILang.Compiler.CodeActionKind.SourceOrganizeImports => CodeActionKind.SourceOrganizeImports,
-            _ => CodeActionKind.QuickFix
+            CompilerCodeActionKind.QuickFix => LspCodeActionKind.QuickFix,
+            CompilerCodeActionKind.Refactor => LspCodeActionKind.Refactor,
+            CompilerCodeActionKind.RefactorExtract => LspCodeActionKind.RefactorExtract,
+            CompilerCodeActionKind.RefactorInline => LspCodeActionKind.RefactorInline,
+            CompilerCodeActionKind.RefactorRewrite => LspCodeActionKind.RefactorRewrite,
+            CompilerCodeActionKind.Source => LspCodeActionKind.Source,
+            CompilerCodeActionKind.SourceOrganizeImports => LspCodeActionKind.SourceOrganizeImports,
+            _ => LspCodeActionKind.QuickFix
         };
+    }
+
+    // Implement required Handle method from base class
+    public override Task<LspCodeAction> Handle(LspCodeAction request, CancellationToken cancellationToken)
+    {
+        // This method is called when resolving a code action - not currently used
+        return Task.FromResult(request);
     }
 
     protected override CodeActionRegistrationOptions CreateRegistrationOptions(
@@ -185,14 +198,14 @@ public class CodeActionHandler : CodeActionHandlerBase
         return new CodeActionRegistrationOptions
         {
             DocumentSelector = DocumentSelector.ForLanguage("nsharp"),
-            CodeActionKinds = new Container<CodeActionKind>(
-                CodeActionKind.QuickFix,
-                CodeActionKind.Refactor,
-                CodeActionKind.RefactorExtract,
-                CodeActionKind.RefactorInline,
-                CodeActionKind.RefactorRewrite,
-                CodeActionKind.Source,
-                CodeActionKind.SourceOrganizeImports
+            CodeActionKinds = new Container<LspCodeActionKind>(
+                LspCodeActionKind.QuickFix,
+                LspCodeActionKind.Refactor,
+                LspCodeActionKind.RefactorExtract,
+                LspCodeActionKind.RefactorInline,
+                LspCodeActionKind.RefactorRewrite,
+                LspCodeActionKind.Source,
+                LspCodeActionKind.SourceOrganizeImports
             )
         };
     }
