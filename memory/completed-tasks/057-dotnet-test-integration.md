@@ -27,7 +27,7 @@ test "divide by zero throws" {
 
 ### 1. Create MSBuild test discovery task
 
-In `src/Build/Microsoft.NET.Sdk.NSharp/Sdk.targets`:
+In `src/Microsoft.NET.Sdk.NSharp/Sdk.targets`:
 
 ```xml
 <!-- Generate test adapter that discovers .tests.nl files -->
@@ -47,7 +47,7 @@ In `src/Build/Microsoft.NET.Sdk.NSharp/Sdk.targets`:
 ### 2. Create TranspileTests MSBuild task
 
 ```csharp
-// src/Build/Microsoft.NET.Sdk.NSharp/TranspileTests.cs
+// src/Microsoft.NET.Sdk.NSharp/TranspileTests.cs
 public class TranspileTests : Task
 {
     [Required]

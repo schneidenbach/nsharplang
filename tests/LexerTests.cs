@@ -1,10 +1,10 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
-using NewCLILang.Compiler;
+using NSharpLang.Compiler;
 using Xunit;
 
-namespace NewCLILang.Tests;
+namespace NSharpLang.Tests;
 
 public class LexerTests
 {

@@ -1,8 +1,8 @@
 using Xunit;
-using NewCLILang.Compiler;
-using NewCLILang.Compiler.Ast;
+using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 
-namespace NewCLILang.Tests;
+namespace NSharpLang.Tests;
 
 public class LocalFunctionTests
 {

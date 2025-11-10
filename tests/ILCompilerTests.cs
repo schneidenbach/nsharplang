@@ -2,12 +2,12 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using NewCLILang.Compiler;
-using NewCLILang.Compiler.Ast;
-using NewCLILang.Compiler.ILCompiler;
+using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.ILCompiler;
 using Xunit;
 
-namespace NewCLILang.Tests;
+namespace NSharpLang.Tests;
 
 public class ILCompilerTests
 {

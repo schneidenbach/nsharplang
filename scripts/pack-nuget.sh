@@ -11,12 +11,12 @@ mkdir -p artifacts/nuget
 # Build the build tasks in Release mode
 echo ""
 echo "Building NSharp.Build.Tasks in Release mode..."
-dotnet build src/Build/NSharp.Build.Tasks/NSharp.Build.Tasks.csproj -c Release
+dotnet build src/NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj -c Release
 
 # Pack the SDK
 echo ""
 echo "Packing Microsoft.NET.Sdk.NSharp..."
-dotnet pack src/Build/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj \
+dotnet pack src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj \
   -c Release \
   -o artifacts/nuget
 
