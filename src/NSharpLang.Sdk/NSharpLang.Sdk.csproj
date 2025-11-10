@@ -24,14 +24,14 @@
 
   <!-- Include the build tasks DLL and dependencies -->
   <ItemGroup>
-    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/NSharp.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/Compiler.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/YamlDotNet.dll" Pack="true" PackagePath="tools/" />
   </ItemGroup>
 
   <!-- Reference the build tasks project to ensure it builds first -->
   <ItemGroup>
-    <ProjectReference Include="../NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj" PrivateAssets="All" />
+    <ProjectReference Include="../NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj" PrivateAssets="All" />
   </ItemGroup>
 
 </Project>

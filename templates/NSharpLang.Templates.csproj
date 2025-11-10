@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackageType>Template</PackageType>
-    <PackageId>NSharp.Templates</PackageId>
+    <PackageId>NSharpLang.Templates</PackageId>
     <Version>1.0.0</Version>
     <Authors>N# Team</Authors>
     <Description>Templates for creating N# projects with 'dotnet new'.</Description>

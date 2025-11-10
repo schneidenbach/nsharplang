@@ -10,8 +10,8 @@ mkdir -p artifacts/nuget
 
 # Build the build tasks in Release mode
 echo ""
-echo "Building NSharp.Build.Tasks in Release mode..."
-dotnet build src/NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj -c Release
+echo "Building NSharpLang.Build.Tasks in Release mode..."
+dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
 
 # Pack the SDK
 echo ""
@@ -22,8 +22,8 @@ dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj \
 
 # Pack the templates
 echo ""
-echo "Packing NSharp.Templates..."
-dotnet pack templates/NSharp.Templates.csproj \
+echo "Packing NSharpLang.Templates..."
+dotnet pack templates/NSharpLang.Templates.csproj \
   -c Release \
   -o artifacts/nuget
 
@@ -60,7 +60,7 @@ echo "Packages are ready in artifacts/nuget/"
 echo ""
 echo "Core packages:"
 echo "  - NSharpLang.Sdk - MSBuild SDK"
-echo "  - NSharp.Templates - dotnet new templates"
-echo "  - NSharp.Compiler - Compiler API library"
+echo "  - NSharpLang.Templates - dotnet new templates"
+echo "  - NSharpLang.Compiler - Compiler API library"
 echo "  - nlc - CLI tool (dotnet tool install -g nlc)"
-echo "  - NSharp.LanguageServer - LSP server"
+echo "  - NSharpLang.LanguageServer - LSP server"

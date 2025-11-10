@@ -4,12 +4,12 @@
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
   <!-- Reference the NSharp build tasks -->
-  <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
-  <UsingTask TaskName="NSharp.Build.Tasks.LoadProjectReferences"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
-  <UsingTask TaskName="NSharp.Build.Tasks.TranspileTests"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.NSharpCompile"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.TranspileTests"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
   <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">

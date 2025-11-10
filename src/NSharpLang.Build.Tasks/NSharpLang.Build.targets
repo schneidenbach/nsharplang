@@ -6,7 +6,7 @@
     <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
   </PropertyGroup>
 
-  <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile" AssemblyFile="$(MSBuildThisFileDirectory)NSharp.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.NSharpCompile" AssemblyFile="$(MSBuildThisFileDirectory)NSharpLang.Build.Tasks.dll" />
 
   <ItemGroup>
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
