@@ -273,7 +273,44 @@ function generateTasksJson(): string {
                 command: 'dotnet',
                 type: 'process',
                 args: ['build'],
-                problemMatcher: '$msCompile'
+                problemMatcher: '$msCompile',
+                group: {
+                    kind: 'build',
+                    isDefault: true
+                }
+            },
+            {
+                label: 'run',
+                command: 'dotnet',
+                type: 'process',
+                args: ['run'],
+                problemMatcher: '$msCompile',
+                dependsOn: 'build'
+            },
+            {
+                label: 'test',
+                command: 'dotnet',
+                type: 'process',
+                args: ['test'],
+                problemMatcher: '$msCompile',
+                group: {
+                    kind: 'test',
+                    isDefault: true
+                }
+            },
+            {
+                label: 'format',
+                command: 'nlc',
+                type: 'process',
+                args: ['format'],
+                problemMatcher: []
+            },
+            {
+                label: 'lint',
+                command: 'nlc',
+                type: 'process',
+                args: ['lint'],
+                problemMatcher: []
             }
         ]
     };

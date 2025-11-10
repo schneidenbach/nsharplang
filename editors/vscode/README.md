@@ -1,184 +1,220 @@
 # N# Language Support for VS Code
 
-Complete language support for N# (.nl files) with comprehensive syntax highlighting, IntelliSense, and diagnostics powered by the N# Language Server.
+> **"Go for .NET"** - A tight, pragmatic language for the CLR with Go-inspired syntax and powerful .NET features
+
+Complete language support for N# (`.nl` files) featuring IntelliSense, diagnostics, debugging, code actions, and more.
 
 ## ✨ Features
 
-### Syntax Highlighting (v0.3.0 - Enhanced!)
-- **Comprehensive keyword coverage** - All N# keywords including `package`, `constructor`, `print`, `test`, `assert`
-- **Generic type parameters** - Full support for nested generics like `Dictionary<string, List<int>>`
-- **Enhanced string interpolation** - Distinct highlighting for `$`, `{`, `}`, and embedded expressions
-- **Declaration highlighting** - Special colors for class, function, type declarations
-- **Property type annotations** - Highlights `name: type` patterns
-- **Preprocessor directives** - `#region`, `#if`, `#define`, etc.
-- **Number literals** - Hexadecimal (`0xFF`), binary (`0b1010`), with type suffixes
-- **Import path highlighting** - Dotted namespace paths in imports
-
-### IntelliSense
-- Auto-completion for keywords, primitive types, and user-defined symbols
-- Common .NET types (Console, List, Task, etc.)
+### 🚀 IntelliSense & Code Completion
+- **Smart auto-completion** for keywords, types, and symbols
+- **Signature help** with parameter information
+- **Hover tooltips** showing type information
+- **Go to Definition** - Jump to symbol declarations
 - Trigger characters: `.`, `:`, `space`
 
-### Diagnostics
-- Real-time error and warning detection
-- Compilation errors shown inline
+### 🎨 Syntax Highlighting
+- **Comprehensive keyword coverage** - All N# keywords including `package`, `union`, `match`, `test`
+- **Generic type parameters** - Full support for nested generics like `Dictionary<string, List<int>>`
+- **Enhanced string interpolation** - Distinct highlighting for `$"..."` expressions
+- **Property type annotations** - `name: type` patterns
+- **Number literals** - Hexadecimal (`0xFF`), binary (`0b1010`), with type suffixes
 
-### Other Features
-- **Hover Information** - Type info on hover
-- **Bracket Matching** - Auto-pairing for `{}`, `[]`, `()`, `""`
-- **Comment Support** - Line (`//`), block (`/* */`), and doc (`///`) comments
-- **Code Folding** - Fold code blocks and `#region` sections
-- **Language Server** - Full LSP support
+### 🔍 Diagnostics & Linting
+- **Real-time error detection** with Elm-style error messages
+- **Live warnings** for code quality issues
+- **Linting rules** - Unused variables, missing imports, async without await
+- **Compilation errors** shown inline with helpful suggestions
 
-## 🎯 Supported Language Features
+### 🛠️ Code Actions & Quick Fixes
+- **Add missing imports** automatically
+- **Remove unused variables**
+- **Remove unnecessary null checks**
+- More quick fixes coming soon!
 
-- **Type System**: class, struct, record, interface, enum, union, type aliases
-- **Control Flow**: if/else, for, foreach, while, match, switch
-- **Pattern Matching**: with guards, list patterns, nested property patterns
-- **Discriminated Unions**: with exhaustiveness checking
-- **Async/Await**: Full async support
+### 🐛 Debugging Support
+- **Built-in debug configuration generator** - Command: `N#: Generate Debug Configuration`
+- **Breakpoints** - Set and hit breakpoints in `.nl` files
+- **Step debugging** - Step through, step over, step into
+- **Watch variables** - Inspect variable values
+- **Call stack** - Full stack trace support
+
+### ⚡ Tasks & Build Integration
+Automatic task generation for:
+- `build` - Build your N# project (Ctrl+Shift+B)
+- `run` - Run your application
+- `test` - Run tests (Ctrl+Shift+T default)
+- `format` - Format code with `nlc format`
+- `lint` - Lint code with `nlc lint`
+
+### 📝 Code Formatting
+- **Format on save** - Enabled by default
+- **Manual formatting** - Cmd+Shift+F (macOS) or Ctrl+Shift+F (Windows/Linux)
+- **.editorconfig** integration for consistent style
+
+### 📚 Language Features
+- **Type System**: `class`, `struct`, `record`, `interface`, `enum`, `union`, type aliases
+- **Control Flow**: `if`/`else`, `for`, `foreach`, `while`, `match`, `switch`
+- **Pattern Matching**: Guards, list patterns, nested property patterns, exhaustiveness checking
+- **Discriminated Unions**: Type-safe unions with exhaustive matching
+- **Async/Await**: Full async support with implicit Task wrapping
 - **String Interpolation**: Regular (`$""`), raw (`"""`), and interpolated raw (`$"""`)
-- **Attributes**: `[HttpGet]`, `[Required]`, etc.
-- **Operators**:
-  - Conversion: `implicit`, `explicit`, `operator`
-  - Null-safety: `?.`, `??`, `!.`
-  - Assignment: `:=`, `=`
-  - Spread: `...`
 - **Testing**: Built-in `test` blocks and `assert` statements
 
-## Installation
+## 📦 Installation
 
 ### Prerequisites
-- .NET 9.0 SDK or later
-- Build the N# Language Server first:
+- **.NET 9.0 SDK** or later
+- **N# Compiler** - Install via:
   ```bash
-  cd /path/to/NewCLILang
-  dotnet build src/LanguageServer/LanguageServer.csproj
+  dotnet tool install -g nlc
   ```
 
-### From VSIX (Recommended)
+### From VS Code Marketplace
+Search for "N#" in the VS Code Extensions marketplace and click Install.
+
+### From VSIX
 ```bash
-# Install the pre-built extension
-cd editors/vscode
-code --install-extension nsharp-0.3.0.vsix
+code --install-extension nsharp-0.6.0.vsix
 ```
 
-Or manually in VS Code:
-1. Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
-2. Type "Extensions: Install from VSIX"
-3. Select `nsharp-0.3.0.vsix`
+## 🚀 Quick Start
 
-### Build from Source
-```bash
-# Build and package the extension
-cd editors/vscode
-npm install
-npm run compile
-npm run package
+1. **Install the extension** from the marketplace
+2. **Install the N# compiler**:
+   ```bash
+   dotnet tool install -g nlc
+   ```
+3. **Create a new N# project**:
+   ```bash
+   dotnet new nsharp-console -n MyApp
+   cd MyApp
+   ```
+4. **Open in VS Code**:
+   ```bash
+   code .
+   ```
+5. **Generate debug configuration**:
+   - Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
+   - Type "N#: Generate Debug Configuration"
+6. **Start coding!** Open `Program.nl` and start writing N# code
 
-# Install the packaged extension
-code --install-extension nsharp-0.3.0.vsix
-```
-
-### From Marketplace (coming soon)
-Search for "N#" in the VS Code Extensions marketplace
-
-## Configuration
-
-The extension can be configured via VS Code settings:
-
-- **nsharp.languageServer.path** - Custom path to the language server DLL (leave empty to auto-detect from workspace)
-- **nsharp.trace.server** - Enable LSP communication tracing for debugging (`off` / `messages` / `verbose`)
-
-## Usage
-
-Open any `.nl` file and enjoy syntax highlighting!
-
-## 📝 Example
+## 📖 Example Code
 
 ```nsharp
-// Example N# code showcasing syntax highlighting
+// N# - Go for .NET
 package MyApp
 
 import System
 import System.Collections.Generic
 
-#region Type Definitions
-
-// Union with generics - fully highlighted!
+// Discriminated unions with exhaustive pattern matching
 union Result<T> {
     Success { value: T }
     Failure { error: string, code: int }
 }
 
-// Class with properties and constructor
-class Person {
-    FirstName: string           // Property type annotation
+// Records with properties
+record Person {
+    FirstName: string
     LastName: string
-    age: int                    // Private field (camelCase)
+    Age: int
 
-    // Expression-bodied property with string interpolation
-    FullName: string => $"Hello, I'm {FirstName} {LastName}!"
+    // Expression-bodied property
+    FullName: string => $"{FirstName} {LastName}"
+}
 
-    constructor(first: string, last: string) {
-        FirstName = first
-        LastName = last
-        age = 0
+func Main() {
+    // Type inference with :=
+    person := new Person {
+        FirstName = "John",
+        LastName = "Doe",
+        Age = 30
+    }
+
+    // String interpolation
+    print $"Hello, {person.FullName}!"
+
+    // Pattern matching
+    result := ProcessData(42)
+    output := match result {
+        Result<int>.Success { value } when value > 50 => $"High: {value}",
+        Result<int>.Success { value } => $"Low: {value}",
+        Result<int>.Failure { error, code } => $"Error {code}: {error}",
+    }
+    print output
+
+    // Built-in testing
+    test "Math works correctly" {
+        assert 2 + 2 == 4
+        assert person.Age > 0
     }
 }
 
-// Type alias
-type UserId = int
-
-#endregion
-
-func Main() {
-    // Variable declarations with type inference
-    x := 42
-    hex := 0xFF        // Hexadecimal literal
-    bin := 0b1010      // Binary literal
-    pi := 3.14
-
-    // String interpolation highlighting
-    message := $"x = {x}, hex = {hex}"
-    print message      // print keyword
-
-    // Pattern matching
-    result := new Result<int>.Success(100)
-    output := match result {
-        Result<int>.Success { value } when value > 50 => $"High: {value}",
-        Result<int>.Failure { error, code } => $"Error {code}: {error}",
-        _ => "Unknown"
+func ProcessData(input: int) -> Result<int> {
+    if input > 0 {
+        return new Result<int>.Success(input * 2)
     }
-
-    // Generic method calls
-    list := new List<int>()
-    dict := new Dictionary<string, Person>()
-
-    // Test blocks
-    test "Math works" {
-        assert 2 + 2 == 4
-    }
+    return new Result<int>.Failure("Invalid input", -1)
 }
 ```
 
-See `/tmp/syntax-test.nl` for a comprehensive highlighting test file.
+## ⚙️ Configuration
 
-## Upcoming Features
+Configure the extension via VS Code settings:
 
-Coming soon:
-- Go to Definition
-- Find All References
-- Rename Symbol
-- Signature Help (parameter hints)
-- Code Actions (quick fixes)
-- Semantic Tokens (enhanced syntax highlighting)
-- Document Symbols (outline view)
+```json
+{
+  // Custom path to language server (leave empty to use bundled)
+  "nsharp.languageServer.path": "",
 
-## Contributing
+  // Enable/disable formatting
+  "nsharp.format.enable": true,
 
-Contributions welcome! See the main [repository](https://github.com/anthropics/NewCLILang) for details.
+  // LSP tracing for debugging
+  "nsharp.trace.server": "off"  // "off" | "messages" | "verbose"
+}
+```
 
-## License
+## 🎯 Commands
+
+- **N#: Generate Debug Configuration** - Creates `.vscode/launch.json` and `.vscode/tasks.json`
+
+## 🔧 Troubleshooting
+
+### Language Server Not Starting
+1. Ensure .NET 9.0 SDK is installed: `dotnet --version`
+2. Reinstall the extension
+3. Check the output panel: View → Output → N# Language Server
+
+### IntelliSense Not Working
+1. Ensure your project has a `project.yml` file
+2. Build the project: `dotnet build`
+3. Reload VS Code window
+
+### Debugging Not Working
+1. Generate debug configuration: `N#: Generate Debug Configuration`
+2. Install C# extension for .NET debugging
+3. Ensure project builds successfully
+
+## 🤝 Contributing
+
+Contributions welcome! Visit the [main repository](https://github.com/anthropics/NewCLILang) for:
+- Bug reports and feature requests
+- Contributing guidelines
+- Language design documentation
+
+## 📄 License
 
 MIT
+
+## 🔗 Links
+
+- [N# Language Documentation](https://github.com/anthropics/NewCLILang/tree/main/docs)
+- [GitHub Repository](https://github.com/anthropics/NewCLILang)
+- [Getting Started Guide](https://github.com/anthropics/NewCLILang/blob/main/docs/README.md)
+- [Language Reference](https://github.com/anthropics/NewCLILang/tree/main/docs/guide)
+
+---
+
+**Enjoy coding with N#!** 🚀

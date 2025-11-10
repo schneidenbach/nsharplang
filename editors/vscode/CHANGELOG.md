@@ -2,6 +2,28 @@
 
 All notable changes to the "nsharp" extension will be documented in this file.
 
+## [0.6.0] - 2025-11-10
+
+### Added - VS Code Polish Release (Task 048)
+- **Professional extension icon** with N# branding
+- **Enhanced task templates** in debug configuration generator:
+  - `build` task (default build task, Ctrl+Shift+B)
+  - `run` task (depends on build)
+  - `test` task (default test task, Ctrl+Shift+T)
+  - `format` task (runs `nlc format`)
+  - `lint` task (runs `nlc lint`)
+- **Marketplace-ready presentation**:
+  - Complete feature showcase in README
+  - Quick start guide with step-by-step instructions
+  - Troubleshooting section
+  - Example code highlighting all features
+  - Categories updated: Programming Languages, Linters, Formatters
+
+### Changed
+- Updated README.md with comprehensive feature documentation
+- Improved task.json generation with proper task groups and dependencies
+- Version bumped to 0.6.0 for marketplace readiness
+
 ## [0.5.0] - 2025-11-09
 
 ### Added
