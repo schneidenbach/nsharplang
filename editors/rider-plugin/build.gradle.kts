@@ -14,7 +14,10 @@ repositories {
 intellij {
     version.set("2024.1")
     type.set("RD") // Rider distribution
-    plugins.set(listOf("rider-plugins-appender"))
+    plugins.set(listOf(
+        "rider-plugins-appender",
+        "com.intellij.platform.lsp" // LSP support
+    ))
 }
 
 tasks {

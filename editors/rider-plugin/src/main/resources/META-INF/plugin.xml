@@ -13,6 +13,9 @@
         <p><b>Features:</b></p>
         <ul>
             <li>Syntax highlighting for .nl files</li>
+            <li>IntelliSense via Language Server Protocol (LSP)</li>
+            <li>Auto-completion, signature help, and hover documentation</li>
+            <li>Go to definition and find references</li>
             <li>Recognition of project.yml project files</li>
             <li>Build integration with dotnet build</li>
             <li>Run configurations for N# projects</li>
@@ -27,6 +30,7 @@
         <ul>
             <li>Initial release</li>
             <li>Basic syntax highlighting for .nl files</li>
+            <li>LSP integration for IntelliSense (completion, hover, go-to-definition)</li>
             <li>project.yml file recognition</li>
             <li>Build and run configurations</li>
         </ul>
@@ -72,6 +76,10 @@
         <!-- Icons -->
         <iconProvider
             implementation="com.nsharp.icons.NSharpIconProvider"/>
+
+        <!-- LSP Support -->
+        <platform.lsp.serverSupportProvider
+            implementation="com.nsharp.lsp.NSharpLanguageServerSupportProvider"/>
     </extensions>
 
     <actions>
