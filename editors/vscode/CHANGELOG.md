@@ -2,6 +2,18 @@
 
 All notable changes to the "nsharp" extension will be documented in this file.
 
+## [0.5.0] - 2025-11-09
+
+### Added
+- **Code formatting support**
+  - Document formatting provider integrated with `nsharp format` command
+  - Format on save (enabled by default)
+  - Format on demand (Shift+Alt+F or right-click context menu)
+  - Automatic error reporting if formatting fails
+- Configuration settings:
+  - `nsharp.format.enable` - Enable/disable code formatting
+  - `[nsharp].editor.formatOnSave` - Default enabled for N# files
+
 ## [0.3.0] - 2025-11-08
 
 ### Added - Comprehensive Syntax Highlighting Improvements
