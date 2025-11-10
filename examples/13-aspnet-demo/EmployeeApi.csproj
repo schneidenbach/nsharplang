@@ -7,4 +7,10 @@
     <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
 
+  <!-- Exclude test files and nested projects from build -->
+  <ItemGroup>
+    <NSharpCompile Remove="**/*.tests.nl" />
+    <NSharpCompile Remove="MinimalApi/**/*.nl" />
+  </ItemGroup>
+
 </Project>
