@@ -651,4 +651,55 @@ Y: int
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
     }
+
+    [Fact]
+    public void FormatterConfig_DefaultIndent()
+    {
+        var config = new FormatterConfig();
+        Assert.Equal(4, config.IndentSize);
+        Assert.True(config.UseSpaces);
+        Assert.Equal("    ", config.GetIndentString());
+    }
+
+    [Fact]
+    public void FormatterConfig_TwoSpaces()
+    {
+        var config = new FormatterConfig { IndentSize = 2, UseSpaces = true };
+        Assert.Equal("  ", config.GetIndentString());
+    }
+
+    [Fact]
+    public void FormatterConfig_Tabs()
+    {
+        var config = new FormatterConfig { UseSpaces = false };
+        Assert.Equal("\t", config.GetIndentString());
+    }
+
+    [Fact]
+    public void Format_WithCustomIndent()
+    {
+        var input = "func main(){print 5}";
+        var expected = @"func main() {
+  print 5
+}";
+
+        var ast = Parse(input);
+        var config = new FormatterConfig { IndentSize = 2, UseSpaces = true };
+        var formatter = new Formatter(config);
+        var result = formatter.Format(ast).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_WithTabs()
+    {
+        var input = "func main(){print 5}";
+        var expected = "func main() {\n\tprint 5\n}";
+
+        var ast = Parse(input);
+        var config = new FormatterConfig { UseSpaces = false };
+        var formatter = new Formatter(config);
+        var result = formatter.Format(ast).Trim();
+        Assert.Equal(expected, result);
+    }
 }

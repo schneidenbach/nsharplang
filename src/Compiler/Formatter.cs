@@ -9,7 +9,13 @@ namespace NewCLILang.Compiler;
 public class Formatter
 {
     private int _indent = 0;
-    private const string IndentString = "    "; // 4 spaces
+    private readonly string _indentString;
+
+    public Formatter(FormatterConfig? config = null)
+    {
+        config ??= new FormatterConfig();
+        _indentString = config.GetIndentString();
+    }
 
     public string Format(CompilationUnit ast)
     {
@@ -1674,7 +1680,7 @@ public class Formatter
     {
         for (int i = 0; i < _indent; i++)
         {
-            sb.Append(IndentString);
+            sb.Append(_indentString);
         }
     }
 }

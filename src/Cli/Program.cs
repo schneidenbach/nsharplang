@@ -1102,8 +1102,12 @@ func Main() {{
                     var parser = new Parser(tokens, file);
                     var ast = parser.ParseCompilationUnit();
 
+                    // Load formatter config from .editorconfig
+                    var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
+                    var config = FormatterConfig.FromEditorConfig(fileDir);
+
                     // Format
-                    var formatter = new Formatter();
+                    var formatter = new Formatter(config);
                     var formatted = formatter.Format(ast);
 
                     // Write back to file
