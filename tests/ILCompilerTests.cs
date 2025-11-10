@@ -962,4 +962,159 @@ func Test(): void {
         // Should not throw
         compiler.Compile();
     }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithLiteralPatterns()
+    {
+        var source = @"
+func testMatch(x: int): string {
+    result := match x {
+        0 => ""zero"",
+        1 => ""one"",
+        2 => ""two"",
+        _ => ""other""
+    }
+    return result
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithStringLiterals()
+    {
+        var source = @"
+func greet(name: string): string {
+    message := match name {
+        ""Alice"" => ""Hello Alice!"",
+        ""Bob"" => ""Hi Bob!"",
+        _ => ""Hello stranger!""
+    }
+    return message
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithVariableBinding()
+    {
+        var source = @"
+func processValue(x: int): int {
+    result := match x {
+        0 => 100,
+        n => n * 2
+    }
+    return result
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithTypePattern()
+    {
+        var source = @"
+func getTypeName(obj: object): string {
+    name := match obj {
+        string => ""It's a string"",
+        int => ""It's an int"",
+        _ => ""Unknown type""
+    }
+    return name
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithGuard()
+    {
+        var source = @"
+func classifyNumber(x: int): string {
+    result := match x {
+        n when n < 0 => ""negative"",
+        0 => ""zero"",
+        n when n > 0 => ""positive"",
+        _ => ""unknown""
+    }
+    return result
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionWithRelationalPattern()
+    {
+        var source = @"
+func getRange(x: int): string {
+    result := match x {
+        < 0 => ""negative"",
+        0 => ""zero"",
+        > 0 => ""positive""
+    }
+    return result
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileMatchExpressionInReturnStatement()
+    {
+        var source = @"
+func doubleOrZero(x: int): int {
+    return match x {
+        0 => 0,
+        n => n * 2
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_CanCompileNestedMatchExpressions()
+    {
+        var source = @"
+func classify(x: int, y: int): string {
+    return match x {
+        0 => match y {
+            0 => ""both zero"",
+            _ => ""x is zero""
+        },
+        _ => match y {
+            0 => ""y is zero"",
+            _ => ""neither zero""
+        }
+    }
+}";
+        var compilationUnit = Parse(source);
+        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+
+        // Should not throw
+        compiler.Compile();
+    }
 }
