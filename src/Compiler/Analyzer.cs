@@ -235,7 +235,27 @@ public class Analyzer
             var exprType = AnalyzeExpression(func.ExpressionBody);
             if (_currentReturnType != BuiltInTypes.Void && !IsAssignable(_currentReturnType, exprType))
             {
-                Error(ErrorCode.TypeMismatch, $"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
+                var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
+                    ? _sourceLines[func.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.TypeMismatch(
+                        _currentFilePath,
+                        func.Line,
+                        func.Column,
+                        sourceSnippet,
+                        func.ExpressionBody.ToString().Length,
+                        exprType.ToString(),
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.TypeMismatch, $"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
+                }
             }
         }
 
@@ -439,7 +459,27 @@ public class Analyzer
                 var initType = AnalyzeExpression(field.Initializer);
                 if (!IsAssignable(fieldType, initType))
                 {
-                    Error($"Cannot assign '{initType}' to '{fieldType}'", field.Line, field.Column);
+                    var sourceSnippet = _sourceLines != null && field.Line > 0 && field.Line <= _sourceLines.Length
+                        ? _sourceLines[field.Line - 1]
+                        : null;
+
+                    if (sourceSnippet != null && _currentFilePath != null)
+                    {
+                        var error = ErrorMessageBuilder.TypeMismatch(
+                            _currentFilePath,
+                            field.Line,
+                            field.Column,
+                            sourceSnippet,
+                            field.Name.Length,
+                            initType.ToString(),
+                            fieldType.ToString()
+                        );
+                        _errors.Add(error);
+                    }
+                    else
+                    {
+                        Error($"Cannot assign '{initType}' to '{fieldType}'", field.Line, field.Column);
+                    }
                 }
             }
         }
@@ -460,7 +500,27 @@ public class Analyzer
             var exprType = AnalyzeExpression(prop.ExpressionBody);
             if (!IsAssignable(propType, exprType))
             {
-                Error($"Cannot assign '{exprType}' to '{propType}' in expression-bodied property", prop.Line, prop.Column);
+                var sourceSnippet = _sourceLines != null && prop.Line > 0 && prop.Line <= _sourceLines.Length
+                    ? _sourceLines[prop.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.TypeMismatch(
+                        _currentFilePath,
+                        prop.Line,
+                        prop.Column,
+                        sourceSnippet,
+                        prop.Name.Length,
+                        exprType.ToString(),
+                        propType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error($"Cannot assign '{exprType}' to '{propType}' in expression-bodied property", prop.Line, prop.Column);
+                }
             }
         }
 
@@ -736,7 +796,27 @@ public class Analyzer
             // Both specified - check compatibility
             if (!IsAssignable(declaredType, inferredType))
             {
-                Error($"Cannot assign '{inferredType}' to '{declaredType}'", varDecl.Line, varDecl.Column);
+                var sourceSnippet = _sourceLines != null && varDecl.Line > 0 && varDecl.Line <= _sourceLines.Length
+                    ? _sourceLines[varDecl.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.TypeMismatch(
+                        _currentFilePath,
+                        varDecl.Line,
+                        varDecl.Column,
+                        sourceSnippet,
+                        varDecl.Name.Length,
+                        inferredType.ToString(),
+                        declaredType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error($"Cannot assign '{inferredType}' to '{declaredType}'", varDecl.Line, varDecl.Column);
+                }
             }
             finalType = declaredType;
         }
@@ -1915,7 +1995,27 @@ public class Analyzer
 
         if (!IsAssignable(targetType, valueType))
         {
-            Error($"Cannot assign '{valueType}' to '{targetType}'", assignment.Line, assignment.Column);
+            var sourceSnippet = _sourceLines != null && assignment.Line > 0 && assignment.Line <= _sourceLines.Length
+                ? _sourceLines[assignment.Line - 1]
+                : null;
+
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var error = ErrorMessageBuilder.TypeMismatch(
+                    _currentFilePath,
+                    assignment.Line,
+                    assignment.Column,
+                    sourceSnippet,
+                    1,
+                    valueType.ToString(),
+                    targetType.ToString()
+                );
+                _errors.Add(error);
+            }
+            else
+            {
+                Error($"Cannot assign '{valueType}' to '{targetType}'", assignment.Line, assignment.Column);
+            }
         }
 
         return targetType;
@@ -2205,9 +2305,28 @@ public class Analyzer
 
         if (missingCases.Any())
         {
-            var missingCasesStr = string.Join(", ", missingCases);
-            Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing cases: {missingCasesStr}",
-                match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+            var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
+                ? _sourceLines[match.Line - 1]
+                : null;
+
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var error = ErrorMessageBuilder.NonExhaustiveMatch(
+                    _currentFilePath,
+                    match.Line,
+                    match.Column,
+                    sourceSnippet,
+                    5, // "match" keyword length
+                    missingCases
+                );
+                _errors.Add(error);
+            }
+            else
+            {
+                var missingCasesStr = string.Join(", ", missingCases);
+                Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing cases: {missingCasesStr}",
+                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+            }
         }
     }
 

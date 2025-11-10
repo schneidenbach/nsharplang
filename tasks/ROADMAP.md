@@ -1,7 +1,7 @@
 # N# Language Development Roadmap
 
 **Last Updated:** 2025-11-09
-**Current Status:** v1.71 | 743 passing tests | Core language complete | Formatter complete | Documentation complete | NuGet packages ready
+**Current Status:** v1.72 | 743 passing tests | Core language complete | Formatter complete | Documentation complete | NuGet packages ready | Elm-style error messages active
 
 ## Philosophy: Incremental Value
 
@@ -110,32 +110,63 @@ dotnet tool install -g NSharp.LanguageServer
 
 ---
 
-### Task 043: Error Message Polish
-**Status:** Needs improvement
+### ✅ Task 043: Error Message Polish
+**Status:** Complete
 **Priority:** 🔴 P0-Critical
-**Effort:** Medium (12-15 hours)
 **Impact:** Developer confidence & productivity
 
-**Current:**
+**Completed:**
+- ✅ Updated semantic analyzer to use Elm-style error messages for all common errors
+- ✅ Type mismatch errors show actual vs expected types with conversion hints
+- ✅ Undefined variable errors include smart suggestions using Levenshtein distance
+- ✅ Non-exhaustive pattern matching errors list missing cases with explanations
+- ✅ All error messages use conversational, human-friendly language
+- ✅ Full test suite passes with no regressions (743 tests)
+
+**Example Output (Type Mismatch):**
 ```
-Error NL103: Undefined identifier 'Foo'
-  --> Program.nl:5:10
+-- TYPE MISMATCH --------------------------------------------------  test.nl
+
+I am having trouble with this code on line 2:
+
+2|     let x: int = "hello"
+          ^
+
+This expression has type:
+
+    string
+
+But you said it should be:
+
+    int
+
+Hint: Strings and integers are different types. To convert a string to an int,
+you can use int.Parse(yourString) or int.TryParse(yourString, out result).
+
+Read more: https://docs.n-sharp.dev/errors/NL202
 ```
 
-**Target (Rust/Elm quality):**
+**Example Output (Undefined Variable):**
 ```
-error NL103: cannot find type 'Foo' in this scope
-  --> Program.nl:5:10
-   |
- 5 | x := new Foo()
-   |          ^^^ not found in this scope
-   |
-help: you might be missing an import
-   |
- 1 + import MyNamespace
-   |
-note: there is a type 'Foo' in namespace 'MyNamespace'
+-- NAMING ERROR --------------------------------------------------  test.nl
+
+I cannot find a `persn` variable on line 3:
+
+3|     print persn
+             ^^^^^
+
+Hint: Variables need to be declared before they can be used.
+
+Did you mean one of these?
+
+    person
+
+Read more: https://docs.n-sharp.dev/errors/NL301
 ```
+
+**Files Modified:**
+- `src/Compiler/Analyzer.cs` - Updated to use ErrorMessageBuilder for all common errors
+- All existing error reporting infrastructure from Task 027 now fully integrated
 
 ---
 
