@@ -6,11 +6,21 @@
   <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharp.Build.Tasks.NSharpCompile"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharp.Build.Tasks.LoadProjectReferences"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
 
   <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
+
+  <!-- Load dependencies from project.yml and add them to MSBuild items -->
+  <Target Name="LoadNSharpReferences" BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences">
+    <LoadProjectReferences ProjectFile="$(NSharpProjectFile)">
+      <Output TaskParameter="PackageReferences" ItemName="PackageReference" />
+      <Output TaskParameter="FrameworkReferences" ItemName="FrameworkReference" />
+    </LoadProjectReferences>
+  </Target>
 
   <!-- Compile N# files before C# compilation -->
   <Target Name="CompileNSharp"
