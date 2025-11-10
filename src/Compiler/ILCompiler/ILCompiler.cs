@@ -11,7 +11,7 @@ namespace NewCLILang.Compiler.ILCompiler;
 /// <summary>
 /// Compiles N# AST directly to IL using System.Reflection.Emit
 /// </summary>
-public class ILCompiler
+public partial class ILCompiler
 {
     private readonly CompilationUnit _compilationUnit;
     private readonly string _assemblyName;
@@ -26,11 +26,17 @@ public class ILCompiler
 
     // Global context
     private TypeBuilder? _programType;
+    private ModuleBuilder? _moduleBuilder;
     private Dictionary<string, MethodBuilder> _methods = new();
     private Dictionary<string, ConstructorBuilder> _constructors = new();
     private Dictionary<string, TypeBuilder> _types = new();
     private Dictionary<string, FieldBuilder> _fields = new();
     private TypeBuilder? _currentTypeBuilder;
+
+    // Lambda and closure support
+    private int _lambdaCounter = 0;
+    private int _closureCounter = 0;
+    private Dictionary<string, FieldBuilder>? _closureFields;
 
     public ILCompiler(CompilationUnit compilationUnit, string assemblyName, string outputPath)
     {
@@ -51,10 +57,10 @@ public class ILCompiler
             typeof(object).Assembly);
 
         // Create module builder
-        var moduleBuilder = assemblyBuilder.DefineDynamicModule(_assemblyName);
+        _moduleBuilder = assemblyBuilder.DefineDynamicModule(_assemblyName);
 
         // Create Program class (entry point container)
-        _programType = moduleBuilder.DefineType(
+        _programType = _moduleBuilder.DefineType(
             "Program",
             TypeAttributes.Public | TypeAttributes.Class);
 
@@ -63,19 +69,19 @@ public class ILCompiler
         {
             if (declaration is ClassDeclaration classDecl)
             {
-                DeclareClass(moduleBuilder, classDecl);
+                DeclareClass(_moduleBuilder, classDecl);
             }
             else if (declaration is StructDeclaration structDecl)
             {
-                DeclareStruct(moduleBuilder, structDecl);
+                DeclareStruct(_moduleBuilder, structDecl);
             }
             else if (declaration is RecordDeclaration recordDecl)
             {
-                DeclareRecord(moduleBuilder, recordDecl);
+                DeclareRecord(_moduleBuilder, recordDecl);
             }
             else if (declaration is InterfaceDeclaration interfaceDecl)
             {
-                DeclareInterface(moduleBuilder, interfaceDecl);
+                DeclareInterface(_moduleBuilder, interfaceDecl);
             }
         }
 
@@ -885,6 +891,10 @@ public class ILCompiler
                 EmitMatchExpression(match);
                 break;
 
+            case LambdaExpression lambda:
+                EmitLambda(lambda);
+                break;
+
             default:
                 throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
         }
@@ -970,6 +980,14 @@ public class ILCompiler
                     }
                     break;
             }
+        }
+        // Check if it's a closure field
+        else if (_closureFields != null && _closureFields.TryGetValue(ident.Name, out var closureField))
+        {
+            // Load 'this' (closure instance at arg 0)
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            // Load the field
+            _currentIL.Emit(OpCodes.Ldfld, closureField);
         }
         // Check if it's an instance field (in current class or base classes)
         else if (_currentTypeBuilder != null)
