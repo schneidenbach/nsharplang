@@ -258,11 +258,10 @@ These documentation files are optimized for AI context windows:
 
 ## Related Documentation
 
-- **../DESIGN.md** - Language design and syntax specification
+- **../docs/DESIGN.md** - Language design and syntax specification
 - **../README.md** - Project overview and getting started
-- **../STATUS.md** - Current project status
-- **../tasks/020-next-steps.md** - Future roadmap
-- **../completed-tasks/** - Archived completed tasks
+- **../docs/** - User-facing documentation and guides
+- **./completed-tasks/** - Archived completed tasks
 
 ---
 
