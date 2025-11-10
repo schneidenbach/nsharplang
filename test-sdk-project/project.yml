@@ -1,5 +1,0 @@
-name: TestSdkProject
-version: 1.0.0
-entry: Program.nl
-outputType: exe
-targetFramework: net9.0

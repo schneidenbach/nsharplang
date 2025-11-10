@@ -9,7 +9,7 @@
 ```bash
 git clone <repo-url>
 cd NewCLILang
-./setup-local.sh
+./scripts/setup-local.sh
 ```
 
 ### 2. Create Project
@@ -191,12 +191,12 @@ N# projects work seamlessly with standard .NET CI/CD tools. Ready-to-use templat
 **GitHub Actions:**
 ```bash
 mkdir -p .github/workflows
-cp ci-templates/github-actions/build.yml .github/workflows/
+cp ci/templates/github-actions/build.yml .github/workflows/
 ```
 
 **Docker:**
 ```bash
-cp ci-templates/docker/Dockerfile.webapi Dockerfile
+cp ci/templates/docker/Dockerfile.webapi Dockerfile
 docker build -t myapp . && docker run -p 8080:8080 myapp
 ```
 
@@ -207,18 +207,18 @@ docker build -t myapp . && docker run -p 8080:8080 myapp
 - Docker Compose (local development with dependencies)
 
 **Complete examples:**
-- `ci-examples/console-app/` - Console app with automated NuGet publishing
-- `ci-examples/web-api/` - Web API with Docker deployment
-- `ci-examples/library/` - Library publishing with pre-release support
+- `ci/examples/console-app/` - Console app with automated NuGet publishing
+- `ci/examples/web-api/` - Web API with Docker deployment
+- `ci/examples/library/` - Library publishing with pre-release support
 
 See [CI/CD Guide](docs/guide/ci-cd.md) for full documentation.
 
 ## Documentation
 
-- **DESIGN.md** - Complete language specification
+- **docs/DESIGN.md** - Complete language specification
 - **memory/** - Implementation notes and architecture
 - **CLAUDE.md** - Instructions for AI agents
-- **STATUS.md** - Current status and features
+- **docs/** - User guides and references
 - **docs/guide/ci-cd.md** - CI/CD setup and best practices
 
 ## Architecture

@@ -15,8 +15,8 @@ The memory/README.md is the table of contents for your documentation - if you ne
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
-ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./test-all.sh`. This is MANDATORY.
-ALWAYS: RUN `./test-all.sh` BEFORE COMMITTING ANY CODE. If it fails, fix the failures first!
+ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./scripts/test-all.sh`. This is MANDATORY.
+ALWAYS: RUN `./scripts/test-all.sh` BEFORE COMMITTING ANY CODE. If it fails, fix the failures first!
 ALWAYS: The test-all.sh script:
   - Runs all unit tests (`dotnet test`)
   - Rebuilds the compiler and SDK

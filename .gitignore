@@ -17,6 +17,9 @@ Thumbs.db
 # NuGet
 packages/
 *.nupkg
+nupkg/
+local-packages/
 
 # Test results
 TestResults/
+test-sdk-project/
