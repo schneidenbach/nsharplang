@@ -1,0 +1,142 @@
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+  tags:
+    include:
+    - v*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  buildConfiguration: 'Release'
+
+stages:
+- stage: Build
+  displayName: 'Build and Test'
+  jobs:
+  - job: Build
+    displayName: 'Build and Test'
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Install .NET SDK'
+      inputs:
+        version: '9.0.x'
+
+    - script: dotnet tool install -g nlc
+      displayName: 'Install N# CLI'
+
+    - script: |
+        export PATH="$PATH:$HOME/.dotnet/tools"
+        nlc --version
+      displayName: 'Verify N# CLI installation'
+
+    - task: Cache@2
+      displayName: 'Cache NuGet packages'
+      inputs:
+        key: 'nuget | "$(Agent.OS)" | **/project.yml'
+        restoreKeys: |
+          nuget | "$(Agent.OS)"
+        path: $(Pipeline.Workspace)/.nuget/packages
+
+    - script: dotnet restore
+      displayName: 'Restore dependencies'
+
+    - script: dotnet build --configuration $(buildConfiguration) --no-restore
+      displayName: 'Build'
+
+    - script: dotnet test --configuration $(buildConfiguration) --no-build --logger trx --collect:"XPlat Code Coverage"
+      displayName: 'Test'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish test results'
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: 'VSTest'
+        testResultsFiles: '**/*.trx'
+
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish code coverage'
+      condition: succeededOrFailed()
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
+
+- stage: Lint
+  displayName: 'Code Quality'
+  dependsOn: []
+  jobs:
+  - job: Lint
+    displayName: 'Lint'
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Install .NET SDK'
+      inputs:
+        version: '9.0.x'
+
+    - script: dotnet tool install -g nlc
+      displayName: 'Install N# CLI'
+
+    - script: |
+        export PATH="$PATH:$HOME/.dotnet/tools"
+        nlc lint
+      displayName: 'Run linter'
+
+  - job: Format
+    displayName: 'Format Check'
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Install .NET SDK'
+      inputs:
+        version: '9.0.x'
+
+    - script: dotnet tool install -g nlc
+      displayName: 'Install N# CLI'
+
+    - script: |
+        export PATH="$PATH:$HOME/.dotnet/tools"
+        nlc format --verify-no-changes
+      displayName: 'Check formatting'
+
+- stage: Publish
+  displayName: 'Publish Artifacts'
+  dependsOn:
+  - Build
+  - Lint
+  condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/v'))
+  jobs:
+  - job: Publish
+    displayName: 'Publish to NuGet'
+    steps:
+    - task: UseDotNet@2
+      displayName: 'Install .NET SDK'
+      inputs:
+        version: '9.0.x'
+
+    - script: dotnet tool install -g nlc
+      displayName: 'Install N# CLI'
+
+    - script: dotnet restore
+      displayName: 'Restore dependencies'
+
+    - script: dotnet build --configuration $(buildConfiguration) --no-restore
+      displayName: 'Build'
+
+    - script: dotnet pack --configuration $(buildConfiguration) --no-build -o $(Build.ArtifactStagingDirectory)
+      displayName: 'Pack'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish artifacts'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'packages'
+
+    - task: NuGetCommand@2
+      displayName: 'Push to NuGet'
+      inputs:
+        command: 'push'
+        packagesToPush: '$(Build.ArtifactStagingDirectory)/**/*.nupkg'
+        nuGetFeedType: 'external'
+        publishFeedCredentials: 'NuGet'

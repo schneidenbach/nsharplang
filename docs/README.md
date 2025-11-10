@@ -65,6 +65,10 @@ dotnet run
 - **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - syntax mapping and strategies
 - **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
 
+### Development & Deployment
+
+- **[CI/CD Guide](guide/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
+
 ### Examples
 
 Browse the [examples directory](../examples/) for complete working examples:

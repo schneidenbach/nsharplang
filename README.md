@@ -182,12 +182,44 @@ See `examples/` directory:
 **Tests:** 568 passing (100%)
 **Features:** All from DESIGN.md implemented + Assembly resolution + Override support
 
+## CI/CD
+
+N# projects work seamlessly with standard .NET CI/CD tools. Ready-to-use templates available:
+
+### Quick Setup
+
+**GitHub Actions:**
+```bash
+mkdir -p .github/workflows
+cp ci-templates/github-actions/build.yml .github/workflows/
+```
+
+**Docker:**
+```bash
+cp ci-templates/docker/Dockerfile.webapi Dockerfile
+docker build -t myapp . && docker run -p 8080:8080 myapp
+```
+
+**Templates include:**
+- GitHub Actions (build, release, format-check, lint)
+- Azure Pipelines (complete multi-stage pipeline)
+- Docker (SDK, runtime, web API with multi-stage builds)
+- Docker Compose (local development with dependencies)
+
+**Complete examples:**
+- `ci-examples/console-app/` - Console app with automated NuGet publishing
+- `ci-examples/web-api/` - Web API with Docker deployment
+- `ci-examples/library/` - Library publishing with pre-release support
+
+See [CI/CD Guide](docs/guide/ci-cd.md) for full documentation.
+
 ## Documentation
 
 - **DESIGN.md** - Complete language specification
 - **memory/** - Implementation notes and architecture
 - **CLAUDE.md** - Instructions for AI agents
 - **STATUS.md** - Current status and features
+- **docs/guide/ci-cd.md** - CI/CD setup and best practices
 
 ## Architecture
 
