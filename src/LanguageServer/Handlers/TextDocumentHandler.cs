@@ -12,6 +12,8 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
+using LspDiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
 
 namespace LanguageServer.Handlers;
 
@@ -96,7 +98,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
             Uri = request.TextDocument.Uri,
-            Diagnostics = new Container<Diagnostic>()
+            Diagnostics = new Container<LspDiagnostic>()
         });
 
         return Unit.Task;
@@ -122,22 +124,22 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
             Uri = DocumentUri.From(uri),
-            Diagnostics = new Container<Diagnostic>(diagnostics)
+            Diagnostics = new Container<LspDiagnostic>(diagnostics)
         });
 
         _logger.LogInformation("Published {Count} diagnostics for {Uri}", diagnostics.Length, uri);
     }
 
-    private Diagnostic ConvertToDiagnostic(CompilerError error)
+    private LspDiagnostic ConvertToDiagnostic(CompilerError error)
     {
         // Convert compiler error to LSP diagnostic
         var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
         var column = Math.Max(0, error.Column - 1);
 
-        return new Diagnostic
+        return new LspDiagnostic
         {
             Range = new LspRange(line, column, line, column + 10), // Approximate range
-            Severity = error.Severity == ErrorSeverity.Warning ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
+            Severity = error.Severity == ErrorSeverity.Warning ? LspDiagnosticSeverity.Warning : LspDiagnosticSeverity.Error,
             Code = $"NL{(int)error.Code:D3}",
             Source = "N#",
             Message = error.Message

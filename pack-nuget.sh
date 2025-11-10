@@ -16,7 +16,7 @@ dotnet build src/Build/NSharp.Build.Tasks/NSharp.Build.Tasks.csproj -c Release
 # Pack the SDK
 echo ""
 echo "Packing Microsoft.NET.Sdk.NSharp..."
-dotnet pack sdk/Microsoft.NET.Sdk.NSharp/Sdk/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj \
+dotnet pack src/Build/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj \
   -c Release \
   -o artifacts/nuget
 
@@ -24,6 +24,27 @@ dotnet pack sdk/Microsoft.NET.Sdk.NSharp/Sdk/Microsoft.NET.Sdk.NSharp/Microsoft.
 echo ""
 echo "Packing NSharp.Templates..."
 dotnet pack templates/NSharp.Templates.csproj \
+  -c Release \
+  -o artifacts/nuget
+
+# Pack the compiler library
+echo ""
+echo "Packing NSharp.Compiler..."
+dotnet pack src/Compiler/Compiler.csproj \
+  -c Release \
+  -o artifacts/nuget
+
+# Pack the CLI tool
+echo ""
+echo "Packing nlc (N# CLI tool)..."
+dotnet pack src/Cli/Cli.csproj \
+  -c Release \
+  -o artifacts/nuget
+
+# Pack the Language Server
+echo ""
+echo "Packing NSharp.LanguageServer..."
+dotnet pack src/LanguageServer/LanguageServer.csproj \
   -c Release \
   -o artifacts/nuget
 
@@ -36,3 +57,10 @@ ls -lh artifacts/nuget/*.nupkg
 
 echo ""
 echo "Packages are ready in artifacts/nuget/"
+echo ""
+echo "Core packages:"
+echo "  - Microsoft.NET.Sdk.NSharp - MSBuild SDK"
+echo "  - NSharp.Templates - dotnet new templates"
+echo "  - NSharp.Compiler - Compiler API library"
+echo "  - nlc - CLI tool (dotnet tool install -g nlc)"
+echo "  - NSharp.LanguageServer - LSP server"
