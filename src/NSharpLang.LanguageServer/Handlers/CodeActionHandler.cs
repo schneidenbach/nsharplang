@@ -13,6 +13,7 @@ using LspCodeAction = OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeAc
 using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
 using LspCodeActionKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.CodeActionKind;
+using LspTextEdit = OmniSharp.Extensions.LanguageServer.Protocol.Models.TextEdit;
 using CompilerCodeAction = NSharpLang.Compiler.CodeAction;
 using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
 using CompilerCodeActionKind = NSharpLang.Compiler.CodeActionKind;
@@ -106,7 +107,8 @@ public class CodeActionHandler : CodeActionHandlerBase
         }
 
         _logger.LogInformation("Returning {Count} code actions", codeActions.Count);
-        return Task.FromResult<CommandOrCodeActionContainer?>(new CommandOrCodeActionContainer(codeActions));
+        var commandOrCodeActions = codeActions.Select(ca => new CommandOrCodeAction(ca));
+        return Task.FromResult<CommandOrCodeActionContainer?>(new CommandOrCodeActionContainer(commandOrCodeActions));
     }
 
     private CompilerDiagnostic? ConvertToCompilerDiagnostic(
@@ -137,8 +139,8 @@ public class CodeActionHandler : CodeActionHandlerBase
         LspDiagnostic? diagnostic)
     {
         // Convert text edits
-        var changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>();
-        var textEdits = action.Edits.Select(edit => new TextEdit
+        var changes = new Dictionary<DocumentUri, IEnumerable<LspTextEdit>>();
+        var textEdits = action.Edits.Select(edit => new LspTextEdit
         {
             Range = new LspRange(
                 edit.StartLine - 1,  // Convert to 0-based
@@ -157,14 +159,10 @@ public class CodeActionHandler : CodeActionHandlerBase
             Edit = new WorkspaceEdit
             {
                 Changes = changes
-            }
+            },
+            // Link to the diagnostic if provided
+            Diagnostics = diagnostic != null ? new Container<LspDiagnostic>(diagnostic) : null
         };
-
-        // Link to the diagnostic if provided
-        if (diagnostic != null)
-        {
-            lspAction.Diagnostics = new Container<LspDiagnostic>(diagnostic);
-        }
 
         return lspAction;
     }
@@ -197,7 +195,6 @@ public class CodeActionHandler : CodeActionHandlerBase
     {
         return new CodeActionRegistrationOptions
         {
-            DocumentSelector = DocumentSelector.ForLanguage("nsharp"),
             CodeActionKinds = new Container<LspCodeActionKind>(
                 LspCodeActionKind.QuickFix,
                 LspCodeActionKind.Refactor,
