@@ -2,17 +2,32 @@
 
 This directory contains the Visual Studio 2022 extension for N# language support.
 
-**Status**: Task 095 - Foundation Complete (Windows Required for Final Steps)
+**Status**: Tasks 095 & 096 - Foundation Complete (Windows Required for Final Steps)
 
-## Features (Phase 1 - Basic)
+## Features
 
-- ✅ Syntax highlighting for `.nl` files (implemented, needs Windows testing)
-- ✅ Content type definition for N# code
-- ✅ Basic VSPackage structure
-- 🚧 VSIX packaging (needs Windows environment)
-- 🚧 Project system integration (project.yml)
-- 🚧 Build/Run from toolbar
-- 🚧 Error list integration
+### ✅ Implemented (Code Complete)
+
+- **Syntax highlighting** for `.nl` files
+- **Content type definition** for N# code
+- **Basic VSPackage** structure
+- **Language Server Protocol (LSP) integration** for IntelliSense:
+  - Auto-completion (Ctrl+Space)
+  - Signature help (Ctrl+Shift+Space)
+  - Quick Info (hover tooltips)
+  - Go to Definition (F12)
+  - Find All References (Shift+F12)
+  - Rename refactoring (Ctrl+R, R)
+  - Real-time diagnostics (error squiggles)
+  - Document symbol outline
+
+### 🚧 Requires Windows Testing
+
+- VSIX packaging and installation
+- End-to-end IntelliSense testing
+- Project system integration (project.yml)
+- Build/Run from toolbar
+- Error list integration
 
 ## Building the Extension
 
@@ -55,23 +70,31 @@ To debug the extension:
 
 ```
 NSharp.VisualStudio/
-├── NSharpPackage.cs           # Main VSPackage
+├── NSharpPackage.cs                  # Main VSPackage
 ├── Editor/
 │   ├── NSharpClassifier.cs           # Syntax highlighting
 │   └── NSharpClassifierProvider.cs   # MEF provider
-├── ProjectSystem/              # TODO: Project system integration
+├── LanguageServer/
+│   └── NSharpLanguageClient.cs       # LSP client (IntelliSense)
+├── ProjectSystem/                    # TODO: Project system integration
+├── Resources/                        # Icons and assets (TODO)
 └── source.extension.vsixmanifest     # VSIX metadata
 ```
 
-## Next Steps (Task 096)
+## How It Works
 
-- IntelliSense support via Language Server Protocol
-- Auto-completion (Ctrl+Space)
-- Signature help (Ctrl+Shift+Space)
-- Quick Info (hover)
-- Go to Definition (F12)
-- Find All References (Shift+F12)
-- Rename (Ctrl+R, R)
+1. **Syntax Highlighting**: Regex-based tokenization provides basic syntax coloring
+2. **LSP Client**: `NSharpLanguageClient` starts the N# Language Server process
+3. **Language Server**: Separate process providing semantic analysis, IntelliSense, diagnostics
+4. **Communication**: JSON-RPC over stdin/stdout between client and server
+
+## Next Steps
+
+See `DEVELOPMENT.md` for:
+- Windows-based VSIX packaging
+- Installation and testing procedures
+- Project system integration plans
+- Debugging support roadmap
 
 ## License
 
