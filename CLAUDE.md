@@ -13,11 +13,42 @@ The memory/README.md is the table of contents for your documentation - if you ne
 
 ## Rules
 
-ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU'RE DONE!
+ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
-ALWAYS: After implementing functionality or solving problems, run the tests for that unit of code that was improved. If functionality is missing then it's your job to add it as per the application specifications. Think hard.
-ALWAYS: COMPILE THE APP USING `dotnet build`
-ALWAYS: TEST THE APP USING `dotnet test`
+ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./test-all.sh`. This is MANDATORY.
+ALWAYS: RUN `./test-all.sh` BEFORE COMMITTING ANY CODE. If it fails, fix the failures first!
+ALWAYS: The test-all.sh script:
+  - Runs all unit tests (`dotnet test`)
+  - Rebuilds the compiler and SDK
+  - Installs the latest SDK to local NuGet feed
+  - Tests dotnet new template creation
+  - Builds ALL example projects with `dotnet build`
+  - Validates everything works end-to-end
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
-ALWAYS: `git commit` and `git push` to origin after you've written any code!!
+ALWAYS: `git commit` and `git push` to origin after you've written any code AND verified `./test-all.sh` passes!!
+
+## Project Configuration Philosophy
+
+**CRITICAL**: The .csproj file MUST be minimal. It should ONLY reference the SDK. ALL configuration goes in project.yml.
+
+**CORRECT .csproj format:**
+```xml
+<Project Sdk="Microsoft.NET.Sdk.NSharp" />
+```
+
+That's it! One line! Everything else is read from project.yml by the MSBuild SDK.
+
+**WRONG - DO NOT DO THIS:**
+```xml
+<Project Sdk="Microsoft.NET.Sdk.NSharp">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>  <!-- NO! This goes in project.yml -->
+    <TargetFramework>net9.0</TargetFramework>  <!-- NO! This goes in project.yml -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>  <!-- HACK! Fix the SDK instead -->
+  </PropertyGroup>
+</Project>
+```
+
+If you find yourself adding properties to .csproj, you're doing it wrong. Fix the MSBuild SDK to read from project.yml instead.
+The ONLY exception is if you need to work around a temporary MSBuild limitation during development.
