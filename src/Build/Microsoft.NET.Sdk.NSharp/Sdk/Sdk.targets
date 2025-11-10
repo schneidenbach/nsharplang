@@ -29,7 +29,22 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="coverlet.msbuild" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
+
+  <!-- Configure Coverlet defaults -->
+  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''">
+    <!-- Default coverage settings -->
+    <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
+    <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
+    <ExcludeByFile Condition="'$(ExcludeByFile)' == ''">**/*.g.cs</ExcludeByFile>
+
+    <!-- Only enable by default if explicitly requested -->
+    <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
+  </PropertyGroup>
 
   <!-- Load dependencies from project.yml and add them to MSBuild items -->
   <Target Name="LoadNSharpReferences" BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences">
@@ -98,6 +113,36 @@
     <Exec Command="$(NSharpCliPath) format $(FormatVerifyFlag)"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           IgnoreExitCode="false" />
+  </Target>
+
+  <!-- Generate HTML coverage report -->
+  <Target Name="GenerateCoverageReport"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != '' And '$(GenerateCoverageReport)' == 'true'">
+    <PropertyGroup>
+      <CoverageReportDir Condition="'$(CoverageReportDir)' == ''">$(MSBuildProjectDirectory)/coverage-report</CoverageReportDir>
+      <CoverageFiles Condition="'$(CoverageFiles)' == ''">$(MSBuildProjectDirectory)/coverage.*.xml</CoverageFiles>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="Generating HTML coverage report..." />
+
+    <!-- Check if dotnet-reportgenerator-globaltool is installed -->
+    <Exec Command="dotnet tool list -g | grep reportgenerator"
+          IgnoreExitCode="true"
+          ConsoleToMSBuild="true">
+      <Output TaskParameter="ExitCode" PropertyName="ReportGeneratorInstalled" />
+    </Exec>
+
+    <!-- Install reportgenerator if not present -->
+    <Exec Command="dotnet tool install -g dotnet-reportgenerator-globaltool"
+          Condition="'$(ReportGeneratorInstalled)' != '0'"
+          IgnoreExitCode="true" />
+
+    <!-- Generate the report -->
+    <Exec Command="reportgenerator -reports:&quot;$(CoverageFiles)&quot; -targetdir:&quot;$(CoverageReportDir)&quot; -reporttypes:Html"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          IgnoreExitCode="true" />
+
+    <Message Importance="High" Text="Coverage report generated at: $(CoverageReportDir)/index.html" />
   </Target>
 
 </Project>
