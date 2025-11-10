@@ -57,15 +57,24 @@ public class Transpiler
         // File imports are handled separately (their symbols are inlined)
         // FileImports in _compilationUnit.FileImports are not emitted as using statements
 
-        if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests)
-            _output.AppendLine();
-
         // Separate top-level functions and tests from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
         var otherDeclarations = _compilationUnit.Declarations
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
             .ToList();
+
+        // Add 'using static' for package class if there are top-level functions
+        // This allows top-level functions to be called from within classes without qualification
+        // Note: We use Functions_ prefix to avoid conflict with the namespace name
+        // The static class is defined inside the namespace, so we need to qualify it
+        if (_compilationUnit.Package != null && topLevelFunctions.Count > 0)
+        {
+            WriteLine($"using static {_compilationUnit.Package.Name}.Functions_{_compilationUnit.Package.Name};");
+        }
+
+        if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests || topLevelFunctions.Count > 0)
+            _output.AppendLine();
 
         // Namespace (from either 'namespace' or 'package' keyword)
         if (_compilationUnit.Namespace != null)
@@ -77,9 +86,6 @@ public class Transpiler
         {
             WriteLine($"namespace {_compilationUnit.Package.Name};");
             WriteLine();
-
-            // Note: We don't add 'using static' for the package namespace itself since that's invalid C#.
-            // Top-level functions are wrapped in static classes, and enums are accessed with qualified names.
         }
 
         // Transpile non-function/non-test declarations first
@@ -123,10 +129,11 @@ public class Transpiler
             string visibility;
             string partial = "";
 
-            // Use package name if available, otherwise use _TopLevel
+            // Use Functions_ prefix with package name if available, otherwise use _TopLevel
+            // The Functions_ prefix avoids conflict with the namespace name (can't use 'using static' on a namespace)
             if (_compilationUnit.Package != null)
             {
-                className = _compilationUnit.Package.Name;
+                className = $"Functions_{_compilationUnit.Package.Name}";
                 visibility = "public";
                 partial = "partial "; // Always make package classes partial
             }

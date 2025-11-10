@@ -3183,12 +3183,89 @@ public class Analyzer
         }
         catch (FileNotFoundException)
         {
+            // Try loading from ASP.NET Core shared framework
+            if (TryLoadFromSharedFramework(assemblyName))
+            {
+                return;
+            }
             // Assembly not found - this is expected for some references
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // Log but don't fail
-            Console.WriteLine($"Warning: Could not load assembly {assemblyName}: {ex.Message}");
+            // Try loading from shared framework for ANY exception
+            if (TryLoadFromSharedFramework(assemblyName))
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Try to load an assembly from the .NET shared frameworks
+    /// </summary>
+    private bool TryLoadFromSharedFramework(string assemblyName)
+    {
+        try
+        {
+            // Get the runtime directory (where shared frameworks are installed)
+            // RuntimeEnvironment.GetRuntimeDirectory() returns something like:
+            // /opt/homebrew/Cellar/dotnet/9.0.8/libexec/shared/Microsoft.NETCore.App/9.0.8/
+            var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+
+            // Navigate up to find the "shared" directory
+            // runtimeDir ends in something like /Microsoft.NETCore.App/9.0.8/
+            // We need to go up to /libexec/shared/
+            var currentDir = runtimeDir;
+            string? sharedFrameworksPath = null;
+
+            // Go up the directory tree looking for a "shared" folder
+            for (int i = 0; i < 5; i++)
+            {
+                currentDir = Path.GetDirectoryName(currentDir);
+                if (currentDir == null) break;
+
+                if (Path.GetFileName(currentDir) == "shared")
+                {
+                    sharedFrameworksPath = currentDir;
+                    break;
+                }
+            }
+
+            if (sharedFrameworksPath == null || !Directory.Exists(sharedFrameworksPath))
+            {
+                return false;
+            }
+
+            // Check both Microsoft.AspNetCore.App and Microsoft.NETCore.App
+            var frameworkNames = new[] { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" };
+
+            foreach (var frameworkName in frameworkNames)
+            {
+                var frameworkPath = Path.Combine(sharedFrameworksPath, frameworkName);
+                if (!Directory.Exists(frameworkPath)) continue;
+
+                // Get the latest version directory
+                var versions = Directory.GetDirectories(frameworkPath)
+                    .Select(Path.GetFileName)
+                    .OrderByDescending(v => v)
+                    .ToList();
+
+                foreach (var version in versions)
+                {
+                    var assemblyPath = Path.Combine(frameworkPath, version!, $"{assemblyName}.dll");
+                    if (File.Exists(assemblyPath))
+                    {
+                        LoadReferencedAssembly(assemblyPath);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
         }
     }
 
