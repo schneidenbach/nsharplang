@@ -46,6 +46,7 @@ class Program
                     .WithHandler<HoverHandler>()
                     .WithHandler<SignatureHelpHandler>()
                     .WithHandler<DefinitionHandler>()
+                    .WithHandler<CodeActionHandler>()
                     .OnInitialize(async (server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();

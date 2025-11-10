@@ -117,20 +117,32 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     private void PublishDiagnostics(string uri)
     {
         var doc = _documentManager.GetDocument(uri);
-        if (doc?.Diagnostics == null) return;
+        if (doc == null) return;
 
-        var diagnostics = doc.Diagnostics.Select(ConvertToDiagnostic).ToArray();
+        var allDiagnostics = new List<LspDiagnostic>();
+
+        // Add compiler diagnostics
+        if (doc.Diagnostics != null)
+        {
+            allDiagnostics.AddRange(doc.Diagnostics.Select(ConvertCompilerErrorToDiagnostic));
+        }
+
+        // Add linter diagnostics
+        if (doc.LinterDiagnostics != null)
+        {
+            allDiagnostics.AddRange(doc.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+        }
 
         _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
             Uri = DocumentUri.From(uri),
-            Diagnostics = new Container<LspDiagnostic>(diagnostics)
+            Diagnostics = new Container<LspDiagnostic>(allDiagnostics)
         });
 
-        _logger.LogInformation("Published {Count} diagnostics for {Uri}", diagnostics.Length, uri);
+        _logger.LogInformation("Published {Count} diagnostics for {Uri}", allDiagnostics.Count, uri);
     }
 
-    private LspDiagnostic ConvertToDiagnostic(CompilerError error)
+    private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
     {
         // Convert compiler error to LSP diagnostic
         var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
@@ -143,6 +155,30 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
             Code = $"NL{(int)error.Code:D3}",
             Source = "N#",
             Message = error.Message
+        };
+    }
+
+    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(Diagnostic diagnostic)
+    {
+        // Convert linter diagnostic to LSP diagnostic
+        var line = Math.Max(0, diagnostic.Location.Line - 1); // LSP is 0-indexed
+        var column = Math.Max(0, diagnostic.Location.Column);
+
+        var severity = diagnostic.Severity switch
+        {
+            DiagnosticSeverity.Error => LspDiagnosticSeverity.Error,
+            DiagnosticSeverity.Warning => LspDiagnosticSeverity.Warning,
+            DiagnosticSeverity.Info => LspDiagnosticSeverity.Information,
+            _ => LspDiagnosticSeverity.Warning
+        };
+
+        return new LspDiagnostic
+        {
+            Range = new LspRange(line, column, line, column + 10), // Approximate range
+            Severity = severity,
+            Code = diagnostic.Code,
+            Source = "N#",
+            Message = diagnostic.Message
         };
     }
 }

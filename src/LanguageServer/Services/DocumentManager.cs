@@ -55,6 +55,11 @@ public class DocumentManager
             var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
             state.Diagnostics = analysisResult.Errors;
 
+            // Run linter for additional diagnostics
+            var linterConfig = LinterConfig.FromEditorConfig(projectDir);
+            var linter = new Linter(linterConfig);
+            state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath);
+
             // Store symbol information for later use
             state.Symbols = ExtractSymbols(state.CompilationUnit);
             state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit);
