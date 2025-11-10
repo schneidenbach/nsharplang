@@ -1,7 +1,7 @@
 # N# Language Development Roadmap
 
 **Last Updated:** 2025-11-09
-**Current Status:** v1.71 | 743 passing tests | Core language complete | Formatter complete | Documentation complete
+**Current Status:** v1.71 | 743 passing tests | Core language complete | Formatter complete | Documentation complete | NuGet packages ready
 
 ## Philosophy: Incremental Value
 
@@ -80,22 +80,32 @@ dotnet build /t:FormatNSharp /p:FormatVerify=true  # MSBuild verify
 
 ---
 
-### Task 042: NuGet Package Publishing
-**Status:** Not started
+### ✅ Task 042: NuGet Package Publishing
+**Status:** Complete
 **Priority:** 🔴 P0-Critical
-**Effort:** Medium (10-15 hours)
-**Depends on:** Task 039
+**Impact:** Ready for public distribution
 
-**Core Packages:**
-- `Microsoft.NET.Sdk.NSharp` - MSBuild SDK
-- `NSharp.Templates` - Project templates
-- `NSharp.Compiler` - Compiler API
-- `NSharp.LanguageServer` - LSP server
+**Completed:**
+- ✅ 5 NuGet packages with complete metadata
+- ✅ Microsoft.NET.Sdk.NSharp (v0.1.0) - MSBuild SDK
+- ✅ NSharp.Templates (v1.0.0) - dotnet new templates
+- ✅ NSharp.Compiler (v1.0.0) - Compiler API library
+- ✅ nlc (v0.1.0) - Global CLI tool
+- ✅ NSharp.LanguageServer (v1.0.0) - LSP server
+- ✅ Automated build script (`pack-nuget.sh`)
+- ✅ Automated publish script (`publish-nuget.sh`)
+- ✅ All packages build successfully (4.3 MB total)
 
-**Success Criteria:**
+**Usage:**
 ```bash
+./pack-nuget.sh                    # Build all packages
+export NUGET_API_KEY=key
+./publish-nuget.sh                 # Publish to NuGet.org
+
+# For users:
 dotnet new install NSharp.Templates
-dotnet workload install nsharp
+dotnet tool install -g nlc
+dotnet tool install -g NSharp.LanguageServer
 ```
 
 ---
