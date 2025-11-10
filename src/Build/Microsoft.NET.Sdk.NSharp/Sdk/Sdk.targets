@@ -8,10 +8,27 @@
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
   <UsingTask TaskName="NSharp.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharp.Build.Tasks.TranspileTests"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharp.Build.Tasks.dll" />
 
   <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
+  </ItemGroup>
+
+  <!-- Auto-discover all .tests.nl files -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
+  </ItemGroup>
+
+  <!-- Add xUnit package references when test files are detected -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''">
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
   </ItemGroup>
 
   <!-- Load dependencies from project.yml and add them to MSBuild items -->
@@ -41,6 +58,27 @@
     </NSharpCompile>
 
     <Message Importance="High" Text="N# compilation complete. Generated files added to C# compilation." />
+  </Target>
+
+  <!-- Transpile N# test files to xUnit tests before C# compilation -->
+  <Target Name="TranspileNSharpTests"
+          BeforeTargets="CoreCompile"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''"
+          Inputs="@(NSharpTestFiles);$(NSharpProjectFile)"
+          Outputs="@(NSharpTestFiles->'$(NSharpOutputPath)%(Filename).g.cs')">
+
+    <Message Importance="High" Text="Transpiling N# test files from $(MSBuildProjectDirectory)..." />
+
+    <TranspileTests
+      TestFiles="@(NSharpTestFiles)"
+      OutputPath="$(NSharpOutputPath)"
+      ProjectRoot="$(MSBuildProjectDirectory)"
+      ProjectFile="$(NSharpProjectFile)">
+      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </TranspileTests>
+
+    <Message Importance="High" Text="N# test transpilation complete. Generated test files added to C# compilation." />
   </Target>
 
   <!-- Clean generated files -->
