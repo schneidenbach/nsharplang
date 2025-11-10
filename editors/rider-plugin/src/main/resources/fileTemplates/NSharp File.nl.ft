@@ -1,0 +1,5 @@
+import System
+
+func main() {
+    Console.WriteLine("Hello from N#!")
+}
