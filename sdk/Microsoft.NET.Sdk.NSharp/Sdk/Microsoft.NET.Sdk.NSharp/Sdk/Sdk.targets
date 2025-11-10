@@ -1,6 +1,9 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
-  <!-- Import the N# build tasks and targets -->
+  <!-- Import base .NET SDK targets first so CoreCompile exists -->
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+  <!-- Import the N# build tasks and targets after base SDK -->
   <Import Project="$(MSBuildThisFileDirectory)../build/NSharp.Build.targets" />
 
 </Project>

@@ -1,5 +1,8 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+  <!-- Import base .NET SDK props first -->
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
   <PropertyGroup>
     <!-- Default to exe for N# projects -->
     <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>

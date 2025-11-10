@@ -94,6 +94,23 @@ Process(new FileReader())  // Works via structural typing!
 
 ## Installation
 
+### From NuGet (Recommended)
+
+```bash
+# Install templates
+dotnet new install NSharp.Templates
+
+# Create a new console app
+dotnet new nsharp-console -o MyApp
+cd MyApp
+
+# Build and run
+dotnet build
+dotnet run
+```
+
+The SDK (`Microsoft.NET.Sdk.NSharp`) is automatically downloaded when you build.
+
 ### Build from Source
 
 ```bash
