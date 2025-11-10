@@ -4,13 +4,12 @@
 
 ## Quick Start
 
-### 1. Install Template (Local Development)
+### 1. One-Time Setup
 
 ```bash
-# Clone and install
 git clone <repo-url>
 cd NewCLILang
-dotnet new install templates/nsharp-console/
+./setup-local.sh
 ```
 
 ### 2. Create Project
@@ -25,7 +24,7 @@ cd MyApp
 - `Program.nl` - YOUR code
 - `MyApp.csproj` - 4 lines (never touch)
 - `global.json` - SDK config
-- `NuGet.config` - Package sources (update path for local dev)
+- `NuGet.config` - Package sources (auto-configured)
 
 ### 3. Build and Run
 
@@ -35,6 +34,8 @@ dotnet run
 ```
 
 **Output:** `Hello, N#!`
+
+**That's it. No manual config editing. It just works.**
 
 ---
 
