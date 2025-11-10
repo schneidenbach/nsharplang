@@ -26,7 +26,7 @@ ALWAYS: The test-all.sh script:
   - Validates everything works end-to-end
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
-ALWAYS: `git commit` and `git push` to origin after you've written any code AND verified `./test-all.sh` passes!!
+ALWAYS: `git commit` after you've written any code AND verified `./test-all.sh` passes!!
 
 ## Project Configuration Philosophy
 
