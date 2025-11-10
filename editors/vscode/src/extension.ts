@@ -1,4 +1,7 @@
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { execSync } from 'child_process';
 import * as vscode from 'vscode';
 import {
     LanguageClient,
@@ -26,7 +29,6 @@ export function activate(context: vscode.ExtensionContext) {
         );
 
         // Check if the bundled server exists
-        const fs = require('fs');
         if (!fs.existsSync(serverPath)) {
             // Fallback: try to find server in workspace (for development)
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -47,7 +49,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    const fs = require('fs');
     if (!serverPath || !fs.existsSync(serverPath)) {
         vscode.window.showErrorMessage(
             'N# Language Server not found. Please ensure the extension is properly installed or configure the path in settings.'
@@ -97,10 +98,61 @@ export function activate(context: vscode.ExtensionContext) {
         clientOptions
     );
 
+    // Register formatter
+    context.subscriptions.push(
+        vscode.languages.registerDocumentFormattingEditProvider('nsharp', {
+            provideDocumentFormattingEdits(document: vscode.TextDocument): vscode.TextEdit[] {
+                try {
+                    const formatted = formatDocument(document);
+                    const fullRange = new vscode.Range(
+                        document.positionAt(0),
+                        document.positionAt(document.getText().length)
+                    );
+                    return [vscode.TextEdit.replace(fullRange, formatted)];
+                } catch (error) {
+                    vscode.window.showErrorMessage(`N# Format failed: ${error}`);
+                    return [];
+                }
+            }
+        })
+    );
+
     // Start the client (this will also launch the server)
     client.start();
 
     console.log('N# Language Server started');
+}
+
+function formatDocument(document: vscode.TextDocument): string {
+    // Create a temp file with the document content
+    const tempFile = path.join(os.tmpdir(), `nsharp-format-${Date.now()}.nl`);
+
+    try {
+        // Write document content to temp file
+        fs.writeFileSync(tempFile, document.getText(), 'utf-8');
+
+        // Run nsharp format on the temp file
+        // The format command formats in-place
+        execSync(`nsharp format "${tempFile}"`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        // Read the formatted content
+        const formatted = fs.readFileSync(tempFile, 'utf-8');
+        return formatted;
+    } catch (error) {
+        throw new Error(`Failed to format document: ${error}`);
+    } finally {
+        // Clean up temp file
+        try {
+            if (fs.existsSync(tempFile)) {
+                fs.unlinkSync(tempFile);
+            }
+        } catch {
+            // Ignore cleanup errors
+        }
+    }
 }
 
 export function deactivate(): Thenable<void> | undefined {

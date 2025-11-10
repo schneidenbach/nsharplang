@@ -2,7 +2,7 @@
   "name": "nsharp",
   "displayName": "N# Language Support",
   "description": "Language support for N# (.nl files) with comprehensive IntelliSense, type resolution, signature help, and diagnostics",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "nsharp",
   "repository": {
     "type": "git",
@@ -54,7 +54,17 @@
           "enum": ["off", "messages", "verbose"],
           "default": "off",
           "description": "Traces the communication between VS Code and the language server."
+        },
+        "nsharp.format.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable N# code formatting."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[nsharp]": {
+        "editor.formatOnSave": true
       }
     }
   },
