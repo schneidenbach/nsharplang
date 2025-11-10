@@ -7,14 +7,14 @@ This document describes how to publish N# SDK and templates to NuGet.org.
 1. **NuGet API Key**: Get your API key from [nuget.org](https://www.nuget.org/account/apikeys)
 2. **NuGet Account**: You need an account on nuget.org
 3. **Package ID Ownership**: Ensure you own the package IDs:
-   - `Microsoft.NET.Sdk.NSharp`
+   - `NSharpLang.Sdk`
    - `NSharp.Templates`
 
 ## Packages
 
 N# consists of two NuGet packages:
 
-### 1. Microsoft.NET.Sdk.NSharp
+### 1. NSharpLang.Sdk
 
 MSBuild SDK that enables building N# projects with `dotnet build`.
 
@@ -24,7 +24,7 @@ MSBuild SDK that enables building N# projects with `dotnet build`.
 - N# compiler (`Compiler.dll`)
 - Dependencies (YamlDotNet, MSBuild assemblies)
 
-**Installation:** Automatically downloaded when users build projects with `<Project Sdk="Microsoft.NET.Sdk.NSharp" />`
+**Installation:** Automatically downloaded when users build projects with `<Project Sdk="NSharpLang.Sdk" />`
 
 ### 2. NSharp.Templates
 
@@ -46,12 +46,12 @@ Run the pack script:
 
 This will:
 1. Build `NSharp.Build.Tasks` in Release mode
-2. Pack `Microsoft.NET.Sdk.NSharp` SDK
+2. Pack `NSharpLang.Sdk` SDK
 3. Pack `NSharp.Templates`
 4. Output packages to `artifacts/nuget/`
 
 **Output:**
-- `artifacts/nuget/Microsoft.NET.Sdk.NSharp.1.0.0.nupkg` (~723KB)
+- `artifacts/nuget/NSharpLang.Sdk.1.0.0.nupkg` (~723KB)
 - `artifacts/nuget/NSharp.Templates.1.0.0.nupkg` (~3.4KB)
 
 ## Test Packages Locally
@@ -92,7 +92,7 @@ Edit the `global.json` to use a local path or update the .csproj to reference th
 ```json
 {
   "msbuild-sdks": {
-    "Microsoft.NET.Sdk.NSharp": "1.0.0"
+    "NSharpLang.Sdk": "1.0.0"
   }
 }
 ```
@@ -143,13 +143,13 @@ export NUGET_API_KEY=your_api_key_here
 
 This will:
 1. Verify packages exist
-2. Push `Microsoft.NET.Sdk.NSharp.1.0.0.nupkg` to NuGet.org
+2. Push `NSharpLang.Sdk.1.0.0.nupkg` to NuGet.org
 3. Push `NSharp.Templates.1.0.0.nupkg` to NuGet.org
 
 ### 3. Verify on NuGet.org
 
 Check that packages appear at:
-- https://www.nuget.org/packages/Microsoft.NET.Sdk.NSharp
+- https://www.nuget.org/packages/NSharpLang.Sdk
 - https://www.nuget.org/packages/NSharp.Templates
 
 **Note:** Packages may take a few minutes to be indexed and searchable.
@@ -159,7 +159,7 @@ Check that packages appear at:
 To publish a new version:
 
 1. Update version in `.csproj` files:
-   - `src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj`
+   - `src/NSharpLang.Sdk/NSharpLang.Sdk.csproj`
    - `templates/NSharp.Templates.csproj`
 
 2. Update version references in templates:
@@ -183,7 +183,7 @@ If you prefer not to use the scripts:
 
 ```bash
 # Pack SDK
-cd sdk/Microsoft.NET.Sdk.NSharp/Sdk/Microsoft.NET.Sdk.NSharp
+cd sdk/NSharpLang.Sdk/Sdk/NSharpLang.Sdk
 dotnet pack -c Release -o ../../../../artifacts/nuget
 
 # Pack Templates
@@ -191,7 +191,7 @@ cd templates
 dotnet pack -c Release -o ../artifacts/nuget
 
 # Publish SDK
-dotnet nuget push artifacts/nuget/Microsoft.NET.Sdk.NSharp.1.0.0.nupkg \
+dotnet nuget push artifacts/nuget/NSharpLang.Sdk.1.0.0.nupkg \
   --api-key $NUGET_API_KEY \
   --source https://api.nuget.org/v3/index.json
 
@@ -230,7 +230,7 @@ After publishing, update:
 
 1. **README.md** - Add NuGet badges:
    ```markdown
-   [![NuGet SDK](https://img.shields.io/nuget/v/Microsoft.NET.Sdk.NSharp.svg)](https://www.nuget.org/packages/Microsoft.NET.Sdk.NSharp/)
+   [![NuGet SDK](https://img.shields.io/nuget/v/NSharpLang.Sdk.svg)](https://www.nuget.org/packages/NSharpLang.Sdk/)
    [![NuGet Templates](https://img.shields.io/nuget/v/NSharp.Templates.svg)](https://www.nuget.org/packages/NSharp.Templates/)
    ```
 

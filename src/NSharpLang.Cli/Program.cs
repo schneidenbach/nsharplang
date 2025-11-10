@@ -246,7 +246,7 @@ class Program
 
             // Generate .csproj in the project directory
             generatedCsprojPath = Path.Combine(projectRoot, $"{projectName}.csproj");
-            var csprojContent = $@"<Project Sdk=""Microsoft.NET.Sdk.NSharp"">
+            var csprojContent = $@"<Project Sdk=""NSharpLang.Sdk"">
   <PropertyGroup>
     <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
     <TargetFramework>{config.TargetFramework}</TargetFramework>
@@ -267,7 +267,7 @@ class Program
     "version": "9.0.100"
   },
   "msbuild-sdks": {
-    "Microsoft.NET.Sdk.NSharp": "0.1.0"
+    "NSharpLang.Sdk": "0.1.0"
   }
 }
 """;
@@ -284,7 +284,7 @@ class Program
             if (!File.Exists(generatedNuGetConfigPath))
             {
                 var repoRoot = FindRepoRoot(projectRoot);
-                var sdkPath = Path.Combine(repoRoot, "src/Microsoft.NET.Sdk.NSharp/bin/Debug");
+                var sdkPath = Path.Combine(repoRoot, "src/NSharpLang.Sdk/bin/Debug");
                 var nugetConfigContent = $@"<?xml version=""1.0"" encoding=""utf-8""?>
 <configuration>
   <packageSources>
@@ -360,7 +360,7 @@ class Program
         var current = new DirectoryInfo(startPath);
         while (current != null)
         {
-            if (Directory.Exists(Path.Combine(current.FullName, "src/Microsoft.NET.Sdk.NSharp")))
+            if (Directory.Exists(Path.Combine(current.FullName, "src/NSharpLang.Sdk")))
             {
                 return current.FullName;
             }

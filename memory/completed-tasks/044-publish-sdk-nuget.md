@@ -14,14 +14,14 @@ Published NuGet packages that users can install.
 
 ## Packages
 
-1. **Microsoft.NET.Sdk.NSharp** - MSBuild SDK
+1. **NSharpLang.Sdk** - MSBuild SDK
 2. **NSharp.Templates** - dotnet new templates
 
 ## Implementation
 
 **Pack SDK:**
 ```bash
-cd sdk/Microsoft.NET.Sdk.NSharp
+cd sdk/NSharpLang.Sdk
 dotnet pack -c Release
 ```
 
@@ -33,7 +33,7 @@ dotnet pack NSharp.Templates.csproj -c Release
 
 **Publish:**
 ```bash
-dotnet nuget push Microsoft.NET.Sdk.NSharp.1.0.0.nupkg \
+dotnet nuget push NSharpLang.Sdk.1.0.0.nupkg \
   --api-key $NUGET_API_KEY \
   --source https://api.nuget.org/v3/index.json
 

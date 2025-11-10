@@ -56,7 +56,7 @@ cd MyApp && dotnet run
 
 **Download:**
 ```
-NuGet: Microsoft.NET.Sdk.NSharp
+NuGet: NSharpLang.Sdk
 VS Code Extension: nsharp
 GitHub: anthropics/NewCLILang
 ```

@@ -16,7 +16,7 @@ fi
 
 # Check if packages exist
 PACKAGES=(
-  "Microsoft.NET.Sdk.NSharp.0.1.0"
+  "NSharpLang.Sdk.0.1.0"
   "NSharp.Templates.${VERSION}"
   "NSharp.Compiler.${VERSION}"
   "nlc.0.1.0"
@@ -38,8 +38,8 @@ echo ""
 echo "Publishing packages to NuGet.org..."
 
 echo ""
-echo "Publishing Microsoft.NET.Sdk.NSharp..."
-dotnet nuget push artifacts/nuget/Microsoft.NET.Sdk.NSharp.0.1.0.nupkg \
+echo "Publishing NSharpLang.Sdk..."
+dotnet nuget push artifacts/nuget/NSharpLang.Sdk.0.1.0.nupkg \
   --api-key "$NUGET_API_KEY" \
   --source https://api.nuget.org/v3/index.json
 

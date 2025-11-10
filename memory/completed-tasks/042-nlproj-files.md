@@ -82,18 +82,18 @@ dotnet run
 
 ## Status: ✅ COMPLETE
 
-**Implemented:** MSBuild SDK package (`Microsoft.NET.Sdk.NSharp`) that:
+**Implemented:** MSBuild SDK package (`NSharpLang.Sdk`) that:
 - Auto-detects `project.yml` in project directory
 - Compiles all `.nl` files (excludes `.tests.nl`)
 - Generates C# files in `obj/nsharp/` folder
 - Adds generated C# to compilation automatically
 - Works with `dotnet build` and `dotnet run`
 
-**Location:** `src/Microsoft.NET.Sdk.NSharp/`
+**Location:** `src/NSharpLang.Sdk/`
 
 **Usage:**
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
+<Project Sdk="NSharpLang.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>

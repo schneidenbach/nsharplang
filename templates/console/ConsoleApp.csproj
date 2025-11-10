@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
+<Project Sdk="NSharpLang.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>

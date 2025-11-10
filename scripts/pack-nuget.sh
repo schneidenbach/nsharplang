@@ -15,8 +15,8 @@ dotnet build src/NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj -c Release
 
 # Pack the SDK
 echo ""
-echo "Packing Microsoft.NET.Sdk.NSharp..."
-dotnet pack src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj \
+echo "Packing NSharpLang.Sdk..."
+dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj \
   -c Release \
   -o artifacts/nuget
 
@@ -59,7 +59,7 @@ echo ""
 echo "Packages are ready in artifacts/nuget/"
 echo ""
 echo "Core packages:"
-echo "  - Microsoft.NET.Sdk.NSharp - MSBuild SDK"
+echo "  - NSharpLang.Sdk - MSBuild SDK"
 echo "  - NSharp.Templates - dotnet new templates"
 echo "  - NSharp.Compiler - Compiler API library"
 echo "  - nlc - CLI tool (dotnet tool install -g nlc)"

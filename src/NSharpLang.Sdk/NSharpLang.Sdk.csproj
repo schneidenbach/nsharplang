@@ -2,11 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <PackageId>Microsoft.NET.Sdk.NSharp</PackageId>
+    <PackageId>NSharpLang.Sdk</PackageId>
     <Version>0.1.0</Version>
     <Authors>N# Team</Authors>
     <Description>MSBuild SDK for N# language - enables dotnet build with project.yml</Description>
-    <PackageTags>nsharp;dotnet;sdk;msbuild</PackageTags>
+    <PackageTags>nsharp;dotnet;sdk;msbuild;nsharplang</PackageTags>
+    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
 
     <!-- This is an SDK package -->
     <IncludeBuildOutput>false</IncludeBuildOutput>

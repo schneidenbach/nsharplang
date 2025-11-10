@@ -12,7 +12,7 @@ Implemented comprehensive NuGet package publishing infrastructure for N#, enabli
 
 ### Core Packages Published
 
-1. **Microsoft.NET.Sdk.NSharp** (v0.1.0)
+1. **NSharpLang.Sdk** (v0.1.0)
    - MSBuild SDK for N# projects
    - Enables `dotnet build` with `project.yml`
    - Size: 275 KB

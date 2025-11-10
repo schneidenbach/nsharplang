@@ -637,7 +637,7 @@ MySolution/
 
 **Core.csproj:**
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp" />
+<Project Sdk="NSharpLang.Sdk" />
 ```
 
 **Tests.csproj (C#):**
