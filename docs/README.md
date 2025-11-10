@@ -171,7 +171,7 @@ Features:
 N# projects use a minimal `.nlproj` file that references the MSBuild SDK:
 
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp" />
+<Project Sdk="NSharpLang.Sdk" />
 ```
 
 All configuration goes in `project.yml`:

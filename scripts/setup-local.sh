@@ -18,7 +18,7 @@ echo "🔨 Building and packing SDK..."
 # Build the build tasks first
 dotnet build src/NSharpLang.Build.Tasks/NSharp.Build.Tasks.csproj -c Release -v q
 # Pack the SDK
-dotnet pack src/Microsoft.NET.Sdk.NSharp/Microsoft.NET.Sdk.NSharp.csproj -c Release -o ~/.nuget/local-feed -v q
+dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o ~/.nuget/local-feed -v q
 
 # 3. Install template
 echo "📝 Installing dotnet new template..."

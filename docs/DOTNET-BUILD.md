@@ -36,7 +36,7 @@ func main() {
 
 **MyApp.csproj:**
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
+<Project Sdk="NSharpLang.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
@@ -53,7 +53,7 @@ func main() {
     "version": "9.0.100"
   },
   "msbuild-sdks": {
-    "Microsoft.NET.Sdk.NSharp": "0.1.0"
+    "NSharpLang.Sdk": "0.1.0"
   }
 }
 ```
@@ -65,7 +65,7 @@ func main() {
   <packageSources>
     <clear />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="local" value="PATH_TO_REPO/src/Microsoft.NET.Sdk.NSharp/bin/Debug" />
+    <add key="local" value="PATH_TO_REPO/src/NSharpLang.Sdk/bin/Debug" />
   </packageSources>
 </configuration>
 ```
@@ -86,7 +86,7 @@ Hello from N#!
 
 ## What Happens Behind the Scenes
 
-1. MSBuild finds the `Microsoft.NET.Sdk.NSharp` SDK
+1. MSBuild finds the `NSharpLang.Sdk` SDK
 2. SDK auto-detects `project.yml` in the project directory
 3. SDK auto-discovers all `.nl` files (excluding `.tests.nl`)
 4. N# compiler transpiles `.nl` files to C# in `obj/nsharp/` folder
@@ -126,11 +126,11 @@ src/Build/
 ├── NSharp.Build.Tasks/           # MSBuild task that compiles .nl files
 │   ├── NSharpCompile.cs           # The compilation task
 │   └── NSharp.Build.targets       # Standalone targets (old approach)
-└── Microsoft.NET.Sdk.NSharp/     # MSBuild SDK package
+└── NSharpLang.Sdk/     # MSBuild SDK package
     ├── Sdk/
     │   ├── Sdk.props              # Property defaults
     │   └── Sdk.targets            # Compilation targets
-    └── Microsoft.NET.Sdk.NSharp.csproj  # SDK package definition
+    └── NSharpLang.Sdk.csproj  # SDK package definition
 ```
 
 ## See Also

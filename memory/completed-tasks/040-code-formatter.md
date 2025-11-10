@@ -84,7 +84,7 @@ static int FormatCommand(string[] args)
 ```
 
 ### 4. MSBuild Integration (Task 040)
-Location: `src/Microsoft.NET.Sdk.NSharp/Sdk/Sdk.targets`
+Location: `src/NSharpLang.Sdk/Sdk/Sdk.targets`
 
 Added custom MSBuild target:
 ```xml

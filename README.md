@@ -109,7 +109,7 @@ dotnet build
 dotnet run
 ```
 
-The SDK (`Microsoft.NET.Sdk.NSharp`) is automatically downloaded when you build.
+The SDK (`NSharpLang.Sdk`) is automatically downloaded when you build.
 
 ### Build from Source
 

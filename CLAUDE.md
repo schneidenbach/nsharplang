@@ -34,14 +34,14 @@ ALWAYS: `git commit` and `git push` to origin after you've written any code AND 
 
 **CORRECT .csproj format:**
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp" />
+<Project Sdk="NSharpLang.Sdk" />
 ```
 
 That's it! One line! Everything else is read from project.yml by the MSBuild SDK.
 
 **WRONG - DO NOT DO THIS:**
 ```xml
-<Project Sdk="Microsoft.NET.Sdk.NSharp">
+<Project Sdk="NSharpLang.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>  <!-- NO! This goes in project.yml -->
     <TargetFramework>net9.0</TargetFramework>  <!-- NO! This goes in project.yml -->

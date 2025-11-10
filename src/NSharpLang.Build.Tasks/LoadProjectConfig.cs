@@ -8,7 +8,7 @@ namespace NSharpLang.Build.Tasks;
 
 /// <summary>
 /// MSBuild task that loads project.yml and sets MSBuild properties
-/// This allows the .csproj file to be minimal - just &lt;Project Sdk="Microsoft.NET.Sdk.NSharp" /&gt;
+/// This allows the .csproj file to be minimal - just &lt;Project Sdk="NSharpLang.Sdk" /&gt;
 /// </summary>
 public class LoadProjectConfig : Task
 {
