@@ -710,4 +710,85 @@ public static class ErrorMessageBuilder
             DocsUrl = "https://docs.n-sharp.dev/errors/NL302"
         };
     }
+
+    /// <summary>
+    /// Create an Elm-style wrong argument count error
+    /// </summary>
+    public static CompilerError WrongArgumentCount(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, int expected, int actual)
+    {
+        var humanExplanation = $"I am having trouble with this function call on line {line}:";
+
+        var contextualHint = expected > actual
+            ? $"Hint: The function `{functionName}` expects {expected} arguments, but you are\n" +
+              $"passing {actual}. You may have forgotten to pass some arguments."
+            : $"Hint: The function `{functionName}` expects {expected} arguments, but you are\n" +
+              $"passing {actual}. You may have passed too many arguments.";
+
+        return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expected} arguments but got {actual}", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL401"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style import not found error
+    /// </summary>
+    public static CompilerError ImportNotFound(string fileName, int line, int column, string sourceSnippet,
+        int length, string importPath)
+    {
+        var humanExplanation = $"I cannot find the file you're trying to import on line {line}:";
+
+        var contextualHint =
+            $"Hint: Make sure the file exists at the path '{importPath}'.\n" +
+            "The path should be relative to your project root.\n\n" +
+            "Common issues:\n" +
+            "  - Check for typos in the file path\n" +
+            "  - Make sure the file extension is correct\n" +
+            "  - Verify the file is in the expected directory";
+
+        return new CompilerError(ErrorCode.ImportNotFound, $"Cannot find import '{importPath}'", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL701"
+        };
+    }
+
+    /// <summary>
+    /// Create a better syntax error message
+    /// </summary>
+    public static CompilerError UnexpectedToken(string fileName, int line, int column, string sourceSnippet,
+        int length, string unexpectedToken, string? expectedToken = null)
+    {
+        var humanExplanation = $"I found something unexpected on line {line}:";
+
+        var contextualHint = expectedToken != null
+            ? $"Hint: I was expecting to see {expectedToken}, but I found {unexpectedToken} instead.\n" +
+              "Check for missing semicolons, parentheses, or other syntax elements."
+            : $"Hint: The token `{unexpectedToken}` is not valid here.\n" +
+              "Check your syntax - you may be missing a semicolon, closing brace, or parenthesis.";
+
+        var message = expectedToken != null
+            ? $"Expected {expectedToken} but found {unexpectedToken}"
+            : $"Unexpected token: {unexpectedToken}";
+
+        return new CompilerError(ErrorCode.UnexpectedToken, message, line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL101"
+        };
+    }
 }

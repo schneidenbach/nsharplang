@@ -814,7 +814,28 @@ public class Analyzer
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
         if (!IsBoolType(condType) && condType != BuiltInTypes.Unknown)
         {
-            Error(ErrorCode.TypeMismatch, $"If condition must be boolean, got '{condType}'", ifStmt.Line, ifStmt.Column);
+            // Use ErrorMessageBuilder for better error message
+            var sourceSnippet = _sourceLines != null && ifStmt.Line > 0 && ifStmt.Line <= _sourceLines.Length
+                ? _sourceLines[ifStmt.Line - 1]
+                : null;
+
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var error = ErrorMessageBuilder.TypeMismatch(
+                    _currentFilePath,
+                    ifStmt.Line,
+                    ifStmt.Column,
+                    sourceSnippet,
+                    3, // "if" keyword length
+                    condType.ToString(),
+                    "bool"
+                );
+                _errors.Add(error);
+            }
+            else
+            {
+                Error(ErrorCode.TypeMismatch, $"If condition must be boolean, got '{condType}'", ifStmt.Line, ifStmt.Column);
+            }
         }
 
         AnalyzeStatement(ifStmt.ThenStatement);
@@ -920,8 +941,29 @@ public class Analyzer
             var returnedType = AnalyzeExpression(returnStmt.Value);
             if (!IsAssignable(_currentReturnType, returnedType))
             {
-                Error(ErrorCode.TypeMismatch, $"Cannot return '{returnedType}' from function returning '{_currentReturnType}'",
-                    returnStmt.Line, returnStmt.Column);
+                // Use ErrorMessageBuilder for better error message
+                var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
+                    ? _sourceLines[returnStmt.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.TypeMismatch(
+                        _currentFilePath,
+                        returnStmt.Line,
+                        returnStmt.Column,
+                        sourceSnippet,
+                        6, // "return" keyword length
+                        returnedType.ToString(),
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.TypeMismatch, $"Cannot return '{returnedType}' from function returning '{_currentReturnType}'",
+                        returnStmt.Line, returnStmt.Column);
+                }
             }
         }
         else
@@ -1704,13 +1746,57 @@ public class Analyzer
                 int minArgs = requiredParamCount;
                 if (argTypes.Count < minArgs)
                 {
-                    Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
-                        call.Line, call.Column);
+                    // Use ErrorMessageBuilder for better error message
+                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
+                        ? _sourceLines[call.Line - 1]
+                        : null;
+
+                    if (sourceSnippet != null && _currentFilePath != null)
+                    {
+                        var error = ErrorMessageBuilder.WrongArgumentCount(
+                            _currentFilePath,
+                            call.Line,
+                            call.Column,
+                            sourceSnippet,
+                            funcType.Declaration.Name.Length,
+                            funcType.Declaration.Name,
+                            minArgs,
+                            argTypes.Count
+                        );
+                        _errors.Add(error);
+                    }
+                    else
+                    {
+                        Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
+                            call.Line, call.Column);
+                    }
                 }
                 else if (!hasParamsParameter && argTypes.Count > effectiveParamCount)
                 {
-                    Error($"Function '{funcType.Declaration.Name}' expects {effectiveParamCount} arguments but got {argTypes.Count}",
-                        call.Line, call.Column);
+                    // Use ErrorMessageBuilder for better error message
+                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
+                        ? _sourceLines[call.Line - 1]
+                        : null;
+
+                    if (sourceSnippet != null && _currentFilePath != null)
+                    {
+                        var error = ErrorMessageBuilder.WrongArgumentCount(
+                            _currentFilePath,
+                            call.Line,
+                            call.Column,
+                            sourceSnippet,
+                            funcType.Declaration.Name.Length,
+                            funcType.Declaration.Name,
+                            effectiveParamCount,
+                            argTypes.Count
+                        );
+                        _errors.Add(error);
+                    }
+                    else
+                    {
+                        Error($"Function '{funcType.Declaration.Name}' expects {effectiveParamCount} arguments but got {argTypes.Count}",
+                            call.Line, call.Column);
+                    }
                 }
                 else
                 {
@@ -2323,7 +2409,31 @@ public class Analyzer
                 return memberType;
         }
 
-        Error($"Undefined identifier '{name}'", line, column);
+        // Use ErrorMessageBuilder for better error message with suggestions
+        var similarNames = FindSimilarVariableNames(name);
+        var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
+            ? _sourceLines[line - 1]
+            : null;
+
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            var error = ErrorMessageBuilder.UndefinedVariable(
+                _currentFilePath,
+                line,
+                column,
+                sourceSnippet,
+                name.Length,
+                name,
+                similarNames
+            );
+            _errors.Add(error);
+        }
+        else
+        {
+            // Fallback to simple error
+            Error(ErrorCode.UndefinedVariable, $"Undefined identifier '{name}'", line, column);
+        }
+
         return BuiltInTypes.Unknown;
     }
 
@@ -3023,7 +3133,27 @@ public class Analyzer
         var resolvedPath = resolver.ValidateImportPath(import.Path, out var errorMessage);
         if (resolvedPath == null)
         {
-            Error(errorMessage!, import.Line, import.Column);
+            // Use ErrorMessageBuilder for better error message
+            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
+                ? _sourceLines[import.Line - 1]
+                : null;
+
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var error = ErrorMessageBuilder.ImportNotFound(
+                    _currentFilePath,
+                    import.Line,
+                    import.Column,
+                    sourceSnippet,
+                    import.Path.Length,
+                    import.Path
+                );
+                _errors.Add(error);
+            }
+            else
+            {
+                Error(errorMessage!, import.Line, import.Column);
+            }
             return;
         }
 
@@ -3525,6 +3655,76 @@ public class Analyzer
                 }
             }
         }
+    }
+
+    // Helper methods for improved error messages
+
+    /// <summary>
+    /// Find similar variable names in current scope
+    /// </summary>
+    private List<string> FindSimilarVariableNames(string typo)
+    {
+        var candidates = new List<string>();
+
+        // Collect all variable names from all scopes
+        foreach (var scope in _scopes)
+        {
+            candidates.AddRange(scope.Symbols.Keys);
+        }
+
+        // Use SmartSuggester to find similar names
+        var suggester = new SmartSuggester(candidates);
+        return suggester.SuggestSimilarNames(typo);
+    }
+
+    /// <summary>
+    /// Find similar type names in current scope
+    /// </summary>
+    private List<string> FindSimilarTypeNames(string typo)
+    {
+        var candidates = new List<string>();
+
+        // Collect all type names from all scopes
+        foreach (var scope in _scopes)
+        {
+            candidates.AddRange(scope.Types.Keys);
+        }
+
+        // Add common external types
+        candidates.AddRange(new[] {
+            "Console", "String", "Int32", "Boolean", "Double", "DateTime",
+            "List", "Dictionary", "Task", "Guid", "TimeSpan"
+        });
+
+        // Use SmartSuggester to find similar names
+        var suggester = new SmartSuggester(candidates);
+        return suggester.SuggestSimilarNames(typo);
+    }
+
+    /// <summary>
+    /// Get all variable names currently in scope
+    /// </summary>
+    private List<string> GetAllVariablesInScope()
+    {
+        var variables = new List<string>();
+        foreach (var scope in _scopes)
+        {
+            variables.AddRange(scope.Symbols.Keys);
+        }
+        return variables;
+    }
+
+    /// <summary>
+    /// Get all type names currently in scope
+    /// </summary>
+    private List<string> GetAllTypesInScope()
+    {
+        var types = new List<string>();
+        foreach (var scope in _scopes)
+        {
+            types.AddRange(scope.Types.Keys);
+        }
+        return types;
     }
 }
 
