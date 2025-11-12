@@ -8,8 +8,36 @@
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.TranspileTests"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+
+  <!-- Generate project.g.props from project.yml early in the build -->
+  <Target Name="_GenerateProjectPropsFromYml" BeforeTargets="BeforeBuild;BeforeRebuild;Restore" Condition="Exists('$(NSharpProjectFile)')">
+    <MakeDir Directories="$(MSBuildProjectDirectory)/obj" />
+
+    <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="TargetFramework" PropertyName="_NSharpTargetFramework" />
+      <Output TaskParameter="OutputType" PropertyName="_NSharpOutputType" />
+      <Output TaskParameter="AssemblyName" PropertyName="_NSharpAssemblyName" />
+    </LoadProjectConfig>
+
+    <PropertyGroup>
+      <_GeneratedPropsContent><![CDATA[<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <TargetFramework>$(_NSharpTargetFramework)</TargetFramework>
+    <OutputType>$(_NSharpOutputType)</OutputType>
+    <AssemblyName>$(_NSharpAssemblyName)</AssemblyName>
+  </PropertyGroup>
+</Project>]]></_GeneratedPropsContent>
+    </PropertyGroup>
+
+    <WriteLinesToFile File="$(MSBuildProjectDirectory)/obj/project.g.props"
+                      Lines="$(_GeneratedPropsContent)"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
+  </Target>
 
   <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
@@ -21,8 +49,15 @@
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
 
+  <!-- Detect if test files exist -->
+  <Target Name="DetectNSharpTestFiles" BeforeTargets="CollectPackageReferences">
+    <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+      <HasNSharpTestFiles Condition="'@(NSharpTestFiles)' != ''">true</HasNSharpTestFiles>
+    </PropertyGroup>
+  </Target>
+
   <!-- Add xUnit package references when test files are detected -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''">
+  <ItemGroup Condition="'$(HasNSharpTestFiles)' == 'true'">
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
@@ -36,7 +71,7 @@
   </ItemGroup>
 
   <!-- Configure Coverlet defaults -->
-  <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''">
+  <PropertyGroup Condition="'$(HasNSharpTestFiles)' == 'true'">
     <!-- Default coverage settings -->
     <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
     <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
@@ -117,7 +152,7 @@
 
   <!-- Generate HTML coverage report -->
   <Target Name="GenerateCoverageReport"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != '' And '$(GenerateCoverageReport)' == 'true'">
+          Condition="'$(HasNSharpTestFiles)' == 'true' And '$(GenerateCoverageReport)' == 'true'">
     <PropertyGroup>
       <CoverageReportDir Condition="'$(CoverageReportDir)' == ''">$(MSBuildProjectDirectory)/coverage-report</CoverageReportDir>
       <CoverageFiles Condition="'$(CoverageFiles)' == ''">$(MSBuildProjectDirectory)/coverage.*.xml</CoverageFiles>
