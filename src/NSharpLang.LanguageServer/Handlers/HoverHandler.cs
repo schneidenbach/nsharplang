@@ -17,11 +17,13 @@ namespace NSharpLang.LanguageServer.Handlers;
 public class HoverHandler : HoverHandlerBase
 {
     private readonly DocumentManager _documentManager;
+    private readonly TypeResolver _typeResolver;
     private readonly ILogger<HoverHandler> _logger;
 
-    public HoverHandler(DocumentManager documentManager, ILogger<HoverHandler> logger)
+    public HoverHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<HoverHandler> logger)
     {
         _documentManager = documentManager;
+        _typeResolver = typeResolver;
         _logger = logger;
     }
 
@@ -46,10 +48,37 @@ public class HoverHandler : HoverHandlerBase
         _logger.LogDebug("Hover request for word '{Word}' at {Line}:{Character}",
             word, request.Position.Line, request.Position.Character);
 
-        // Look up the word in symbols
-        if (doc.Symbols != null && doc.Symbols.TryGetValue(word, out var typeInfo))
+        // First, check semantic model for variable/parameter types
+        if (doc.SemanticModel != null)
         {
-            var markdown = FormatTypeInfo(word, typeInfo);
+            var typeInfo = doc.SemanticModel.LookupIdentifier(word);
+            if (typeInfo != null)
+            {
+                var typeName = typeInfo.ToString();
+                _logger.LogDebug("Found '{Word}' in semantic model with type: {TypeName}", word, typeName);
+
+                // Try to get more info from reflection
+                var systemType = _typeResolver.ResolveType(typeName);
+                var markdown = systemType != null
+                    ? FormatVariableWithSystemType(word, typeName, systemType)
+                    : FormatVariable(word, typeName);
+
+                return Task.FromResult<Hover?>(new Hover
+                {
+                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                    {
+                        Kind = MarkupKind.Markdown,
+                        Value = markdown
+                    }),
+                    Range = GetWordRange(doc.Text, request.Position.Line, request.Position.Character, word)
+                });
+            }
+        }
+
+        // Look up the word in symbols (type declarations)
+        if (doc.Symbols != null && doc.Symbols.TryGetValue(word, out var symbolTypeInfo))
+        {
+            var markdown = FormatTypeInfo(word, symbolTypeInfo);
 
             return Task.FromResult<Hover?>(new Hover
             {
@@ -167,5 +196,33 @@ public class HoverHandler : HoverHandlerBase
         };
 
         return $"**{name}** *({kind})*\n\n```nsharp\n{kind} {name}\n```";
+    }
+
+    private string FormatVariable(string name, string typeName)
+    {
+        return $"**(variable)** `{name}`\n\n```nsharp\n{name}: {typeName}\n```";
+    }
+
+    private string FormatVariableWithSystemType(string name, string typeName, Type systemType)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(variable)** `{name}: {typeName}`");
+        sb.AppendLine();
+        sb.AppendLine("```nsharp");
+        sb.AppendLine($"{name}: {typeName}");
+        sb.AppendLine("```");
+
+        // Add namespace info if available
+        if (!string.IsNullOrEmpty(systemType.Namespace))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"*Namespace:* `{systemType.Namespace}`");
+        }
+
+        // Add assembly info
+        sb.AppendLine();
+        sb.AppendLine($"*Assembly:* `{systemType.Assembly.GetName().Name}`");
+
+        return sb.ToString();
     }
 }
