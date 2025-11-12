@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Change to project root (parent of scripts directory)
+cd "$(dirname "$0")/.."
+
 echo "🚀 Setting up N# for local development..."
 echo
 
