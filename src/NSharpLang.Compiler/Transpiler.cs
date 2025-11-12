@@ -10,6 +10,8 @@ public class Transpiler
 {
     private readonly CompilationUnit _compilationUnit;
     private readonly ProjectConfig? _projectConfig;
+    private readonly SemanticModel? _semanticModel;
+    private readonly ExpressionTypeResolver? _typeResolver;
     private readonly StringBuilder _output;
     private int _indentLevel;
     private const string IndentString = "    ";
@@ -17,10 +19,12 @@ public class Transpiler
     private bool _inInterface; // Track if we're currently inside an interface
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
 
-    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null)
     {
         _compilationUnit = compilationUnit;
         _projectConfig = projectConfig;
+        _semanticModel = semanticModel;
+        _typeResolver = semanticModel != null ? new ExpressionTypeResolver(semanticModel) : null;
         _output = new StringBuilder();
         _indentLevel = 0;
     }
@@ -1234,7 +1238,22 @@ public class Transpiler
             // Declare variables (skip result var if it's discarded)
             if (resultVar != "_")
             {
-                WriteLine($"object? {resultVar} = null;");
+                // Try to resolve the actual return type
+                string resultType = "object?";
+                string resultInitializer = "null";
+
+                if (_typeResolver != null)
+                {
+                    var returnType = _typeResolver.ResolveExpressionType(tupleDecl.Initializer);
+                    if (returnType != null)
+                    {
+                        resultType = GetCSharpTypeName(returnType);
+                        // Use default for value types, null for reference types
+                        resultInitializer = returnType.IsValueType ? "default" : "null";
+                    }
+                }
+
+                WriteLine($"{resultType} {resultVar} = {resultInitializer};");
             }
             WriteLine($"Exception? {errVar} = null;");
             WriteLine("try");
@@ -2227,5 +2246,49 @@ public class Transpiler
             NewExpression newExpr => newExpr.Initializer != null && ContainsAwaitInExpression(newExpr.Initializer),
             _ => false
         };
+    }
+
+    private string GetCSharpTypeName(Type type)
+    {
+        // Handle common C# type aliases
+        if (type == typeof(int)) return "int";
+        if (type == typeof(long)) return "long";
+        if (type == typeof(short)) return "short";
+        if (type == typeof(byte)) return "byte";
+        if (type == typeof(bool)) return "bool";
+        if (type == typeof(float)) return "float";
+        if (type == typeof(double)) return "double";
+        if (type == typeof(decimal)) return "decimal";
+        if (type == typeof(char)) return "char";
+        if (type == typeof(string)) return "string";
+        if (type == typeof(object)) return "object";
+        if (type == typeof(void)) return "void";
+
+        // Handle nullable value types
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+        {
+            var underlyingType = Nullable.GetUnderlyingType(type);
+            return underlyingType != null ? GetCSharpTypeName(underlyingType) + "?" : "object?";
+        }
+
+        // Handle generic types
+        if (type.IsGenericType)
+        {
+            var genericType = type.GetGenericTypeDefinition();
+            var genericArgs = type.GetGenericArguments();
+            var baseName = genericType.Name.Substring(0, genericType.Name.IndexOf('`'));
+            var argNames = string.Join(", ", genericArgs.Select(GetCSharpTypeName));
+            return $"{baseName}<{argNames}>";
+        }
+
+        // Handle arrays
+        if (type.IsArray)
+        {
+            var elementType = type.GetElementType();
+            return elementType != null ? GetCSharpTypeName(elementType) + "[]" : "object[]";
+        }
+
+        // Default: use the type's full name
+        return type.FullName ?? type.Name;
     }
 }

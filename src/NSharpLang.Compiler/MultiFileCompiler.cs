@@ -16,6 +16,7 @@ public class MultiFileCompiler
     private readonly ProjectConfig? _config;
     private readonly List<string> _sourceFiles;
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new();
+    private readonly Dictionary<string, SemanticModel> _semanticModels = new();
     private readonly Dictionary<string, string> _transpiledFiles = new();
     private readonly List<CompilerError> _allErrors = new();
 
@@ -114,6 +115,9 @@ public class MultiFileCompiler
 
                 var result = analyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
 
+                // Save semantic model for transpilation phase
+                _semanticModels[sourceFile] = result.SemanticModel;
+
                 // Collect errors
                 foreach (var error in result.Errors)
                 {
@@ -145,7 +149,10 @@ public class MultiFileCompiler
 
             try
             {
-                var transpiler = new Transpiler(compilationUnit, _config);
+                // Get the semantic model for this file (if available)
+                _semanticModels.TryGetValue(sourceFile, out var semanticModel);
+
+                var transpiler = new Transpiler(compilationUnit, _config, semanticModel);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;
