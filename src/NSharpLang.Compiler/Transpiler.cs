@@ -64,9 +64,15 @@ public class Transpiler
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
             .ToList();
 
-        // Add 'using static' for top-level functions class
+        // Separate main function from other top-level functions (main goes in Program class)
+        var mainFunction = topLevelFunctions.FirstOrDefault(f =>
+            f.Name.Equals("main", StringComparison.OrdinalIgnoreCase));
+        var nonMainFunctions = topLevelFunctions.Where(f =>
+            !f.Name.Equals("main", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        // Add 'using static' for top-level functions class (but only if there are non-main functions)
         // This allows top-level functions to be called from within classes without qualification
-        if (topLevelFunctions.Count > 0)
+        if (nonMainFunctions.Count > 0)
         {
             if (_compilationUnit.Package != null)
             {
@@ -107,12 +113,6 @@ public class Transpiler
             TranspileDeclaration(declaration);
             WriteLine();
         }
-
-        // Separate main function from other top-level functions
-        var mainFunction = topLevelFunctions.FirstOrDefault(f =>
-            f.Name.Equals("main", StringComparison.OrdinalIgnoreCase));
-        var nonMainFunctions = topLevelFunctions.Where(f =>
-            !f.Name.Equals("main", StringComparison.OrdinalIgnoreCase)).ToList();
 
         // Generate Program class with Main entry point (for exe projects)
         if (mainFunction != null)
