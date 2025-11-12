@@ -62,6 +62,9 @@ public class DocumentManager
                 var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
                 diagnostics.AddRange(analysisResult.Errors);
 
+                // Store semantic model for IDE features (IntelliSense, hover, etc.)
+                state.SemanticModel = analysisResult.SemanticModel;
+
                 // Run linter for additional diagnostics
                 var linterConfig = LinterConfig.FromEditorConfig(projectDir);
                 var linter = new Linter(linterConfig);

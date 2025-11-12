@@ -1,0 +1,109 @@
+using System;
+using System.Collections.Generic;
+
+namespace NSharpLang.Compiler;
+
+/// <summary>
+/// Stores semantic information from analysis for use by IDE features.
+/// Maps identifiers to their resolved types.
+/// </summary>
+public class SemanticModel
+{
+    /// <summary>
+    /// Maps variable/parameter names to their resolved types.
+    /// Key: variable name, Value: resolved TypeInfo
+    /// </summary>
+    public Dictionary<string, TypeInfo> Variables { get; } = new();
+
+    /// <summary>
+    /// Maps function names to their return types.
+    /// Key: function name, Value: return TypeInfo
+    /// </summary>
+    public Dictionary<string, TypeInfo> Functions { get; } = new();
+
+    /// <summary>
+    /// Maps property names to their types.
+    /// Key: property name, Value: property TypeInfo
+    /// </summary>
+    public Dictionary<string, TypeInfo> Properties { get; } = new();
+
+    /// <summary>
+    /// Maps field names to their types.
+    /// Key: field name, Value: field TypeInfo
+    /// </summary>
+    public Dictionary<string, TypeInfo> Fields { get; } = new();
+
+    /// <summary>
+    /// All type declarations in the current compilation unit.
+    /// Key: type name, Value: TypeInfo
+    /// </summary>
+    public Dictionary<string, TypeInfo> Types { get; } = new();
+
+    /// <summary>
+    /// Record a variable and its type
+    /// </summary>
+    public void RecordVariable(string name, TypeInfo type)
+    {
+        Variables[name] = type;
+    }
+
+    /// <summary>
+    /// Record a function and its return type
+    /// </summary>
+    public void RecordFunction(string name, TypeInfo returnType)
+    {
+        Functions[name] = returnType;
+    }
+
+    /// <summary>
+    /// Record a property and its type
+    /// </summary>
+    public void RecordProperty(string name, TypeInfo type)
+    {
+        Properties[name] = type;
+    }
+
+    /// <summary>
+    /// Record a field and its type
+    /// </summary>
+    public void RecordField(string name, TypeInfo type)
+    {
+        Fields[name] = type;
+    }
+
+    /// <summary>
+    /// Record a type declaration
+    /// </summary>
+    public void RecordType(string name, TypeInfo type)
+    {
+        Types[name] = type;
+    }
+
+    /// <summary>
+    /// Try to find the type of an identifier (variable, parameter, property, field, or function)
+    /// </summary>
+    public TypeInfo? LookupIdentifier(string name)
+    {
+        // Try variables first (most common for member access)
+        if (Variables.TryGetValue(name, out var varType))
+            return varType;
+
+        // Try properties
+        if (Properties.TryGetValue(name, out var propType))
+            return propType;
+
+        // Try fields
+        if (Fields.TryGetValue(name, out var fieldType))
+            return fieldType;
+
+        // Try functions (for function pointers/delegates)
+        if (Functions.TryGetValue(name, out var funcType))
+            return funcType;
+
+        // Try types
+        if (Types.TryGetValue(name, out var type))
+            return type;
+
+        return null;
+    }
+}

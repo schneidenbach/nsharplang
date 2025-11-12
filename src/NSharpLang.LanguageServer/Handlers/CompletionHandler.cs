@@ -57,7 +57,7 @@ public class CompletionHandler : CompletionHandlerBase
         // Check if this is member completion (triggered by '.')
         if (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character))
         {
-            var memberItems = GetMemberCompletionItems(doc.Text, request.Position.Line, request.Position.Character);
+            var memberItems = GetMemberCompletionItems(doc, request.Position.Line, request.Position.Character);
             if (memberItems.Any())
             {
                 _logger.LogDebug("Providing {Count} member completion items for {Uri}", memberItems.Count, uri);
@@ -150,12 +150,13 @@ public class CompletionHandler : CompletionHandlerBase
     /// <summary>
     /// Get member completion items for the expression before the dot
     /// </summary>
-    private List<CompletionItem> GetMemberCompletionItems(string text, int line, int character)
+    private List<CompletionItem> GetMemberCompletionItems(Models.DocumentState doc, int line, int character)
     {
         var items = new List<CompletionItem>();
 
         try
         {
+            var text = doc.Text;
             var lines = text.Split('\n');
             if (line >= lines.Length) return items;
 
@@ -178,8 +179,33 @@ public class CompletionHandler : CompletionHandlerBase
 
             _logger.LogDebug("Looking up members for identifier: {Identifier}", identifier);
 
-            // Try to resolve the type
-            var type = _typeResolver.ResolveType(identifier);
+            Type? type = null;
+
+            // First, try to find the identifier in the semantic model (variables, parameters, etc.)
+            if (doc?.SemanticModel != null)
+            {
+                var typeInfo = doc.SemanticModel.LookupIdentifier(identifier);
+                if (typeInfo != null)
+                {
+                    var typeName = typeInfo.ToString();
+                    _logger.LogDebug("Found identifier '{Identifier}' in semantic model with type: {TypeName}",
+                        identifier, typeName);
+
+                    // Convert TypeInfo to System.Type for reflection
+                    type = _typeResolver.ResolveType(typeName);
+                    if (type == null)
+                    {
+                        _logger.LogDebug("Could not resolve TypeInfo '{TypeName}' to System.Type", typeName);
+                    }
+                }
+            }
+
+            // If not found in semantic model, try to resolve as a type name (e.g., "Console", "String")
+            if (type == null)
+            {
+                type = _typeResolver.ResolveType(identifier);
+            }
+
             if (type != null)
             {
                 _logger.LogDebug("Resolved type: {TypeName}", type.FullName);
@@ -211,6 +237,10 @@ public class CompletionHandler : CompletionHandlerBase
                             : null
                     });
                 }
+            }
+            else
+            {
+                _logger.LogDebug("Could not resolve type for identifier: {Identifier}", identifier);
             }
         }
         catch (Exception ex)
