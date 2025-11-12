@@ -466,13 +466,13 @@ public class ProjectFileParser
         else if (config.OutputType == "exe")
         {
             // Warn if exe but no entry specified (will look for Program.nl or Main())
-            Console.WriteLine("Warning: No entry file specified in project.yml. Will look for Program.nl or Main() method.");
+            Console.Error.WriteLine("Warning: No entry file specified in project.yml. Will look for Program.nl or Main() method.");
         }
 
         // Validate targetFramework format (basic check)
         if (!config.TargetFramework.StartsWith("net"))
         {
-            Console.WriteLine($"Warning: Target framework '{config.TargetFramework}' may not be valid. Expected format: netX.Y");
+            Console.Error.WriteLine($"Warning: Target framework '{config.TargetFramework}' may not be valid. Expected format: netX.Y");
         }
 
         // Validate dependencies (skip file validation for NuGet and Framework references)
@@ -488,7 +488,7 @@ public class ProjectFileParser
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Dependency validation failed: {ex.Message}");
+                Console.Error.WriteLine($"Warning: Dependency validation failed: {ex.Message}");
             }
         }
     }

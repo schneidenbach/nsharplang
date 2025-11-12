@@ -142,7 +142,7 @@ public partial class ILCompiler
         using var stream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write);
         assemblyBuilder.Save(stream);
 
-        Console.WriteLine($"IL Compiler: Assembly '{_assemblyName}' compiled and saved to '{_outputPath}'");
+        Console.Error.WriteLine($"IL Compiler: Assembly '{_assemblyName}' compiled and saved to '{_outputPath}'");
     }
 
     /// <summary>
