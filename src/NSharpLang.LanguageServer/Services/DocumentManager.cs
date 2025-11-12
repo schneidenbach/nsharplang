@@ -35,10 +35,14 @@ public class DocumentManager
             var lexer = new Lexer(text, uri);
             state.Tokens = lexer.Tokenize();
 
-            var parser = new Parser(state.Tokens, uri);
-            state.CompilationUnit = parser.ParseCompilationUnit();
+            var parser = new Parser(state.Tokens, uri, text);  // Pass source code for error snippets
+            var parseResult = parser.ParseCompilationUnit();
+            state.CompilationUnit = parseResult.CompilationUnit;
 
-            // Analyze the document
+            // Start with parse errors
+            var diagnostics = new List<CompilerError>(parseResult.Errors);
+
+            // Analyze the document (only if parsing succeeded)
             var analyzer = new Analyzer();
 
             // Load system assemblies
@@ -52,22 +56,27 @@ public class DocumentManager
             // Load assemblies from project configuration
             analyzer.LoadFromProjectConfig(projectConfig, projectDir);
 
-            var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
-            state.Diagnostics = analysisResult.Errors;
+            // Only run analysis if we have a valid compilation unit
+            if (state.CompilationUnit != null)
+            {
+                var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
+                diagnostics.AddRange(analysisResult.Errors);
 
-            // Run linter for additional diagnostics
-            var linterConfig = LinterConfig.FromEditorConfig(projectDir);
-            var linter = new Linter(linterConfig);
-            state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath);
+                // Run linter for additional diagnostics
+                var linterConfig = LinterConfig.FromEditorConfig(projectDir);
+                var linter = new Linter(linterConfig);
+                state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath);
 
-            // Store symbol information for later use
-            state.Symbols = ExtractSymbols(state.CompilationUnit);
-            state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit);
+                // Store symbol information for later use
+                state.Symbols = ExtractSymbols(state.CompilationUnit);
+                state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit);
+            }
 
+            state.Diagnostics = diagnostics;
             _documents[uri] = state;
 
-            _logger.LogInformation("Document updated successfully with {DiagnosticCount} diagnostics",
-                state.Diagnostics.Count);
+            _logger.LogInformation("Document updated successfully with {DiagnosticCount} diagnostics ({ParseErrors} parse errors)",
+                state.Diagnostics.Count, parseResult.Errors.Count);
         }
         catch (Exception ex)
         {
@@ -81,8 +90,8 @@ public class DocumentManager
                     CompilerError.Create(
                         ErrorCode.InvalidSyntax,
                         $"Internal error: {ex.Message}",
-                        0,
-                        0,
+                        1,
+                        1,
                         ErrorSeverity.Error
                     )
                 }

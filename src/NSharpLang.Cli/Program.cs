@@ -743,35 +743,42 @@ class Program
         var tokens = lexer.Tokenize();
 
         // Parsing
-        var parser = new Parser(tokens, fileName);
-        var compilationUnit = parser.ParseCompilationUnit();
+        var parser = new Parser(tokens, fileName, source);  // Pass source code
+        var parseResult = parser.ParseCompilationUnit();
 
-        // Semantic analysis
-        var analyzer = new Analyzer();
-        var projectRoot = Path.GetDirectoryName(Path.GetFullPath(fileName)) ?? Directory.GetCurrentDirectory();
+        // Collect all errors (parse errors + analysis errors)
+        var allErrors = new List<CompilerError>(parseResult.Errors);
 
-        // Load system assemblies
-        analyzer.LoadSystemAssemblies();
+        // Semantic analysis (only if parsing succeeded)
+        if (parseResult.CompilationUnit != null)
+        {
+            var analyzer = new Analyzer();
+            var projectRoot = Path.GetDirectoryName(Path.GetFullPath(fileName)) ?? Directory.GetCurrentDirectory();
 
-        // Load assemblies from project configuration
-        analyzer.LoadFromProjectConfig(config, projectRoot);
+            // Load system assemblies
+            analyzer.LoadSystemAssemblies();
 
-        var analysisResult = analyzer.Analyze(compilationUnit, fileName, projectRoot, source);
+            // Load assemblies from project configuration
+            analyzer.LoadFromProjectConfig(config, projectRoot);
+
+            var analysisResult = analyzer.Analyze(parseResult.CompilationUnit, fileName, projectRoot, source);
+            allErrors.AddRange(analysisResult.Errors);
+        }
 
         // Report errors and warnings with rich formatting
-        foreach (var error in analysisResult.Errors)
+        foreach (var error in allErrors)
         {
             Console.Error.WriteLine(error.Format());
         }
 
         // Stop if there are errors
-        if (analysisResult.HasErrors)
+        if (allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            throw new Exception($"Compilation failed with {analysisResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+            throw new Exception($"Compilation failed with {allErrors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
         }
 
         // Transpilation
-        var transpiler = new Transpiler(compilationUnit, config);
+        var transpiler = new Transpiler(parseResult.CompilationUnit!, config);
         return transpiler.Transpile();
     }
 
@@ -1108,8 +1115,14 @@ func Main() {{
                     var tokens = lexer.Tokenize();
 
                     // Parsing
-                    var parser = new Parser(tokens, file);
-                    var ast = parser.ParseCompilationUnit();
+                    var parser = new Parser(tokens, file, source);  // Pass source code
+                    var parseResult = parser.ParseCompilationUnit();
+
+                    // Check for parse errors
+                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+                    {
+                        throw new Exception($"Parse errors in {file}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+                    }
 
                     // Load formatter config from .editorconfig
                     var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
@@ -1117,7 +1130,7 @@ func Main() {{
 
                     // Format
                     var formatter = new Formatter(config);
-                    var formatted = formatter.Format(ast);
+                    var formatted = formatter.Format(parseResult.CompilationUnit!);
 
                     if (verifyOnly)
                     {
@@ -1211,8 +1224,14 @@ func Main() {{
                     var tokens = lexer.Tokenize();
 
                     // Parsing
-                    var parser = new Parser(tokens, file);
-                    var ast = parser.ParseCompilationUnit();
+                    var parser = new Parser(tokens, file, source);  // Pass source code
+                    var parseResult = parser.ParseCompilationUnit();
+
+                    // Check for parse errors
+                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+                    {
+                        throw new Exception($"Parse errors in {file}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+                    }
 
                     // Load linter config from .editorconfig
                     var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
@@ -1220,7 +1239,7 @@ func Main() {{
 
                     // Lint
                     var linter = new Linter(linterConfig);
-                    var diagnostics = linter.Lint(ast, file);
+                    var diagnostics = linter.Lint(parseResult.CompilationUnit!, file);
 
                     if (diagnostics.Count > 0)
                     {

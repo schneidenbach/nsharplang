@@ -9,57 +9,84 @@ public class Parser
 {
     private readonly List<Token> _tokens;
     private readonly string? _fileName;
+    private readonly string? _sourceCode;
+    private readonly string[]? _sourceLines;
+    private readonly List<CompilerError> _errors = new();
     private int _position;
 
-    public Parser(List<Token> tokens, string? fileName = null)
+    public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
         _tokens = tokens.Where(t => t.Type != TokenType.Newline).ToList();
         _fileName = fileName;
+        _sourceCode = sourceCode;
+        _sourceLines = sourceCode?.Split('\n');
     }
 
-    public CompilationUnit ParseCompilationUnit()
+    public ParseResult ParseCompilationUnit()
     {
-        var line = Current.Line;
-        var column = Current.Column;
+        CompilationUnit? unit = null;
 
-        // Parse namespace (optional, file-scoped)
-        NamespaceDeclaration? namespaceDecl = null;
-        if (Check(TokenType.Namespace))
+        try
         {
-            namespaceDecl = ParseNamespace();
-        }
+            var line = Current.Line;
+            var column = Current.Column;
 
-        // Parse import directives (both namespace and file imports)
-        var imports = new List<ImportDirective>();
-        var fileImports = new List<Statement>();
-        while (Check(TokenType.Import))
-        {
-            var import = ParseImport();
-            if (import is NamespaceImport nsImport)
+            // Parse namespace (optional, file-scoped)
+            NamespaceDeclaration? namespaceDecl = null;
+            if (Check(TokenType.Namespace))
             {
-                imports.Add(new ImportDirective(nsImport.Namespace, nsImport.Alias, nsImport.Line, nsImport.Column));
+                namespaceDecl = ParseNamespace();
             }
-            else if (import is FileImport fileImport)
+
+            // Parse import directives (both namespace and file imports)
+            var imports = new List<ImportDirective>();
+            var fileImports = new List<Statement>();
+            while (Check(TokenType.Import))
             {
-                fileImports.Add(fileImport);
+                var import = ParseImport();
+                if (import is NamespaceImport nsImport)
+                {
+                    imports.Add(new ImportDirective(nsImport.Namespace, nsImport.Alias, nsImport.Line, nsImport.Column));
+                }
+                else if (import is FileImport fileImport)
+                {
+                    fileImports.Add(fileImport);
+                }
             }
-        }
 
-        // Parse package declaration (optional)
-        PackageDeclaration? packageDecl = null;
-        if (Check(TokenType.Package))
+            // Parse package declaration (optional)
+            PackageDeclaration? packageDecl = null;
+            if (Check(TokenType.Package))
+            {
+                packageDecl = ParsePackage();
+            }
+
+            // Parse top-level declarations
+            var declarations = new List<Declaration>();
+            while (!IsAtEnd())
+            {
+                declarations.Add(ParseDeclaration());
+            }
+
+            unit = new CompilationUnit(namespaceDecl, imports, fileImports, packageDecl, declarations, line, column);
+        }
+        catch (Exception ex)
         {
-            packageDecl = ParsePackage();
+            // Shouldn't happen after we replace all throws, but safety net
+            ReportError(
+                ErrorCode.InvalidSyntax,
+                ex.Message,
+                Current.Line,
+                Current.Column,
+                humanExplanation: "An unexpected error occurred while parsing."
+            );
         }
 
-        // Parse top-level declarations
-        var declarations = new List<Declaration>();
-        while (!IsAtEnd())
+        return new ParseResult
         {
-            declarations.Add(ParseDeclaration());
-        }
-
-        return new CompilationUnit(namespaceDecl, imports, fileImports, packageDecl, declarations, line, column);
+            CompilationUnit = unit,
+            Errors = _errors
+        };
     }
 
     private NamespaceDeclaration ParseNamespace()
@@ -175,7 +202,32 @@ public class Parser
         if (Check(TokenType.Type))
             return ParseTypeAliasDeclaration();
 
-        throw new Exception($"Unexpected token '{Current.Value}' at {Current.Line}:{Current.Column}");
+        ReportError(
+            ErrorCode.UnexpectedToken,
+            $"Unexpected token '{Current.Value}'",
+            Current.Line,
+            Current.Column,
+            humanExplanation: $"I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '{Current.Value}' instead.",
+            hint: "Top-level declarations must be functions, classes, structs, enums, interfaces, or type aliases.",
+            length: Current.Value.Length
+        );
+
+        // Skip this token and try to continue
+        Advance();
+
+        // Return an error declaration as placeholder
+        return new ClassDeclaration(
+            "<error>",
+            null,  // TypeParameters
+            null,  // BaseClass
+            new List<TypeReference>(),  // Interfaces
+            new List<Declaration>(),  // Members
+            null,  // PrimaryConstructorParameters
+            Modifiers.None,  // Modifiers
+            new List<AttributeNode>(),  // Attributes
+            Current.Line,
+            Current.Column
+        );
     }
 
     private List<AttributeNode> ParseAttributes()
@@ -380,11 +432,30 @@ public class Parser
         Consume(TokenType.Test, "Expected 'test'");
 
         // Test description must be a string literal
+        string description;
         if (Current.Type != TokenType.StringLiteral)
-            throw new Exception($"Expected string literal for test description at {Current.Line}:{Current.Column}");
-
-        var description = Current.Value.Trim('"'); // Remove quotes
-        Advance();
+        {
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"Expected string literal for test description. Got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "Test declarations require a string literal describing what the test does.",
+                hint: "A test should start with the 'test' keyword followed by a string in quotes.",
+                suggestions: new List<string> {
+                    "Example: test \"should calculate sum correctly\" { ... }",
+                    "Example: test \"validates user input\" { ... }"
+                },
+                length: Current.Value.Length
+            );
+            description = "<error>";
+            if (!IsAtEnd()) Advance(); // Skip the invalid token
+        }
+        else
+        {
+            description = Current.Value.Trim('"'); // Remove quotes
+            Advance();
+        }
 
         // Parse test body
         var body = ParseBlock();
@@ -873,7 +944,28 @@ public class Parser
             }
             else
             {
-                throw new Exception($"Expected 'this' or 'base' after ':' at line {Current.Line}, column {Current.Column}");
+                ReportError(
+                    ErrorCode.ExpectedToken,
+                    $"Expected 'this' or 'base' after ':'. Got '{Current.Value}'",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "In constructor initialization, the colon ':' must be followed by either 'this' (to call another constructor) or 'base' (to call parent constructor).",
+                    hint: "Constructor chaining syntax: 'constructor(params) : this(args) { }' or 'constructor(params) : base(args) { }'",
+                    suggestions: new List<string> {
+                        "Use 'this' to call another constructor in the same class",
+                        "Use 'base' to call a parent class constructor"
+                    },
+                    length: Current.Value.Length
+                );
+                // Create error placeholder - empty call to this()
+                initializer = new CallExpression(
+                    new ThisExpression(Current.Line, Current.Column),
+                    new List<Argument>(),
+                    null,
+                    Current.Line,
+                    Current.Column
+                );
+                if (!IsAtEnd()) Advance(); // Skip invalid token
             }
         }
 
@@ -926,7 +1018,22 @@ public class Parser
             }
             else
             {
-                throw new Exception($"Expected 'get' or 'set', got '{accessor}'");
+                ReportError(
+                    ErrorCode.ExpectedToken,
+                    $"Expected 'get' or 'set' accessor, got '{accessor}'",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "Indexer accessors must be either 'get' (for reading) or 'set' (for writing).",
+                    hint: "Use 'get' to define how to retrieve a value, or 'set' to define how to assign a value.",
+                    suggestions: new List<string> {
+                        "Example: get { return items[i]; }",
+                        "Example: set { items[i] = value; }"
+                    },
+                    length: accessor.Length
+                );
+                // Skip to next accessor or closing brace
+                while (!Check(TokenType.RightBrace) && !Check(TokenType.Identifier) && !IsAtEnd())
+                    Advance();
             }
         }
 
@@ -1013,12 +1120,41 @@ public class Parser
                     }
                     else
                     {
-                        throw new Exception($"Expected 'get' or 'set', got '{accessor}' at line {Current.Line}");
+                        ReportError(
+                            ErrorCode.ExpectedToken,
+                            $"Expected 'get' or 'set' accessor, got '{accessor}'",
+                            Current.Line,
+                            Current.Column,
+                            humanExplanation: "Property accessors must be either 'get' (for reading) or 'set' (for writing).",
+                            hint: "Use 'get' to define how to retrieve the property value, or 'set' to define how to assign a new value.",
+                            suggestions: new List<string> {
+                                "Example: get { return _value; }",
+                                "Example: set { _value = value; }"
+                            },
+                            length: accessor.Length
+                        );
+                        // Skip to next accessor or closing brace
+                        while (!Check(TokenType.RightBrace) && !Check(TokenType.Identifier) && !IsAtEnd())
+                            Advance();
                     }
                 }
                 else
                 {
-                    throw new Exception($"Expected accessor (get/set) at line {Current.Line}");
+                    ReportError(
+                        ErrorCode.ExpectedToken,
+                        $"Expected 'get' or 'set' accessor. Got '{Current.Value}'",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "Inside property declaration braces, I need to see either 'get' or 'set' accessors.",
+                        hint: "Properties define how to get and/or set their values using accessor blocks.",
+                        suggestions: new List<string> {
+                            "Add a 'get' accessor to make the property readable",
+                            "Add a 'set' accessor to make the property writable",
+                            "Example: { get { return _value; } set { _value = value; } }"
+                        },
+                        length: Current.Value.Length
+                    );
+                    Advance(); // Skip invalid token
                 }
             }
 
@@ -1244,7 +1380,19 @@ public class Parser
         }
         else
         {
-            throw new Exception($"{message} at line {Current.Line}, column {Current.Column}");
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"{message}. Got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "I was parsing generic type parameters and expected to see a closing '>' here.",
+                hint: GetHintForMissingToken(TokenType.Greater),
+                suggestions: new List<string> {
+                    "Check if you have matching '<' and '>' in your generic type declaration",
+                    "Example: List<int> or Dictionary<string, int>"
+                },
+                length: Current.Value.Length
+            );
         }
     }
 
@@ -1390,7 +1538,22 @@ public class Parser
         }
         else
         {
-            throw new Exception($"Expected function body or '=>' for expression-bodied function at line {Current.Line}");
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"Expected function body or '=>' for expression-bodied function. Got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "A function needs a body - either a block with braces { } or an expression after '=>'.",
+                hint: "Use '{ ... }' for a block body or '=> expression' for a single expression.",
+                suggestions: new List<string> {
+                    "Add a block: { return value; }",
+                    "Use arrow syntax: => value",
+                    "Example: func add(x: int, y: int): int => x + y"
+                },
+                length: Current.Value.Length
+            );
+            // Create empty block as placeholder
+            body = new BlockStatement(new List<Statement>(), Current.Line, Current.Column);
         }
 
         var functionDecl = new FunctionDeclaration(name, parameters, returnType, body, expressionBody,
@@ -1446,10 +1609,31 @@ public class Parser
         // Only support := for tuple deconstruction (not = or :)
         if (!Check(TokenType.ColonAssign) && !Check(TokenType.Assign))
         {
-            throw new Exception($"Tuple deconstruction requires ':=' or '=' at line {Current.Line}");
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"Tuple deconstruction requires ':=' or '='. Got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "To unpack a tuple into multiple variables, you need to use ':=' or '=' after the variable list.",
+                hint: "Tuple deconstruction syntax: (x, y) := getTuple() or (x, y) = getTuple()",
+                suggestions: new List<string> {
+                    "Add ':=' for new variables: (x, y) := (1, 2)",
+                    "Add '=' for existing variables: (x, y) = tuple",
+                    "Example: (name, age) := getPerson()"
+                },
+                length: Current.Value.Length
+            );
+            // Try to skip current invalid token
+            if (!IsAtEnd())
+            {
+                Advance();
+            }
         }
 
-        Advance(); // consume := or =
+        if (Check(TokenType.ColonAssign) || Check(TokenType.Assign))
+        {
+            Advance(); // consume := or =
+        }
 
         var initializer = ParseExpression();
 
@@ -1723,7 +1907,26 @@ public class Parser
             if (Check(TokenType.Let))
             {
                 var stmt = ParseVariableDeclaration(VariableKind.Let);
-                decl = stmt as VariableDeclarationStatement ?? throw new Exception("Expected variable declaration, not tuple deconstruction");
+                decl = stmt as VariableDeclarationStatement;
+                if (decl == null)
+                {
+                    ReportError(
+                        ErrorCode.InvalidSyntax,
+                        "Using statement requires a variable declaration, not tuple deconstruction",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "The 'using' statement can only work with single variable declarations, not tuple deconstruction.",
+                        hint: "Use a single variable: using let resource := getResource() { ... }",
+                        suggestions: new List<string> {
+                            "Change from tuple deconstruction to single variable",
+                            "Example: using let file := File.Open(path) { ... }",
+                            "Note: The variable will be automatically disposed when the block ends"
+                        },
+                        length: 1
+                    );
+                    // Create placeholder declaration
+                    decl = new VariableDeclarationStatement("<error>", null, null, VariableKind.Let, line, column);
+                }
             }
             else
             {
@@ -1770,10 +1973,26 @@ public class Parser
         if (hasParens)
             Consume(TokenType.RightParen, "Expected ')'");
 
-        var body = ParseBlock() as BlockStatement
-            ?? throw new Exception("Expected block statement after lock");
+        var bodyStmt = ParseBlock() as BlockStatement;
+        if (bodyStmt == null)
+        {
+            ReportError(
+                ErrorCode.InvalidSyntax,
+                "Expected block statement after lock",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "A 'lock' statement must be followed by a block of code in braces { }.",
+                hint: "The lock body contains the code that runs with exclusive access to the lock object.",
+                suggestions: new List<string> {
+                    "Add a block: lock (myObject) { /* code */ }",
+                    "The code inside will execute with a lock on the specified object"
+                },
+                length: 1
+            );
+            bodyStmt = new BlockStatement(new List<Statement>(), Current.Line, Current.Column);
+        }
 
-        return new LockStatement(lockObject, body, line, column);
+        return new LockStatement(lockObject, bodyStmt, line, column);
     }
 
     private SwitchStatement ParseSwitchStatement()
@@ -1803,7 +2022,27 @@ public class Parser
             }
             else
             {
-                throw new Exception($"Expected 'case' or 'default' at {Current.Line}:{Current.Column}");
+                ReportError(
+                    ErrorCode.ExpectedToken,
+                    $"Expected 'case' or 'default'. Got '{Current.Value}'",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "Switch statements must contain 'case' patterns or a 'default' case.",
+                    hint: "Each branch in a switch must start with 'case pattern =>' or 'default =>'",
+                    suggestions: new List<string> {
+                        "Add a case: case 1 => { ... }",
+                        "Add a default: default => { ... }",
+                        "Example: case > 0 => Console.WriteLine(\"positive\")"
+                    },
+                    length: Current.Value.Length
+                );
+                // Skip to next reasonable token
+                while (!Check(TokenType.RightBrace) && !Check(TokenType.Case) && !Check(TokenType.Default) && !IsAtEnd())
+                    Advance();
+                // Create a placeholder case to continue parsing
+                if (Check(TokenType.RightBrace))
+                    break;
+                continue;
             }
 
             Consume(TokenType.Arrow, "Expected '=>'");
@@ -2004,7 +2243,23 @@ public class Parser
             return new IdentifierPattern(name, line, column);
         }
 
-        throw new Exception($"Invalid pattern at {line}:{column}");
+        ReportError(
+            ErrorCode.InvalidSyntax,
+            $"Invalid pattern. Got '{Current.Value}'",
+            line,
+            column,
+            humanExplanation: "I couldn't recognize this as a valid pattern for matching.",
+            hint: "Patterns can be literals, identifiers, types, or destructuring patterns.",
+            suggestions: new List<string> {
+                "Literal pattern: case 5 => ...",
+                "Identifier pattern: case x => ...",
+                "Type pattern: case int x => ...",
+                "Object pattern: case { Name: \"John\" } => ..."
+            },
+            length: Current.Value.Length
+        );
+        // Return error placeholder pattern
+        return new IdentifierPattern("<error>", line, column);
     }
 
     private List<PropertyPattern> ParsePropertyPatterns()
@@ -2192,16 +2447,45 @@ public class Parser
         if (Check(TokenType.Assign) || Check(TokenType.PlusAssign) || Check(TokenType.MinusAssign) ||
             Check(TokenType.StarAssign) || Check(TokenType.SlashAssign) || Check(TokenType.QuestionQuestionAssign))
         {
-            var op = Current.Type switch
+            AssignmentOperator op;
+            switch (Current.Type)
             {
-                TokenType.Assign => AssignmentOperator.Assign,
-                TokenType.PlusAssign => AssignmentOperator.AddAssign,
-                TokenType.MinusAssign => AssignmentOperator.SubtractAssign,
-                TokenType.StarAssign => AssignmentOperator.MultiplyAssign,
-                TokenType.SlashAssign => AssignmentOperator.DivideAssign,
-                TokenType.QuestionQuestionAssign => AssignmentOperator.NullCoalesceAssign,
-                _ => throw new Exception("Invalid assignment operator")
-            };
+                case TokenType.Assign:
+                    op = AssignmentOperator.Assign;
+                    break;
+                case TokenType.PlusAssign:
+                    op = AssignmentOperator.AddAssign;
+                    break;
+                case TokenType.MinusAssign:
+                    op = AssignmentOperator.SubtractAssign;
+                    break;
+                case TokenType.StarAssign:
+                    op = AssignmentOperator.MultiplyAssign;
+                    break;
+                case TokenType.SlashAssign:
+                    op = AssignmentOperator.DivideAssign;
+                    break;
+                case TokenType.QuestionQuestionAssign:
+                    op = AssignmentOperator.NullCoalesceAssign;
+                    break;
+                default:
+                    ReportError(
+                        ErrorCode.InvalidSyntax,
+                        $"Invalid assignment operator '{Current.Value}'",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "This isn't a recognized assignment operator.",
+                        hint: "Valid assignment operators: =, +=, -=, *=, /=, ??=",
+                        suggestions: new List<string> {
+                            "Use '=' for simple assignment",
+                            "Use '+=' to add and assign: x += 5",
+                            "Use '??=' for null-coalescing assignment"
+                        },
+                        length: Current.Value.Length
+                    );
+                    op = AssignmentOperator.Assign; // Default fallback
+                    break;
+            }
 
             var opToken = Advance();
             var right = ParseAssignmentExpression();
@@ -2355,14 +2639,40 @@ public class Parser
             }
             else
             {
-                var op = Current.Type switch
+                BinaryOperator op;
+                switch (Current.Type)
                 {
-                    TokenType.Less => BinaryOperator.Less,
-                    TokenType.LessEqual => BinaryOperator.LessOrEqual,
-                    TokenType.Greater => BinaryOperator.Greater,
-                    TokenType.GreaterEqual => BinaryOperator.GreaterOrEqual,
-                    _ => throw new Exception("Invalid relational operator")
-                };
+                    case TokenType.Less:
+                        op = BinaryOperator.Less;
+                        break;
+                    case TokenType.LessEqual:
+                        op = BinaryOperator.LessOrEqual;
+                        break;
+                    case TokenType.Greater:
+                        op = BinaryOperator.Greater;
+                        break;
+                    case TokenType.GreaterEqual:
+                        op = BinaryOperator.GreaterOrEqual;
+                        break;
+                    default:
+                        ReportError(
+                            ErrorCode.InvalidSyntax,
+                            $"Invalid relational operator '{Current.Value}'",
+                            Current.Line,
+                            Current.Column,
+                            humanExplanation: "This isn't a recognized comparison operator.",
+                            hint: "Valid comparison operators: <, <=, >, >=",
+                            suggestions: new List<string> {
+                                "Use '<' for less than",
+                                "Use '<=' for less than or equal",
+                                "Use '>' for greater than",
+                                "Use '>=' for greater than or equal"
+                            },
+                            length: Current.Value.Length
+                        );
+                        op = BinaryOperator.Less; // Default fallback
+                        break;
+                }
 
                 var opToken = Advance();
                 var right = ParseShiftExpression();
@@ -2409,13 +2719,36 @@ public class Parser
 
         while (Check(TokenType.Star) || Check(TokenType.Slash) || Check(TokenType.Percent))
         {
-            var op = Current.Type switch
+            BinaryOperator op;
+            switch (Current.Type)
             {
-                TokenType.Star => BinaryOperator.Multiply,
-                TokenType.Slash => BinaryOperator.Divide,
-                TokenType.Percent => BinaryOperator.Modulo,
-                _ => throw new Exception("Invalid multiplicative operator")
-            };
+                case TokenType.Star:
+                    op = BinaryOperator.Multiply;
+                    break;
+                case TokenType.Slash:
+                    op = BinaryOperator.Divide;
+                    break;
+                case TokenType.Percent:
+                    op = BinaryOperator.Modulo;
+                    break;
+                default:
+                    ReportError(
+                        ErrorCode.InvalidSyntax,
+                        $"Invalid multiplicative operator '{Current.Value}'",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "This isn't a recognized arithmetic operator.",
+                        hint: "Valid multiplicative operators: *, /, %",
+                        suggestions: new List<string> {
+                            "Use '*' for multiplication",
+                            "Use '/' for division",
+                            "Use '%' for modulo (remainder)"
+                        },
+                        length: Current.Value.Length
+                    );
+                    op = BinaryOperator.Multiply; // Default fallback
+                    break;
+            }
 
             var opToken = Advance();
             var right = ParseRangeExpression();
@@ -2466,16 +2799,46 @@ public class Parser
         if (Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) ||
             Check(TokenType.Increment) || Check(TokenType.Decrement) || Check(TokenType.BitwiseXor))
         {
-            var op = Current.Type switch
+            UnaryOperator op;
+            switch (Current.Type)
             {
-                TokenType.Not => UnaryOperator.Not,
-                TokenType.Minus => UnaryOperator.Negate,
-                TokenType.BitwiseNot => UnaryOperator.BitwiseNot,
-                TokenType.Increment => UnaryOperator.PreIncrement,
-                TokenType.Decrement => UnaryOperator.PreDecrement,
-                TokenType.BitwiseXor => UnaryOperator.IndexFromEnd,  // ^ as prefix for index from end
-                _ => throw new Exception("Invalid unary operator")
-            };
+                case TokenType.Not:
+                    op = UnaryOperator.Not;
+                    break;
+                case TokenType.Minus:
+                    op = UnaryOperator.Negate;
+                    break;
+                case TokenType.BitwiseNot:
+                    op = UnaryOperator.BitwiseNot;
+                    break;
+                case TokenType.Increment:
+                    op = UnaryOperator.PreIncrement;
+                    break;
+                case TokenType.Decrement:
+                    op = UnaryOperator.PreDecrement;
+                    break;
+                case TokenType.BitwiseXor:
+                    op = UnaryOperator.IndexFromEnd;  // ^ as prefix for index from end
+                    break;
+                default:
+                    ReportError(
+                        ErrorCode.InvalidSyntax,
+                        $"Invalid unary operator '{Current.Value}'",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "This isn't a recognized unary (prefix) operator.",
+                        hint: "Valid unary operators: !, -, ~, ++, --, ^",
+                        suggestions: new List<string> {
+                            "Use '!' for logical not",
+                            "Use '-' for negation",
+                            "Use '++' for increment",
+                            "Use '^' for index from end"
+                        },
+                        length: Current.Value.Length
+                    );
+                    op = UnaryOperator.Not; // Default fallback
+                    break;
+            }
 
             var opToken = Advance();
             var operand = ParseUnaryExpression();
@@ -2527,10 +2890,30 @@ public class Parser
 
                 // Now parse the arguments
                 if (!Check(TokenType.LeftParen))
-                    throw new Exception($"Expected '(' after generic type arguments at line {Current.Line}, column {Current.Column}");
-                var parenToken = Advance();
-                var args = ParseArgumentList();
-                expr = new CallExpression(expr, args, typeArgs, parenToken.Line, parenToken.Column);
+                {
+                    ReportError(
+                        ErrorCode.ExpectedToken,
+                        $"Expected '(' after generic type arguments. Got '{Current.Value}'",
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "Generic method calls need parentheses for the arguments, even if there are no arguments.",
+                        hint: "After the generic type parameters, you need to provide the method arguments in parentheses.",
+                        suggestions: new List<string> {
+                            "Add parentheses: Method<int>()",
+                            "With arguments: Method<int>(arg1, arg2)",
+                            "Example: List.Create<string>(\"hello\")"
+                        },
+                        length: Current.Value.Length
+                    );
+                    // Create empty argument list as fallback
+                    expr = new CallExpression(expr, new List<Argument>(), typeArgs, Current.Line, Current.Column);
+                }
+                else
+                {
+                    var parenToken = Advance();
+                    var args = ParseArgumentList();
+                    expr = new CallExpression(expr, args, typeArgs, parenToken.Line, parenToken.Column);
+                }
             }
             else if (Check(TokenType.LeftParen))
             {
@@ -2812,7 +3195,18 @@ public class Parser
             return new IdentifierExpression(name, line, column);
         }
 
-        throw new Exception($"Unexpected token '{Current.Value}' at {line}:{column}");
+        ReportError(
+            ErrorCode.UnexpectedToken,
+            $"Unexpected token '{Current.Value}' in expression",
+            line,
+            column,
+            humanExplanation: $"I was parsing an expression and found '{Current.Value}', which I don't know how to handle here.",
+            hint: "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax.",
+            length: Current.Value.Length
+        );
+
+        // Return error placeholder
+        return new IdentifierExpression("<error>", line, column);
     }
 
     private Expression ParseNewExpression()
@@ -3110,32 +3504,94 @@ public class Parser
         // Parse operator symbol for operator overloading
         // Supported: +, -, *, /, %, ==, !=, <, >, <=, >=, !, ~, ++, --, true, false
         var token = Current;
-        var symbol = token.Type switch
+        string symbol;
+        switch (token.Type)
         {
-            TokenType.Plus => "+",
-            TokenType.Minus => "-",
-            TokenType.Star => "*",
-            TokenType.Slash => "/",
-            TokenType.Percent => "%",
-            TokenType.Equal => "==",
-            TokenType.NotEqual => "!=",
-            TokenType.Less => "<",
-            TokenType.LessEqual => "<=",
-            TokenType.Greater => ">",
-            TokenType.GreaterEqual => ">=",
-            TokenType.Not => "!",
-            TokenType.BitwiseNot => "~",
-            TokenType.BitwiseAnd => "&",
-            TokenType.BitwiseOr => "|",
-            TokenType.BitwiseXor => "^",
-            TokenType.LeftShift => "<<",
-            TokenType.RightShift => ">>",
-            TokenType.Increment => "++",
-            TokenType.Decrement => "--",
-            TokenType.True => "true",
-            TokenType.False => "false",
-            _ => throw new Exception($"Invalid operator symbol '{token.Value}' at {token.Line}:{token.Column}")
-        };
+            case TokenType.Plus:
+                symbol = "+";
+                break;
+            case TokenType.Minus:
+                symbol = "-";
+                break;
+            case TokenType.Star:
+                symbol = "*";
+                break;
+            case TokenType.Slash:
+                symbol = "/";
+                break;
+            case TokenType.Percent:
+                symbol = "%";
+                break;
+            case TokenType.Equal:
+                symbol = "==";
+                break;
+            case TokenType.NotEqual:
+                symbol = "!=";
+                break;
+            case TokenType.Less:
+                symbol = "<";
+                break;
+            case TokenType.LessEqual:
+                symbol = "<=";
+                break;
+            case TokenType.Greater:
+                symbol = ">";
+                break;
+            case TokenType.GreaterEqual:
+                symbol = ">=";
+                break;
+            case TokenType.Not:
+                symbol = "!";
+                break;
+            case TokenType.BitwiseNot:
+                symbol = "~";
+                break;
+            case TokenType.BitwiseAnd:
+                symbol = "&";
+                break;
+            case TokenType.BitwiseOr:
+                symbol = "|";
+                break;
+            case TokenType.BitwiseXor:
+                symbol = "^";
+                break;
+            case TokenType.LeftShift:
+                symbol = "<<";
+                break;
+            case TokenType.RightShift:
+                symbol = ">>";
+                break;
+            case TokenType.Increment:
+                symbol = "++";
+                break;
+            case TokenType.Decrement:
+                symbol = "--";
+                break;
+            case TokenType.True:
+                symbol = "true";
+                break;
+            case TokenType.False:
+                symbol = "false";
+                break;
+            default:
+                ReportError(
+                    ErrorCode.InvalidSyntax,
+                    $"Invalid operator symbol '{token.Value}' for operator overloading",
+                    token.Line,
+                    token.Column,
+                    humanExplanation: "This operator cannot be overloaded, or is not a valid operator symbol.",
+                    hint: "Only certain operators can be overloaded in operator declarations.",
+                    suggestions: new List<string> {
+                        "Arithmetic: +, -, *, /, %",
+                        "Comparison: ==, !=, <, >, <=, >=",
+                        "Unary: !, ~, ++, --",
+                        "Conversion: true, false"
+                    },
+                    length: token.Value.Length
+                );
+                symbol = "+"; // Default fallback
+                break;
+        }
 
         Advance();
         return symbol;
@@ -3191,14 +3647,135 @@ public class Parser
     private void Consume(TokenType type, string message)
     {
         if (!Check(type))
-            throw new Exception($"{message}. Got '{Current.Value}' at {Current.Line}:{Current.Column}");
+        {
+            var expected = TokenTypeToString(type);
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"{message}. Expected '{expected}', got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: $"I was expecting {expected} here, but I found '{Current.Value}' instead.",
+                hint: GetHintForMissingToken(type),
+                length: Current.Value.Length
+            );
+            return; // Don't advance
+        }
         Advance();
+    }
+
+    private string TokenTypeToString(TokenType type)
+    {
+        return type switch
+        {
+            TokenType.LeftParen => "(",
+            TokenType.RightParen => ")",
+            TokenType.LeftBrace => "{",
+            TokenType.RightBrace => "}",
+            TokenType.LeftBracket => "[",
+            TokenType.RightBracket => "]",
+            TokenType.Semicolon => ";",
+            TokenType.Colon => ":",
+            TokenType.Comma => ",",
+            TokenType.Dot => ".",
+            TokenType.Equal => "=",
+            _ => type.ToString().ToLower()
+        };
+    }
+
+    private string? GetHintForMissingToken(TokenType type)
+    {
+        return type switch
+        {
+            TokenType.RightParen => "Every opening parenthesis '(' needs a matching closing parenthesis ')'.",
+            TokenType.RightBrace => "Every opening brace '{' needs a matching closing brace '}'.",
+            TokenType.RightBracket => "Every opening bracket '[' needs a matching closing bracket ']'.",
+            TokenType.Semicolon => "Statements can end with a semicolon, though it's optional in N#.",
+            _ => null
+        };
     }
 
     private string ConsumeIdentifier(string message)
     {
         if (!Check(TokenType.Identifier))
-            throw new Exception($"{message}. Got '{Current.Value}' at {Current.Line}:{Current.Column}");
+        {
+            // Check if this is incomplete member access (dot with no member)
+            var previous = _position > 0 ? _tokens[_position - 1] : _tokens[0];
+            var isDotAccess = previous.Type == TokenType.Dot || previous.Type == TokenType.QuestionDot;
+
+            ReportError(
+                ErrorCode.ExpectedToken,
+                $"{message}. Got '{Current.Value}'",
+                Current.Line,
+                Current.Column,
+                humanExplanation: isDotAccess
+                    ? $"I see a dot (.) operator but no member name after it. I found '{Current.Value}' instead."
+                    : $"I was expecting an identifier here, but I found '{Current.Value}' instead.",
+                hint: isDotAccess
+                    ? "After a dot, I need to see a property or method name."
+                    : "An identifier is a name for a variable, function, or type.",
+                suggestions: isDotAccess
+                    ? new List<string> {
+                        "Check if you forgot to finish this line",
+                        "Common members: Length, Count, ToString(), GetHashCode()",
+                        "If this is end of statement, remove the trailing dot"
+                    }
+                    : null,
+                length: Current.Value.Length
+            );
+
+            return "<error>"; // Return placeholder
+        }
         return Advance().Value;
+    }
+
+    /// <summary>
+    /// Report a parse error with rich context
+    /// </summary>
+    private void ReportError(
+        ErrorCode code,
+        string message,
+        int line,
+        int column,
+        string? humanExplanation = null,
+        string? hint = null,
+        List<string>? suggestions = null,
+        int length = 1)
+    {
+        var snippet = GetSourceSnippet(line);
+
+        var error = CompilerError.WithSnippet(
+            code,
+            message,
+            _fileName ?? "unknown",
+            line,
+            column,
+            snippet ?? "",
+            length,
+            suggestions?.FirstOrDefault()
+        );
+
+        // Add rich context if provided
+        if (humanExplanation != null || hint != null || suggestions != null)
+        {
+            error = error with
+            {
+                HumanExplanation = humanExplanation,
+                ContextualHint = hint,
+                Suggestions = suggestions,
+                DocsUrl = $"https://docs.nsharp.dev/errors/NL{(int)code:D3}"
+            };
+        }
+
+        _errors.Add(error);
+    }
+
+    /// <summary>
+    /// Get source code snippet for a given line
+    /// </summary>
+    private string? GetSourceSnippet(int line)
+    {
+        if (_sourceLines == null || line < 1 || line > _sourceLines.Length)
+            return null;
+        return _sourceLines[line - 1];
     }
 }
