@@ -164,7 +164,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     {
         // Convert linter diagnostic to LSP diagnostic
         var line = Math.Max(0, diagnostic.Location.Line - 1); // LSP is 0-indexed
-        var column = Math.Max(0, diagnostic.Location.Column);
+        var column = Math.Max(0, diagnostic.Location.Column - 1); // LSP columns are also 0-indexed
 
         var severity = diagnostic.Severity switch
         {
@@ -174,9 +174,21 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
             _ => LspDiagnosticSeverity.Warning
         };
 
+        // Extract symbol name from message for better range highlighting
+        // Most linter messages follow pattern: "Unused variable 'name'"
+        int length = 10; // Default approximate length
+        if (diagnostic.Code == "NL001") // Unused variable
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
+            if (match.Success)
+            {
+                length = match.Groups[1].Value.Length;
+            }
+        }
+
         return new LspDiagnostic
         {
-            Range = new LspRange(line, column, line, column + 10), // Approximate range
+            Range = new LspRange(line, column, line, column + length),
             Severity = severity,
             Code = diagnostic.Code,
             Source = "N#",
