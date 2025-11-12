@@ -28,6 +28,26 @@ ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
 ALWAYS: `git commit` after you've written any code AND verified `./test-all.sh` passes!!
 
+## VS Code Extension Development Workflow
+
+ALWAYS: After making ANY changes to the Language Server or LSP handlers, run:
+```bash
+./scripts/reload-vscode-extension.sh
+```
+
+This script:
+- Kills VS Code
+- Rebuilds the language server
+- Packages the VSIX
+- Installs the extension
+- Reopens VS Code with a sample project
+
+Files that require extension reload:
+- `src/NSharpLang.LanguageServer/**/*.cs` (any Language Server changes)
+- `editors/vscode/**/*.ts` (VS Code extension TypeScript code)
+
+IMPORTANT: Always test LSP changes in VS Code to verify the user experience!
+
 ## Project Configuration Philosophy
 
 **CRITICAL**: The .csproj file MUST be minimal. It should ONLY reference the SDK. ALL configuration goes in project.yml.
