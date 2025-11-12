@@ -64,13 +64,26 @@ public class Transpiler
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
             .ToList();
 
-        // Add 'using static' for package class if there are top-level functions
+        // Add 'using static' for top-level functions class
         // This allows top-level functions to be called from within classes without qualification
-        // Note: We use Functions_ prefix to avoid conflict with the namespace name
-        // The static class is defined inside the namespace, so we need to qualify it
-        if (_compilationUnit.Package != null && topLevelFunctions.Count > 0)
+        if (topLevelFunctions.Count > 0)
         {
-            WriteLine($"using static {_compilationUnit.Package.Name}.Functions_{_compilationUnit.Package.Name};");
+            if (_compilationUnit.Package != null)
+            {
+                // Package: Functions_PackageName class
+                WriteLine($"using static {_compilationUnit.Package.Name}.Functions_{_compilationUnit.Package.Name};");
+            }
+            else if (_compilationUnit.Namespace != null)
+            {
+                // Namespace: _Namespace_Name_TopLevel class
+                var namespaceClass = $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel";
+                WriteLine($"using static {_compilationUnit.Namespace.Name}.{namespaceClass};");
+            }
+            else
+            {
+                // No package or namespace: _TopLevel class
+                WriteLine($"using static _TopLevel;");
+            }
         }
 
         if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests || topLevelFunctions.Count > 0)
