@@ -3425,7 +3425,7 @@ public class Analyzer
         catch (Exception ex)
         {
             // Log but don't fail - assembly might not be needed
-            Console.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
+            Console.Error.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
         }
     }
 
@@ -3573,7 +3573,7 @@ public class Analyzer
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Warning: Failed to load reference: {ex.Message}");
+                    Console.Error.WriteLine($"Warning: Failed to load reference: {ex.Message}");
                 }
             }
         }
@@ -3638,7 +3638,7 @@ public class Analyzer
             case ReferenceType.Framework:
                 // Framework references like Microsoft.AspNetCore.App are implicit
                 // Just record them, they're provided by the runtime
-                Console.WriteLine($"Framework reference: {reference.Framework}");
+                Console.Error.WriteLine($"Framework reference: {reference.Framework}");
                 break;
         }
     }
@@ -3716,7 +3716,7 @@ public class Analyzer
             }
             else
             {
-                Console.WriteLine($"Warning: Project reference '{projectName}' has not been built. Expected: {outputPath}");
+                Console.Error.WriteLine($"Warning: Project reference '{projectName}' has not been built. Expected: {outputPath}");
             }
         }
         // Handle project.yml (N# project)
@@ -3731,12 +3731,12 @@ public class Analyzer
             }
             else
             {
-                Console.WriteLine($"Warning: N# project reference '{nsharpProject.EffectiveName}' has not been built. Expected: {outputPath}");
+                Console.Error.WriteLine($"Warning: N# project reference '{nsharpProject.EffectiveName}' has not been built. Expected: {outputPath}");
             }
         }
         else
         {
-            Console.WriteLine($"Warning: Unknown project reference type: {projectPath}");
+            Console.Error.WriteLine($"Warning: Unknown project reference type: {projectPath}");
         }
     }
 
