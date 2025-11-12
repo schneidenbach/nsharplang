@@ -315,6 +315,144 @@ func greet(name: string): string
         Assert.Contains("greet", content.Value);
     }
 
+    [Fact]
+    public async Task Hover_MemberAccess_Property()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello""
+    let len = message.Length";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "Length" in "message.Length"
+        var hover = await harness.GetHoverAsync(uri, 3, 24);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("Length", content.Value);
+        Assert.Contains("property", content.Value.ToLower());
+    }
+
+    [Fact]
+    public async Task Hover_MemberAccess_Method()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello""
+    let upper = message.ToUpper()";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "ToUpper" in "message.ToUpper()"
+        var hover = await harness.GetHoverAsync(uri, 3, 26);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("ToUpper", content.Value);
+        Assert.Contains("method", content.Value.ToLower());
+    }
+
+    [Fact]
+    public async Task Hover_MemberAccess_MethodWithParameters()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello world""
+    let sub = message.Substring(0, 5)";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "Substring"
+        var hover = await harness.GetHoverAsync(uri, 3, 24);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("Substring", content.Value);
+        // Should show method signature with parameters
+        Assert.Contains("int", content.Value);
+    }
+
+    [Fact]
+    public async Task Hover_ChainedMemberAccess()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello""
+    let len = message.ToUpper().Length";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "Length" in the chained call
+        var hover = await harness.GetHoverAsync(uri, 3, 34);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("Length", content.Value);
+    }
+
+    [Fact]
+    public async Task Hover_ConsoleWriteLine()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    Console.WriteLine(""test"")";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "WriteLine"
+        var hover = await harness.GetHoverAsync(uri, 2, 15);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("WriteLine", content.Value);
+        // Should show it has overloads
+        Assert.Contains("method", content.Value.ToLower());
+    }
+
+    [Fact]
+    public async Task Hover_VariableWithSystemType()
+    {
+        var harness = new LspTestHarness();
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let numbers = [1, 2, 3]
+    print(numbers)";
+
+        harness.OpenDocument(uri, source);
+
+        // Hover over "numbers" variable
+        var hover = await harness.GetHoverAsync(uri, 3, 12);
+
+        Assert.NotNull(hover);
+        var content = hover.Contents.MarkupContent;
+        Assert.NotNull(content);
+        Assert.Contains("numbers", content.Value);
+        // Should show type information
+    }
+
     #endregion
 
     #region Signature Help Tests

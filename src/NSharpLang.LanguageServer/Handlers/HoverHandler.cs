@@ -1,7 +1,11 @@
+using System;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
+using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -37,19 +41,30 @@ public class HoverHandler : HoverHandlerBase
             return Task.FromResult<Hover?>(null);
         }
 
-        // Get the word at the cursor position
-        var word = GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
+        var line = request.Position.Line;
+        var character = request.Position.Character;
 
-        if (string.IsNullOrWhiteSpace(word))
+        _logger.LogDebug("Hover request at {Line}:{Character}", line, character);
+
+        // Get the word at the cursor position for fallback lookup
+        var word = GetWordAtPosition(doc.Text, line, character);
+
+        // Try AST-based resolution first (most precise)
+        if (doc.CompilationUnit != null && doc.SemanticModel != null)
         {
-            return Task.FromResult<Hover?>(null);
+            var expression = AstNodeFinder.FindExpressionAtPosition(doc.CompilationUnit, line, character);
+            if (expression != null)
+            {
+                var hover = TryResolveExpression(expression, word, doc);
+                if (hover != null)
+                {
+                    return Task.FromResult<Hover?>(hover);
+                }
+            }
         }
 
-        _logger.LogDebug("Hover request for word '{Word}' at {Line}:{Character}",
-            word, request.Position.Line, request.Position.Character);
-
-        // First, check semantic model for variable/parameter types
-        if (doc.SemanticModel != null)
+        // Fallback: check semantic model for simple identifiers
+        if (!string.IsNullOrWhiteSpace(word) && doc.SemanticModel != null)
         {
             var typeInfo = doc.SemanticModel.LookupIdentifier(word);
             if (typeInfo != null)
@@ -57,7 +72,6 @@ public class HoverHandler : HoverHandlerBase
                 var typeName = typeInfo.ToString();
                 _logger.LogDebug("Found '{Word}' in semantic model with type: {TypeName}", word, typeName);
 
-                // Try to get more info from reflection
                 var systemType = _typeResolver.ResolveType(typeName);
                 var markdown = systemType != null
                     ? FormatVariableWithSystemType(word, typeName, systemType)
@@ -70,16 +84,15 @@ public class HoverHandler : HoverHandlerBase
                         Kind = MarkupKind.Markdown,
                         Value = markdown
                     }),
-                    Range = GetWordRange(doc.Text, request.Position.Line, request.Position.Character, word)
+                    Range = GetWordRange(doc.Text, line, character, word)
                 });
             }
         }
 
-        // Look up the word in symbols (type declarations)
-        if (doc.Symbols != null && doc.Symbols.TryGetValue(word, out var symbolTypeInfo))
+        // Check symbols (type declarations)
+        if (!string.IsNullOrWhiteSpace(word) && doc.Symbols != null && doc.Symbols.TryGetValue(word, out var symbolTypeInfo))
         {
             var markdown = FormatTypeInfo(word, symbolTypeInfo);
-
             return Task.FromResult<Hover?>(new Hover
             {
                 Contents = new MarkedStringsOrMarkupContent(new MarkupContent
@@ -87,48 +100,165 @@ public class HoverHandler : HoverHandlerBase
                     Kind = MarkupKind.Markdown,
                     Value = markdown
                 }),
-                Range = GetWordRange(doc.Text, request.Position.Line, request.Position.Character, word)
+                Range = GetWordRange(doc.Text, line, character, word)
             });
         }
 
-        // Check if it's a keyword
-        var keywords = new[]
+        // Check for keywords
+        if (!string.IsNullOrWhiteSpace(word))
         {
-            "func", "class", "struct", "record", "interface", "enum", "union",
-            "match", "async", "await", "yield", "lock", "using", "import"
-        };
-
-        if (keywords.Contains(word))
-        {
-            return Task.FromResult<Hover?>(new Hover
+            var keywords = new[]
             {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = $"**{word}** *(keyword)*"
-                })
-            });
-        }
+                "func", "class", "struct", "record", "interface", "enum", "union",
+                "match", "async", "await", "yield", "lock", "using", "import", "let"
+            };
 
-        // Check if it's a primitive type
-        var primitiveTypes = new[]
-        {
-            "int", "long", "float", "double", "bool", "string", "void", "object"
-        };
-
-        if (primitiveTypes.Contains(word))
-        {
-            return Task.FromResult<Hover?>(new Hover
+            if (keywords.Contains(word))
             {
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                return Task.FromResult<Hover?>(new Hover
                 {
-                    Kind = MarkupKind.Markdown,
-                    Value = $"**{word}** *(primitive type)*"
-                })
-            });
+                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                    {
+                        Kind = MarkupKind.Markdown,
+                        Value = $"**{word}** *(keyword)*"
+                    })
+                });
+            }
+
+            // Check for primitive types
+            var primitiveTypes = new[]
+            {
+                "int", "long", "float", "double", "bool", "string", "void", "object"
+            };
+
+            if (primitiveTypes.Contains(word))
+            {
+                return Task.FromResult<Hover?>(new Hover
+                {
+                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                    {
+                        Kind = MarkupKind.Markdown,
+                        Value = $"**{word}** *(primitive type)*"
+                    })
+                });
+            }
         }
 
         return Task.FromResult<Hover?>(null);
+    }
+
+    private Hover? TryResolveExpression(Expression expression, string word, DocumentState doc)
+    {
+        if (doc?.SemanticModel == null) return null;
+
+        var resolver = new ExpressionTypeResolver(doc.SemanticModel);
+
+        switch (expression)
+        {
+            case IdentifierExpression id:
+                return ResolveIdentifier(id.Name, doc);
+
+            case MemberAccessExpression memberAccess:
+                return ResolveMemberAccess(memberAccess, resolver);
+
+            case CallExpression call when call.Callee is MemberAccessExpression callMemberAccess:
+                return ResolveMethodCall(callMemberAccess, resolver);
+
+            default:
+                // Try to resolve the expression type generically
+                var exprType = resolver.ResolveExpressionType(expression);
+                if (exprType != null)
+                {
+                    return new Hover
+                    {
+                        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                        {
+                            Kind = MarkupKind.Markdown,
+                            Value = FormatType(exprType)
+                        })
+                    };
+                }
+                break;
+        }
+
+        return null;
+    }
+
+    private Hover? ResolveIdentifier(string name, DocumentState doc)
+    {
+        if (doc?.SemanticModel == null) return null;
+
+        var typeInfo = doc.SemanticModel.LookupIdentifier(name);
+        if (typeInfo != null)
+        {
+            var typeName = typeInfo.ToString();
+            var systemType = _typeResolver.ResolveType(typeName);
+            var markdown = systemType != null
+                ? FormatVariableWithSystemType(name, typeName, systemType)
+                : FormatVariable(name, typeName);
+
+            return new Hover
+            {
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = markdown
+                })
+            };
+        }
+
+        return null;
+    }
+
+    private Hover? ResolveMemberAccess(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
+    {
+        var memberInfo = resolver.ResolveMemberInfo(memberAccess);
+        if (memberInfo == null) return null;
+
+        string markdown = memberInfo switch
+        {
+            MethodInfo method => FormatMethod(method),
+            PropertyInfo property => FormatProperty(property),
+            FieldInfo field => FormatField(field),
+            _ => null
+        };
+
+        if (markdown != null)
+        {
+            return new Hover
+            {
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = markdown
+                })
+            };
+        }
+
+        return null;
+    }
+
+    private Hover? ResolveMethodCall(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
+    {
+        var memberInfo = resolver.ResolveMemberInfo(memberAccess);
+        if (memberInfo is MethodInfo method)
+        {
+            var overloads = resolver.GetMethodOverloads(memberAccess);
+            var markdown = overloads.Length > 1
+                ? FormatMethodWithOverloads(method, overloads)
+                : FormatMethod(method);
+
+            return new Hover
+            {
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = markdown
+                })
+            };
+        }
+
+        return null;
     }
 
     protected override HoverRegistrationOptions CreateRegistrationOptions(
@@ -182,7 +312,7 @@ public class HoverHandler : HoverHandlerBase
         return char.IsLetterOrDigit(c) || c == '_';
     }
 
-    private string FormatTypeInfo(string name, TypeInfo typeInfo)
+    private string FormatTypeInfo(string name, Compiler.TypeInfo typeInfo)
     {
         var kind = typeInfo switch
         {
@@ -224,5 +354,154 @@ public class HoverHandler : HoverHandlerBase
         sb.AppendLine($"*Assembly:* `{systemType.Assembly.GetName().Name}`");
 
         return sb.ToString();
+    }
+
+    private string FormatMethod(MethodInfo method)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(method)** `{method.Name}`");
+        sb.AppendLine();
+        sb.AppendLine("```csharp");
+        sb.Append(FormatMethodSignature(method));
+        sb.AppendLine("```");
+
+        if (!string.IsNullOrEmpty(method.DeclaringType?.Namespace))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"*Declaring Type:* `{method.DeclaringType.FullName}`");
+        }
+
+        return sb.ToString();
+    }
+
+    private string FormatMethodWithOverloads(MethodInfo primary, MethodInfo[] overloads)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(method)** `{primary.Name}` *({overloads.Length} overloads)*");
+        sb.AppendLine();
+        sb.AppendLine("```csharp");
+
+        foreach (var overload in overloads.Take(5)) // Limit to 5 overloads
+        {
+            sb.AppendLine(FormatMethodSignature(overload));
+        }
+
+        if (overloads.Length > 5)
+        {
+            sb.AppendLine($"... and {overloads.Length - 5} more overloads");
+        }
+
+        sb.AppendLine("```");
+
+        if (!string.IsNullOrEmpty(primary.DeclaringType?.Namespace))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"*Declaring Type:* `{primary.DeclaringType.FullName}`");
+        }
+
+        return sb.ToString();
+    }
+
+    private string FormatMethodSignature(MethodInfo method)
+    {
+        var parameters = method.GetParameters();
+        var paramList = string.Join(", ", parameters.Select(p =>
+            $"{FormatTypeName(p.ParameterType)} {p.Name}"));
+
+        var returnType = FormatTypeName(method.ReturnType);
+        return $"{returnType} {method.Name}({paramList})";
+    }
+
+    private string FormatProperty(PropertyInfo property)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(property)** `{property.Name}`");
+        sb.AppendLine();
+        sb.AppendLine("```csharp");
+
+        var accessors = "";
+        if (property.CanRead && property.CanWrite)
+            accessors = " { get; set; }";
+        else if (property.CanRead)
+            accessors = " { get; }";
+        else if (property.CanWrite)
+            accessors = " { set; }";
+
+        sb.AppendLine($"{FormatTypeName(property.PropertyType)} {property.Name}{accessors}");
+        sb.AppendLine("```");
+
+        if (!string.IsNullOrEmpty(property.DeclaringType?.Namespace))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"*Declaring Type:* `{property.DeclaringType.FullName}`");
+        }
+
+        return sb.ToString();
+    }
+
+    private string FormatField(FieldInfo field)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(field)** `{field.Name}`");
+        sb.AppendLine();
+        sb.AppendLine("```csharp");
+
+        var modifiers = "";
+        if (field.IsStatic) modifiers = "static ";
+        if (field.IsInitOnly) modifiers += "readonly ";
+
+        sb.AppendLine($"{modifiers}{FormatTypeName(field.FieldType)} {field.Name}");
+        sb.AppendLine("```");
+
+        if (!string.IsNullOrEmpty(field.DeclaringType?.Namespace))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"*Declaring Type:* `{field.DeclaringType.FullName}`");
+        }
+
+        return sb.ToString();
+    }
+
+    private string FormatType(Type type)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"**(type)** `{FormatTypeName(type)}`");
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(type.Namespace))
+        {
+            sb.AppendLine($"*Namespace:* `{type.Namespace}`");
+        }
+
+        if (type.Assembly != null)
+        {
+            sb.AppendLine($"*Assembly:* `{type.Assembly.GetName().Name}`");
+        }
+
+        return sb.ToString();
+    }
+
+    private string FormatTypeName(Type type)
+    {
+        if (type.IsGenericType)
+        {
+            var genericArgs = type.GetGenericArguments();
+            var typeName = type.Name.Substring(0, type.Name.IndexOf('`'));
+            var args = string.Join(", ", genericArgs.Select(FormatTypeName));
+            return $"{typeName}<{args}>";
+        }
+
+        return type.Name switch
+        {
+            "Int32" => "int",
+            "Int64" => "long",
+            "Single" => "float",
+            "Double" => "double",
+            "Boolean" => "bool",
+            "String" => "string",
+            "Void" => "void",
+            "Object" => "object",
+            _ => type.Name
+        };
     }
 }

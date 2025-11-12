@@ -420,10 +420,10 @@ internal class LintVisitor
                 break;
 
             case ForeachStatement foreachStmt:
+                VisitExpression(foreachStmt.Collection); // Visit collection in outer scope FIRST
                 PushScope();
                 DeclareVariable(foreachStmt.VariableName, foreachStmt.Line, foreachStmt.Column);
                 MarkVariableUsed(foreachStmt.VariableName); // Loop variables are considered used
-                VisitExpression(foreachStmt.Collection);
                 VisitStatement(foreachStmt.Body);
                 PopScope();
                 break;
@@ -593,6 +593,11 @@ internal class LintVisitor
                 // NL002: Missing Import
                 // Check if identifier looks like a type that might need an import
                 CheckMissingImport(ident);
+                break;
+
+            case StringLiteralExpression stringLiteral:
+                // Handle string interpolation - mark variables used inside ${...} or {...}
+                HandleStringInterpolation(stringLiteral.Value);
                 break;
 
             case BinaryExpression binary:
@@ -859,5 +864,108 @@ internal class LintVisitor
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
             _ => null
         };
+    }
+
+    private void HandleStringInterpolation(string value)
+    {
+        // Check if this is an interpolated string ($"..." or $""\"...\""")
+        if (!value.StartsWith("$"))
+            return;
+
+        // Extract interpolated expressions between { and }
+        // Handle both $"..." and $"""...""" formats
+        int i = 0;
+        if (value.StartsWith("$\"\"\""))
+        {
+            i = 4; // Start after $"""
+        }
+        else if (value.StartsWith("$\""))
+        {
+            i = 2; // Start after $"
+        }
+        else
+        {
+            return; // Not an interpolated string
+        }
+
+        while (i < value.Length)
+        {
+            if (value[i] == '{')
+            {
+                // Found start of interpolation
+                int braceDepth = 1;
+                i++;
+                int exprStart = i;
+
+                // Find the matching closing brace
+                while (i < value.Length && braceDepth > 0)
+                {
+                    if (value[i] == '{')
+                        braceDepth++;
+                    else if (value[i] == '}')
+                        braceDepth--;
+                    i++;
+                }
+
+                // Extract the expression between braces
+                if (braceDepth == 0)
+                {
+                    string expr = value.Substring(exprStart, i - exprStart - 1).Trim();
+
+                    // Extract identifier(s) from the expression
+                    // Simple cases: {name}, {obj.Property}, {list[0]}
+                    ExtractIdentifiersFromExpression(expr);
+                }
+            }
+            else
+            {
+                i++;
+            }
+        }
+    }
+
+    private void ExtractIdentifiersFromExpression(string expr)
+    {
+        // Simple identifier extraction from interpolated expressions
+        // Handles: name, obj.Property, obj?.Property, list[0], obj.Method()
+
+        // Split by common operators and extract the first identifier
+        var separators = new[] { '.', '?', '[', '(', ' ', '+', '-', '*', '/', '%', '&', '|', '^', '!', '=', '<', '>', ':', ',' };
+
+        // Find the first identifier (before any operator)
+        int firstSeparator = expr.Length;
+        foreach (var sep in separators)
+        {
+            int index = expr.IndexOf(sep);
+            if (index >= 0 && index < firstSeparator)
+                firstSeparator = index;
+        }
+
+        string firstIdentifier = expr.Substring(0, firstSeparator).Trim();
+
+        // Mark the first identifier as used (this is the variable being accessed)
+        if (!string.IsNullOrEmpty(firstIdentifier) && IsValidIdentifier(firstIdentifier))
+        {
+            MarkVariableUsed(firstIdentifier);
+        }
+    }
+
+    private bool IsValidIdentifier(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        // Must start with letter or underscore
+        if (!char.IsLetter(name[0]) && name[0] != '_')
+            return false;
+
+        // Rest must be letters, digits, or underscores
+        for (int i = 1; i < name.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(name[i]) && name[i] != '_')
+                return false;
+        }
+
+        return true;
     }
 }
