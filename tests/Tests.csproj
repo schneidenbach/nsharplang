@@ -25,6 +25,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
   </ItemGroup>
 
 </Project>
