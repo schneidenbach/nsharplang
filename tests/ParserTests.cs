@@ -2778,7 +2778,8 @@ test ""should add two numbers"" {
         var lexer = new Lexer(source);
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        var unit = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
 
         Assert.Single(unit.Declarations);
         var testDecl = unit.Declarations[0] as TestDeclaration;
@@ -2812,7 +2813,8 @@ func TestFunc() {
         var lexer = new Lexer(source);
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        var unit = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
 
         var funcDecl = unit.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
@@ -4384,7 +4386,8 @@ func Helper(): int {
 
         var tokens = new Lexer(source, "test").Tokenize();
         var parser = new Parser(tokens, "test");
-        var ast = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        var ast = result.CompilationUnit!;
 
         var cls = ast.Declarations.OfType<ClassDeclaration>().First();
         Assert.Equal(2, cls.Members.Count);
@@ -4420,7 +4423,8 @@ func Helper(): int {
 
         var tokens = new Lexer(source, "test").Tokenize();
         var parser = new Parser(tokens, "test");
-        var ast = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        var ast = result.CompilationUnit!;
 
         var cls = ast.Declarations.OfType<ClassDeclaration>().First();
         Assert.Equal(2, cls.Members.Count);

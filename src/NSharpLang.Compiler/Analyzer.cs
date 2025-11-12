@@ -3277,14 +3277,26 @@ public class Analyzer
         }
 
         // Parse the imported file
-        CompilationUnit importedUnit;
+        CompilationUnit? importedUnit = null;
         try
         {
             var source = System.IO.File.ReadAllText(resolvedPath);
             var lexer = new Lexer(source, resolvedPath);
             var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, resolvedPath);
-            importedUnit = parser.ParseCompilationUnit();
+            var parser = new Parser(tokens, resolvedPath, source);  // Pass source code
+            var parseResult = parser.ParseCompilationUnit();
+            importedUnit = parseResult.CompilationUnit;
+
+            // Report parse errors
+            foreach (var error in parseResult.Errors)
+            {
+                Error($"Parse error in imported file '{import.Path}': {error.Message}", import.Line, import.Column);
+            }
+
+            if (importedUnit == null)
+            {
+                return;  // Can't continue without compilation unit
+            }
         }
         catch (Exception ex)
         {

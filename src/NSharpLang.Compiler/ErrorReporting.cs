@@ -387,6 +387,20 @@ public record AnalysisResult(List<CompilerError> Errors)
 }
 
 /// <summary>
+/// Result of parsing with AST and any errors encountered
+/// </summary>
+public record ParseResult
+{
+    public Ast.CompilationUnit? CompilationUnit { get; init; }
+    public List<CompilerError> Errors { get; init; } = new();
+    public bool Success => CompilationUnit != null && !Errors.Any(e => e.Severity == ErrorSeverity.Error);
+    public bool HasWarnings => Errors.Any(e => e.Severity == ErrorSeverity.Warning);
+
+    // Implicit conversion for backwards compatibility
+    public static implicit operator Ast.CompilationUnit?(ParseResult result) => result.CompilationUnit;
+}
+
+/// <summary>
 /// Helper class for generating helpful error suggestions
 /// </summary>
 public static class ErrorSuggestions

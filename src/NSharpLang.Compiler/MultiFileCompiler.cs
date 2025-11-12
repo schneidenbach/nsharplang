@@ -62,10 +62,17 @@ public class MultiFileCompiler
                 var source = File.ReadAllText(sourceFile);
                 var lexer = new Lexer(source, sourceFile);
                 var tokens = lexer.Tokenize();
-                var parser = new Parser(tokens, sourceFile);
-                var compilationUnit = parser.ParseCompilationUnit();
+                var parser = new Parser(tokens, sourceFile, source);  // Pass source code
+                var parseResult = parser.ParseCompilationUnit();
 
-                _compilationUnits[sourceFile] = compilationUnit;
+                // Add parse errors to our error list
+                _allErrors.AddRange(parseResult.Errors);
+
+                // Store compilation unit (even if null, for consistency)
+                if (parseResult.CompilationUnit != null)
+                {
+                    _compilationUnits[sourceFile] = parseResult.CompilationUnit;
+                }
             }
             catch (Exception ex)
             {
