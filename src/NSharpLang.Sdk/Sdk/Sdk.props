@@ -1,8 +1,5 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
-  <!-- Import base SDK props first -->
-  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
-
   <PropertyGroup>
     <!-- Auto-detect project.yml in project directory -->
     <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
@@ -14,10 +11,17 @@
     <EnableNSharpCompilation Condition="'$(EnableNSharpCompilation)' == ''">true</EnableNSharpCompilation>
   </PropertyGroup>
 
-  <!-- If project.yml exists, read it and set MSBuild properties -->
-  <PropertyGroup Condition="Exists('$(NSharpProjectFile)')">
-    <!-- We'll use a custom task to read project.yml and populate these properties -->
-    <!-- For now, use reasonable defaults -->
+  <!-- Import generated props from project.yml if it exists -->
+  <Import Project="$(MSBuildProjectDirectory)/obj/project.g.props" Condition="Exists('$(MSBuildProjectDirectory)/obj/project.g.props')" />
+
+  <!-- Set defaults if project.yml exists but hasn't been processed yet -->
+  <PropertyGroup Condition="Exists('$(NSharpProjectFile)') And '$(TargetFramework)' == ''">
+    <!-- Temporary defaults until project.g.props is generated -->
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
+
+  <!-- Import base SDK props -->
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
 </Project>
