@@ -521,5 +521,22 @@ class MyClass {
     // Lambda test skipped due to parser limitations with inline lambda syntax
     // The linter correctly handles lambdas when they're in the AST
 
+    [Fact]
+    public void Linter_ForeachLoop_CollectionVariableIsNotUnused()
+    {
+        var source = @"
+func test() {
+    items := [1, 2, 3]
+    foreach x in items {
+        print(x)
+    }
+}";
+        var diagnostics = Lint(source);
+
+        // 'items' should NOT be reported as unused because it's used in foreach
+        var unusedVars = diagnostics.Where(d => d.Code == "NL001").ToList();
+        Assert.DoesNotContain(unusedVars, d => d.Message.Contains("'items'"));
+    }
+
     #endregion
 }
