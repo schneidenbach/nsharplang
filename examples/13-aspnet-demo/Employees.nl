@@ -126,6 +126,10 @@ class EmployeesController : ControllerBase {
     [HttpGet]
     func async GetAll(): IActionResult {
         employees := await db.Employees.ToArrayAsync()
+        employees.
+
+
+        
         return Ok(employees)
     }
 
