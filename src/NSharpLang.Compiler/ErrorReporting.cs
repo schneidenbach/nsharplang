@@ -381,7 +381,7 @@ public enum ErrorSeverity
     Error
 }
 
-public record AnalysisResult(List<CompilerError> Errors)
+public record AnalysisResult(List<CompilerError> Errors, SemanticModel SemanticModel)
 {
     public bool HasErrors => Errors.Any(e => e.Severity == ErrorSeverity.Error);
 }

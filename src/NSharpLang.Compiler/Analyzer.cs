@@ -30,6 +30,7 @@ public class Analyzer
     private string[]? _sourceLines;  // Source code lines for error snippets
     private readonly List<Assembly> _referencedAssemblies = new(); // External assemblies for type resolution
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
+    private SemanticModel _semanticModel = new(); // Semantic model for IDE features
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -45,6 +46,7 @@ public class Analyzer
         _importedSymbols.Clear();
         _importedSymbolsByAlias.Clear();
         _extensionMethods.Clear();
+        _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _currentReturnType = null;
         _inLoop = false;
         _inConstructor = false;
@@ -119,7 +121,7 @@ public class Analyzer
 
         PopScope();
 
-        return new AnalysisResult(_errors);
+        return new AnalysisResult(_errors, _semanticModel);
     }
 
     private void AnalyzeDeclaration(Declaration decl)
@@ -219,10 +221,16 @@ public class Analyzer
         {
             var paramType = ResolveType(param.Type);
             DeclareSymbol(param.Name, paramType, func.Line, func.Column);
+
+            // Record parameter in semantic model for IDE features
+            _semanticModel.RecordVariable(param.Name, paramType);
         }
 
         // Set expected return type
         _currentReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+
+        // Record function return type in semantic model for IDE features
+        _semanticModel.RecordFunction(func.Name, _currentReturnType);
 
         // Analyze body
         if (func.Body != null)
@@ -841,6 +849,9 @@ public class Analyzer
         }
 
         DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column);
+
+        // Record in semantic model for IDE features
+        _semanticModel.RecordVariable(varDecl.Name, finalType);
     }
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)

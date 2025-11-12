@@ -18,6 +18,7 @@ public class DocumentState
     public List<Diagnostic>? LinterDiagnostics { get; set; }  // Linter diagnostics from static analysis
     public Dictionary<string, TypeInfo>? Symbols { get; set; }
     public Dictionary<string, SymbolInfo>? SymbolsInfo { get; set; }  // Enhanced symbol info for intellisense
+    public SemanticModel? SemanticModel { get; set; }  // Semantic model with resolved types for IDE features
 
     // Convenience properties
     public CompilationUnit? Ast => CompilationUnit;
