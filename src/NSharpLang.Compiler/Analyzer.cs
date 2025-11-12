@@ -973,14 +973,13 @@ public class Analyzer
 
         PushScope(new Scope(ScopeKind.Block));
 
-        // Infer element type (simplified)
-        TypeInfo elementType = BuiltInTypes.Unknown;
-        if (collectionType is ArrayTypeInfo arrayType)
-        {
-            elementType = arrayType.ElementType;
-        }
+        // Infer element type
+        TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(foreachStmt.VariableName, elementType, foreachStmt.Line, foreachStmt.Column);
+
+        // Record in semantic model for IDE features (hover, completion)
+        _semanticModel.RecordVariable(foreachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
         _inLoop = true;
@@ -1000,16 +999,13 @@ public class Analyzer
 
         PushScope(new Scope(ScopeKind.Block));
 
-        // Infer element type (simplified)
-        // For IAsyncEnumerable<T>, we need to extract T
-        TypeInfo elementType = BuiltInTypes.Unknown;
-        if (collectionType is ArrayTypeInfo arrayType)
-        {
-            elementType = arrayType.ElementType;
-        }
-        // TODO: Handle IAsyncEnumerable<T> type extraction
+        // Infer element type
+        TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(awaitForeachStmt.VariableName, elementType, awaitForeachStmt.Line, awaitForeachStmt.Column);
+
+        // Record in semantic model for IDE features (hover, completion)
+        _semanticModel.RecordVariable(awaitForeachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
         _inLoop = true;
@@ -1017,6 +1013,54 @@ public class Analyzer
         _inLoop = wasInLoop;
 
         PopScope();
+    }
+
+    /// <summary>
+    /// Infer the element type from a collection type for foreach loops
+    /// </summary>
+    private TypeInfo InferElementType(TypeInfo collectionType)
+    {
+        // Handle arrays: Employee[] → Employee
+        if (collectionType is ArrayTypeInfo arrayType)
+        {
+            return arrayType.ElementType;
+        }
+
+        // Handle generic collections: List<Employee> → Employee
+        // This also handles IEnumerable<T>, ICollection<T>, etc.
+        if (IsCollectionType(collectionType, out var elementType))
+        {
+            return elementType;
+        }
+
+        // Handle .NET reflection types that implement IEnumerable<T>
+        if (collectionType is ReflectionTypeInfo reflectionType)
+        {
+            var type = reflectionType.Type;
+
+            // Check if it's an array
+            if (type.IsArray)
+            {
+                var elementReflectionType = type.GetElementType();
+                if (elementReflectionType != null)
+                {
+                    return new ReflectionTypeInfo(elementReflectionType);
+                }
+            }
+
+            // Check if type implements IEnumerable<T>
+            var enumerableInterface = type.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType &&
+                                   i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
+
+            if (enumerableInterface != null)
+            {
+                var elementReflectionType = enumerableInterface.GetGenericArguments()[0];
+                return new ReflectionTypeInfo(elementReflectionType);
+            }
+        }
+
+        return BuiltInTypes.Unknown;
     }
 
     private void AnalyzeReturnStatement(ReturnStatement returnStmt)
