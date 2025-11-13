@@ -215,7 +215,7 @@ public class HoverHandler : HoverHandlerBase
         var memberInfo = resolver.ResolveMemberInfo(memberAccess);
         if (memberInfo == null) return null;
 
-        string markdown = memberInfo switch
+        string? markdown = memberInfo switch
         {
             MethodInfo method => FormatMethod(method),
             PropertyInfo property => FormatProperty(property),

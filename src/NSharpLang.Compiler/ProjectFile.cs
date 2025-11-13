@@ -352,19 +352,19 @@ public class ReferenceConverter : IYamlTypeConverter
             {
                 case ReferenceType.NuGet:
                     emitter.Emit(new Scalar("nuget"));
-                    emitter.Emit(new Scalar(reference.Nuget));
+                    emitter.Emit(new Scalar(reference.Nuget!)); // Non-null when Type is NuGet
                     break;
                 case ReferenceType.Dll:
                     emitter.Emit(new Scalar("dll"));
-                    emitter.Emit(new Scalar(reference.Dll));
+                    emitter.Emit(new Scalar(reference.Dll!)); // Non-null when Type is Dll
                     break;
                 case ReferenceType.Project:
                     emitter.Emit(new Scalar("project"));
-                    emitter.Emit(new Scalar(reference.Project));
+                    emitter.Emit(new Scalar(reference.Project!)); // Non-null when Type is Project
                     break;
                 case ReferenceType.Framework:
                     emitter.Emit(new Scalar("framework"));
-                    emitter.Emit(new Scalar(reference.Framework));
+                    emitter.Emit(new Scalar(reference.Framework!)); // Non-null when Type is Framework
                     break;
             }
 
