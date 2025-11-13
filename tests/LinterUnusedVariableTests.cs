@@ -163,6 +163,44 @@ public class LinterUnusedVariableTests
 
     #endregion
 
+    #region LINQ and Method Chain Tests
+
+    [Fact]
+    public void VariableUsedInLINQChain_ShouldNotBeMarkedUnused()
+    {
+        var source = @"func main(): void
+    let numbers = [1, 2, 3, 4, 5]
+    let doubled = numbers.Select(x => x * 2).ToList()
+    Console.WriteLine(doubled)";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiags = diagnostics.Where(d => d.Code == "NL001").ToList();
+
+        // 'doubled' is used in Console.WriteLine, should not be marked unused
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'doubled'"));
+        // 'numbers' is used in the LINQ chain, should not be marked unused
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'numbers'"));
+    }
+
+    [Fact]
+    public void VariableUsedInMethodChain_ShouldNotBeMarkedUnused()
+    {
+        var source = @"func main(): void
+    let text = ""hello""
+    let result = text.ToUpper().Trim()
+    print(result)";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiags = diagnostics.Where(d => d.Code == "NL001").ToList();
+
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'text'"));
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'result'"));
+    }
+
+    #endregion
+
     #region True Unused Variables (should still be detected)
 
     [Fact]

@@ -35,21 +35,32 @@ public class NSharpCompile : Task
         }
 
         Log.LogMessage(MessageImportance.High, $"Compiling {Sources.Length} N# file(s)...");
+        Log.LogMessage(MessageImportance.High, $"ProjectRoot: {ProjectRoot}");
 
+        var logPath = Path.Combine(ProjectRoot, "compile-debug.log");
         try
         {
+            try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] NSharpCompile.Execute ENTRY (ProjectRoot={ProjectRoot})\n"); } catch (Exception ex) { Log.LogMessage(MessageImportance.High, $"Failed to write log: {ex.Message}"); }
+            Log.LogMessage(MessageImportance.High, "About to process source files...");
             var sourceFiles = Sources.Select(s => s.ItemSpec).ToList();
+            Log.LogMessage(MessageImportance.High, $"Processed {sourceFiles.Count} source files");
+            try { File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Source files: {string.Join(", ", sourceFiles.Select(Path.GetFileName))}\n"); } catch { }
 
             // Load project config from project.yml if available, otherwise use default
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Loading project config from: {ProjectFile ?? "default"}\n");
             var config = !string.IsNullOrEmpty(ProjectFile) && File.Exists(ProjectFile)
                 ? ProjectFileParser.Parse(ProjectFile)
                 : ProjectFileParser.CreateDefault();
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Config loaded\n");
 
             Log.LogMessage(MessageImportance.Low,
                 $"Using config: {(string.IsNullOrEmpty(ProjectFile) ? "default" : ProjectFile)}");
 
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Creating MultiFileCompiler\n");
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Calling compiler.Compile()\n");
             var result = compiler.Compile();
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] compiler.Compile() returned\n");
 
             if (!result.Success)
             {

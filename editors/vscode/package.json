@@ -37,8 +37,14 @@
     "languages": [
       {
         "id": "nsharp",
-        "aliases": ["N#", "nsharp"],
-        "extensions": [".nl", ".tests.nl"],
+        "aliases": [
+          "N#",
+          "nsharp"
+        ],
+        "extensions": [
+          ".nl",
+          ".tests.nl"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -59,7 +65,11 @@
         },
         "nsharp.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Traces the communication between VS Code and the language server."
         },
@@ -89,7 +99,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
-    "typescript": "^5.0.0",
-    "@vscode/vsce": "^2.22.0"
+    "@vscode/vsce": "^2.32.0",
+    "typescript": "^5.0.0"
   }
 }

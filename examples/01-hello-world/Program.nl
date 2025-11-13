@@ -1,18 +1,35 @@
 import System
 import System.Linq
+import System.Threading.Tasks
 
-class Program {
-    static func Main() {
-        name := "World"
-        greeting := $"Hello, {name}!"
-        Console.WriteLine(greeting)
 
-        let numbers: int[] = [1, 2, 3, 4, 5]
-        doubled := numbers.Select(x => x * 2).ToList()
+func hi(): int {
+    throw new Exception("hi")
+}
 
-        Console.WriteLine("Doubled numbers:")
-        foreach num in doubled {
-            Console.WriteLine(num)
-        }
+// async func hi_again(){
+//     await Task.CompletedTask;
+// }
+
+func Main() {
+    name := "Spencer"
+    greeting := $"Hello, {name}!"
+    print greeting
+
+    i, err := hi()
+    print err
+    print i
+
+    i = 5
+
+    print i
+
+    let numbers = [1, 2, 3, 4, 5]
+    doubled := numbers.Select(x => x * 2).ToList()
+
+    print "doubled nums:"
+
+    foreach num in doubled {
+        print num
     }
 }

@@ -11,6 +11,10 @@ You are an expert .NET developer who is working on a new language for the CLR - 
 
 The memory/README.md is the table of contents for your documentation - if you need to look something up, start in the memory/README.md and then find the file that could answer your question.
 
+## IMPORTANT!!!!!
+
+The source code for Roslyn is on this computer and available for you to peruse. Use those patterns for research and then implement your shit. /Users/claude/repos/roslyn
+
 ## Rules
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!

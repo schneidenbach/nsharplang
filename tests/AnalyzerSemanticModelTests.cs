@@ -173,4 +173,28 @@ func test() {
         var xType = result.SemanticModel.LookupIdentifier("x");
         Assert.NotNull(xType);
     }
+
+    // TODO: Implement proper generic type inference for LINQ methods
+    // [Fact]
+    // public void Analyzer_LINQMethodChain_InfersCorrectType()
+    // {
+    //     var source = @"
+    // import System
+    // import System.Linq
+    //
+    // func test() {
+    //     numbers: int[] = [1, 2, 3, 4, 5]
+    //     doubled := numbers.Select(x => x * 2).ToList()
+    // }";
+    //
+    //     var result = Analyze(source);
+    //
+    //     Assert.NotNull(result.SemanticModel);
+    //     var doubledType = result.SemanticModel.LookupIdentifier("doubled");
+    //     Assert.NotNull(doubledType);
+    //     // Should infer as List<int>, not Unknown
+    //     Assert.NotEqual("Unknown", doubledType.ToString());
+    //     // The type should be something like "List<int>"
+    //     Assert.Contains("List", doubledType.ToString());
+    // }
 }

@@ -19,19 +19,30 @@ public class MultiFileCompiler
     private readonly Dictionary<string, SemanticModel> _semanticModels = new();
     private readonly Dictionary<string, string> _transpiledFiles = new();
     private readonly List<CompilerError> _allErrors = new();
+    private readonly Analyzer _sharedAnalyzer;
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
         _sourceFiles = DiscoverSourceFiles(projectRoot, _config);
+
+        // Initialize shared analyzer ONCE with system assemblies and project config
+        _sharedAnalyzer = new Analyzer();
+        _sharedAnalyzer.LoadSystemAssemblies();
+        _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
     }
 
     public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config = null)
     {
         _projectRoot = projectRoot;
-        _config = config;
+        _config = config ?? ProjectFileParser.CreateDefault();
         _sourceFiles = sourceFiles.ToList();
+
+        // Initialize shared analyzer ONCE with system assemblies and project config
+        _sharedAnalyzer = new Analyzer();
+        _sharedAnalyzer.LoadSystemAssemblies();
+        _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
     }
 
     /// <summary>
@@ -56,15 +67,22 @@ public class MultiFileCompiler
     /// </summary>
     private void ParseAllFiles()
     {
+        var logPath = Path.Combine(_projectRoot, "compile-debug.log");
         foreach (var sourceFile in _sourceFiles)
         {
             try
             {
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}\n");
                 var source = File.ReadAllText(sourceFile);
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)\n");
                 var lexer = new Lexer(source, sourceFile);
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created\n");
                 var tokens = lexer.Tokenize();
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Tokenized ({tokens.Count} tokens)\n");
                 var parser = new Parser(tokens, sourceFile, source);  // Pass source code
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Parser created\n");
                 var parseResult = parser.ParseCompilationUnit();
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit\n");
 
                 // Add parse errors to our error list
                 _allErrors.AddRange(parseResult.Errors);
@@ -74,9 +92,11 @@ public class MultiFileCompiler
                 {
                     _compilationUnits[sourceFile] = parseResult.CompilationUnit;
                 }
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}\n");
             }
             catch (Exception ex)
             {
+                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   EXCEPTION: {ex.Message}\n");
                 _allErrors.Add(new CompilerError(
                     ErrorCode.InvalidSyntax,
                     $"Failed to parse {sourceFile}: {ex.Message}",
@@ -90,14 +110,13 @@ public class MultiFileCompiler
 
     /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
-    /// WORKAROUND: We need to process imports from all files to make symbols available.
-    /// For now, we'll compile all files into a single virtual file that can see all declarations.
+    /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
+    /// This prevents the performance issue of reloading assemblies for each file.
     /// </summary>
     private void AnalyzeAllFiles()
     {
-        // For now, analyze each file independently
-        // This works because the Analyzer's import system already handles cross-file references
-        // when we use proper import statements
+        // Analyze each file using the shared analyzer instance
+        // The Analyzer's import system handles cross-file references via proper import statements
         foreach (var kvp in _compilationUnits)
         {
             var sourceFile = kvp.Key;
@@ -105,15 +124,8 @@ public class MultiFileCompiler
 
             try
             {
-                var analyzer = new Analyzer();
-
-                // Load system assemblies
-                analyzer.LoadSystemAssemblies();
-
-                // Load assemblies from project configuration
-                analyzer.LoadFromProjectConfig(_config, _projectRoot);
-
-                var result = analyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
+                // Use the shared analyzer (assemblies already loaded in constructor)
+                var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
 
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
@@ -175,12 +187,18 @@ public class MultiFileCompiler
     /// </summary>
     public MultiFileCompilationResult Compile()
     {
+        var logPath = Path.Combine(_projectRoot, "compile-debug.log");
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Compile START\n");
+
         // Pass 1: Parse
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles START\n");
         ParseAllFiles();
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END\n");
 
         // Stop if parse errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Parse errors found, returning\n");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -189,11 +207,14 @@ public class MultiFileCompiler
         }
 
         // Pass 2: Analyze
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START\n");
         AnalyzeAllFiles();
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END\n");
 
         // Stop if analysis errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
+            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Analysis errors found, returning\n");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -202,10 +223,13 @@ public class MultiFileCompiler
         }
 
         // Pass 2: Transpile
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START\n");
         TranspileAllFiles();
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END\n");
 
         // Return results
         var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
+        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Compile END (success={success})\n");
         return new MultiFileCompilationResult(success, _allErrors, _transpiledFiles);
     }
 
