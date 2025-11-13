@@ -172,7 +172,7 @@ internal class LintVisitor
     private readonly string? _filePath;
     private readonly LinterConfig _config;
     private readonly List<Diagnostic> _diagnostics = new();
-    private readonly Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
+    private Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
     private readonly Stack<Dictionary<string, (int Line, int Column, bool Used)>> _scopeStack = new();
     private readonly List<string> _importedNamespaces = new();
@@ -214,23 +214,20 @@ internal class LintVisitor
 
     private void PushScope()
     {
-        _scopeStack.Push(new Dictionary<string, (int Line, int Column, bool Used)>(_declaredVariables));
+        // Save current scope to stack
+        _scopeStack.Push(_declaredVariables);
+        // Create new empty scope for child
+        _declaredVariables = new Dictionary<string, (int Line, int Column, bool Used)>();
     }
 
     private void PopScope()
     {
         if (_scopeStack.Count > 0)
         {
+            // Check current scope for unused variables
             CheckUnusedVariables();
-            _declaredVariables.Clear();
-            if (_scopeStack.Count > 0)
-            {
-                var parent = _scopeStack.Pop();
-                foreach (var kvp in parent)
-                {
-                    _declaredVariables[kvp.Key] = kvp.Value;
-                }
-            }
+            // Restore parent scope
+            _declaredVariables = _scopeStack.Pop();
         }
     }
 
