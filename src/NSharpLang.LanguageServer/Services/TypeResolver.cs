@@ -15,6 +15,7 @@ public class TypeResolver
     private readonly XmlDocReader _xmlDocReader;
     private readonly Dictionary<string, Type> _typeCache = new();
     private readonly List<Assembly> _loadedAssemblies = new();
+    private readonly Dictionary<Assembly, Type[]> _exportedTypesCache = new();
 
     public TypeResolver(ILogger<TypeResolver> logger, XmlDocReader xmlDocReader)
     {
@@ -89,7 +90,7 @@ public class TypeResolver
         {
             try
             {
-                // Try exact match
+                // Try exact match first (fast path)
                 var type = assembly.GetType(typeName);
                 if (type != null)
                 {
@@ -97,8 +98,13 @@ public class TypeResolver
                     return type;
                 }
 
-                // Try with namespace prefixes
-                var exportedTypes = assembly.GetExportedTypes();
+                // Try with namespace prefixes using cached exported types
+                if (!_exportedTypesCache.TryGetValue(assembly, out var exportedTypes))
+                {
+                    exportedTypes = assembly.GetExportedTypes();
+                    _exportedTypesCache[assembly] = exportedTypes;
+                }
+
                 type = exportedTypes.FirstOrDefault(t =>
                     t.Name == typeName || t.FullName == typeName);
 
@@ -251,7 +257,14 @@ public class TypeResolver
         {
             try
             {
-                foreach (var type in assembly.GetExportedTypes())
+                // Use cached exported types
+                if (!_exportedTypesCache.TryGetValue(assembly, out var exportedTypes))
+                {
+                    exportedTypes = assembly.GetExportedTypes();
+                    _exportedTypesCache[assembly] = exportedTypes;
+                }
+
+                foreach (var type in exportedTypes)
                 {
                     if (!types.ContainsKey(type.Name) && type.IsPublic)
                     {

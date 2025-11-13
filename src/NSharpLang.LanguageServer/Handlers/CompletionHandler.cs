@@ -163,13 +163,17 @@ public class CompletionHandler : CompletionHandlerBase
             var lineText = lines[line];
             if (character == 0) return items;
 
-            // Get the identifier before the dot
+            // Get the expression before the dot
             var beforeDot = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
             if (!beforeDot.EndsWith(".")) return items;
 
             beforeDot = beforeDot.Substring(0, beforeDot.Length - 1).TrimEnd();
 
-            // Extract the identifier (simplified - could be improved with proper parsing)
+            _logger.LogDebug("Resolving type for expression: {Expression}", beforeDot);
+
+            Type? type = null;
+
+            // Extract the identifier (rightmost token)
             var identifier = ExtractIdentifier(beforeDot);
             if (string.IsNullOrEmpty(identifier))
             {
@@ -177,9 +181,14 @@ public class CompletionHandler : CompletionHandlerBase
                 return items;
             }
 
-            _logger.LogDebug("Looking up members for identifier: {Identifier}", identifier);
-
-            Type? type = null;
+            // Check if this looks like a method call (ends with ")") - this indicates a chained expression
+            // For now, we don't support these - would need full expression type resolution
+            // The performance fix (caching GetExportedTypes) means this won't hang anymore, just returns empty
+            if (identifier.EndsWith(")"))
+            {
+                _logger.LogDebug("Chained method call detected - not yet supported: {Identifier}", identifier);
+                return items; // Return empty for now - TODO: implement full expression type resolution
+            }
 
             // First, try to find the identifier in the semantic model (variables, parameters, etc.)
             if (doc?.SemanticModel != null)
