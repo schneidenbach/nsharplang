@@ -80,3 +80,86 @@ func test() {
 
 ## Priority
 HIGH - This is a false positive that will annoy users
+
+## Resolution
+**Status**: FIXED
+
+The bug was in the `PushScope`/`PopScope` implementation in `Linter.cs`. The root cause was that `PushScope` was creating a COPY of the parent scope's variables, which meant when child scopes (like lambda expressions) popped, they would check parent variables for unused status, generating false positives.
+
+### The Bug
+When the linter visited this code:
+```nsharp
+doubled := numbers.Select(x => x * 2).ToList()
+
+foreach num in doubled {
+    Console.WriteLine(num)
+}
+```
+
+The sequence was:
+1. `doubled` was declared
+2. The initializer expression contains a lambda `x => x * 2`
+3. The lambda pushed a scope with a COPY of parent variables (including `doubled`)
+4. The lambda popped its scope, checking `doubled` for usage → FALSE POSITIVE!
+5. Then the foreach visited `doubled` and marked it as used (too late!)
+
+### The Fix
+Changed `PushScope` and `PopScope` to use a different approach:
+
+**Before (BUGGY)**:
+```csharp
+private void PushScope()
+{
+    // Creates a COPY of current variables
+    _scopeStack.Push(new Dictionary<string, (int Line, int Column, bool Used)>(_declaredVariables));
+}
+
+private void PopScope()
+{
+    CheckUnusedVariables(); // Checks ALL variables including copied parent ones!
+    _declaredVariables.Clear();
+    if (_scopeStack.Count > 0)
+    {
+        var parent = _scopeStack.Pop();
+        foreach (var kvp in parent)
+            _declaredVariables[kvp.Key] = kvp.Value;
+    }
+}
+```
+
+**After (FIXED)**:
+```csharp
+private void PushScope()
+{
+    // Save current scope reference to stack
+    _scopeStack.Push(_declaredVariables);
+    // Create new EMPTY scope for child
+    _declaredVariables = new Dictionary<string, (int Line, int Column, bool Used)>();
+}
+
+private void PopScope()
+{
+    if (_scopeStack.Count > 0)
+    {
+        // Check only variables declared in THIS scope
+        CheckUnusedVariables();
+        // Restore parent scope
+        _declaredVariables = _scopeStack.Pop();
+    }
+}
+```
+
+Now each scope only tracks variables DECLARED in that scope, not inherited from parents. Parent scope lookups still work through the stack in `MarkVariableUsed`.
+
+### Changes Made
+- `src/NSharpLang.Compiler/Linter.cs:175` - Removed `readonly` from `_declaredVariables`
+- `src/NSharpLang.Compiler/Linter.cs:215-221` - Fixed `PushScope` to create empty child scopes
+- `src/NSharpLang.Compiler/Linter.cs:223-231` - Fixed `PopScope` to restore parent scope reference
+
+### Test Results
+All Linter tests pass:
+- NL001 tests: 9/9 passed
+- NL002 tests: 8/8 passed
+- NL003 tests: 6/6 passed
+- NL004 tests: 4/4 passed
+- Total: 27/27 Linter tests passing
