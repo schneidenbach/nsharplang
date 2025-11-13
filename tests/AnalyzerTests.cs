@@ -22,7 +22,7 @@ public class AnalyzerTests
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        var ast = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
         var analyzer = new Analyzer();
 
         // Load system assemblies
@@ -31,7 +31,7 @@ public class AnalyzerTests
         // Load from project config if provided
         analyzer.LoadFromProjectConfig(config);
 
-        return analyzer.Analyze(ast);
+        return analyzer.Analyze(result.CompilationUnit!);
     }
 
     private void AssertNoErrors(string source, ProjectConfig? config = null)

@@ -13,9 +13,9 @@ public class LinterTests
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        var ast = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
         var linter = new Linter();
-        return linter.Lint(ast, "test.nl");
+        return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
     private void AssertHasDiagnostic(List<Diagnostic> diagnostics, string code, string messageSubstring)
@@ -438,13 +438,13 @@ class MyClass {
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        var ast = parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
 
         var config = LinterConfig.Default();
         config.RuleSeverities["NL001"] = DiagnosticSeverity.Error;
 
         var linter = new Linter(config);
-        var diagnostics = linter.Lint(ast, "test.nl");
+        var diagnostics = linter.Lint(result.CompilationUnit!, "test.nl");
 
         var unusedVarDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
         Assert.NotNull(unusedVarDiag);
