@@ -13,7 +13,8 @@ public class FormatterTests
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens, "test.nl");
-        return parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        return result.CompilationUnit!; // Tests expect valid syntax
     }
 
     private static string Format(string source)

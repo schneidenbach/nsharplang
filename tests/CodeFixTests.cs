@@ -336,6 +336,7 @@ func main() {
         var lexer = new Lexer(code);
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens);
-        return parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        return result.CompilationUnit!; // Tests expect valid syntax
     }
 }
