@@ -23,3 +23,7 @@ local-packages/
 # Test results
 TestResults/
 test-sdk-project/
+test-output.log
+
+# Build task debug logs
+compile-debug.log

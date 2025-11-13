@@ -178,6 +178,9 @@ internal class LintVisitor
     private readonly List<string> _importedNamespaces = new();
     private bool _hasAwaitInFunction = false;
     private bool _inAsyncFunction = false;
+    private readonly HashSet<Expression> _visitedExpressions = new(ReferenceEqualityComparer.Instance);
+    private int _recursionDepth = 0;
+    private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
     public List<Diagnostic> Diagnostics => _diagnostics;
 
@@ -596,6 +599,35 @@ internal class LintVisitor
 
     private void VisitExpression(Expression expression)
     {
+        // Guard against infinite recursion
+        _recursionDepth++;
+        if (_recursionDepth > MAX_RECURSION_DEPTH)
+        {
+            throw new InvalidOperationException($"Maximum recursion depth exceeded while visiting expression at line {expression.Line}, column {expression.Column}. Expression type: {expression.GetType().Name}");
+        }
+
+        // Guard against circular references using reference equality
+        // This prevents the same expression object instance from being visited twice
+        if (!_visitedExpressions.Add(expression))
+        {
+            // Already visiting this expression instance, skip to avoid infinite loop
+            _recursionDepth--;
+            return;
+        }
+
+        try
+        {
+            VisitExpressionInternal(expression);
+        }
+        finally
+        {
+            _recursionDepth--;
+            _visitedExpressions.Remove(expression);
+        }
+    }
+
+    private void VisitExpressionInternal(Expression expression)
+    {
         switch (expression)
         {
             case IdentifierExpression ident:
@@ -749,6 +781,11 @@ internal class LintVisitor
 
             case UncheckedExpression uncheckedExpr:
                 VisitExpression(uncheckedExpr.Expression);
+                break;
+
+            default:
+                // Handle any unhandled expression types (literals, etc.)
+                // Most literals don't have child expressions to visit
                 break;
         }
     }
