@@ -384,7 +384,18 @@ internal class LintVisitor
         switch (statement)
         {
             case VariableDeclarationStatement varDecl:
-                DeclareVariable(varDecl.Name, varDecl.Line, varDecl.Column);
+                // Calculate column of variable name, not the keyword
+                // For "let x = 1", if let starts at column 10, then x starts at column 14 (10 + "let" + space)
+                // For "const x = 1", if const starts at column 10, then x starts at column 16 (10 + "const" + space)
+                var keywordLength = varDecl.Kind switch
+                {
+                    VariableKind.Let => 3,  // "let" (also used for := shorthand)
+                    VariableKind.Const => 5,  // "const"
+                    VariableKind.Readonly => 8,  // "readonly"
+                    _ => 3
+                };
+                var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
+                DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
                 if (varDecl.Initializer != null)
                     VisitExpression(varDecl.Initializer);
                 break;
