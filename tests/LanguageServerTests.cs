@@ -42,8 +42,9 @@ public class LanguageServerFixture : IDisposable
 
 /// <summary>
 /// Collection definition for Language Server tests
+/// CRITICAL: DisableParallelization prevents deadlocks during fixture cleanup
 /// </summary>
-[CollectionDefinition("LanguageServer")]
+[CollectionDefinition("LanguageServer", DisableParallelization = true)]
 public class LanguageServerCollection : ICollectionFixture<LanguageServerFixture>
 {
     // This class has no code, and is never created. Its purpose is simply
