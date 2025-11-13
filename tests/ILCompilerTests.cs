@@ -16,7 +16,8 @@ public class ILCompilerTests
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens, "test.nl");
-        return parser.ParseCompilationUnit();
+        var result = parser.ParseCompilationUnit();
+        return result.CompilationUnit!; // Tests expect valid syntax
     }
 
     private object? CompileAndInvoke(string source, string functionName = "main", params object[] args)
