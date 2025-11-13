@@ -720,16 +720,17 @@ class Program
             sb.AppendLine("  </ItemGroup>");
         }
 
-        if (false)
-        {
-            sb.AppendLine();
-            sb.AppendLine("  <ItemGroup>");
-            foreach (var projectRef in config.Dependencies)
-            {
-                sb.AppendLine($"    <ProjectReference Include=\"{projectRef}\" />");
-            }
-            sb.AppendLine("  </ItemGroup>");
-        }
+        // FUTURE: Add support for project references when needed
+        // if (config.Dependencies != null && config.Dependencies.Count > 0)
+        // {
+        //     sb.AppendLine();
+        //     sb.AppendLine("  <ItemGroup>");
+        //     foreach (var projectRef in config.Dependencies)
+        //     {
+        //         sb.AppendLine($"    <ProjectReference Include=\"{projectRef}\" />");
+        //     }
+        //     sb.AppendLine("  </ItemGroup>");
+        // }
         #pragma warning restore CS0618 // Type or member is obsolete
 
         sb.AppendLine("</Project>");
@@ -857,7 +858,7 @@ func Main() {{
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
 
             // Find all non-test .nl files using project config (respects exclude patterns)
-            var sourceFiles = projectConfig.GetSourceFiles(projectRoot, includeTests: false);
+            var sourceFiles = projectConfig?.GetSourceFiles(projectRoot, includeTests: false) ?? Array.Empty<string>();
 
             // For exe projects, build main project first and reference it
             // For library projects, compile all together (current behavior)
