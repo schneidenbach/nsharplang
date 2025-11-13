@@ -33,14 +33,14 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Equal("Add", funcDecl.Name);
-        Assert.Equal(2, funcDecl.Parameters.Count);
-        Assert.Equal("x", funcDecl.Parameters[0].Name);
-        Assert.Equal("y", funcDecl.Parameters[1].Name);
-        Assert.NotNull(funcDecl.ReturnType);
-        // Use funcDecl.ReturnType! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.Equal("Add", funcDecl!.Name);
+        Assert.Equal(2, funcDecl!.Parameters.Count);
+        Assert.Equal("x", funcDecl!.Parameters[0].Name);
+        Assert.Equal("y", funcDecl!.Parameters[1].Name);
+        Assert.NotNull(funcDecl!.ReturnType);
+        // Use funcDecl!.ReturnType! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
     }
 
     [Fact]
@@ -58,8 +58,8 @@ public class ParserTests
 
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("Person", classDecl.Name);
-        Assert.Equal(2, classDecl.Members.Count);
+        Assert.Equal("Person", classDecl!.Name);
+        Assert.Equal(2, classDecl!.Members.Count);
     }
 
     [Fact]
@@ -76,21 +76,21 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
-        Assert.Equal(2, funcDecl.Body.Statements.Count);
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
+        Assert.Equal(2, funcDecl!.Body.Statements.Count);
 
-        var letDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var letDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(letDecl);
         // Use letDecl! for all following references
-        Assert.Equal("x", letDecl.Name);
-        Assert.Equal(VariableKind.Let, letDecl.Kind);
+        Assert.Equal("x", letDecl!.Name);
+        Assert.Equal(VariableKind.Let, letDecl!.Kind);
 
-        var shorthandDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
+        var shorthandDecl = funcDecl!.Body.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(shorthandDecl);
         // Use shorthandDecl! for all following references
-        Assert.Equal("y", shorthandDecl.Name);
-        Assert.Equal(VariableKind.Let, shorthandDecl.Kind);
+        Assert.Equal("y", shorthandDecl!.Name);
+        Assert.Equal(VariableKind.Let, shorthandDecl!.Kind);
     }
 
     [Fact]
@@ -112,12 +112,12 @@ public class ParserTests
 
         Assert.NotNull(ifStmt);
         // Use ifStmt! for all following references
-        Assert.NotNull(ifStmt.Condition);
-        // Use ifStmt.Condition! for all following references
-        Assert.NotNull(ifStmt.ThenStatement);
-        // Use ifStmt.ThenStatement! for all following references
-        Assert.NotNull(ifStmt.ElseStatement);
-        // Use ifStmt.ElseStatement! for all following references
+        Assert.NotNull(ifStmt!.Condition);
+        // Use ifStmt!.Condition! for all following references
+        Assert.NotNull(ifStmt!.ThenStatement);
+        // Use ifStmt!.ThenStatement! for all following references
+        Assert.NotNull(ifStmt!.ElseStatement);
+        // Use ifStmt!.ElseStatement! for all following references
     }
 
     [Fact]
@@ -135,18 +135,18 @@ public class ParserTests
 
         Assert.NotNull(returnStmt);
         // Use returnStmt! for all following references
-        Assert.NotNull(returnStmt.Value);
-        // Use returnStmt.Value! for all following references
+        Assert.NotNull(returnStmt!.Value);
+        // Use returnStmt!.Value! for all following references
 
-        var addExpr = returnStmt.Value as BinaryExpression;
+        var addExpr = returnStmt!.Value as BinaryExpression;
         Assert.NotNull(addExpr);
         // Use addExpr! for all following references
-        Assert.Equal(BinaryOperator.Add, addExpr.Operator);
+        Assert.Equal(BinaryOperator.Add, addExpr!.Operator);
 
-        var mulExpr = addExpr.Right as BinaryExpression;
+        var mulExpr = addExpr!.Right as BinaryExpression;
         Assert.NotNull(mulExpr);
         // Use mulExpr! for all following references
-        Assert.Equal(BinaryOperator.Multiply, mulExpr.Operator);
+        Assert.Equal(BinaryOperator.Multiply, mulExpr!.Operator);
     }
 
     [Fact]
@@ -164,10 +164,10 @@ public class ParserTests
 
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        var arrayLiteral = varDecl.Initializer as ArrayLiteralExpression;
+        var arrayLiteral = varDecl!.Initializer as ArrayLiteralExpression;
         Assert.NotNull(arrayLiteral);
         // Use arrayLiteral! for all following references
-        Assert.Equal(3, arrayLiteral.Elements.Count);
+        Assert.Equal(3, arrayLiteral!.Elements.Count);
     }
 
     [Fact]
@@ -187,15 +187,15 @@ public class ParserTests
         var lambda1 = fDecl!.Initializer as LambdaExpression;
         Assert.NotNull(lambda1);
         // Use lambda1! for all following references
-        Assert.Single(lambda1.Parameters);
-        Assert.NotNull(lambda1.ExpressionBody);
-        // Use lambda1.ExpressionBody! for all following references
+        Assert.Single(lambda1!.Parameters);
+        Assert.NotNull(lambda1!.ExpressionBody);
+        // Use lambda1!.ExpressionBody! for all following references
 
         var gDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
         var lambda2 = gDecl!.Initializer as LambdaExpression;
         Assert.NotNull(lambda2);
         // Use lambda2! for all following references
-        Assert.Equal(2, lambda2.Parameters.Count);
+        Assert.Equal(2, lambda2!.Parameters.Count);
     }
 
     [Fact]
@@ -215,15 +215,15 @@ public class ParserTests
         var memberAccess1 = xDecl!.Initializer as MemberAccessExpression;
         Assert.NotNull(memberAccess1);
         // Use memberAccess1! for all following references
-        Assert.Equal("Name", memberAccess1.MemberName);
-        Assert.False(memberAccess1.IsNullConditional);
+        Assert.Equal("Name", memberAccess1!.MemberName);
+        Assert.False(memberAccess1!.IsNullConditional);
 
         var yDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
         var memberAccess2 = yDecl!.Initializer as MemberAccessExpression;
         Assert.NotNull(memberAccess2);
         // Use memberAccess2! for all following references
-        Assert.Equal("Age", memberAccess2.MemberName);
-        Assert.True(memberAccess2.IsNullConditional);
+        Assert.Equal("Age", memberAccess2!.MemberName);
+        Assert.True(memberAccess2!.IsNullConditional);
     }
 
     [Fact]
@@ -243,15 +243,15 @@ public class ParserTests
         var call1 = resultDecl!.Initializer as CallExpression;
         Assert.NotNull(call1);
         // Use call1! for all following references
-        Assert.Equal(2, call1.Arguments.Count);
+        Assert.Equal(2, call1!.Arguments.Count);
 
         var namedDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
         var call2 = namedDecl!.Initializer as CallExpression;
         Assert.NotNull(call2);
         // Use call2! for all following references
-        Assert.Equal(2, call2.Arguments.Count);
-        Assert.Equal("name", call2.Arguments[0].Name);
-        Assert.Equal("age", call2.Arguments[1].Name);
+        Assert.Equal(2, call2!.Arguments.Count);
+        Assert.Equal("name", call2!.Arguments[0].Name);
+        Assert.Equal("age", call2!.Arguments[1].Name);
     }
 
     [Fact]
@@ -270,10 +270,10 @@ public class ParserTests
         var newExpr = pDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.Single(newExpr.ConstructorArguments);
-        Assert.NotNull(newExpr.Initializer);
-        // Use newExpr.Initializer! for all following references
-        Assert.Single(newExpr.Initializer.Properties);
+        Assert.Single(newExpr!.ConstructorArguments);
+        Assert.NotNull(newExpr!.Initializer);
+        // Use newExpr!.Initializer! for all following references
+        Assert.Single(newExpr!.Initializer.Properties);
     }
 
     [Fact]
@@ -315,12 +315,12 @@ public class ParserTests
         var ternary = varDecl!.Initializer as TernaryExpression;
         Assert.NotNull(ternary);
         // Use ternary! for all following references
-        Assert.NotNull(ternary.Condition);
-        // Use ternary.Condition! for all following references
-        Assert.NotNull(ternary.ThenExpression);
-        // Use ternary.ThenExpression! for all following references
-        Assert.NotNull(ternary.ElseExpression);
-        // Use ternary.ElseExpression! for all following references
+        Assert.NotNull(ternary!.Condition);
+        // Use ternary!.Condition! for all following references
+        Assert.NotNull(ternary!.ThenExpression);
+        // Use ternary!.ThenExpression! for all following references
+        Assert.NotNull(ternary!.ElseExpression);
+        // Use ternary!.ElseExpression! for all following references
     }
 
     [Fact]
@@ -339,7 +339,7 @@ public class ParserTests
         var binary = varDecl!.Initializer as BinaryExpression;
         Assert.NotNull(binary);
         // Use binary! for all following references
-        Assert.Equal(BinaryOperator.NullCoalesce, binary.Operator);
+        Assert.Equal(BinaryOperator.NullCoalesce, binary!.Operator);
     }
 
     [Fact]
@@ -359,14 +359,14 @@ public class ParserTests
 
         Assert.NotNull(forStmt);
         // Use forStmt! for all following references
-        Assert.NotNull(forStmt.Initializer);
-        // Use forStmt.Initializer! for all following references
-        Assert.NotNull(forStmt.Condition);
-        // Use forStmt.Condition! for all following references
-        Assert.NotNull(forStmt.Iterator);
-        // Use forStmt.Iterator! for all following references
-        Assert.NotNull(forStmt.Body);
-        // Use forStmt.Body! for all following references
+        Assert.NotNull(forStmt!.Initializer);
+        // Use forStmt!.Initializer! for all following references
+        Assert.NotNull(forStmt!.Condition);
+        // Use forStmt!.Condition! for all following references
+        Assert.NotNull(forStmt!.Iterator);
+        // Use forStmt!.Iterator! for all following references
+        Assert.NotNull(forStmt!.Body);
+        // Use forStmt!.Body! for all following references
     }
 
     [Fact]
@@ -386,11 +386,11 @@ public class ParserTests
 
         Assert.NotNull(foreachStmt);
         // Use foreachStmt! for all following references
-        Assert.Equal("item", foreachStmt.VariableName);
-        Assert.NotNull(foreachStmt.Collection);
-        // Use foreachStmt.Collection! for all following references
-        Assert.NotNull(foreachStmt.Body);
-        // Use foreachStmt.Body! for all following references
+        Assert.Equal("item", foreachStmt!.VariableName);
+        Assert.NotNull(foreachStmt!.Collection);
+        // Use foreachStmt!.Collection! for all following references
+        Assert.NotNull(foreachStmt!.Body);
+        // Use foreachStmt!.Body! for all following references
     }
 
     [Fact]
@@ -414,11 +414,11 @@ public class ParserTests
 
         Assert.NotNull(tryStmt);
         // Use tryStmt! for all following references
-        Assert.NotNull(tryStmt.TryBlock);
-        // Use tryStmt.TryBlock! for all following references
-        Assert.Single(tryStmt.CatchClauses);
-        Assert.NotNull(tryStmt.FinallyBlock);
-        // Use tryStmt.FinallyBlock! for all following references
+        Assert.NotNull(tryStmt!.TryBlock);
+        // Use tryStmt!.TryBlock! for all following references
+        Assert.Single(tryStmt!.CatchClauses);
+        Assert.NotNull(tryStmt!.FinallyBlock);
+        // Use tryStmt!.FinallyBlock! for all following references
     }
 
     [Fact]
@@ -437,9 +437,9 @@ public class ParserTests
 
         Assert.NotNull(enumDecl);
         // Use enumDecl! for all following references
-        Assert.Equal("Status", enumDecl.Name);
-        Assert.Equal(3, enumDecl.Members.Count);
-        Assert.Equal(EnumType.Int, enumDecl.Type);
+        Assert.Equal("Status", enumDecl!.Name);
+        Assert.Equal(3, enumDecl!.Members.Count);
+        Assert.Equal(EnumType.Int, enumDecl!.Type);
     }
 
     [Fact]
@@ -457,12 +457,12 @@ public class ParserTests
 
         Assert.NotNull(unionDecl);
         // Use unionDecl! for all following references
-        Assert.Equal("Result", unionDecl.Name);
-        Assert.Equal(2, unionDecl.Cases.Count);
-        Assert.Equal("Success", unionDecl.Cases[0].Name);
-        Assert.Single(unionDecl.Cases[0].Properties!);
-        Assert.Equal("Failure", unionDecl.Cases[1].Name);
-        Assert.Equal(2, unionDecl.Cases[1].Properties!.Count);
+        Assert.Equal("Result", unionDecl!.Name);
+        Assert.Equal(2, unionDecl!.Cases.Count);
+        Assert.Equal("Success", unionDecl!.Cases[0].Name);
+        Assert.Single(unionDecl!.Cases[0].Properties!);
+        Assert.Equal("Failure", unionDecl!.Cases[1].Name);
+        Assert.Equal(2, unionDecl!.Cases[1].Properties!.Count);
     }
 
     [Fact]
@@ -479,9 +479,9 @@ public class ParserTests
 
         Assert.NotNull(interfaceDecl);
         // Use interfaceDecl! for all following references
-        Assert.Equal("IReader", interfaceDecl.Name);
-        Assert.False(interfaceDecl.IsDuckInterface);
-        Assert.Single(interfaceDecl.Members);
+        Assert.Equal("IReader", interfaceDecl!.Name);
+        Assert.False(interfaceDecl!.IsDuckInterface);
+        Assert.Single(interfaceDecl!.Members);
     }
 
     [Fact]
@@ -498,8 +498,8 @@ public class ParserTests
 
         Assert.NotNull(interfaceDecl);
         // Use interfaceDecl! for all following references
-        Assert.Equal("IReaderDuck", interfaceDecl.Name);
-        Assert.True(interfaceDecl.IsDuckInterface);
+        Assert.Equal("IReaderDuck", interfaceDecl!.Name);
+        Assert.True(interfaceDecl!.IsDuckInterface);
     }
 
     [Fact]
@@ -519,15 +519,15 @@ public class ParserTests
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var indexer = classDecl.Members[0] as IndexerDeclaration;
+        var indexer = classDecl!.Members[0] as IndexerDeclaration;
         Assert.NotNull(indexer);
         // Use indexer! for all following references
-        Assert.Single(indexer.Parameters);
-        Assert.Equal("key", indexer.Parameters[0].Name);
-        Assert.NotNull(indexer.GetBody);
-        // Use indexer.GetBody! for all following references
-        Assert.NotNull(indexer.SetBody);
-        // Use indexer.SetBody! for all following references
+        Assert.Single(indexer!.Parameters);
+        Assert.Equal("key", indexer!.Parameters[0].Name);
+        Assert.NotNull(indexer!.GetBody);
+        // Use indexer!.GetBody! for all following references
+        Assert.NotNull(indexer!.SetBody);
+        // Use indexer!.SetBody! for all following references
     }
 
     [Fact]
@@ -543,28 +543,28 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        Assert.Equal("s", varDecl.Name);
+        Assert.Equal("s", varDecl!.Name);
 
-        var castExpr = varDecl.Initializer as CastExpression;
+        var castExpr = varDecl!.Initializer as CastExpression;
         Assert.NotNull(castExpr);
         // Use castExpr! for all following references
-        Assert.Equal(CastKind.Hard, castExpr.Kind);
+        Assert.Equal(CastKind.Hard, castExpr!.Kind);
 
-        var typeRef = castExpr.TargetType as SimpleTypeReference;
+        var typeRef = castExpr!.TargetType as SimpleTypeReference;
         Assert.NotNull(typeRef);
         // Use typeRef! for all following references
-        Assert.Equal("Result.Success", typeRef.Name);
+        Assert.Equal("Result.Success", typeRef!.Name);
 
-        var targetExpr = castExpr.Expression as IdentifierExpression;
+        var targetExpr = castExpr!.Expression as IdentifierExpression;
         Assert.NotNull(targetExpr);
         // Use targetExpr! for all following references
-        Assert.Equal("r", targetExpr.Name);
+        Assert.Equal("r", targetExpr!.Name);
     }
 
     [Fact]
@@ -584,16 +584,16 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(2, matchExpr.Cases.Count);
+        Assert.Equal(2, matchExpr!.Cases.Count);
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         Assert.IsType<LiteralPattern>(firstCase.Pattern);
         Assert.IsType<StringLiteralExpression>(firstCase.Expression);
     }
@@ -615,31 +615,31 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(2, matchExpr.Cases.Count);
+        Assert.Equal(2, matchExpr!.Cases.Count);
 
-        var successCase = matchExpr.Cases[0];
+        var successCase = matchExpr!.Cases[0];
         var successPattern = successCase.Pattern as UnionCasePattern;
         Assert.NotNull(successPattern);
         // Use successPattern! for all following references
-        Assert.Equal("Result.Success", successPattern.CaseName);
-        Assert.Single(successPattern.Properties);
-        Assert.Equal("value", successPattern.Properties[0].Name);
-        Assert.Null(successPattern.Properties[0].BindingName);
+        Assert.Equal("Result.Success", successPattern!.CaseName);
+        Assert.Single(successPattern!.Properties);
+        Assert.Equal("value", successPattern!.Properties[0].Name);
+        Assert.Null(successPattern!.Properties[0].BindingName);
 
-        var failureCase = matchExpr.Cases[1];
+        var failureCase = matchExpr!.Cases[1];
         var failurePattern = failureCase.Pattern as UnionCasePattern;
         Assert.NotNull(failurePattern);
         // Use failurePattern! for all following references
-        Assert.Equal("Result.Failure", failurePattern.CaseName);
-        Assert.Single(failurePattern.Properties);
-        Assert.Equal("error", failurePattern.Properties[0].Name);
+        Assert.Equal("Result.Failure", failurePattern!.CaseName);
+        Assert.Single(failurePattern!.Properties);
+        Assert.Equal("error", failurePattern!.Properties[0].Name);
     }
 
     [Fact]
@@ -656,21 +656,21 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var withExpr = varDecl.Initializer as WithExpression;
+        var withExpr = varDecl!.Initializer as WithExpression;
         Assert.NotNull(withExpr);
         // Use withExpr! for all following references
 
-        var targetExpr = withExpr.Target as IdentifierExpression;
+        var targetExpr = withExpr!.Target as IdentifierExpression;
         Assert.NotNull(targetExpr);
         // Use targetExpr! for all following references
-        Assert.Equal("p1", targetExpr.Name);
+        Assert.Equal("p1", targetExpr!.Name);
 
-        Assert.Single(withExpr.Properties);
-        Assert.Equal("Age", withExpr.Properties[0].Name);
+        Assert.Single(withExpr!.Properties);
+        Assert.Equal("Age", withExpr!.Properties[0].Name);
     }
 
     [Fact]
@@ -686,13 +686,13 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Equal(2, funcDecl.Parameters.Count);
+        Assert.Equal(2, funcDecl!.Parameters.Count);
 
-        var nameParam = funcDecl.Parameters[0];
+        var nameParam = funcDecl!.Parameters[0];
         Assert.Equal("name", nameParam.Name);
         Assert.Null(nameParam.DefaultValue);
 
-        var greetingParam = funcDecl.Parameters[1];
+        var greetingParam = funcDecl!.Parameters[1];
         Assert.Equal("greeting", greetingParam.Name);
         Assert.NotNull(greetingParam.DefaultValue);
         // Use greetingParam.DefaultValue! for all following references
@@ -713,17 +713,17 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var exprStmt = funcDecl.Body.Statements[0] as ExpressionStatement;
+        var exprStmt = funcDecl!.Body.Statements[0] as ExpressionStatement;
         Assert.NotNull(exprStmt);
         // Use exprStmt! for all following references
 
-        var callExpr = exprStmt.Expression as CallExpression;
+        var callExpr = exprStmt!.Expression as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.Equal(2, callExpr.Arguments.Count);
+        Assert.Equal(2, callExpr!.Arguments.Count);
 
-        Assert.Equal("name", callExpr.Arguments[0].Name);
-        Assert.Equal("age", callExpr.Arguments[1].Name);
+        Assert.Equal("name", callExpr!.Arguments[0].Name);
+        Assert.Equal("age", callExpr!.Arguments[1].Name);
     }
 
     [Fact]
@@ -740,18 +740,18 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Equal("FetchData", funcDecl.Name);
-        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Async));
+        Assert.Equal("FetchData", funcDecl!.Name);
+        Assert.True(funcDecl!.Modifiers.HasFlag(Modifiers.Async));
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var awaitExpr = varDecl.Initializer as AwaitExpression;
+        var awaitExpr = varDecl!.Initializer as AwaitExpression;
         Assert.NotNull(awaitExpr);
         // Use awaitExpr! for all following references
 
-        var callExpr = awaitExpr.Expression as CallExpression;
+        var callExpr = awaitExpr!.Expression as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
     }
@@ -771,18 +771,18 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Equal("GetNumbers", funcDecl.Name);
-        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Generator));
-        Assert.Equal(3, funcDecl.Body.Statements.Count);
+        Assert.Equal("GetNumbers", funcDecl!.Name);
+        Assert.True(funcDecl!.Modifiers.HasFlag(Modifiers.Generator));
+        Assert.Equal(3, funcDecl!.Body.Statements.Count);
 
         // Check yield statements
         for (int i = 0; i < 3; i++)
         {
-            var yieldStmt = funcDecl.Body.Statements[i] as YieldStatement;
+            var yieldStmt = funcDecl!.Body.Statements[i] as YieldStatement;
             Assert.NotNull(yieldStmt);
         // Use yieldStmt! for all following references
-            Assert.NotNull(yieldStmt.Value);
-        // Use yieldStmt.Value! for all following references
+            Assert.NotNull(yieldStmt!.Value);
+        // Use yieldStmt!.Value! for all following references
         }
     }
 
@@ -801,28 +801,28 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Generator));
-        Assert.Equal(3, funcDecl.Body!.Statements.Count);
+        Assert.True(funcDecl!.Modifiers.HasFlag(Modifiers.Generator));
+        Assert.Equal(3, funcDecl!.Body!.Statements.Count);
 
         // First yield has value
-        var yield1 = funcDecl.Body.Statements[0] as YieldStatement;
+        var yield1 = funcDecl!.Body.Statements[0] as YieldStatement;
         Assert.NotNull(yield1);
         // Use yield1! for all following references
-        Assert.NotNull(yield1.Value);
-        // Use yield1.Value! for all following references
+        Assert.NotNull(yield1!.Value);
+        // Use yield1!.Value! for all following references
 
         // Second is yield break (no value)
-        var yieldBreak = funcDecl.Body.Statements[1] as YieldStatement;
+        var yieldBreak = funcDecl!.Body.Statements[1] as YieldStatement;
         Assert.NotNull(yieldBreak);
         // Use yieldBreak! for all following references
-        Assert.Null(yieldBreak.Value);
+        Assert.Null(yieldBreak!.Value);
 
         // Third yield has value
-        var yield2 = funcDecl.Body.Statements[2] as YieldStatement;
+        var yield2 = funcDecl!.Body.Statements[2] as YieldStatement;
         Assert.NotNull(yield2);
         // Use yield2! for all following references
-        Assert.NotNull(yield2.Value);
-        // Use yield2.Value! for all following references
+        Assert.NotNull(yield2!.Value);
+        // Use yield2!.Value! for all following references
     }
 
     [Fact]
@@ -841,19 +841,19 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var usingStmt = funcDecl.Body.Statements[0] as UsingStatement;
+        var usingStmt = funcDecl!.Body.Statements[0] as UsingStatement;
         Assert.NotNull(usingStmt);
         // Use usingStmt! for all following references
-        Assert.NotNull(usingStmt.Declaration);
-        // Use usingStmt.Declaration! for all following references
-        Assert.Equal("stream", usingStmt.Declaration.Name);
-        Assert.NotNull(usingStmt.Body);
-        // Use usingStmt.Body! for all following references
+        Assert.NotNull(usingStmt!.Declaration);
+        // Use usingStmt!.Declaration! for all following references
+        Assert.Equal("stream", usingStmt!.Declaration.Name);
+        Assert.NotNull(usingStmt!.Body);
+        // Use usingStmt!.Body! for all following references
 
-        var blockStmt = usingStmt.Body as BlockStatement;
+        var blockStmt = usingStmt!.Body as BlockStatement;
         Assert.NotNull(blockStmt);
         // Use blockStmt! for all following references
-        Assert.Single(blockStmt.Statements);
+        Assert.Single(blockStmt!.Statements);
     }
 
     [Fact]
@@ -872,18 +872,18 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var lockStmt = funcDecl.Body.Statements[0] as LockStatement;
+        var lockStmt = funcDecl!.Body.Statements[0] as LockStatement;
         Assert.NotNull(lockStmt);
         // Use lockStmt! for all following references
-        Assert.NotNull(lockStmt.LockObject);
-        // Use lockStmt.LockObject! for all following references
-        Assert.NotNull(lockStmt.Body);
-        // Use lockStmt.Body! for all following references
+        Assert.NotNull(lockStmt!.LockObject);
+        // Use lockStmt!.LockObject! for all following references
+        Assert.NotNull(lockStmt!.Body);
+        // Use lockStmt!.Body! for all following references
 
-        var blockStmt = lockStmt.Body as BlockStatement;
+        var blockStmt = lockStmt!.Body as BlockStatement;
         Assert.NotNull(blockStmt);
         // Use blockStmt! for all following references
-        Assert.Single(blockStmt.Statements);
+        Assert.Single(blockStmt!.Statements);
     }
 
     [Fact]
@@ -902,13 +902,13 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var lockStmt = funcDecl.Body.Statements[0] as LockStatement;
+        var lockStmt = funcDecl!.Body.Statements[0] as LockStatement;
         Assert.NotNull(lockStmt);
         // Use lockStmt! for all following references
-        Assert.NotNull(lockStmt.LockObject);
-        // Use lockStmt.LockObject! for all following references
-        Assert.NotNull(lockStmt.Body);
-        // Use lockStmt.Body! for all following references
+        Assert.NotNull(lockStmt!.LockObject);
+        // Use lockStmt!.LockObject! for all following references
+        Assert.NotNull(lockStmt!.Body);
+        // Use lockStmt!.Body! for all following references
     }
 
     [Fact]
@@ -929,21 +929,21 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var switchStmt = funcDecl.Body.Statements[0] as SwitchStatement;
+        var switchStmt = funcDecl!.Body.Statements[0] as SwitchStatement;
         Assert.NotNull(switchStmt);
         // Use switchStmt! for all following references
-        Assert.NotNull(switchStmt.Value);
-        // Use switchStmt.Value! for all following references
-        Assert.Equal(3, switchStmt.Cases.Count);
+        Assert.NotNull(switchStmt!.Value);
+        // Use switchStmt!.Value! for all following references
+        Assert.Equal(3, switchStmt!.Cases.Count);
 
         // Check first two cases have patterns
-        Assert.NotNull(switchStmt.Cases[0].Pattern);
-        // Use switchStmt.Cases[0].Pattern! for all following references
-        Assert.NotNull(switchStmt.Cases[1].Pattern);
-        // Use switchStmt.Cases[1].Pattern! for all following references
+        Assert.NotNull(switchStmt!.Cases[0].Pattern);
+        // Use switchStmt!.Cases[0].Pattern! for all following references
+        Assert.NotNull(switchStmt!.Cases[1].Pattern);
+        // Use switchStmt!.Cases[1].Pattern! for all following references
 
         // Check default case (pattern is null for default)
-        Assert.Null(switchStmt.Cases[2].Pattern);
+        Assert.Null(switchStmt!.Cases[2].Pattern);
     }
 
     [Fact]
@@ -961,16 +961,16 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var arr2Decl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
+        var arr2Decl = funcDecl!.Body.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(arr2Decl);
         // Use arr2Decl! for all following references
 
-        var arrayLiteral = arr2Decl.Initializer as ArrayLiteralExpression;
+        var arrayLiteral = arr2Decl!.Initializer as ArrayLiteralExpression;
         Assert.NotNull(arrayLiteral);
         // Use arrayLiteral! for all following references
-        Assert.Equal(3, arrayLiteral.Elements.Count);
+        Assert.Equal(3, arrayLiteral!.Elements.Count);
 
-        var spreadExpr = arrayLiteral.Elements[0] as SpreadExpression;
+        var spreadExpr = arrayLiteral!.Elements[0] as SpreadExpression;
         Assert.NotNull(spreadExpr);
         // Use spreadExpr! for all following references
     }
@@ -994,23 +994,23 @@ public class ParserTests
         Assert.NotNull(testFunc);
         // Use testFunc! for all following references
 
-        var resultDecl = testFunc.Body.Statements[1] as VariableDeclarationStatement;
+        var resultDecl = testFunc!.Body.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(resultDecl);
         // Use resultDecl! for all following references
 
-        var callExpr = resultDecl.Initializer as CallExpression;
+        var callExpr = resultDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.Single(callExpr.Arguments);
+        Assert.Single(callExpr!.Arguments);
 
-        var spreadArg = callExpr.Arguments[0].Value as SpreadExpression;
+        var spreadArg = callExpr!.Arguments[0].Value as SpreadExpression;
         Assert.NotNull(spreadArg);
         // Use spreadArg! for all following references
 
-        var innerExpr = spreadArg.Expression as IdentifierExpression;
+        var innerExpr = spreadArg!.Expression as IdentifierExpression;
         Assert.NotNull(innerExpr);
         // Use innerExpr! for all following references
-        Assert.Equal("items", innerExpr.Name);
+        Assert.Equal("items", innerExpr!.Name);
     }
 
     [Fact]
@@ -1026,8 +1026,8 @@ public class ParserTests
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("User", classDecl.Name);
-        Assert.True(classDecl.Modifiers.HasFlag(Modifiers.Partial));
+        Assert.Equal("User", classDecl!.Name);
+        Assert.True(classDecl!.Modifiers.HasFlag(Modifiers.Partial));
     }
 
     [Fact]
@@ -1048,19 +1048,19 @@ public class ParserTests
         var abstractClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(abstractClass);
         // Use abstractClass! for all following references
-        Assert.Equal("Animal", abstractClass.Name);
-        Assert.True(abstractClass.Modifiers.HasFlag(Modifiers.Abstract));
+        Assert.Equal("Animal", abstractClass!.Name);
+        Assert.True(abstractClass!.Modifiers.HasFlag(Modifiers.Abstract));
 
-        var abstractMethod = abstractClass.Members[0] as FunctionDeclaration;
+        var abstractMethod = abstractClass!.Members[0] as FunctionDeclaration;
         Assert.NotNull(abstractMethod);
         // Use abstractMethod! for all following references
-        Assert.True(abstractMethod.Modifiers.HasFlag(Modifiers.Abstract));
+        Assert.True(abstractMethod!.Modifiers.HasFlag(Modifiers.Abstract));
 
         var sealedClass = cu.Declarations[1] as ClassDeclaration;
         Assert.NotNull(sealedClass);
         // Use sealedClass! for all following references
-        Assert.Equal("FinalClass", sealedClass.Name);
-        Assert.True(sealedClass.Modifiers.HasFlag(Modifiers.Sealed));
+        Assert.Equal("FinalClass", sealedClass!.Name);
+        Assert.True(sealedClass!.Modifiers.HasFlag(Modifiers.Sealed));
     }
 
     [Fact]
@@ -1086,18 +1086,18 @@ public class ParserTests
         Assert.NotNull(baseClass);
         // Use baseClass! for all following references
 
-        var virtualMethod = baseClass.Members[0] as FunctionDeclaration;
+        var virtualMethod = baseClass!.Members[0] as FunctionDeclaration;
         Assert.NotNull(virtualMethod);
         // Use virtualMethod! for all following references
-        Assert.True(virtualMethod.Modifiers.HasFlag(Modifiers.Virtual));
+        Assert.True(virtualMethod!.Modifiers.HasFlag(Modifiers.Virtual));
 
         var derivedClass = cu.Declarations[1] as ClassDeclaration;
         Assert.NotNull(derivedClass);
         // Use derivedClass! for all following references
-        Assert.NotNull(derivedClass.BaseClass);
-        // Use derivedClass.BaseClass! for all following references
+        Assert.NotNull(derivedClass!.BaseClass);
+        // Use derivedClass!.BaseClass! for all following references
 
-        var overrideMethod = derivedClass.Members[0] as FunctionDeclaration;
+        var overrideMethod = derivedClass!.Members[0] as FunctionDeclaration;
         Assert.NotNull(overrideMethod);
         // Use overrideMethod! for all following references
     }
@@ -1117,21 +1117,21 @@ public class ParserTests
         var alias1 = cu.Declarations[0] as TypeAliasDeclaration;
         Assert.NotNull(alias1);
         // Use alias1! for all following references
-        Assert.Equal("UserId", alias1.Name);
-        Assert.IsType<SimpleTypeReference>(alias1.Type);
-        Assert.Equal("int", ((SimpleTypeReference)alias1.Type).Name);
+        Assert.Equal("UserId", alias1!.Name);
+        Assert.IsType<SimpleTypeReference>(alias1!.Type);
+        Assert.Equal("int", ((SimpleTypeReference)alias1!.Type).Name);
 
         var alias2 = cu.Declarations[1] as TypeAliasDeclaration;
         Assert.NotNull(alias2);
         // Use alias2! for all following references
-        Assert.Equal("Handler", alias2.Name);
-        Assert.IsType<FunctionTypeReference>(alias2.Type); // Func<...> is a function type
+        Assert.Equal("Handler", alias2!.Name);
+        Assert.IsType<FunctionTypeReference>(alias2!.Type); // Func<...> is a function type
 
         var alias3 = cu.Declarations[2] as TypeAliasDeclaration;
         Assert.NotNull(alias3);
         // Use alias3! for all following references
-        Assert.Equal("StringDict", alias3.Name);
-        Assert.IsType<GenericTypeReference>(alias3.Type);
+        Assert.Equal("StringDict", alias3!.Name);
+        Assert.IsType<GenericTypeReference>(alias3!.Type);
     }
 
     [Fact]
@@ -1159,28 +1159,28 @@ public class ParserTests
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Single(classDecl.Attributes);
-        Assert.Equal("Serializable", classDecl.Attributes[0].Name);
+        Assert.Single(classDecl!.Attributes);
+        Assert.Equal("Serializable", classDecl!.Attributes[0].Name);
 
-        var field1 = classDecl.Members[0] as FieldDeclaration;
+        var field1 = classDecl!.Members[0] as FieldDeclaration;
         Assert.NotNull(field1);
         // Use field1! for all following references
-        Assert.Single(field1.Attributes);
-        Assert.Equal("JsonProperty", field1.Attributes[0].Name);
-        Assert.Single(field1.Attributes[0].Arguments);
+        Assert.Single(field1!.Attributes);
+        Assert.Equal("JsonProperty", field1!.Attributes[0].Name);
+        Assert.Single(field1!.Attributes[0].Arguments);
 
-        var field2 = classDecl.Members[1] as FieldDeclaration;
+        var field2 = classDecl!.Members[1] as FieldDeclaration;
         Assert.NotNull(field2);
         // Use field2! for all following references
-        Assert.Single(field2.Attributes);
-        Assert.Equal("Required", field2.Attributes[0].Name);
+        Assert.Single(field2!.Attributes);
+        Assert.Equal("Required", field2!.Attributes[0].Name);
 
         var funcDecl = cu.Declarations[1] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Single(funcDecl.Attributes);
-        Assert.Equal("HttpGet", funcDecl.Attributes[0].Name);
-        Assert.Single(funcDecl.Attributes[0].Arguments);
+        Assert.Single(funcDecl!.Attributes);
+        Assert.Equal("HttpGet", funcDecl!.Attributes[0].Name);
+        Assert.Single(funcDecl!.Attributes[0].Arguments);
     }
 
     [Fact]
@@ -1208,22 +1208,22 @@ public class ParserTests
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Single(classDecl.Attributes);
-        Assert.Equal("System.Serializable", classDecl.Attributes[0].Name);
+        Assert.Single(classDecl!.Attributes);
+        Assert.Equal("System.Serializable", classDecl!.Attributes[0].Name);
 
         var structDecl = cu.Declarations[1] as StructDeclaration;
         Assert.NotNull(structDecl);
         // Use structDecl! for all following references
-        Assert.Single(structDecl.Attributes);
-        Assert.Equal("System.Runtime.CompilerServices.InlineArray", structDecl.Attributes[0].Name);
-        Assert.Single(structDecl.Attributes[0].Arguments);
+        Assert.Single(structDecl!.Attributes);
+        Assert.Equal("System.Runtime.CompilerServices.InlineArray", structDecl!.Attributes[0].Name);
+        Assert.Single(structDecl!.Attributes[0].Arguments);
 
         var funcDecl = cu.Declarations[2] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Single(funcDecl.Attributes);
-        Assert.Equal("System.Diagnostics.CodeAnalysis.SuppressMessage", funcDecl.Attributes[0].Name);
-        Assert.Equal(2, funcDecl.Attributes[0].Arguments.Count);
+        Assert.Single(funcDecl!.Attributes);
+        Assert.Equal("System.Diagnostics.CodeAnalysis.SuppressMessage", funcDecl!.Attributes[0].Name);
+        Assert.Equal(2, funcDecl!.Attributes[0].Arguments.Count);
     }
 
     [Fact]
@@ -1247,22 +1247,22 @@ public class ParserTests
         var topLevelFunc = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(topLevelFunc);
         // Use topLevelFunc! for all following references
-        Assert.Equal("IsEmpty", topLevelFunc.Name);
-        Assert.Single(topLevelFunc.Parameters);
-        Assert.True(topLevelFunc.Parameters[0].IsThis);
-        Assert.Equal("s", topLevelFunc.Parameters[0].Name);
+        Assert.Equal("IsEmpty", topLevelFunc!.Name);
+        Assert.Single(topLevelFunc!.Parameters);
+        Assert.True(topLevelFunc!.Parameters[0].IsThis);
+        Assert.Equal("s", topLevelFunc!.Parameters[0].Name);
 
         var staticClass = cu.Declarations[1] as ClassDeclaration;
         Assert.NotNull(staticClass);
         // Use staticClass! for all following references
-        Assert.True(staticClass.Modifiers.HasFlag(Modifiers.Static));
+        Assert.True(staticClass!.Modifiers.HasFlag(Modifiers.Static));
 
-        var staticMethod = staticClass.Members[0] as FunctionDeclaration;
+        var staticMethod = staticClass!.Members[0] as FunctionDeclaration;
         Assert.NotNull(staticMethod);
         // Use staticMethod! for all following references
-        Assert.True(staticMethod.Modifiers.HasFlag(Modifiers.Static));
-        Assert.Single(staticMethod.Parameters);
-        Assert.True(staticMethod.Parameters[0].IsThis);
+        Assert.True(staticMethod!.Modifiers.HasFlag(Modifiers.Static));
+        Assert.Single(staticMethod!.Parameters);
+        Assert.True(staticMethod!.Parameters[0].IsThis);
     }
 
     [Fact]
@@ -1286,16 +1286,16 @@ public class ParserTests
         var staticClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(staticClass);
         // Use staticClass! for all following references
-        Assert.Equal("Helpers", staticClass.Name);
-        Assert.True(staticClass.Modifiers.HasFlag(Modifiers.Static));
-        Assert.Equal(2, staticClass.Members.Count);
+        Assert.Equal("Helpers", staticClass!.Name);
+        Assert.True(staticClass!.Modifiers.HasFlag(Modifiers.Static));
+        Assert.Equal(2, staticClass!.Members.Count);
 
-        foreach (var member in staticClass.Members)
+        foreach (var member in staticClass!.Members)
         {
             var method = member as FunctionDeclaration;
             Assert.NotNull(method);
         // Use method! for all following references
-            Assert.True(method.Modifiers.HasFlag(Modifiers.Static));
+            Assert.True(method!.Modifiers.HasFlag(Modifiers.Static));
         }
     }
 
@@ -1319,11 +1319,11 @@ public class ParserTests
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var field = classDecl.Members[0] as FieldDeclaration;
+        var field = classDecl!.Members[0] as FieldDeclaration;
         Assert.NotNull(field);
         // Use field! for all following references
-        Assert.Equal("id", field.Name);
-        Assert.True(field.Modifiers.HasFlag(Modifiers.Readonly));
+        Assert.Equal("id", field!.Name);
+        Assert.True(field!.Modifiers.HasFlag(Modifiers.Readonly));
     }
 
     [Fact]
@@ -1343,28 +1343,28 @@ public class ParserTests
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.Equal(5, funcDecl.Body!.Statements.Count);
+        Assert.Equal(5, funcDecl!.Body!.Statements.Count);
 
         // Check arr[0] indexer
-        var xDecl = funcDecl.Body.Statements[1] as VariableDeclarationStatement;
+        var xDecl = funcDecl!.Body.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(xDecl);
         // Use xDecl! for all following references
-        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        var indexAccess = xDecl!.Initializer as IndexAccessExpression;
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
-        var arrIdent = indexAccess.Object as IdentifierExpression;
+        var arrIdent = indexAccess!.Object as IdentifierExpression;
         Assert.NotNull(arrIdent);
         // Use arrIdent! for all following references
-        Assert.Equal("arr", arrIdent.Name);
+        Assert.Equal("arr", arrIdent!.Name);
 
         // Check dict["key"] = 42 assignment
-        var dictAssign = funcDecl.Body.Statements[3] as ExpressionStatement;
+        var dictAssign = funcDecl!.Body.Statements[3] as ExpressionStatement;
         Assert.NotNull(dictAssign);
         // Use dictAssign! for all following references
-        var assignExpr = dictAssign.Expression as AssignmentExpression;
+        var assignExpr = dictAssign!.Expression as AssignmentExpression;
         Assert.NotNull(assignExpr);
         // Use assignExpr! for all following references
-        var dictIndexAccess = assignExpr.Target as IndexAccessExpression;
+        var dictIndexAccess = assignExpr!.Target as IndexAccessExpression;
         Assert.NotNull(dictIndexAccess);
         // Use dictIndexAccess! for all following references
     }
@@ -1386,13 +1386,13 @@ public class ParserTests
         // Use funcDecl! for all following references
 
         // Check arr[0]
-        var xDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        var xDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(xDecl);
         // Use xDecl! for all following references
-        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        var indexAccess = xDecl!.Initializer as IndexAccessExpression;
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
-        Assert.False(indexAccess.IsNullConditional);
+        Assert.False(indexAccess!.IsNullConditional);
     }
 
     [Fact]
@@ -1413,26 +1413,26 @@ public class ParserTests
         // Use funcDecl! for all following references
 
         // Check arr?[0]
-        var xDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        var xDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(xDecl);
         // Use xDecl! for all following references
-        var indexAccess = xDecl.Initializer as IndexAccessExpression;
+        var indexAccess = xDecl!.Initializer as IndexAccessExpression;
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
-        Assert.True(indexAccess.IsNullConditional);
-        var arrIdent = indexAccess.Object as IdentifierExpression;
+        Assert.True(indexAccess!.IsNullConditional);
+        var arrIdent = indexAccess!.Object as IdentifierExpression;
         Assert.NotNull(arrIdent);
         // Use arrIdent! for all following references
-        Assert.Equal("arr", arrIdent.Name);
+        Assert.Equal("arr", arrIdent!.Name);
 
         // Check dict?["key"]
-        var yDecl = funcDecl.Body.Statements[3] as VariableDeclarationStatement;
+        var yDecl = funcDecl!.Body.Statements[3] as VariableDeclarationStatement;
         Assert.NotNull(yDecl);
         // Use yDecl! for all following references
-        var dictIndexAccess = yDecl.Initializer as IndexAccessExpression;
+        var dictIndexAccess = yDecl!.Initializer as IndexAccessExpression;
         Assert.NotNull(dictIndexAccess);
         // Use dictIndexAccess! for all following references
-        Assert.True(dictIndexAccess.IsNullConditional);
+        Assert.True(dictIndexAccess!.IsNullConditional);
     }
 
     [Fact]
@@ -1453,17 +1453,17 @@ public class ParserTests
         // Use funcDecl! for all following references
 
         // Check obj as string
-        var strDecl = funcDecl.Body!.Statements[1] as VariableDeclarationStatement;
+        var strDecl = funcDecl!.Body!.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(strDecl);
         // Use strDecl! for all following references
-        var safeCast = strDecl.Initializer as CastExpression;
+        var safeCast = strDecl!.Initializer as CastExpression;
         Assert.NotNull(safeCast);
         // Use safeCast! for all following references
-        Assert.Equal(CastKind.Safe, safeCast.Kind);
-        var simpleType = safeCast.TargetType as SimpleTypeReference;
+        Assert.Equal(CastKind.Safe, safeCast!.Kind);
+        var simpleType = safeCast!.TargetType as SimpleTypeReference;
         Assert.NotNull(simpleType);
         // Use simpleType! for all following references
-        Assert.Equal("string", simpleType.Name);
+        Assert.Equal("string", simpleType!.Name);
     }
 
     [Fact]
@@ -1489,29 +1489,29 @@ public class ParserTests
         // Use funcDecl! for all following references
 
         // Check if obj is string s
-        var ifStmt1 = funcDecl.Body!.Statements[0] as IfStatement;
+        var ifStmt1 = funcDecl!.Body!.Statements[0] as IfStatement;
         Assert.NotNull(ifStmt1);
         // Use ifStmt1! for all following references
-        var isExpr1 = ifStmt1.Condition as IsExpression;
+        var isExpr1 = ifStmt1!.Condition as IsExpression;
         Assert.NotNull(isExpr1);
         // Use isExpr1! for all following references
-        var objIdent = isExpr1.Expression as IdentifierExpression;
+        var objIdent = isExpr1!.Expression as IdentifierExpression;
         Assert.NotNull(objIdent);
         // Use objIdent! for all following references
-        Assert.Equal("obj", objIdent.Name);
-        Assert.NotNull(isExpr1.VariableName);
-        // Use isExpr1.VariableName! for all following references
-        Assert.Equal("s", isExpr1.VariableName);
+        Assert.Equal("obj", objIdent!.Name);
+        Assert.NotNull(isExpr1!.VariableName);
+        // Use isExpr1!.VariableName! for all following references
+        Assert.Equal("s", isExpr1!.VariableName);
 
         // Check if value is int (no variable)
-        var ifStmt2 = funcDecl.Body.Statements[1] as IfStatement;
+        var ifStmt2 = funcDecl!.Body.Statements[1] as IfStatement;
         Assert.NotNull(ifStmt2);
         // Use ifStmt2! for all following references
-        var isExpr2 = ifStmt2.Condition as IsExpression;
+        var isExpr2 = ifStmt2!.Condition as IsExpression;
         Assert.NotNull(isExpr2);
         // Use isExpr2! for all following references
-        Assert.NotNull(isExpr2.Type);
-        // Use isExpr2.Type! for all following references
+        Assert.NotNull(isExpr2!.Type);
+        // Use isExpr2!.Type! for all following references
     }
 
     [Fact]
@@ -1533,17 +1533,17 @@ public class ParserTests
         // Use funcDecl! for all following references
 
         // Check cache ??= ExpensiveOperation()
-        var assignStmt = funcDecl.Body!.Statements[1] as ExpressionStatement;
+        var assignStmt = funcDecl!.Body!.Statements[1] as ExpressionStatement;
         Assert.NotNull(assignStmt);
         // Use assignStmt! for all following references
-        var assignExpr = assignStmt.Expression as AssignmentExpression;
+        var assignExpr = assignStmt!.Expression as AssignmentExpression;
         Assert.NotNull(assignExpr);
         // Use assignExpr! for all following references
-        Assert.Equal(AssignmentOperator.NullCoalesceAssign, assignExpr.Operator);
-        var cacheIdent = assignExpr.Target as IdentifierExpression;
+        Assert.Equal(AssignmentOperator.NullCoalesceAssign, assignExpr!.Operator);
+        var cacheIdent = assignExpr!.Target as IdentifierExpression;
         Assert.NotNull(cacheIdent);
         // Use cacheIdent! for all following references
-        Assert.Equal("cache", cacheIdent.Name);
+        Assert.Equal("cache", cacheIdent!.Name);
     }
 
     [Fact]
@@ -1569,30 +1569,30 @@ public class ParserTests
         // Use classDecl! for all following references
 
         // Check this.name = name
-        var setNameMethod = classDecl.Members[1] as FunctionDeclaration;
+        var setNameMethod = classDecl!.Members[1] as FunctionDeclaration;
         Assert.NotNull(setNameMethod);
         // Use setNameMethod! for all following references
-        var assignStmt = setNameMethod.Body!.Statements[0] as ExpressionStatement;
+        var assignStmt = setNameMethod!.Body!.Statements[0] as ExpressionStatement;
         Assert.NotNull(assignStmt);
         // Use assignStmt! for all following references
-        var assignExpr = assignStmt.Expression as AssignmentExpression;
+        var assignExpr = assignStmt!.Expression as AssignmentExpression;
         Assert.NotNull(assignExpr);
         // Use assignExpr! for all following references
-        var memberAccess = assignExpr.Target as MemberAccessExpression;
+        var memberAccess = assignExpr!.Target as MemberAccessExpression;
         Assert.NotNull(memberAccess);
         // Use memberAccess! for all following references
-        var thisExpr = memberAccess.Object as ThisExpression;
+        var thisExpr = memberAccess!.Object as ThisExpression;
         Assert.NotNull(thisExpr);
         // Use thisExpr! for all following references
 
         // Check return this
-        var getThisMethod = classDecl.Members[2] as FunctionDeclaration;
+        var getThisMethod = classDecl!.Members[2] as FunctionDeclaration;
         Assert.NotNull(getThisMethod);
         // Use getThisMethod! for all following references
-        var returnStmt = getThisMethod.Body!.Statements[0] as ReturnStatement;
+        var returnStmt = getThisMethod!.Body!.Statements[0] as ReturnStatement;
         Assert.NotNull(returnStmt);
         // Use returnStmt! for all following references
-        var returnThis = returnStmt.Value as ThisExpression;
+        var returnThis = returnStmt!.Value as ThisExpression;
         Assert.NotNull(returnThis);
         // Use returnThis! for all following references
     }
@@ -1620,21 +1620,21 @@ public class ParserTests
         Assert.NotNull(dogClass);
         // Use dogClass! for all following references
 
-        var makeSoundMethod = dogClass.Members[0] as FunctionDeclaration;
+        var makeSoundMethod = dogClass!.Members[0] as FunctionDeclaration;
         Assert.NotNull(makeSoundMethod);
         // Use makeSoundMethod! for all following references
 
         // Check base.MakeSound()
-        var baseCallStmt = makeSoundMethod.Body!.Statements[0] as ExpressionStatement;
+        var baseCallStmt = makeSoundMethod!.Body!.Statements[0] as ExpressionStatement;
         Assert.NotNull(baseCallStmt);
         // Use baseCallStmt! for all following references
-        var callExpr = baseCallStmt.Expression as CallExpression;
+        var callExpr = baseCallStmt!.Expression as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        var baseMemberAccess = callExpr.Callee as MemberAccessExpression;
+        var baseMemberAccess = callExpr!.Callee as MemberAccessExpression;
         Assert.NotNull(baseMemberAccess);
         // Use baseMemberAccess! for all following references
-        var baseExpr = baseMemberAccess.Object as BaseExpression;
+        var baseExpr = baseMemberAccess!.Object as BaseExpression;
         Assert.NotNull(baseExpr);
         // Use baseExpr! for all following references
     }
@@ -1659,12 +1659,12 @@ public class ParserTests
         var personClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(personClass);
         // Use personClass! for all following references
-        var ctor = personClass.Members[2] as ConstructorDeclaration;
+        var ctor = personClass!.Members[2] as ConstructorDeclaration;
         Assert.NotNull(ctor);
         // Use ctor! for all following references
-        Assert.Equal(2, ctor.Parameters.Count);
-        Assert.Equal("name", ctor.Parameters[0].Name);
-        Assert.Equal("age", ctor.Parameters[1].Name);
+        Assert.Equal(2, ctor!.Parameters.Count);
+        Assert.Equal("name", ctor!.Parameters[0].Name);
+        Assert.Equal("age", ctor!.Parameters[1].Name);
     }
 
     [Fact]
@@ -1686,25 +1686,25 @@ public class ParserTests
         var myClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(myClass);
         // Use myClass! for all following references
-        Assert.Equal("MyClass", myClass.Name);
-        Assert.NotNull(myClass.BaseClass);
-        // Use myClass.BaseClass! for all following references
-        Assert.Equal("BaseClass", ((SimpleTypeReference)myClass.BaseClass).Name);
-        Assert.Equal(3, myClass.Interfaces.Count);
-        Assert.Equal("IFoo", ((SimpleTypeReference)myClass.Interfaces[0]).Name);
-        Assert.Equal("IBar", ((SimpleTypeReference)myClass.Interfaces[1]).Name);
-        Assert.Equal("IBaz", ((SimpleTypeReference)myClass.Interfaces[2]).Name);
+        Assert.Equal("MyClass", myClass!.Name);
+        Assert.NotNull(myClass!.BaseClass);
+        // Use myClass!.BaseClass! for all following references
+        Assert.Equal("BaseClass", ((SimpleTypeReference)myClass!.BaseClass).Name);
+        Assert.Equal(3, myClass!.Interfaces.Count);
+        Assert.Equal("IFoo", ((SimpleTypeReference)myClass!.Interfaces[0]).Name);
+        Assert.Equal("IBar", ((SimpleTypeReference)myClass!.Interfaces[1]).Name);
+        Assert.Equal("IBaz", ((SimpleTypeReference)myClass!.Interfaces[2]).Name);
 
         // Check class with interfaces (parser treats first as base class since it can't tell)
         var simpleClass = cu.Declarations[1] as ClassDeclaration;
         Assert.NotNull(simpleClass);
         // Use simpleClass! for all following references
         // Parser puts IFoo as base class (can't distinguish without type info)
-        Assert.NotNull(simpleClass.BaseClass);
-        // Use simpleClass.BaseClass! for all following references
-        Assert.Equal("IFoo", ((SimpleTypeReference)simpleClass.BaseClass).Name);
-        Assert.Single(simpleClass.Interfaces);
-        Assert.Equal("IBar", ((SimpleTypeReference)simpleClass.Interfaces[0]).Name);
+        Assert.NotNull(simpleClass!.BaseClass);
+        // Use simpleClass!.BaseClass! for all following references
+        Assert.Equal("IFoo", ((SimpleTypeReference)simpleClass!.BaseClass).Name);
+        Assert.Single(simpleClass!.Interfaces);
+        Assert.Equal("IBar", ((SimpleTypeReference)simpleClass!.Interfaces[0]).Name);
     }
 
     [Fact]
@@ -1726,9 +1726,9 @@ public class ParserTests
         var processFunc = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(processFunc);
         // Use processFunc! for all following references
-        Assert.Single(processFunc.TypeParameters);
-        Assert.Single(processFunc.Constraints);
-        var constraint1 = processFunc.Constraints[0];
+        Assert.Single(processFunc!.TypeParameters);
+        Assert.Single(processFunc!.Constraints);
+        var constraint1 = processFunc!.Constraints[0];
         Assert.Equal("T", constraint1.TypeParameter);
         Assert.Single(constraint1.Constraints);
 
@@ -1736,8 +1736,8 @@ public class ParserTests
         var transformFunc = cu.Declarations[1] as FunctionDeclaration;
         Assert.NotNull(transformFunc);
         // Use transformFunc! for all following references
-        Assert.Equal(2, transformFunc.TypeParameters.Count);
-        Assert.Equal(2, transformFunc.Constraints.Count);
+        Assert.Equal(2, transformFunc!.TypeParameters.Count);
+        Assert.Equal(2, transformFunc!.Constraints.Count);
     }
 
     [Fact]
@@ -1763,11 +1763,11 @@ public class ParserTests
         var calcClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(calcClass);
         // Use calcClass! for all following references
-        Assert.Equal(3, calcClass.Members.Count);
+        Assert.Equal(3, calcClass!.Members.Count);
 
-        var method1 = calcClass.Members[0] as FunctionDeclaration;
-        var method2 = calcClass.Members[1] as FunctionDeclaration;
-        var method3 = calcClass.Members[2] as FunctionDeclaration;
+        var method1 = calcClass!.Members[0] as FunctionDeclaration;
+        var method2 = calcClass!.Members[1] as FunctionDeclaration;
+        var method3 = calcClass!.Members[2] as FunctionDeclaration;
 
         Assert.Equal("Add", method1!.Name);
         Assert.Equal("Add", method2!.Name);
@@ -1796,23 +1796,23 @@ public class ParserTests
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal(2, classDecl.Members.Count);
+        Assert.Equal(2, classDecl!.Members.Count);
 
         // First member should be a field
-        var field = classDecl.Members[0] as FieldDeclaration;
+        var field = classDecl!.Members[0] as FieldDeclaration;
         Assert.NotNull(field);
         // Use field! for all following references
-        Assert.Equal("count", field.Name);
+        Assert.Equal("count", field!.Name);
 
         // Second member should be a property with get/set
-        var property = classDecl.Members[1] as PropertyDeclaration;
+        var property = classDecl!.Members[1] as PropertyDeclaration;
         Assert.NotNull(property);
         // Use property! for all following references
-        Assert.Equal("Count", property.Name);
-        Assert.NotNull(property.GetBody);
-        // Use property.GetBody! for all following references
-        Assert.NotNull(property.SetBody);
-        // Use property.SetBody! for all following references
+        Assert.Equal("Count", property!.Name);
+        Assert.NotNull(property!.GetBody);
+        // Use property!.GetBody! for all following references
+        Assert.NotNull(property!.SetBody);
+        // Use property!.SetBody! for all following references
     }
 
     [Fact]
@@ -1833,13 +1833,13 @@ public class ParserTests
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var property = classDecl.Members[1] as PropertyDeclaration;
+        var property = classDecl!.Members[1] as PropertyDeclaration;
         Assert.NotNull(property);
         // Use property! for all following references
-        Assert.Equal("Value", property.Name);
-        Assert.NotNull(property.GetBody);
-        // Use property.GetBody! for all following references
-        Assert.Null(property.SetBody);
+        Assert.Equal("Value", property!.Name);
+        Assert.NotNull(property!.GetBody);
+        // Use property!.GetBody! for all following references
+        Assert.Null(property!.SetBody);
     }
 
     [Fact]
@@ -1863,13 +1863,13 @@ public class ParserTests
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var property = classDecl.Members[1] as PropertyDeclaration;
+        var property = classDecl!.Members[1] as PropertyDeclaration;
         Assert.NotNull(property);
         // Use property! for all following references
-        Assert.Equal("Message", property.Name);
-        Assert.Null(property.GetBody);
-        Assert.NotNull(property.SetBody);
-        // Use property.SetBody! for all following references
+        Assert.Equal("Message", property!.Name);
+        Assert.Null(property!.GetBody);
+        Assert.NotNull(property!.SetBody);
+        // Use property!.SetBody! for all following references
     }
 
     [Fact]
@@ -1889,19 +1889,19 @@ public class ParserTests
         var outerClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(outerClass);
         // Use outerClass! for all following references
-        Assert.Equal("Outer", outerClass.Name);
-        Assert.Equal(2, outerClass.Members.Count);
+        Assert.Equal("Outer", outerClass!.Name);
+        Assert.Equal(2, outerClass!.Members.Count);
 
-        var field = outerClass.Members[0] as FieldDeclaration;
+        var field = outerClass!.Members[0] as FieldDeclaration;
         Assert.NotNull(field);
         // Use field! for all following references
-        Assert.Equal("Name", field.Name);
+        Assert.Equal("Name", field!.Name);
 
-        var innerClass = outerClass.Members[1] as ClassDeclaration;
+        var innerClass = outerClass!.Members[1] as ClassDeclaration;
         Assert.NotNull(innerClass);
         // Use innerClass! for all following references
-        Assert.Equal("Inner", innerClass.Name);
-        Assert.Single(innerClass.Members);
+        Assert.Equal("Inner", innerClass!.Name);
+        Assert.Single(innerClass!.Members);
     }
 
     [Fact]
@@ -1922,18 +1922,18 @@ public class ParserTests
         var containerClass = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(containerClass);
         // Use containerClass! for all following references
-        Assert.Equal(2, containerClass.Members.Count);
+        Assert.Equal(2, containerClass!.Members.Count);
 
-        var nestedEnum = containerClass.Members[0] as EnumDeclaration;
+        var nestedEnum = containerClass!.Members[0] as EnumDeclaration;
         Assert.NotNull(nestedEnum);
         // Use nestedEnum! for all following references
-        Assert.Equal("Status", nestedEnum.Name);
-        Assert.Equal(2, nestedEnum.Members.Count);
+        Assert.Equal("Status", nestedEnum!.Name);
+        Assert.Equal(2, nestedEnum!.Members.Count);
 
-        var field = containerClass.Members[1] as FieldDeclaration;
+        var field = containerClass!.Members[1] as FieldDeclaration;
         Assert.NotNull(field);
         // Use field! for all following references
-        Assert.Equal("CurrentStatus", field.Name);
+        Assert.Equal("CurrentStatus", field!.Name);
     }
 
     [Fact]
@@ -1954,13 +1954,13 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body!.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        var stringLiteral = varDecl.Initializer as StringLiteralExpression;
+        var stringLiteral = varDecl!.Initializer as StringLiteralExpression;
         Assert.NotNull(stringLiteral);
         // Use stringLiteral! for all following references
-        Assert.Contains("multi-line", stringLiteral.Value);
+        Assert.Contains("multi-line", stringLiteral!.Value);
     }
 
     [Fact]
@@ -1981,31 +1981,31 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(3, matchExpr.Cases.Count);
+        Assert.Equal(3, matchExpr!.Cases.Count);
 
         // First case: n when n > 0
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         Assert.IsType<IdentifierPattern>(firstCase.Pattern);
         Assert.NotNull(firstCase.Guard);
         // Use firstCase.Guard! for all following references
         Assert.IsType<BinaryExpression>(firstCase.Guard);
 
         // Second case: n when n < 0
-        var secondCase = matchExpr.Cases[1];
+        var secondCase = matchExpr!.Cases[1];
         Assert.IsType<IdentifierPattern>(secondCase.Pattern);
         Assert.NotNull(secondCase.Guard);
         // Use secondCase.Guard! for all following references
         Assert.IsType<BinaryExpression>(secondCase.Guard);
 
         // Third case: _ (no guard)
-        var thirdCase = matchExpr.Cases[2];
+        var thirdCase = matchExpr!.Cases[2];
         Assert.IsType<IdentifierPattern>(thirdCase.Pattern);
         Assert.Null(thirdCase.Guard);
     }
@@ -2028,28 +2028,28 @@ public class ParserTests
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(3, matchExpr.Cases.Count);
+        Assert.Equal(3, matchExpr!.Cases.Count);
 
         // First case has guard
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         Assert.IsType<UnionCasePattern>(firstCase.Pattern);
         Assert.NotNull(firstCase.Guard);
         // Use firstCase.Guard! for all following references
 
         // Second case has no guard
-        var secondCase = matchExpr.Cases[1];
+        var secondCase = matchExpr!.Cases[1];
         Assert.IsType<UnionCasePattern>(secondCase.Pattern);
         Assert.Null(secondCase.Guard);
 
         // Third case has no guard
-        var thirdCase = matchExpr.Cases[2];
+        var thirdCase = matchExpr!.Cases[2];
         Assert.IsType<UnionCasePattern>(thirdCase.Pattern);
         Assert.Null(thirdCase.Guard);
     }
@@ -2208,22 +2208,22 @@ func main() {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal(3, classDecl.Members.Count);
+        Assert.Equal(3, classDecl!.Members.Count);
 
         // FullName should be a PropertyDeclaration with ExpressionBody
-        var prop = classDecl.Members[2] as PropertyDeclaration;
+        var prop = classDecl!.Members[2] as PropertyDeclaration;
         Assert.NotNull(prop);
         // Use prop! for all following references
-        Assert.Equal("FullName", prop.Name);
-        Assert.NotNull(prop.Type);  // Explicit type required
-        var simpleType = Assert.IsType<SimpleTypeReference>(prop.Type);
+        Assert.Equal("FullName", prop!.Name);
+        Assert.NotNull(prop!.Type);  // Explicit type required
+        var simpleType = Assert.IsType<SimpleTypeReference>(prop!.Type);
         Assert.Equal("string", simpleType.Name);
-        Assert.Null(prop.GetBody);
-        Assert.Null(prop.SetBody);
-        Assert.NotNull(prop.ExpressionBody);
-        // Use prop.ExpressionBody! for all following references
+        Assert.Null(prop!.GetBody);
+        Assert.Null(prop!.SetBody);
+        Assert.NotNull(prop!.ExpressionBody);
+        // Use prop!.ExpressionBody! for all following references
 
-        var binaryExpr = Assert.IsType<BinaryExpression>(prop.ExpressionBody);
+        var binaryExpr = Assert.IsType<BinaryExpression>(prop!.ExpressionBody);
         Assert.Equal(BinaryOperator.Add, binaryExpr.Operator);
     }
 
@@ -2241,17 +2241,17 @@ func main() {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal(2, classDecl.Members.Count);
+        Assert.Equal(2, classDecl!.Members.Count);
 
-        var prop = classDecl.Members[1] as PropertyDeclaration;
+        var prop = classDecl!.Members[1] as PropertyDeclaration;
         Assert.NotNull(prop);
         // Use prop! for all following references
-        Assert.Equal("DoubleValue", prop.Name);
-        Assert.NotNull(prop.Type);  // Explicit type
-        var simpleType = Assert.IsType<SimpleTypeReference>(prop.Type);
+        Assert.Equal("DoubleValue", prop!.Name);
+        Assert.NotNull(prop!.Type);  // Explicit type
+        var simpleType = Assert.IsType<SimpleTypeReference>(prop!.Type);
         Assert.Equal("int", simpleType.Name);
-        Assert.NotNull(prop.ExpressionBody);
-        // Use prop.ExpressionBody! for all following references
+        Assert.NotNull(prop!.ExpressionBody);
+        // Use prop!.ExpressionBody! for all following references
     }
 
     [Fact]
@@ -2267,20 +2267,20 @@ func main() {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Single(classDecl.Members);
+        Assert.Single(classDecl!.Members);
 
-        var func = classDecl.Members[0] as FunctionDeclaration;
+        var func = classDecl!.Members[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Add", func.Name);
-        Assert.Equal(2, func.Parameters.Count);
-        Assert.NotNull(func.ReturnType);
-        // Use func.ReturnType! for all following references
-        Assert.Null(func.Body);  // No block body
-        Assert.NotNull(func.ExpressionBody);
-        // Use func.ExpressionBody! for all following references
+        Assert.Equal("Add", func!.Name);
+        Assert.Equal(2, func!.Parameters.Count);
+        Assert.NotNull(func!.ReturnType);
+        // Use func!.ReturnType! for all following references
+        Assert.Null(func!.Body);  // No block body
+        Assert.NotNull(func!.ExpressionBody);
+        // Use func!.ExpressionBody! for all following references
 
-        var binaryExpr = Assert.IsType<BinaryExpression>(func.ExpressionBody);
+        var binaryExpr = Assert.IsType<BinaryExpression>(func!.ExpressionBody);
         Assert.Equal(BinaryOperator.Add, binaryExpr.Operator);
     }
 
@@ -2297,16 +2297,16 @@ func main() {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Single(classDecl.Members);
+        Assert.Single(classDecl!.Members);
 
-        var func = classDecl.Members[0] as FunctionDeclaration;
+        var func = classDecl!.Members[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Square", func.Name);
-        Assert.NotNull(func.ReturnType);
-        // Use func.ReturnType! for all following references
-        Assert.NotNull(func.ExpressionBody);
-        // Use func.ExpressionBody! for all following references
+        Assert.Equal("Square", func!.Name);
+        Assert.NotNull(func!.ReturnType);
+        // Use func!.ReturnType! for all following references
+        Assert.NotNull(func!.ExpressionBody);
+        // Use func!.ExpressionBody! for all following references
     }
 
     [Fact]
@@ -2326,29 +2326,29 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(3, matchExpr.Cases.Count);
+        Assert.Equal(3, matchExpr!.Cases.Count);
 
         // First case: < 13
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var firstPattern = Assert.IsType<RelationalPattern>(firstCase.Pattern);
         Assert.Equal("<", firstPattern.Operator);
         Assert.IsType<IntLiteralExpression>(firstPattern.Value);
 
         // Second case: >= 65
-        var secondCase = matchExpr.Cases[1];
+        var secondCase = matchExpr!.Cases[1];
         var secondPattern = Assert.IsType<RelationalPattern>(secondCase.Pattern);
         Assert.Equal(">=", secondPattern.Operator);
         Assert.IsType<IntLiteralExpression>(secondPattern.Value);
 
         // Third case: wildcard
-        var thirdCase = matchExpr.Cases[2];
+        var thirdCase = matchExpr!.Cases[2];
         Assert.IsType<IdentifierPattern>(thirdCase.Pattern);
     }
 
@@ -2370,15 +2370,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var andPattern = Assert.IsType<AndPattern>(firstCase.Pattern);
         Assert.IsType<RelationalPattern>(andPattern.Left);
         Assert.IsType<RelationalPattern>(andPattern.Right);
@@ -2402,15 +2402,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var orPattern = Assert.IsType<OrPattern>(firstCase.Pattern);
         Assert.IsType<RelationalPattern>(orPattern.Left);
         Assert.IsType<RelationalPattern>(orPattern.Right);
@@ -2434,15 +2434,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var notPattern = Assert.IsType<NotPattern>(firstCase.Pattern);
         Assert.IsType<LiteralPattern>(notPattern.Pattern);
     }
@@ -2465,17 +2465,17 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(4, matchExpr.Cases.Count);
+        Assert.Equal(4, matchExpr!.Cases.Count);
 
         // First case: (0, 0)
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var positionalPattern = Assert.IsType<PositionalPattern>(firstCase.Pattern);
         Assert.Equal(2, positionalPattern.Patterns.Count);
         Assert.IsType<LiteralPattern>(positionalPattern.Patterns[0]);
@@ -2498,15 +2498,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
         Assert.Empty(listPattern.Elements);
     }
@@ -2527,15 +2527,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
         Assert.Equal(3, listPattern.Elements.Count);
         Assert.All(listPattern.Elements, e => Assert.IsType<LiteralPattern>(e));
@@ -2557,15 +2557,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
         Assert.Equal(2, listPattern.Elements.Count);
 
@@ -2592,15 +2592,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
         Assert.Equal(2, listPattern.Elements.Count);
 
@@ -2624,15 +2624,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var listPattern = Assert.IsType<ListPattern>(firstCase.Pattern);
         Assert.Equal(3, listPattern.Elements.Count);
 
@@ -2659,23 +2659,23 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(3, matchExpr.Cases.Count);
+        Assert.Equal(3, matchExpr!.Cases.Count);
 
         // First case: complex or pattern with parenthesized and patterns
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var orPattern = Assert.IsType<OrPattern>(firstCase.Pattern);
         Assert.IsType<PositionalPattern>(orPattern.Left);  // Parenthesized and pattern
         Assert.IsType<PositionalPattern>(orPattern.Right); // Parenthesized and pattern
 
         // Second case: not pattern with relational
-        var secondCase = matchExpr.Cases[1];
+        var secondCase = matchExpr!.Cases[1];
         var notPattern = Assert.IsType<NotPattern>(secondCase.Pattern);
         Assert.IsType<PositionalPattern>(notPattern.Pattern);
     }
@@ -2697,17 +2697,17 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Equal(3, matchExpr.Cases.Count);
+        Assert.Equal(3, matchExpr!.Cases.Count);
 
         // First case: string s
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var typePattern1 = Assert.IsType<TypePattern>(firstCase.Pattern);
         Assert.IsType<SimpleTypeReference>(typePattern1.Type);
         var simpleType1 = (SimpleTypeReference)typePattern1.Type;
@@ -2715,7 +2715,7 @@ func main() {
         Assert.Equal("s", typePattern1.BindingName);
 
         // Second case: int n
-        var secondCase = matchExpr.Cases[1];
+        var secondCase = matchExpr!.Cases[1];
         var typePattern2 = Assert.IsType<TypePattern>(secondCase.Pattern);
         Assert.IsType<SimpleTypeReference>(typePattern2.Type);
         var simpleType2 = (SimpleTypeReference)typePattern2.Type;
@@ -2739,15 +2739,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var typePattern = Assert.IsType<TypePattern>(firstCase.Pattern);
         var simpleType = Assert.IsType<SimpleTypeReference>(typePattern.Type);
         Assert.Equal("System.String", simpleType.Name);
@@ -2771,15 +2771,15 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var firstCase = matchExpr.Cases[0];
+        var firstCase = matchExpr!.Cases[0];
         var typePattern = Assert.IsType<TypePattern>(firstCase.Pattern);
         Assert.Equal("s", typePattern.BindingName);
         Assert.NotNull(firstCase.Guard); // Has guard clause
@@ -2798,8 +2798,8 @@ func main() {
         var fileImport = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport);
         // Use fileImport! for all following references
-        Assert.Equal("Models/Person", fileImport.Path);
-        Assert.Null(fileImport.Alias);
+        Assert.Equal("Models/Person", fileImport!.Path);
+        Assert.Null(fileImport!.Alias);
     }
 
     [Fact]
@@ -2815,8 +2815,8 @@ func main() {
         var fileImport = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport);
         // Use fileImport! for all following references
-        Assert.Equal("Services/Auth", fileImport.Path);
-        Assert.Equal("AuthService", fileImport.Alias);
+        Assert.Equal("Services/Auth", fileImport!.Path);
+        Assert.Equal("AuthService", fileImport!.Alias);
     }
 
     [Fact]
@@ -2832,8 +2832,8 @@ func main() {
         var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         // Use nsImport! for all following references
-        Assert.Equal("System.Collections.Generic", nsImport.Namespace);
-        Assert.Null(nsImport.Alias);
+        Assert.Equal("System.Collections.Generic", nsImport!.Namespace);
+        Assert.Null(nsImport!.Alias);
     }
 
     [Fact]
@@ -2849,8 +2849,8 @@ func main() {
         var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         // Use nsImport! for all following references
-        Assert.Equal("System.Text.Json", nsImport.Namespace);
-        Assert.Equal("Json", nsImport.Alias);
+        Assert.Equal("System.Text.Json", nsImport!.Namespace);
+        Assert.Equal("Json", nsImport!.Alias);
     }
 
     [Fact]
@@ -2864,23 +2864,23 @@ func main() {
 
         var cu = Parse(source);
         Assert.Equal(2, cu.FileImports.Count);
-        Assert.Equal(1, cu.Imports.Count);
+        Assert.Single(cu.Imports);
 
         var fileImport1 = cu.FileImports[0] as FileImport;
         Assert.NotNull(fileImport1);
         // Use fileImport1! for all following references
-        Assert.Equal("Models/Person", fileImport1.Path);
+        Assert.Equal("Models/Person", fileImport1!.Path);
 
         var nsImport = cu.Imports[0];
         Assert.NotNull(nsImport);
         // Use nsImport! for all following references
-        Assert.Equal("System.Linq", nsImport.Namespace);
+        Assert.Equal("System.Linq", nsImport!.Namespace);
 
         var fileImport2 = cu.FileImports[1] as FileImport;
         Assert.NotNull(fileImport2);
         // Use fileImport2! for all following references
-        Assert.Equal("Services/Auth", fileImport2.Path);
-        Assert.Equal("AuthService", fileImport2.Alias);
+        Assert.Equal("Services/Auth", fileImport2!.Path);
+        Assert.Equal("AuthService", fileImport2!.Alias);
     }
 
     [Fact]
@@ -2899,23 +2899,23 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
-        Assert.Single(matchExpr.Cases);
+        Assert.Single(matchExpr!.Cases);
 
-        var matchCase = matchExpr.Cases[0];
+        var matchCase = matchExpr!.Cases[0];
         var objectPattern = matchCase.Pattern as ObjectPattern;
         Assert.NotNull(objectPattern);
         // Use objectPattern! for all following references
-        Assert.Single(objectPattern.Properties);
+        Assert.Single(objectPattern!.Properties);
 
         // Verify Address property has nested pattern
-        var addressProp = objectPattern.Properties[0];
+        var addressProp = objectPattern!.Properties[0];
         Assert.Equal("Address", addressProp.Name);
         Assert.NotNull(addressProp.Pattern);
         // Use addressProp.Pattern! for all following references
@@ -2925,10 +2925,10 @@ func main() {
         var nestedObj = addressProp.Pattern as ObjectPattern;
         Assert.NotNull(nestedObj);
         // Use nestedObj! for all following references
-        Assert.Single(nestedObj.Properties);
+        Assert.Single(nestedObj!.Properties);
 
         // Verify City property has literal pattern
-        var cityProp = nestedObj.Properties[0];
+        var cityProp = nestedObj!.Properties[0];
         Assert.Equal("City", cityProp.Name);
         Assert.NotNull(cityProp.Pattern);
         // Use cityProp.Pattern! for all following references
@@ -2954,36 +2954,36 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var matchExpr = varDecl.Initializer as MatchExpression;
+        var matchExpr = varDecl!.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var objectPattern = matchExpr.Cases[0].Pattern as ObjectPattern;
+        var objectPattern = matchExpr!.Cases[0].Pattern as ObjectPattern;
         Assert.NotNull(objectPattern);
         // Use objectPattern! for all following references
 
-        var addressProp = objectPattern.Properties[0];
+        var addressProp = objectPattern!.Properties[0];
         var nestedObj = addressProp.Pattern as ObjectPattern;
         Assert.NotNull(nestedObj);
         // Use nestedObj! for all following references
-        Assert.Equal(2, nestedObj.Properties.Count);
+        Assert.Equal(2, nestedObj!.Properties.Count);
 
         // City property with identifier binding
-        var cityProp = nestedObj.Properties[0];
+        var cityProp = nestedObj!.Properties[0];
         Assert.Equal("City", cityProp.Name);
         Assert.NotNull(cityProp.Pattern);
         // Use cityProp.Pattern! for all following references
         var cityIdent = cityProp.Pattern as IdentifierPattern;
         Assert.NotNull(cityIdent);
         // Use cityIdent! for all following references
-        Assert.Equal("city", cityIdent.Name);
+        Assert.Equal("city", cityIdent!.Name);
 
         // State property with literal
-        var stateProp = nestedObj.Properties[1];
+        var stateProp = nestedObj!.Properties[1];
         Assert.Equal("State", stateProp.Name);
         Assert.NotNull(stateProp.Pattern);
         // Use stateProp.Pattern! for all following references
@@ -3008,31 +3008,31 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         var matchExpr = varDecl.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var objectPattern = matchExpr.Cases[0].Pattern as ObjectPattern;
+        var objectPattern = matchExpr!.Cases[0].Pattern as ObjectPattern;
         Assert.NotNull(objectPattern);
         // Use objectPattern! for all following references
 
         // Level 1: HQ property
-        var hqProp = objectPattern.Properties[0];
+        var hqProp = objectPattern!.Properties[0];
         Assert.Equal("HQ", hqProp.Name);
         var level2 = hqProp.Pattern as ObjectPattern;
         Assert.NotNull(level2);
         // Use level2! for all following references
 
         // Level 2: Address property
-        var addressProp = level2.Properties[0];
+        var addressProp = level2!.Properties[0];
         Assert.Equal("Address", addressProp.Name);
         var level3 = addressProp.Pattern as ObjectPattern;
         Assert.NotNull(level3);
         // Use level3! for all following references
 
         // Level 3: City property
-        var cityProp = level3.Properties[0];
+        var cityProp = level3!.Properties[0];
         Assert.Equal("City", cityProp.Name);
         var cityLiteral = cityProp.Pattern as LiteralPattern;
         Assert.NotNull(cityLiteral);
@@ -3056,19 +3056,19 @@ func main() {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         var matchExpr = varDecl.Initializer as MatchExpression;
         Assert.NotNull(matchExpr);
         // Use matchExpr! for all following references
 
-        var unionPattern = matchExpr.Cases[0].Pattern as UnionCasePattern;
+        var unionPattern = matchExpr!.Cases[0].Pattern as UnionCasePattern;
         Assert.NotNull(unionPattern);
         // Use unionPattern! for all following references
-        Assert.Equal("Result.Success", unionPattern.CaseName);
-        Assert.Single(unionPattern.Properties);
+        Assert.Equal("Result.Success", unionPattern!.CaseName);
+        Assert.Single(unionPattern!.Properties);
 
         // Verify value property has nested pattern
-        var valueProp = unionPattern.Properties[0];
+        var valueProp = unionPattern!.Properties[0];
         Assert.Equal("value", valueProp.Name);
         Assert.NotNull(valueProp.Pattern);
         // Use valueProp.Pattern! for all following references
@@ -3076,14 +3076,14 @@ func main() {
         var nestedObj = valueProp.Pattern as ObjectPattern;
         Assert.NotNull(nestedObj);
         // Use nestedObj! for all following references
-        Assert.Single(nestedObj.Properties);
+        Assert.Single(nestedObj!.Properties);
 
-        var countProp = nestedObj.Properties[0];
+        var countProp = nestedObj!.Properties[0];
         Assert.Equal("Count", countProp.Name);
         var countIdent = countProp.Pattern as IdentifierPattern;
         Assert.NotNull(countIdent);
         // Use countIdent! for all following references
-        Assert.Equal("count", countIdent.Name);
+        Assert.Equal("count", countIdent!.Name);
     }
 
     [Fact]
@@ -3105,23 +3105,23 @@ test ""should add two numbers"" {
         var testDecl = unit.Declarations[0] as TestDeclaration;
         Assert.NotNull(testDecl);
         // Use testDecl! for all following references
-        Assert.Equal("should add two numbers", testDecl.Description);
-        Assert.Equal(2, testDecl.Body.Statements.Count);
+        Assert.Equal("should add two numbers", testDecl!.Description);
+        Assert.Equal(2, testDecl!.Body.Statements.Count);
 
         // Check variable declaration
-        var varDecl = testDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = testDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        Assert.Equal("result", varDecl.Name);
+        Assert.Equal("result", varDecl!.Name);
 
         // Check assert statement
-        var assertStmt = testDecl.Body.Statements[1] as AssertStatement;
+        var assertStmt = testDecl!.Body.Statements[1] as AssertStatement;
         Assert.NotNull(assertStmt);
         // Use assertStmt! for all following references
-        var binExpr = assertStmt.Condition as BinaryExpression;
+        var binExpr = assertStmt!.Condition as BinaryExpression;
         Assert.NotNull(binExpr);
         // Use binExpr! for all following references
-        Assert.Equal(BinaryOperator.Equal, binExpr.Operator);
+        Assert.Equal(BinaryOperator.Equal, binExpr!.Operator);
     }
 
     [Fact]
@@ -3143,27 +3143,27 @@ func TestFunc() {
         var funcDecl = unit.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
-        Assert.Equal(3, funcDecl.Body.Statements.Count);
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
+        Assert.Equal(3, funcDecl!.Body.Statements.Count);
 
         // First assert: value > 5
-        var assert1 = funcDecl.Body.Statements[1] as AssertStatement;
+        var assert1 = funcDecl!.Body.Statements[1] as AssertStatement;
         Assert.NotNull(assert1);
         // Use assert1! for all following references
-        var binExpr1 = assert1.Condition as BinaryExpression;
+        var binExpr1 = assert1!.Condition as BinaryExpression;
         Assert.NotNull(binExpr1);
         // Use binExpr1! for all following references
-        Assert.Equal(BinaryOperator.Greater, binExpr1.Operator);
+        Assert.Equal(BinaryOperator.Greater, binExpr1!.Operator);
 
         // Second assert: value != null
-        var assert2 = funcDecl.Body.Statements[2] as AssertStatement;
+        var assert2 = funcDecl!.Body.Statements[2] as AssertStatement;
         Assert.NotNull(assert2);
         // Use assert2! for all following references
-        var binExpr2 = assert2.Condition as BinaryExpression;
+        var binExpr2 = assert2!.Condition as BinaryExpression;
         Assert.NotNull(binExpr2);
         // Use binExpr2! for all following references
-        Assert.Equal(BinaryOperator.NotEqual, binExpr2.Operator);
+        Assert.Equal(BinaryOperator.NotEqual, binExpr2!.Operator);
     }
 
     [Fact]
@@ -3184,18 +3184,18 @@ func TestFunc() {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("Vector", classDecl.Name);
+        Assert.Equal("Vector", classDecl!.Name);
 
         // Find operator overload
-        var opFunc = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
+        var opFunc = classDecl!.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
         Assert.NotNull(opFunc);
         // Use opFunc! for all following references
-        Assert.True(opFunc.IsOperatorOverload);
-        Assert.Equal("+", opFunc.OperatorSymbol);
-        Assert.Equal(2, opFunc.Parameters.Count);
-        Assert.Equal("a", opFunc.Parameters[0].Name);
-        Assert.Equal("b", opFunc.Parameters[1].Name);
-        Assert.True(opFunc.Modifiers.HasFlag(Modifiers.Static));
+        Assert.True(opFunc!.IsOperatorOverload);
+        Assert.Equal("+", opFunc!.OperatorSymbol);
+        Assert.Equal(2, opFunc!.Parameters.Count);
+        Assert.Equal("a", opFunc!.Parameters[0].Name);
+        Assert.Equal("b", opFunc!.Parameters[1].Name);
+        Assert.True(opFunc!.Modifiers.HasFlag(Modifiers.Static));
     }
 
     [Fact]
@@ -3217,13 +3217,13 @@ func TestFunc() {
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var opFunc = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
+        var opFunc = classDecl!.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsOperatorOverload);
         Assert.NotNull(opFunc);
         // Use opFunc! for all following references
-        Assert.True(opFunc.IsOperatorOverload);
-        Assert.Equal("-", opFunc.OperatorSymbol);
-        Assert.Equal(1, opFunc.Parameters.Count);
-        Assert.Equal("v", opFunc.Parameters[0].Name);
+        Assert.True(opFunc!.IsOperatorOverload);
+        Assert.Equal("-", opFunc!.OperatorSymbol);
+        var param = Assert.Single(opFunc!.Parameters);
+        Assert.Equal("v", param.Name);
     }
 
     [Fact]
@@ -3248,18 +3248,18 @@ func TestFunc() {
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var operators = classDecl.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
+        var operators = classDecl!.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
         Assert.Equal(2, operators.Count);
 
         var equalOp = operators.FirstOrDefault(f => f.OperatorSymbol == "==");
         Assert.NotNull(equalOp);
         // Use equalOp! for all following references
-        Assert.Equal(2, equalOp.Parameters.Count);
+        Assert.Equal(2, equalOp!.Parameters.Count);
 
         var notEqualOp = operators.FirstOrDefault(f => f.OperatorSymbol == "!=");
         Assert.NotNull(notEqualOp);
         // Use notEqualOp! for all following references
-        Assert.Equal(2, notEqualOp.Parameters.Count);
+        Assert.Equal(2, notEqualOp!.Parameters.Count);
     }
 
     [Fact]
@@ -3284,7 +3284,7 @@ func TestFunc() {
         Assert.NotNull(structDecl);
         // Use structDecl! for all following references
 
-        var operators = structDecl.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
+        var operators = structDecl!.Members.OfType<FunctionDeclaration>().Where(f => f.IsOperatorOverload).ToList();
         Assert.Equal(2, operators.Count);
 
         var andOp = operators.FirstOrDefault(f => f.OperatorSymbol == "&");
@@ -3314,14 +3314,14 @@ func TestFunc() {
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var conversion = classDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
+        var conversion = classDecl!.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
         Assert.NotNull(conversion);
         // Use conversion! for all following references
-        Assert.True(conversion.IsConversionOperator);
-        Assert.True(conversion.IsImplicitConversion);
-        Assert.Equal("Fahrenheit", ((SimpleTypeReference)conversion.ReturnType!).Name);
-        Assert.Single(conversion.Parameters);
-        Assert.Equal("Celsius", ((SimpleTypeReference)conversion.Parameters[0].Type).Name);
+        Assert.True(conversion!.IsConversionOperator);
+        Assert.True(conversion!.IsImplicitConversion);
+        Assert.Equal("Fahrenheit", ((SimpleTypeReference)conversion!.ReturnType!).Name);
+        Assert.Single(conversion!.Parameters);
+        Assert.Equal("Celsius", ((SimpleTypeReference)conversion!.Parameters[0].Type).Name);
     }
 
     [Fact]
@@ -3343,14 +3343,14 @@ func TestFunc() {
         Assert.NotNull(structDecl);
         // Use structDecl! for all following references
 
-        var conversion = structDecl.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
+        var conversion = structDecl!.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.IsConversionOperator);
         Assert.NotNull(conversion);
         // Use conversion! for all following references
-        Assert.True(conversion.IsConversionOperator);
-        Assert.False(conversion.IsImplicitConversion);
-        Assert.Equal("double", ((SimpleTypeReference)conversion.ReturnType!).Name);
-        Assert.Single(conversion.Parameters);
-        Assert.Equal("Fraction", ((SimpleTypeReference)conversion.Parameters[0].Type).Name);
+        Assert.True(conversion!.IsConversionOperator);
+        Assert.False(conversion!.IsImplicitConversion);
+        Assert.Equal("double", ((SimpleTypeReference)conversion!.ReturnType!).Name);
+        Assert.Single(conversion!.Parameters);
+        Assert.Equal("Fraction", ((SimpleTypeReference)conversion!.Parameters[0].Type).Name);
     }
 
     [Fact]
@@ -3368,7 +3368,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
         Assert.Equal(3, vars.Count);
 
         // Check lastItem uses index from end
@@ -3378,15 +3378,15 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var indexExpr = indexAccess.Index as UnaryExpression;
+        var indexExpr = indexAccess!.Index as UnaryExpression;
         Assert.NotNull(indexExpr);
         // Use indexExpr! for all following references
-        Assert.Equal(UnaryOperator.IndexFromEnd, indexExpr.Operator);
+        Assert.Equal(UnaryOperator.IndexFromEnd, indexExpr!.Operator);
 
-        var indexValue = indexExpr.Operand as IntLiteralExpression;
+        var indexValue = indexExpr!.Operand as IntLiteralExpression;
         Assert.NotNull(indexValue);
         // Use indexValue! for all following references
-        Assert.Equal("1", indexValue.Value);
+        Assert.Equal("1", indexValue!.Value);
     }
 
     [Fact]
@@ -3404,7 +3404,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
         Assert.Equal(3, vars.Count);
 
         // Check slice uses range
@@ -3414,19 +3414,19 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var rangeExpr = indexAccess.Index as RangeExpression;
+        var rangeExpr = indexAccess!.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
         // Use rangeExpr! for all following references
 
-        var left = rangeExpr.Start as IntLiteralExpression;
+        var left = rangeExpr!.Start as IntLiteralExpression;
         Assert.NotNull(left);
         // Use left! for all following references
-        Assert.Equal("1", left.Value);
+        Assert.Equal("1", left!.Value);
 
-        var right = rangeExpr.End as IntLiteralExpression;
+        var right = rangeExpr!.End as IntLiteralExpression;
         Assert.NotNull(right);
         // Use right! for all following references
-        Assert.Equal("4", right.Value);
+        Assert.Equal("4", right!.Value);
     }
 
     [Fact]
@@ -3444,7 +3444,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
         Assert.Equal(3, vars.Count);
 
         // Check middle uses range with index from end
@@ -3454,19 +3454,19 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var rangeExpr = indexAccess.Index as RangeExpression;
+        var rangeExpr = indexAccess!.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
         // Use rangeExpr! for all following references
 
-        var left = rangeExpr.Start as IntLiteralExpression;
+        var left = rangeExpr!.Start as IntLiteralExpression;
         Assert.NotNull(left);
         // Use left! for all following references
-        Assert.Equal("1", left.Value);
+        Assert.Equal("1", left!.Value);
 
-        var right = rangeExpr.End as UnaryExpression;
+        var right = rangeExpr!.End as UnaryExpression;
         Assert.NotNull(right);
         // Use right! for all following references
-        Assert.Equal(UnaryOperator.IndexFromEnd, right.Operator);
+        Assert.Equal(UnaryOperator.IndexFromEnd, right!.Operator);
     }
 
     [Fact]
@@ -3483,7 +3483,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
 
         var sliceDecl = vars[1];
         Assert.Equal("slice", sliceDecl.Name);
@@ -3491,15 +3491,15 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var rangeExpr = indexAccess.Index as RangeExpression;
+        var rangeExpr = indexAccess!.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
         // Use rangeExpr! for all following references
-        Assert.Null(rangeExpr.Start);  // Open-ended start
+        Assert.Null(rangeExpr!.Start);  // Open-ended start
 
-        var end = rangeExpr.End as IntLiteralExpression;
+        var end = rangeExpr!.End as IntLiteralExpression;
         Assert.NotNull(end);
         // Use end! for all following references
-        Assert.Equal("3", end.Value);
+        Assert.Equal("3", end!.Value);
     }
 
     [Fact]
@@ -3516,7 +3516,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
 
         var sliceDecl = vars[1];
         Assert.Equal("slice", sliceDecl.Name);
@@ -3524,16 +3524,16 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var rangeExpr = indexAccess.Index as RangeExpression;
+        var rangeExpr = indexAccess!.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
         // Use rangeExpr! for all following references
 
-        var start = rangeExpr.Start as IntLiteralExpression;
+        var start = rangeExpr!.Start as IntLiteralExpression;
         Assert.NotNull(start);
         // Use start! for all following references
-        Assert.Equal("2", start.Value);
+        Assert.Equal("2", start!.Value);
 
-        Assert.Null(rangeExpr.End);  // Open-ended end
+        Assert.Null(rangeExpr!.End);  // Open-ended end
     }
 
     [Fact]
@@ -3550,7 +3550,7 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        var vars = funcDecl.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
+        var vars = funcDecl!.Body!.Statements.OfType<VariableDeclarationStatement>().ToList();
 
         var sliceDecl = vars[1];
         Assert.Equal("slice", sliceDecl.Name);
@@ -3558,11 +3558,11 @@ func TestFunc() {
         Assert.NotNull(indexAccess);
         // Use indexAccess! for all following references
 
-        var rangeExpr = indexAccess.Index as RangeExpression;
+        var rangeExpr = indexAccess!.Index as RangeExpression;
         Assert.NotNull(rangeExpr);
         // Use rangeExpr! for all following references
-        Assert.Null(rangeExpr.Start);  // Fully open
-        Assert.Null(rangeExpr.End);     // Fully open
+        Assert.Null(rangeExpr!.Start);  // Fully open
+        Assert.Null(rangeExpr!.End);     // Fully open
     }
 
     [Fact]
@@ -3582,17 +3582,17 @@ class DebugHelper {
         var preprocessor1 = cu.Declarations[0] as PreprocessorDeclaration;
         Assert.NotNull(preprocessor1);
         // Use preprocessor1! for all following references
-        Assert.Equal("#if DEBUG", preprocessor1.Directive);
+        Assert.Equal("#if DEBUG", preprocessor1!.Directive);
 
         var classDecl = cu.Declarations[1] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("DebugHelper", classDecl.Name);
+        Assert.Equal("DebugHelper", classDecl!.Name);
 
         var preprocessor2 = cu.Declarations[2] as PreprocessorDeclaration;
         Assert.NotNull(preprocessor2);
         // Use preprocessor2! for all following references
-        Assert.Equal("#endif", preprocessor2.Directive);
+        Assert.Equal("#endif", preprocessor2!.Directive);
     }
 
     [Fact]
@@ -3609,23 +3609,23 @@ func TestFunc() {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
-        Assert.Equal(3, funcDecl.Body.Statements.Count);
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
+        Assert.Equal(3, funcDecl!.Body.Statements.Count);
 
-        var preprocessor1 = funcDecl.Body.Statements[0] as PreprocessorDirective;
+        var preprocessor1 = funcDecl!.Body.Statements[0] as PreprocessorDirective;
         Assert.NotNull(preprocessor1);
         // Use preprocessor1! for all following references
-        Assert.Equal("#if DEBUG", preprocessor1.Directive);
+        Assert.Equal("#if DEBUG", preprocessor1!.Directive);
 
-        var printStmt = funcDecl.Body.Statements[1] as PrintStatement;
+        var printStmt = funcDecl!.Body.Statements[1] as PrintStatement;
         Assert.NotNull(printStmt);
         // Use printStmt! for all following references
 
-        var preprocessor2 = funcDecl.Body.Statements[2] as PreprocessorDirective;
+        var preprocessor2 = funcDecl!.Body.Statements[2] as PreprocessorDirective;
         Assert.NotNull(preprocessor2);
         // Use preprocessor2! for all following references
-        Assert.Equal("#endif", preprocessor2.Directive);
+        Assert.Equal("#endif", preprocessor2!.Directive);
     }
 
     [Fact]
@@ -3645,7 +3645,7 @@ func Helper(): int {
         var preprocessor1 = cu.Declarations[0] as PreprocessorDeclaration;
         Assert.NotNull(preprocessor1);
         // Use preprocessor1! for all following references
-        Assert.Equal("#region Helper Functions", preprocessor1.Directive);
+        Assert.Equal("#region Helper Functions", preprocessor1!.Directive);
 
         var funcDecl = cu.Declarations[1] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
@@ -3654,7 +3654,7 @@ func Helper(): int {
         var preprocessor2 = cu.Declarations[2] as PreprocessorDeclaration;
         Assert.NotNull(preprocessor2);
         // Use preprocessor2! for all following references
-        Assert.Equal("#endregion", preprocessor2.Directive);
+        Assert.Equal("#endregion", preprocessor2!.Directive);
     }
 
     [Fact]
@@ -3670,7 +3670,7 @@ func Helper(): int {
         var preprocessor = cu.Declarations[0] as PreprocessorDeclaration;
         Assert.NotNull(preprocessor);
         // Use preprocessor! for all following references
-        Assert.Equal("#define FEATURE_X", preprocessor.Directive);
+        Assert.Equal("#define FEATURE_X", preprocessor!.Directive);
     }
 
     [Fact]
@@ -3688,9 +3688,9 @@ func Helper(): int {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("Person", classDecl.Name);
+        Assert.Equal("Person", classDecl!.Name);
 
-        var fields = classDecl.Members.OfType<FieldDeclaration>().ToList();
+        var fields = classDecl!.Members.OfType<FieldDeclaration>().ToList();
         Assert.Equal(3, fields.Count);
 
         var nameField = fields[0];
@@ -3720,9 +3720,9 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Person", recordDecl.Name);
+        Assert.Equal("Person", recordDecl!.Name);
 
-        var fields = recordDecl.Members.OfType<FieldDeclaration>().ToList();
+        var fields = recordDecl!.Members.OfType<FieldDeclaration>().ToList();
         Assert.Equal(2, fields.Count);
 
         var nameField = fields[0];
@@ -3750,7 +3750,7 @@ func Helper(): int {
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
 
-        var fields = classDecl.Members.OfType<FieldDeclaration>().ToList();
+        var fields = classDecl!.Members.OfType<FieldDeclaration>().ToList();
         Assert.Equal(3, fields.Count);
 
         var idField = fields[0];
@@ -3777,14 +3777,14 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Swap", func.Name);
-        Assert.Equal(2, func.Parameters.Count);
+        Assert.Equal("Swap", func!.Name);
+        Assert.Equal(2, func!.Parameters.Count);
 
-        Assert.Equal("a", func.Parameters[0].Name);
-        Assert.Equal(ParameterModifier.Ref, func.Parameters[0].Modifier);
+        Assert.Equal("a", func!.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Ref, func!.Parameters[0].Modifier);
 
-        Assert.Equal("b", func.Parameters[1].Name);
-        Assert.Equal(ParameterModifier.Ref, func.Parameters[1].Modifier);
+        Assert.Equal("b", func!.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Ref, func!.Parameters[1].Modifier);
     }
 
     [Fact]
@@ -3795,14 +3795,14 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("TryParse", func.Name);
-        Assert.Equal(2, func.Parameters.Count);
+        Assert.Equal("TryParse", func!.Name);
+        Assert.Equal(2, func!.Parameters.Count);
 
-        Assert.Equal("input", func.Parameters[0].Name);
-        Assert.Equal(ParameterModifier.None, func.Parameters[0].Modifier);
+        Assert.Equal("input", func!.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.None, func!.Parameters[0].Modifier);
 
-        Assert.Equal("result", func.Parameters[1].Name);
-        Assert.Equal(ParameterModifier.Out, func.Parameters[1].Modifier);
+        Assert.Equal("result", func!.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Out, func!.Parameters[1].Modifier);
     }
 
     [Fact]
@@ -3813,12 +3813,12 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Sum", func.Name);
-        Assert.Single(func.Parameters);
+        Assert.Equal("Sum", func!.Name);
+        Assert.Single(func!.Parameters);
 
-        Assert.Equal("numbers", func.Parameters[0].Name);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
-        Assert.IsType<ArrayTypeReference>(func.Parameters[0].Type);
+        Assert.Equal("numbers", func!.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
+        Assert.IsType<ArrayTypeReference>(func!.Parameters[0].Type);
     }
 
     [Fact]
@@ -3829,14 +3829,14 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Format", func.Name);
-        Assert.Equal(2, func.Parameters.Count);
+        Assert.Equal("Format", func!.Name);
+        Assert.Equal(2, func!.Parameters.Count);
 
-        Assert.Equal("format", func.Parameters[0].Name);
-        Assert.Equal(ParameterModifier.None, func.Parameters[0].Modifier);
+        Assert.Equal("format", func!.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.None, func!.Parameters[0].Modifier);
 
-        Assert.Equal("args", func.Parameters[1].Name);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[1].Modifier);
+        Assert.Equal("args", func!.Parameters[1].Name);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[1].Modifier);
     }
 
     // C# 13 Params Collections Tests
@@ -3848,12 +3848,12 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Equal("Process", func.Name);
-        Assert.Single(func.Parameters);
-        Assert.Equal("items", func.Parameters[0].Name);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.Equal("Process", func!.Name);
+        Assert.Single(func!.Parameters);
+        Assert.Equal("items", func!.Parameters[0].Name);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
 
-        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        var genericType = Assert.IsType<GenericTypeReference>(func!.Parameters[0].Type);
         Assert.Equal("ReadOnlySpan", genericType.Name);
     }
 
@@ -3865,10 +3865,10 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Single(func.Parameters);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.Single(func!.Parameters);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
 
-        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        var genericType = Assert.IsType<GenericTypeReference>(func!.Parameters[0].Type);
         Assert.Equal("Span", genericType.Name);
     }
 
@@ -3880,10 +3880,10 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Single(func.Parameters);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.Single(func!.Parameters);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
 
-        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        var genericType = Assert.IsType<GenericTypeReference>(func!.Parameters[0].Type);
         Assert.Equal("IEnumerable", genericType.Name);
     }
 
@@ -3895,10 +3895,10 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Single(func.Parameters);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.Single(func!.Parameters);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
 
-        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        var genericType = Assert.IsType<GenericTypeReference>(func!.Parameters[0].Type);
         Assert.Equal("List", genericType.Name);
     }
 
@@ -3910,10 +3910,10 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        Assert.Single(func.Parameters);
-        Assert.Equal(ParameterModifier.Params, func.Parameters[0].Modifier);
+        Assert.Single(func!.Parameters);
+        Assert.Equal(ParameterModifier.Params, func!.Parameters[0].Modifier);
 
-        var genericType = Assert.IsType<GenericTypeReference>(func.Parameters[0].Type);
+        var genericType = Assert.IsType<GenericTypeReference>(func!.Parameters[0].Type);
         Assert.Equal("IReadOnlyList", genericType.Name);
     }
 
@@ -3930,20 +3930,20 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        var block = func.Body as BlockStatement;
+        var block = func!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var callStmt = block.Statements[1] as ExpressionStatement;
+        var callStmt = block!.Statements[1] as ExpressionStatement;
         Assert.NotNull(callStmt);
         // Use callStmt! for all following references
-        var call = callStmt.Expression as CallExpression;
+        var call = callStmt!.Expression as CallExpression;
         Assert.NotNull(call);
         // Use call! for all following references
 
-        Assert.Equal(2, call.Arguments.Count);
-        Assert.Equal(ArgumentModifier.Ref, call.Arguments[0].Modifier);
-        Assert.Equal(ArgumentModifier.Ref, call.Arguments[1].Modifier);
+        Assert.Equal(2, call!.Arguments.Count);
+        Assert.Equal(ArgumentModifier.Ref, call!.Arguments[0].Modifier);
+        Assert.Equal(ArgumentModifier.Ref, call!.Arguments[1].Modifier);
     }
 
     [Fact]
@@ -3959,20 +3959,20 @@ func Helper(): int {
         var func = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(func);
         // Use func! for all following references
-        var block = func.Body as BlockStatement;
+        var block = func!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varStmt = block.Statements[1] as VariableDeclarationStatement;
+        var varStmt = block!.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(varStmt);
         // Use varStmt! for all following references
-        var call = varStmt.Initializer as CallExpression;
+        var call = varStmt!.Initializer as CallExpression;
         Assert.NotNull(call);
         // Use call! for all following references
 
-        Assert.Equal(2, call.Arguments.Count);
-        Assert.Equal(ArgumentModifier.None, call.Arguments[0].Modifier);
-        Assert.Equal(ArgumentModifier.Out, call.Arguments[1].Modifier);
+        Assert.Equal(2, call!.Arguments.Count);
+        Assert.Equal(ArgumentModifier.None, call!.Arguments[0].Modifier);
+        Assert.Equal(ArgumentModifier.Out, call!.Arguments[1].Modifier);
     }
 
     [Fact]
@@ -3998,19 +3998,19 @@ func Helper(): int {
         Assert.NotNull(personClass);
         // Use personClass! for all following references
 
-        var ctor1 = personClass.Members[2] as ConstructorDeclaration;
+        var ctor1 = personClass!.Members[2] as ConstructorDeclaration;
         Assert.NotNull(ctor1);
         // Use ctor1! for all following references
-        Assert.Single(ctor1.Parameters);
-        Assert.NotNull(ctor1.Initializer);
-        // Use ctor1.Initializer! for all following references
+        Assert.Single(ctor1!.Parameters);
+        Assert.NotNull(ctor1!.Initializer);
+        // Use ctor1!.Initializer! for all following references
 
         // Initializer should be a CallExpression with ThisExpression as callee
-        var initCall = ctor1.Initializer as CallExpression;
+        var initCall = ctor1!.Initializer as CallExpression;
         Assert.NotNull(initCall);
         // Use initCall! for all following references
-        Assert.IsType<ThisExpression>(initCall.Callee);
-        Assert.Equal(2, initCall.Arguments.Count);
+        Assert.IsType<ThisExpression>(initCall!.Callee);
+        Assert.Equal(2, initCall!.Arguments.Count);
     }
 
     [Fact]
@@ -4031,19 +4031,19 @@ func Helper(): int {
         Assert.NotNull(empClass);
         // Use empClass! for all following references
 
-        var ctor = empClass.Members[1] as ConstructorDeclaration;
+        var ctor = empClass!.Members[1] as ConstructorDeclaration;
         Assert.NotNull(ctor);
         // Use ctor! for all following references
-        Assert.Equal(2, ctor.Parameters.Count);
-        Assert.NotNull(ctor.Initializer);
-        // Use ctor.Initializer! for all following references
+        Assert.Equal(2, ctor!.Parameters.Count);
+        Assert.NotNull(ctor!.Initializer);
+        // Use ctor!.Initializer! for all following references
 
         // Initializer should be a CallExpression with BaseExpression as callee
-        var initCall = ctor.Initializer as CallExpression;
+        var initCall = ctor!.Initializer as CallExpression;
         Assert.NotNull(initCall);
         // Use initCall! for all following references
-        Assert.IsType<BaseExpression>(initCall.Callee);
-        Assert.Single(initCall.Arguments);
+        Assert.IsType<BaseExpression>(initCall!.Callee);
+        Assert.Single(initCall!.Arguments);
     }
 
     [Fact]
@@ -4071,17 +4071,17 @@ func Helper(): int {
         Assert.NotNull(productClass);
         // Use productClass! for all following references
 
-        var ctor1 = productClass.Members[3] as ConstructorDeclaration;
+        var ctor1 = productClass!.Members[3] as ConstructorDeclaration;
         Assert.NotNull(ctor1);
         // Use ctor1! for all following references
-        Assert.Single(ctor1.Parameters);
-        Assert.NotNull(ctor1.Initializer);
-        // Use ctor1.Initializer! for all following references
+        Assert.Single(ctor1!.Parameters);
+        Assert.NotNull(ctor1!.Initializer);
+        // Use ctor1!.Initializer! for all following references
 
-        var initCall = ctor1.Initializer as CallExpression;
+        var initCall = ctor1!.Initializer as CallExpression;
         Assert.NotNull(initCall);
         // Use initCall! for all following references
-        Assert.Equal(3, initCall.Arguments.Count);
+        Assert.Equal(3, initCall!.Arguments.Count);
     }
 
     [Fact]
@@ -4103,15 +4103,15 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body!.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        var stringLiteral = varDecl.Initializer as StringLiteralExpression;
+        var stringLiteral = varDecl!.Initializer as StringLiteralExpression;
         Assert.NotNull(stringLiteral);
         // Use stringLiteral! for all following references
-        Assert.StartsWith("$\"\"\"", stringLiteral.Value);
-        Assert.EndsWith("\"\"\"", stringLiteral.Value);
-        Assert.Contains("{person.Name}", stringLiteral.Value);
+        Assert.StartsWith("$\"\"\"", stringLiteral!.Value);
+        Assert.EndsWith("\"\"\"", stringLiteral!.Value);
+        Assert.Contains("{person.Name}", stringLiteral!.Value);
     }
 
     [Fact]
@@ -4129,15 +4129,15 @@ func Helper(): int {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("UserService", classDecl.Name);
+        Assert.Equal("UserService", classDecl!.Name);
 
-        Assert.NotNull(classDecl.PrimaryConstructorParameters);
-        // Use classDecl.PrimaryConstructorParameters! for all following references
-        Assert.Equal(2, classDecl.PrimaryConstructorParameters.Count);
-        Assert.Equal("logger", classDecl.PrimaryConstructorParameters[0].Name);
-        Assert.Equal("ILogger", (classDecl.PrimaryConstructorParameters[0].Type as SimpleTypeReference)?.Name);
-        Assert.Equal("db", classDecl.PrimaryConstructorParameters[1].Name);
-        Assert.Equal("IDatabase", (classDecl.PrimaryConstructorParameters[1].Type as SimpleTypeReference)?.Name);
+        Assert.NotNull(classDecl!.PrimaryConstructorParameters);
+        // Use classDecl!.PrimaryConstructorParameters! for all following references
+        Assert.Equal(2, classDecl!.PrimaryConstructorParameters.Count);
+        Assert.Equal("logger", classDecl!.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("ILogger", (classDecl!.PrimaryConstructorParameters[0].Type as SimpleTypeReference)?.Name);
+        Assert.Equal("db", classDecl!.PrimaryConstructorParameters[1].Name);
+        Assert.Equal("IDatabase", (classDecl!.PrimaryConstructorParameters[1].Type as SimpleTypeReference)?.Name);
     }
 
     [Fact]
@@ -4155,13 +4155,13 @@ func Helper(): int {
         var structDecl = cu.Declarations[0] as StructDeclaration;
         Assert.NotNull(structDecl);
         // Use structDecl! for all following references
-        Assert.Equal("Point", structDecl.Name);
+        Assert.Equal("Point", structDecl!.Name);
 
-        Assert.NotNull(structDecl.PrimaryConstructorParameters);
-        // Use structDecl.PrimaryConstructorParameters! for all following references
-        Assert.Equal(2, structDecl.PrimaryConstructorParameters.Count);
-        Assert.Equal("x", structDecl.PrimaryConstructorParameters[0].Name);
-        Assert.Equal("y", structDecl.PrimaryConstructorParameters[1].Name);
+        Assert.NotNull(structDecl!.PrimaryConstructorParameters);
+        // Use structDecl!.PrimaryConstructorParameters! for all following references
+        Assert.Equal(2, structDecl!.PrimaryConstructorParameters.Count);
+        Assert.Equal("x", structDecl!.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("y", structDecl!.PrimaryConstructorParameters[1].Name);
     }
 
     [Fact]
@@ -4177,13 +4177,13 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Person", recordDecl.Name);
+        Assert.Equal("Person", recordDecl!.Name);
 
-        Assert.NotNull(recordDecl.PrimaryConstructorParameters);
-        // Use recordDecl.PrimaryConstructorParameters! for all following references
-        Assert.Equal(2, recordDecl.PrimaryConstructorParameters.Count);
-        Assert.Equal("name", recordDecl.PrimaryConstructorParameters[0].Name);
-        Assert.Equal("age", recordDecl.PrimaryConstructorParameters[1].Name);
+        Assert.NotNull(recordDecl!.PrimaryConstructorParameters);
+        // Use recordDecl!.PrimaryConstructorParameters! for all following references
+        Assert.Equal(2, recordDecl!.PrimaryConstructorParameters.Count);
+        Assert.Equal("name", recordDecl!.PrimaryConstructorParameters[0].Name);
+        Assert.Equal("age", recordDecl!.PrimaryConstructorParameters[1].Name);
     }
 
     [Fact]
@@ -4200,8 +4200,8 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Point", recordDecl.Name);
-        Assert.True(recordDecl.IsStruct);
+        Assert.Equal("Point", recordDecl!.Name);
+        Assert.True(recordDecl!.IsStruct);
     }
 
     [Fact]
@@ -4217,11 +4217,11 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Point", recordDecl.Name);
-        Assert.True(recordDecl.IsStruct);
-        Assert.NotNull(recordDecl.PrimaryConstructorParameters);
-        // Use recordDecl.PrimaryConstructorParameters! for all following references
-        Assert.Equal(2, recordDecl.PrimaryConstructorParameters.Count);
+        Assert.Equal("Point", recordDecl!.Name);
+        Assert.True(recordDecl!.IsStruct);
+        Assert.NotNull(recordDecl!.PrimaryConstructorParameters);
+        // Use recordDecl!.PrimaryConstructorParameters! for all following references
+        Assert.Equal(2, recordDecl!.PrimaryConstructorParameters.Count);
     }
 
     [Fact]
@@ -4238,8 +4238,8 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Person", recordDecl.Name);
-        Assert.False(recordDecl.IsStruct);  // Default is record class (reference type)
+        Assert.Equal("Person", recordDecl!.Name);
+        Assert.False(recordDecl!.IsStruct);  // Default is record class (reference type)
     }
 
     [Fact]
@@ -4255,19 +4255,19 @@ func Helper(): int {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        Assert.Equal("p", varDecl.Name);
+        Assert.Equal("p", varDecl!.Name);
 
-        var newExpr = varDecl.Initializer as NewExpression;
+        var newExpr = varDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.Null(newExpr.Type);  // Target-typed new has no type
-        Assert.Empty(newExpr.ConstructorArguments);
+        Assert.Null(newExpr!.Type);  // Target-typed new has no type
+        Assert.Empty(newExpr!.ConstructorArguments);
     }
 
     [Fact]
@@ -4283,18 +4283,18 @@ func Helper(): int {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var newExpr = varDecl.Initializer as NewExpression;
+        var newExpr = varDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.Null(newExpr.Type);  // Target-typed new
-        Assert.Equal(2, newExpr.ConstructorArguments.Count);
+        Assert.Null(newExpr!.Type);  // Target-typed new
+        Assert.Equal(2, newExpr!.ConstructorArguments.Count);
     }
 
     [Fact]
@@ -4310,20 +4310,20 @@ func Helper(): int {
         var funcDecl = cu.Declarations[0] as FunctionDeclaration;
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var newExpr = varDecl.Initializer as NewExpression;
+        var newExpr = varDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.Null(newExpr.Type);  // Target-typed new
-        Assert.NotNull(newExpr.Initializer);
-        // Use newExpr.Initializer! for all following references
-        Assert.Equal(2, newExpr.Initializer.Properties.Count);
+        Assert.Null(newExpr!.Type);  // Target-typed new
+        Assert.NotNull(newExpr!.Initializer);
+        // Use newExpr!.Initializer! for all following references
+        Assert.Equal(2, newExpr!.Initializer.Properties.Count);
     }
 
     [Fact]
@@ -4339,8 +4339,8 @@ func Helper(): int {
         var classDecl = cu.Declarations[0] as ClassDeclaration;
         Assert.NotNull(classDecl);
         // Use classDecl! for all following references
-        Assert.Equal("InternalHelper", classDecl.Name);
-        Assert.True(classDecl.Modifiers.HasFlag(Modifiers.File));
+        Assert.Equal("InternalHelper", classDecl!.Name);
+        Assert.True(classDecl!.Modifiers.HasFlag(Modifiers.File));
     }
 
     [Fact]
@@ -4357,8 +4357,8 @@ func Helper(): int {
         var structDecl = cu.Declarations[0] as StructDeclaration;
         Assert.NotNull(structDecl);
         // Use structDecl! for all following references
-        Assert.Equal("Point", structDecl.Name);
-        Assert.True(structDecl.Modifiers.HasFlag(Modifiers.File));
+        Assert.Equal("Point", structDecl!.Name);
+        Assert.True(structDecl!.Modifiers.HasFlag(Modifiers.File));
     }
 
     [Fact]
@@ -4375,8 +4375,8 @@ func Helper(): int {
         var recordDecl = cu.Declarations[0] as RecordDeclaration;
         Assert.NotNull(recordDecl);
         // Use recordDecl! for all following references
-        Assert.Equal("Person", recordDecl.Name);
-        Assert.True(recordDecl.Modifiers.HasFlag(Modifiers.File));
+        Assert.Equal("Person", recordDecl!.Name);
+        Assert.True(recordDecl!.Modifiers.HasFlag(Modifiers.File));
     }
 
     [Fact]
@@ -4392,8 +4392,8 @@ func Helper(): int {
         var interfaceDecl = cu.Declarations[0] as InterfaceDeclaration;
         Assert.NotNull(interfaceDecl);
         // Use interfaceDecl! for all following references
-        Assert.Equal("IHelper", interfaceDecl.Name);
-        Assert.True(interfaceDecl.Modifiers.HasFlag(Modifiers.File));
+        Assert.Equal("IHelper", interfaceDecl!.Name);
+        Assert.True(interfaceDecl!.Modifiers.HasFlag(Modifiers.File));
     }
 
     [Fact]
@@ -4418,26 +4418,26 @@ func Helper(): int {
         var mainFunc = cu.Declarations[1] as FunctionDeclaration;
         Assert.NotNull(mainFunc);
         // Use mainFunc! for all following references
-        Assert.Equal("Main", mainFunc.Name);
+        Assert.Equal("Main", mainFunc!.Name);
 
-        var ifStmt = mainFunc.Body.Statements[0] as IfStatement;
+        var ifStmt = mainFunc!.Body.Statements[0] as IfStatement;
         Assert.NotNull(ifStmt);
         // Use ifStmt! for all following references
 
-        var callExpr = ifStmt.Condition as CallExpression;
+        var callExpr = ifStmt!.Condition as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.Equal(2, callExpr.Arguments.Count);
+        Assert.Equal(2, callExpr!.Arguments.Count);
 
         // Second argument should be out var num
-        var outArg = callExpr.Arguments[1];
+        var outArg = callExpr!.Arguments[1];
         Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
 
         var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
         Assert.NotNull(outVarDecl);
         // Use outVarDecl! for all following references
-        Assert.Null(outVarDecl.Type); // var = null type
-        Assert.Equal("num", outVarDecl.VariableName);
+        Assert.Null(outVarDecl!.Type); // var = null type
+        Assert.Equal("num", outVarDecl!.VariableName);
     }
 
     [Fact]
@@ -4463,28 +4463,28 @@ func Helper(): int {
         Assert.NotNull(mainFunc);
         // Use mainFunc! for all following references
 
-        var ifStmt = mainFunc.Body.Statements[0] as IfStatement;
+        var ifStmt = mainFunc!.Body.Statements[0] as IfStatement;
         Assert.NotNull(ifStmt);
         // Use ifStmt! for all following references
 
-        var callExpr = ifStmt.Condition as CallExpression;
+        var callExpr = ifStmt!.Condition as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
 
         // Second argument should be out int value
-        var outArg = callExpr.Arguments[1];
+        var outArg = callExpr!.Arguments[1];
         Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
 
         var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
         Assert.NotNull(outVarDecl);
         // Use outVarDecl! for all following references
-        Assert.NotNull(outVarDecl.Type); // explicit type
-        Assert.Equal("value", outVarDecl.VariableName);
+        Assert.NotNull(outVarDecl!.Type); // explicit type
+        Assert.Equal("value", outVarDecl!.VariableName);
 
-        var simpleType = outVarDecl.Type as SimpleTypeReference;
+        var simpleType = outVarDecl!.Type as SimpleTypeReference;
         Assert.NotNull(simpleType);
         // Use simpleType! for all following references
-        Assert.Equal("int", simpleType.Name);
+        Assert.Equal("int", simpleType!.Name);
     }
 
     [Fact]
@@ -4501,27 +4501,27 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var callExpr = varDecl.Initializer as CallExpression;
+        var callExpr = varDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.NotNull(callExpr.TypeArguments);
-        // Use callExpr.TypeArguments! for all following references
-        Assert.Single(callExpr.TypeArguments);
+        Assert.NotNull(callExpr!.TypeArguments);
+        // Use callExpr!.TypeArguments! for all following references
+        Assert.Single(callExpr!.TypeArguments);
 
-        var typeArg = callExpr.TypeArguments[0] as SimpleTypeReference;
+        var typeArg = callExpr!.TypeArguments[0] as SimpleTypeReference;
         Assert.NotNull(typeArg);
         // Use typeArg! for all following references
-        Assert.Equal("int", typeArg.Name);
+        Assert.Equal("int", typeArg!.Name);
 
-        Assert.Single(callExpr.Arguments);
+        Assert.Single(callExpr!.Arguments);
     }
 
     [Fact]
@@ -4538,37 +4538,37 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var callExpr = varDecl.Initializer as CallExpression;
+        var callExpr = varDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.NotNull(callExpr.TypeArguments);
-        // Use callExpr.TypeArguments! for all following references
-        Assert.Equal(3, callExpr.TypeArguments.Count);
+        Assert.NotNull(callExpr!.TypeArguments);
+        // Use callExpr!.TypeArguments! for all following references
+        Assert.Equal(3, callExpr!.TypeArguments.Count);
 
-        var typeArg1 = callExpr.TypeArguments[0] as SimpleTypeReference;
+        var typeArg1 = callExpr!.TypeArguments[0] as SimpleTypeReference;
         Assert.NotNull(typeArg1);
         // Use typeArg1! for all following references
-        Assert.Equal("int", typeArg1.Name);
+        Assert.Equal("int", typeArg1!.Name);
 
-        var typeArg2 = callExpr.TypeArguments[1] as SimpleTypeReference;
+        var typeArg2 = callExpr!.TypeArguments[1] as SimpleTypeReference;
         Assert.NotNull(typeArg2);
         // Use typeArg2! for all following references
-        Assert.Equal("string", typeArg2.Name);
+        Assert.Equal("string", typeArg2!.Name);
 
-        var typeArg3 = callExpr.TypeArguments[2] as SimpleTypeReference;
+        var typeArg3 = callExpr!.TypeArguments[2] as SimpleTypeReference;
         Assert.NotNull(typeArg3);
         // Use typeArg3! for all following references
-        Assert.Equal("bool", typeArg3.Name);
+        Assert.Equal("bool", typeArg3!.Name);
 
-        Assert.Equal(3, callExpr.Arguments.Count);
+        Assert.Equal(3, callExpr!.Arguments.Count);
     }
 
     [Fact]
@@ -4586,31 +4586,31 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var callExpr = varDecl.Initializer as CallExpression;
+        var callExpr = varDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.NotNull(callExpr.TypeArguments);
-        // Use callExpr.TypeArguments! for all following references
-        Assert.Single(callExpr.TypeArguments);
+        Assert.NotNull(callExpr!.TypeArguments);
+        // Use callExpr!.TypeArguments! for all following references
+        Assert.Single(callExpr!.TypeArguments);
 
         // Type argument: List<int>
-        var typeArg1 = callExpr.TypeArguments[0] as GenericTypeReference;
+        var typeArg1 = callExpr!.TypeArguments[0] as GenericTypeReference;
         Assert.NotNull(typeArg1);
         // Use typeArg1! for all following references
-        Assert.Equal("List", typeArg1.Name);
-        Assert.Single(typeArg1.TypeArguments);
-        var listInner = typeArg1.TypeArguments[0] as SimpleTypeReference;
+        Assert.Equal("List", typeArg1!.Name);
+        Assert.Single(typeArg1!.TypeArguments);
+        var listInner = typeArg1!.TypeArguments[0] as SimpleTypeReference;
         Assert.NotNull(listInner);
         // Use listInner! for all following references
-        Assert.Equal("int", listInner.Name);
+        Assert.Equal("int", listInner!.Name);
     }
 
     [Fact]
@@ -4628,43 +4628,43 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
         // First call
-        var varDecl1 = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl1 = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl1);
         // Use varDecl1! for all following references
 
-        var callExpr1 = varDecl1.Initializer as CallExpression;
+        var callExpr1 = varDecl1!.Initializer as CallExpression;
         Assert.NotNull(callExpr1);
         // Use callExpr1! for all following references
-        Assert.NotNull(callExpr1.TypeArguments);
-        // Use callExpr1.TypeArguments! for all following references
-        Assert.Single(callExpr1.TypeArguments);
+        Assert.NotNull(callExpr1!.TypeArguments);
+        // Use callExpr1!.TypeArguments! for all following references
+        Assert.Single(callExpr1!.TypeArguments);
 
-        var memberAccess1 = callExpr1.Callee as MemberAccessExpression;
+        var memberAccess1 = callExpr1!.Callee as MemberAccessExpression;
         Assert.NotNull(memberAccess1);
         // Use memberAccess1! for all following references
-        Assert.Equal("Method", memberAccess1.MemberName);
+        Assert.Equal("Method", memberAccess1!.MemberName);
 
         // Second call
-        var varDecl2 = block.Statements[1] as VariableDeclarationStatement;
+        var varDecl2 = block!.Statements[1] as VariableDeclarationStatement;
         Assert.NotNull(varDecl2);
         // Use varDecl2! for all following references
 
-        var callExpr2 = varDecl2.Initializer as CallExpression;
+        var callExpr2 = varDecl2!.Initializer as CallExpression;
         Assert.NotNull(callExpr2);
         // Use callExpr2! for all following references
-        Assert.NotNull(callExpr2.TypeArguments);
-        // Use callExpr2.TypeArguments! for all following references
-        Assert.Single(callExpr2.TypeArguments);
+        Assert.NotNull(callExpr2!.TypeArguments);
+        // Use callExpr2!.TypeArguments! for all following references
+        Assert.Single(callExpr2!.TypeArguments);
 
-        var memberAccess2 = callExpr2.Callee as MemberAccessExpression;
+        var memberAccess2 = callExpr2!.Callee as MemberAccessExpression;
         Assert.NotNull(memberAccess2);
         // Use memberAccess2! for all following references
-        Assert.Equal("OfType", memberAccess2.MemberName);
+        Assert.Equal("OfType", memberAccess2!.MemberName);
     }
 
     [Fact]
@@ -4681,28 +4681,28 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var callExpr = varDecl.Initializer as CallExpression;
+        var callExpr = varDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.NotNull(callExpr.TypeArguments);
-        // Use callExpr.TypeArguments! for all following references
-        Assert.Single(callExpr.TypeArguments);
+        Assert.NotNull(callExpr!.TypeArguments);
+        // Use callExpr!.TypeArguments! for all following references
+        Assert.Single(callExpr!.TypeArguments);
 
-        var typeArg = callExpr.TypeArguments[0] as NullableTypeReference;
+        var typeArg = callExpr!.TypeArguments[0] as NullableTypeReference;
         Assert.NotNull(typeArg);
         // Use typeArg! for all following references
-        var innerType = typeArg.InnerType as SimpleTypeReference;
+        var innerType = typeArg!.InnerType as SimpleTypeReference;
         Assert.NotNull(innerType);
         // Use innerType! for all following references
-        Assert.Equal("int", innerType.Name);
+        Assert.Equal("int", innerType!.Name);
     }
 
     [Fact]
@@ -4719,28 +4719,28 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var callExpr = varDecl.Initializer as CallExpression;
+        var callExpr = varDecl!.Initializer as CallExpression;
         Assert.NotNull(callExpr);
         // Use callExpr! for all following references
-        Assert.NotNull(callExpr.TypeArguments);
-        // Use callExpr.TypeArguments! for all following references
-        Assert.Single(callExpr.TypeArguments);
+        Assert.NotNull(callExpr!.TypeArguments);
+        // Use callExpr!.TypeArguments! for all following references
+        Assert.Single(callExpr!.TypeArguments);
 
-        var typeArg = callExpr.TypeArguments[0] as ArrayTypeReference;
+        var typeArg = callExpr!.TypeArguments[0] as ArrayTypeReference;
         Assert.NotNull(typeArg);
         // Use typeArg! for all following references
-        var elementType = typeArg.ElementType as SimpleTypeReference;
+        var elementType = typeArg!.ElementType as SimpleTypeReference;
         Assert.NotNull(elementType);
         // Use elementType! for all following references
-        Assert.Equal("int", elementType.Name);
+        Assert.Equal("int", elementType!.Name);
     }
 
     [Fact]
@@ -4757,19 +4757,19 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var block = funcDecl.Body as BlockStatement;
+        var block = funcDecl!.Body as BlockStatement;
         Assert.NotNull(block);
         // Use block! for all following references
 
-        var varDecl = block.Statements[0] as VariableDeclarationStatement;
+        var varDecl = block!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
         // Should be a binary expression, not a call expression
-        var binaryExpr = varDecl.Initializer as BinaryExpression;
+        var binaryExpr = varDecl!.Initializer as BinaryExpression;
         Assert.NotNull(binaryExpr);
         // Use binaryExpr! for all following references
-        Assert.Equal(BinaryOperator.Less, binaryExpr.Operator);
+        Assert.Equal(BinaryOperator.Less, binaryExpr!.Operator);
     }
 
     [Fact]
@@ -4790,19 +4790,19 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var newExpr = varDecl.Initializer as NewExpression;
+        var newExpr = varDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.NotNull(newExpr.Initializer);
-        // Use newExpr.Initializer! for all following references
-        Assert.Equal(3, newExpr.Initializer.Properties.Count);
+        Assert.NotNull(newExpr!.Initializer);
+        // Use newExpr!.Initializer! for all following references
+        Assert.Equal(3, newExpr!.Initializer.Properties.Count);
 
         // First property initializer should be an indexer
-        var prop1 = newExpr.Initializer.Properties[0];
+        var prop1 = newExpr!.Initializer.Properties[0];
         Assert.True(prop1.IsIndexerInitializer);
         Assert.NotNull(prop1.IndexExpression);
         // Use prop1.IndexExpression! for all following references
@@ -4811,28 +4811,28 @@ func Helper(): int {
         var indexExpr1 = prop1.IndexExpression as StringLiteralExpression;
         Assert.NotNull(indexExpr1);
         // Use indexExpr1! for all following references
-        Assert.Equal("\"one\"", indexExpr1.Value);
+        Assert.Equal("\"one\"", indexExpr1!.Value);
 
         var valueExpr1 = prop1.Value as IntLiteralExpression;
         Assert.NotNull(valueExpr1);
         // Use valueExpr1! for all following references
-        Assert.Equal("1", valueExpr1.Value);
+        Assert.Equal("1", valueExpr1!.Value);
 
         // Second property initializer
-        var prop2 = newExpr.Initializer.Properties[1];
+        var prop2 = newExpr!.Initializer.Properties[1];
         Assert.True(prop2.IsIndexerInitializer);
         var indexExpr2 = prop2.IndexExpression as StringLiteralExpression;
         Assert.NotNull(indexExpr2);
         // Use indexExpr2! for all following references
-        Assert.Equal("\"two\"", indexExpr2.Value);
+        Assert.Equal("\"two\"", indexExpr2!.Value);
 
         // Third property initializer
-        var prop3 = newExpr.Initializer.Properties[2];
+        var prop3 = newExpr!.Initializer.Properties[2];
         Assert.True(prop3.IsIndexerInitializer);
         var indexExpr3 = prop3.IndexExpression as StringLiteralExpression;
         Assert.NotNull(indexExpr3);
         // Use indexExpr3! for all following references
-        Assert.Equal("\"three\"", indexExpr3.Value);
+        Assert.Equal("\"three\"", indexExpr3!.Value);
     }
 
     [Fact]
@@ -4854,37 +4854,37 @@ func Helper(): int {
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
 
-        var varDecl = funcDecl.Body.Statements[0] as VariableDeclarationStatement;
+        var varDecl = funcDecl!.Body.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
 
-        var newExpr = varDecl.Initializer as NewExpression;
+        var newExpr = varDecl!.Initializer as NewExpression;
         Assert.NotNull(newExpr);
         // Use newExpr! for all following references
-        Assert.NotNull(newExpr.Initializer);
-        // Use newExpr.Initializer! for all following references
-        Assert.Equal(4, newExpr.Initializer.Properties.Count);
+        Assert.NotNull(newExpr!.Initializer);
+        // Use newExpr!.Initializer! for all following references
+        Assert.Equal(4, newExpr!.Initializer.Properties.Count);
 
         // First should be property initializer
-        var prop1 = newExpr.Initializer.Properties[0];
+        var prop1 = newExpr!.Initializer.Properties[0];
         Assert.False(prop1.IsIndexerInitializer);
         Assert.Equal("Name", prop1.Name);
         Assert.Null(prop1.IndexExpression);
 
         // Second should be indexer initializer
-        var prop2 = newExpr.Initializer.Properties[1];
+        var prop2 = newExpr!.Initializer.Properties[1];
         Assert.True(prop2.IsIndexerInitializer);
         Assert.NotNull(prop2.IndexExpression);
         // Use prop2.IndexExpression! for all following references
         Assert.Null(prop2.Name);
 
         // Third should be property initializer
-        var prop3 = newExpr.Initializer.Properties[2];
+        var prop3 = newExpr!.Initializer.Properties[2];
         Assert.False(prop3.IsIndexerInitializer);
         Assert.Equal("Age", prop3.Name);
 
         // Fourth should be indexer initializer
-        var prop4 = newExpr.Initializer.Properties[3];
+        var prop4 = newExpr!.Initializer.Properties[3];
         Assert.True(prop4.IsIndexerInitializer);
         Assert.NotNull(prop4.IndexExpression);
         // Use prop4.IndexExpression! for all following references
@@ -4911,26 +4911,26 @@ func Helper(): int {
         var nameProp = cls.Members[0] as FieldDeclaration;
         Assert.NotNull(nameProp);
         // Use nameProp! for all following references
-        Assert.Equal("Name", nameProp.Name);
-        Assert.Null(nameProp.Type);  // Type is null (to be inferred)
-        Assert.NotNull(nameProp.Initializer);
-        // Use nameProp.Initializer! for all following references
-        var stringLit = nameProp.Initializer as StringLiteralExpression;
+        Assert.Equal("Name", nameProp!.Name);
+        Assert.Null(nameProp!.Type);  // Type is null (to be inferred)
+        Assert.NotNull(nameProp!.Initializer);
+        // Use nameProp!.Initializer! for all following references
+        var stringLit = nameProp!.Initializer as StringLiteralExpression;
         Assert.NotNull(stringLit);
         // Use stringLit! for all following references
-        Assert.Equal("\"Alice\"", stringLit.Value);
+        Assert.Equal("\"Alice\"", stringLit!.Value);
 
         var ageProp = cls.Members[1] as FieldDeclaration;
         Assert.NotNull(ageProp);
         // Use ageProp! for all following references
-        Assert.Equal("Age", ageProp.Name);
-        Assert.Null(ageProp.Type);  // Type is null (to be inferred)
-        Assert.NotNull(ageProp.Initializer);
-        // Use ageProp.Initializer! for all following references
-        var intLit = ageProp.Initializer as IntLiteralExpression;
+        Assert.Equal("Age", ageProp!.Name);
+        Assert.Null(ageProp!.Type);  // Type is null (to be inferred)
+        Assert.NotNull(ageProp!.Initializer);
+        // Use ageProp!.Initializer! for all following references
+        var intLit = ageProp!.Initializer as IntLiteralExpression;
         Assert.NotNull(intLit);
         // Use intLit! for all following references
-        Assert.Equal("30", intLit.Value);
+        Assert.Equal("30", intLit!.Value);
     }
 
     [Fact]
@@ -4955,17 +4955,17 @@ func Helper(): int {
         var explicitProp = cls.Members[0] as FieldDeclaration;
         Assert.NotNull(explicitProp);
         // Use explicitProp! for all following references
-        Assert.NotNull(explicitProp.Type);
-        // Use explicitProp.Type! for all following references
-        Assert.Equal("string", (explicitProp.Type as SimpleTypeReference)?.Name);
+        Assert.NotNull(explicitProp!.Type);
+        // Use explicitProp!.Type! for all following references
+        Assert.Equal("string", (explicitProp!.Type as SimpleTypeReference)?.Name);
 
         // Second property uses inference
         var inferredProp = cls.Members[1] as FieldDeclaration;
         Assert.NotNull(inferredProp);
         // Use inferredProp! for all following references
-        Assert.Null(inferredProp.Type);
-        Assert.NotNull(inferredProp.Initializer);
-        // Use inferredProp.Initializer! for all following references
+        Assert.Null(inferredProp!.Type);
+        Assert.NotNull(inferredProp!.Initializer);
+        // Use inferredProp!.Initializer! for all following references
     }
 
     [Fact]
@@ -5039,8 +5039,8 @@ func Helper(): int {
 
         Assert.NotNull(evensDecl);
         // Use evensDecl! for all following references
-        Assert.NotNull(evensDecl.Initializer);
-        // Use evensDecl.Initializer! for all following references
+        Assert.NotNull(evensDecl!.Initializer);
+        // Use evensDecl!.Initializer! for all following references
     }
 
     [Fact]
@@ -5061,8 +5061,8 @@ func Helper(): int {
 
         Assert.NotNull(evensDecl);
         // Use evensDecl! for all following references
-        Assert.NotNull(evensDecl.Initializer);
-        // Use evensDecl.Initializer! for all following references
+        Assert.NotNull(evensDecl!.Initializer);
+        // Use evensDecl!.Initializer! for all following references
     }
 
     [Fact]
@@ -5081,8 +5081,8 @@ func Helper(): int {
 
         Assert.NotNull(indexedDecl);
         // Use indexedDecl! for all following references
-        Assert.NotNull(indexedDecl.Initializer);
-        // Use indexedDecl.Initializer! for all following references
+        Assert.NotNull(indexedDecl!.Initializer);
+        // Use indexedDecl!.Initializer! for all following references
     }
 
     [Fact]
@@ -5099,8 +5099,8 @@ func Helper(): int {
 
         Assert.NotNull(funcDecl);
         // Use funcDecl! for all following references
-        Assert.NotNull(funcDecl.Body);
-        // Use funcDecl.Body! for all following references
+        Assert.NotNull(funcDecl!.Body);
+        // Use funcDecl!.Body! for all following references
     }
 
     [Fact]
@@ -5122,8 +5122,8 @@ func Helper(): int {
 
         Assert.NotNull(evensDecl);
         // Use evensDecl! for all following references
-        Assert.NotNull(evensDecl.Initializer);
-        // Use evensDecl.Initializer! for all following references
+        Assert.NotNull(evensDecl!.Initializer);
+        // Use evensDecl!.Initializer! for all following references
     }
 
     [Fact]
@@ -5142,9 +5142,9 @@ func Helper(): int {
 
         Assert.NotNull(outerLambda);
         // Use outerLambda! for all following references
-        Assert.Single(outerLambda.Parameters);
-        Assert.NotNull(outerLambda.ExpressionBody);
-        // Use outerLambda.ExpressionBody! for all following references
+        Assert.Single(outerLambda!.Parameters);
+        Assert.NotNull(outerLambda!.ExpressionBody);
+        // Use outerLambda!.ExpressionBody! for all following references
     }
 }
 
