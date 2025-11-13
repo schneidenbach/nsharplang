@@ -173,7 +173,7 @@ public class LanguageServerTests
     #region Completion Tests
 
     [Fact]
-    public async Task Completion_Keywords()
+    public async Task Completion_KeywordsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -189,7 +189,7 @@ public class LanguageServerTests
     }
 
     [Fact]
-    public async Task Completion_PrimitiveTypes()
+    public async Task Completion_PrimitiveTypesAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -204,7 +204,7 @@ public class LanguageServerTests
     }
 
     [Fact]
-    public async Task Completion_CommonDotNetTypes()
+    public async Task Completion_CommonDotNetTypesAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -219,7 +219,7 @@ public class LanguageServerTests
     }
 
     [Fact]
-    public async Task Completion_LocalFunctions()
+    public async Task Completion_LocalFunctionsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -240,7 +240,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Completion_MemberAccess_Console()
+    public async Task Completion_MemberAccess_ConsoleAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -260,7 +260,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Completion_MemberAccess_String()
+    public async Task Completion_MemberAccess_StringAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -286,7 +286,7 @@ func main(): void
     #region Hover Tests
 
     [Fact]
-    public async Task Hover_Keyword()
+    public async Task Hover_KeywordAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -303,7 +303,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_PrimitiveType()
+    public async Task Hover_PrimitiveTypeAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -320,7 +320,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_LocalVariable()
+    public async Task Hover_LocalVariableAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -342,7 +342,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_FunctionName()
+    public async Task Hover_FunctionNameAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -362,7 +362,7 @@ func greet(name: string): string
     }
 
     [Fact]
-    public async Task Hover_MemberAccess_Property()
+    public async Task Hover_MemberAccess_PropertyAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -385,7 +385,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_MemberAccess_Method()
+    public async Task Hover_MemberAccess_MethodAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -408,7 +408,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_MemberAccess_MethodWithParameters()
+    public async Task Hover_MemberAccess_MethodWithParametersAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -432,7 +432,7 @@ func main(): void
     }
 
     [Fact(Skip = "TODO: Same as Completion_ChainedMemberAccess - needs expression type resolution")]
-    public async Task Hover_ChainedMemberAccess()
+    public async Task Hover_ChainedMemberAccessAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -454,7 +454,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_ConsoleWriteLine()
+    public async Task Hover_ConsoleWriteLineAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -477,7 +477,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_VariableWithSystemType()
+    public async Task Hover_VariableWithSystemTypeAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -504,7 +504,7 @@ func main(): void
     #region Signature Help Tests
 
     [Fact]
-    public async Task SignatureHelp_ConsoleWriteLine()
+    public async Task SignatureHelp_ConsoleWriteLineAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -523,7 +523,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task SignatureHelp_StringFormat()
+    public async Task SignatureHelp_StringFormatAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -558,7 +558,8 @@ func main(: void";
 
         var doc = harness.DocumentManager.GetDocument(uri);
         Assert.NotNull(doc);
-        Assert.NotEmpty(doc!.Diagnostics);
+        var diagnostics = doc!.Diagnostics;
+        Assert.NotEmpty(diagnostics);
     }
 
     [Fact]
@@ -575,8 +576,9 @@ func main(): void
 
         var doc = harness.DocumentManager.GetDocument(uri);
         Assert.NotNull(doc);
+        var diagnostics = doc!.Diagnostics;
         // Should have no errors (might have warnings from linter)
-        Assert.DoesNotContain(doc!.Diagnostics, d => d.Severity == NSharpLang.Compiler.ErrorSeverity.Error);
+        Assert.DoesNotContain(diagnostics, d => d.Severity == NSharpLang.Compiler.ErrorSeverity.Error);
     }
 
     #endregion
@@ -584,7 +586,7 @@ func main(): void
     #region Document Update Tests
 
     [Fact]
-    public async Task DocumentUpdate_CompletionsReflectChanges()
+    public async Task DocumentUpdate_CompletionsReflectChangesAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -607,7 +609,7 @@ func main(): void
     #region Edge Cases
 
     [Fact]
-    public async Task Completion_EmptyDocument()
+    public async Task Completion_EmptyDocumentAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -622,7 +624,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Hover_InvalidPosition()
+    public async Task Hover_InvalidPositionAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -637,7 +639,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Completion_AfterDot_NoIdentifier()
+    public async Task Completion_AfterDot_NoIdentifierAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -659,7 +661,7 @@ func main(): void
     #region Complex Scenarios
 
     [Fact(Skip = "TODO: Implement proper expression type resolution for chained method calls")]
-    public async Task Completion_ChainedMemberAccess()
+    public async Task Completion_ChainedMemberAccessAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
@@ -680,7 +682,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Completion_NestedFunctions()
+    public async Task Completion_NestedFunctionsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
