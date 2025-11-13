@@ -18,20 +18,58 @@ namespace NSharpLang.Tests;
 
 /// <summary>
 /// Shared fixture for Language Server tests - creates expensive resources once
-/// CRITICAL: Do NOT use Lazy - causes test hangs during discovery/initialization
+/// CRITICAL: Use truly lazy initialization - xUnit creates fixtures during test discovery!
 /// </summary>
 public class LanguageServerFixture : IDisposable
 {
-    // CRITICAL FIX: Direct field initialization instead of Lazy
-    // Lazy initialization was causing deadlocks during xUnit test discovery
-    public XmlDocReader XmlDocReader { get; }
-    public TypeResolver TypeResolver { get; }
+    private XmlDocReader? _xmlDocReader;
+    private TypeResolver? _typeResolver;
+    private readonly object _initLock = new();
+
+    // CRITICAL FIX: Lazy properties, NOT eager constructor initialization
+    // xUnit instantiates collection fixtures during test DISCOVERY, not execution
+    // Any work in the constructor blocks test discovery
+    public XmlDocReader XmlDocReader
+    {
+        get
+        {
+            if (_xmlDocReader == null)
+            {
+                lock (_initLock)
+                {
+                    if (_xmlDocReader == null)
+                    {
+                        _xmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
+                    }
+                }
+            }
+            return _xmlDocReader;
+        }
+    }
+
+    public TypeResolver TypeResolver
+    {
+        get
+        {
+            if (_typeResolver == null)
+            {
+                lock (_initLock)
+                {
+                    if (_typeResolver == null)
+                    {
+                        _typeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+                    }
+                }
+            }
+            return _typeResolver;
+        }
+    }
 
     public LanguageServerFixture()
     {
-        // Direct initialization - fast enough, no hangs
-        XmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-        TypeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+        // CRITICAL: Keep constructor EMPTY
+        // xUnit calls this during test discovery, not execution
+        // Any initialization here will block/hang test discovery
     }
 
     public void Dispose()
