@@ -18,18 +18,29 @@ namespace NSharpLang.Tests;
 
 /// <summary>
 /// Shared fixture for Language Server tests - creates expensive resources once
+/// Uses lazy initialization to avoid deadlocks during xUnit test discovery
 /// </summary>
 public class LanguageServerFixture : IDisposable
 {
-    public XmlDocReader XmlDocReader { get; }
-    public TypeResolver TypeResolver { get; }
+    private readonly Lazy<XmlDocReader> _xmlDocReader;
+    private readonly Lazy<TypeResolver> _typeResolver;
+
+    public XmlDocReader XmlDocReader => _xmlDocReader.Value;
+    public TypeResolver TypeResolver => _typeResolver.Value;
 
     public LanguageServerFixture()
     {
-        // Create shared services once for all tests
-        // These are expensive to initialize but safe to share
-        XmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-        TypeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+        // Use lazy initialization to defer expensive assembly loading
+        // until tests actually run (not during xUnit test discovery)
+        _xmlDocReader = new Lazy<XmlDocReader>(
+            () => new XmlDocReader(NullLogger<XmlDocReader>.Instance),
+            LazyThreadSafetyMode.ExecutionAndPublication
+        );
+
+        _typeResolver = new Lazy<TypeResolver>(
+            () => new TypeResolver(NullLogger<TypeResolver>.Instance, _xmlDocReader.Value),
+            LazyThreadSafetyMode.ExecutionAndPublication
+        );
     }
 
     public void Dispose()
