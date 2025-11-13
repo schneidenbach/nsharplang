@@ -558,7 +558,7 @@ func main(: void";
 
         var doc = harness.DocumentManager.GetDocument(uri);
         Assert.NotNull(doc);
-        Assert.NotEmpty(doc.Diagnostics);
+        Assert.NotEmpty(doc!.Diagnostics);
     }
 
     [Fact]
@@ -576,7 +576,7 @@ func main(): void
         var doc = harness.DocumentManager.GetDocument(uri);
         Assert.NotNull(doc);
         // Should have no errors (might have warnings from linter)
-        Assert.DoesNotContain(doc.Diagnostics, d => d.Severity == NSharpLang.Compiler.ErrorSeverity.Error);
+        Assert.DoesNotContain(doc!.Diagnostics, d => d.Severity == NSharpLang.Compiler.ErrorSeverity.Error);
     }
 
     #endregion

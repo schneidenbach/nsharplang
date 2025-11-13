@@ -12,8 +12,8 @@ public class TranspilerTests
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens, "test.nl");
-        var cu = parser.ParseCompilationUnit();
-        var transpiler = new Transpiler(cu);
+        var result = parser.ParseCompilationUnit();
+        var transpiler = new Transpiler(result.CompilationUnit!);
         return transpiler.Transpile();
     }
 
