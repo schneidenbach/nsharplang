@@ -16,6 +16,7 @@ public class XmlDocReader
     private readonly ILogger<XmlDocReader> _logger;
     private readonly Dictionary<string, XDocument> _loadedDocs = new();
     private readonly Dictionary<string, string> _docCache = new();
+    private readonly Dictionary<string, Dictionary<string, XElement>> _docIndexes = new();
 
     public XmlDocReader(ILogger<XmlDocReader> logger)
     {
@@ -88,19 +89,37 @@ public class XmlDocReader
                 return null;
             }
 
-            // Find the member element
-            var member = xmlDoc.Root?
-                .Element("members")?
-                .Elements("member")
-                .FirstOrDefault(m => m.Attribute("name")?.Value == docId);
+            // Get or build index for this assembly
+            var assemblyName = assembly.GetName().Name;
+            if (assemblyName == null) return null;
 
-            if (member == null)
+            if (!_docIndexes.TryGetValue(assemblyName, out var index))
+            {
+                // Build index for fast lookup
+                index = new Dictionary<string, XElement>();
+                var members = xmlDoc.Root?.Element("members")?.Elements("member");
+                if (members != null)
+                {
+                    foreach (var member in members)
+                    {
+                        var name = member.Attribute("name")?.Value;
+                        if (name != null)
+                        {
+                            index[name] = member;
+                        }
+                    }
+                }
+                _docIndexes[assemblyName] = index;
+            }
+
+            // Fast O(1) lookup using index
+            if (!index.TryGetValue(docId, out var memberElement))
             {
                 return null;
             }
 
             // Extract summary
-            var summary = member.Element("summary")?.Value.Trim();
+            var summary = memberElement.Element("summary")?.Value.Trim();
             if (!string.IsNullOrWhiteSpace(summary))
             {
                 // Cache and return
