@@ -178,7 +178,7 @@ internal class LintVisitor
     private readonly List<string> _importedNamespaces = new();
     private bool _hasAwaitInFunction = false;
     private bool _inAsyncFunction = false;
-    private readonly HashSet<Expression> _visitedExpressions = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<Expression> _visitingStack = new(ReferenceEqualityComparer.Instance);
     private int _recursionDepth = 0;
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
@@ -606,11 +606,17 @@ internal class LintVisitor
             throw new InvalidOperationException($"Maximum recursion depth exceeded while visiting expression at line {expression.Line}, column {expression.Column}. Expression type: {expression.GetType().Name}");
         }
 
-        // Guard against circular references using reference equality
-        // This prevents the same expression object instance from being visited twice
-        if (!_visitedExpressions.Add(expression))
+        // Guard against circular references by checking if this exact expression object
+        // is currently on the call stack (not just visited before, but actively being visited)
+        if (!_visitingStack.Add(expression))
         {
-            // Already visiting this expression instance, skip to avoid infinite loop
+            // This expression is already on the visiting stack, indicating a circular reference
+            // HACK: If it's an IdentifierExpression, still mark it as used even though we're skipping the visit
+            // This ensures variables are properly tracked even in circular AST structures
+            if (expression is IdentifierExpression identExpr)
+            {
+                MarkVariableUsed(identExpr.Name);
+            }
             _recursionDepth--;
             return;
         }
@@ -622,7 +628,7 @@ internal class LintVisitor
         finally
         {
             _recursionDepth--;
-            _visitedExpressions.Remove(expression);
+            _visitingStack.Remove(expression); // Remove from stack when done visiting
         }
     }
 
