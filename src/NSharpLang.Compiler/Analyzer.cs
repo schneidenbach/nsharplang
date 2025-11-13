@@ -32,10 +32,6 @@ public class Analyzer
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
 
-    // Error tuple tracking for control flow analysis
-    private readonly Dictionary<string, ErrorTupleInfo> _errorTuples = new();
-    private readonly HashSet<string> _checkedErrors = new();
-
     public AnalysisResult Analyze(CompilationUnit unit)
     {
         return Analyze(unit, null, null, null);
@@ -50,8 +46,6 @@ public class Analyzer
         _importedSymbols.Clear();
         _importedSymbolsByAlias.Clear();
         _extensionMethods.Clear();
-        _errorTuples.Clear();
-        _checkedErrors.Clear();
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _currentReturnType = null;
         _inLoop = false;
@@ -275,10 +269,6 @@ public class Analyzer
 
         _currentReturnType = null;
         PopScope();
-
-        // Clear error tuple tracking when exiting function scope
-        _errorTuples.Clear();
-        _checkedErrors.Clear();
     }
 
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
@@ -878,12 +868,6 @@ public class Analyzer
             // Analyze the initializer expression to ensure it's valid
             var initType = AnalyzeExpression(tupleDecl.Initializer);
 
-            // Track this error tuple for flow analysis (unless value is discarded)
-            if (resultVar != "_" && errVar != "_")
-            {
-                _errorTuples[resultVar] = new ErrorTupleInfo(resultVar, errVar, tupleDecl.Line, tupleDecl.Column);
-            }
-
             // Declare result variable with inferred type (or Unknown if can't infer)
             if (resultVar != "_")
             {
@@ -917,9 +901,6 @@ public class Analyzer
 
     private void AnalyzeIfStatement(IfStatement ifStmt)
     {
-        // Check if this condition references an error variable
-        CheckErrorVariableInCondition(ifStmt.Condition);
-
         var condType = AnalyzeExpression(ifStmt.Condition);
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
         if (!IsBoolType(condType) && condType != BuiltInTypes.Unknown)
@@ -2576,24 +2557,6 @@ public class Analyzer
 
     private TypeInfo ResolveIdentifier(string name, int line, int column)
     {
-        // Check if this identifier is a value variable from an error tuple
-        // If so, ensure the error was checked before using the value
-        if (_errorTuples.TryGetValue(name, out var errorInfo))
-        {
-            // Check if the corresponding error variable has been checked
-            if (!_checkedErrors.Contains(errorInfo.ErrorVariable))
-            {
-                // ERROR: Using value from error tuple without checking error first
-                Error(
-                    ErrorCode.InvalidSyntax,
-                    $"Cannot use '{name}' before checking error variable '{errorInfo.ErrorVariable}'. " +
-                    $"Add an 'if ({errorInfo.ErrorVariable} != null)' check before using '{name}'.",
-                    line,
-                    column
-                );
-            }
-        }
-
         // Check local symbols first
         foreach (var scope in _scopes)
         {
@@ -2969,70 +2932,6 @@ public class Analyzer
         if (left == BuiltInTypes.Float || right == BuiltInTypes.Float) return BuiltInTypes.Float;
         if (left == BuiltInTypes.Long || right == BuiltInTypes.Long) return BuiltInTypes.Long;
         return BuiltInTypes.Int;
-    }
-
-    /// <summary>
-    /// Checks if a condition expression references an error variable from an error tuple.
-    /// If it does, mark that error as checked.
-    /// </summary>
-    private void CheckErrorVariableInCondition(Expression condition)
-    {
-        // Look for identifiers in the condition that match error variables
-        var errorVars = GetIdentifiersInExpression(condition);
-        foreach (var varName in errorVars)
-        {
-            // Check if this variable is an error variable from an error tuple
-            foreach (var tuple in _errorTuples.Values)
-            {
-                if (tuple.ErrorVariable == varName)
-                {
-                    // Mark this error as checked
-                    _checkedErrors.Add(varName);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Extracts all identifier names from an expression
-    /// </summary>
-    private HashSet<string> GetIdentifiersInExpression(Expression expr)
-    {
-        var identifiers = new HashSet<string>();
-        CollectIdentifiers(expr, identifiers);
-        return identifiers;
-    }
-
-    private void CollectIdentifiers(Expression expr, HashSet<string> identifiers)
-    {
-        switch (expr)
-        {
-            case IdentifierExpression id:
-                identifiers.Add(id.Name);
-                break;
-            case BinaryExpression binary:
-                CollectIdentifiers(binary.Left, identifiers);
-                CollectIdentifiers(binary.Right, identifiers);
-                break;
-            case UnaryExpression unary:
-                CollectIdentifiers(unary.Operand, identifiers);
-                break;
-            case MemberAccessExpression member:
-                CollectIdentifiers(member.Object, identifiers);
-                break;
-            case CallExpression call:
-                CollectIdentifiers(call.Callee, identifiers);
-                foreach (var arg in call.Arguments)
-                {
-                    CollectIdentifiers(arg.Value, identifiers);
-                }
-                break;
-            case TernaryExpression ternary:
-                CollectIdentifiers(ternary.Condition, identifiers);
-                CollectIdentifiers(ternary.ThenExpression, identifiers);
-                CollectIdentifiers(ternary.ElseExpression, identifiers);
-                break;
-        }
     }
 
     private TypeInfo GetCommonType(TypeInfo left, TypeInfo right)
@@ -4151,12 +4050,3 @@ public static class BuiltInTypes
     public static readonly SimpleTypeInfo Never = new("never");
     public static readonly SimpleTypeInfo Unknown = new("unknown");
 }
-
-/// <summary>
-/// Tracks information about error tuple deconstruction for flow analysis
-/// </summary>
-internal record ErrorTupleInfo(
-    string ValueVariable,   // The result variable (e.g., "i")
-    string ErrorVariable,   // The error variable (e.g., "err")
-    int Line,              // Line where declared
-    int Column);
