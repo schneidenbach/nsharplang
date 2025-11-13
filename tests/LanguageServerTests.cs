@@ -17,10 +17,51 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 namespace NSharpLang.Tests;
 
 /// <summary>
+/// Shared fixture for Language Server tests - creates expensive resources once
+/// </summary>
+public class LanguageServerFixture : IDisposable
+{
+    public XmlDocReader XmlDocReader { get; }
+    public TypeResolver TypeResolver { get; }
+
+    public LanguageServerFixture()
+    {
+        // Create shared services once for all tests
+        // These are expensive to initialize but safe to share
+        XmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
+        TypeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+    }
+
+    public void Dispose()
+    {
+        // Cleanup if needed
+    }
+}
+
+/// <summary>
+/// Collection definition for Language Server tests
+/// </summary>
+[CollectionDefinition("LanguageServer")]
+public class LanguageServerCollection : ICollectionFixture<LanguageServerFixture>
+{
+    // This class has no code, and is never created. Its purpose is simply
+    // to be the place to apply [CollectionDefinition] and all the
+    // ICollectionFixture<> interfaces.
+}
+
+/// <summary>
 /// Comprehensive tests for the Language Server Protocol implementation
 /// </summary>
+[Collection("LanguageServer")]
 public class LanguageServerTests
 {
+    private readonly LanguageServerFixture _fixture;
+
+    public LanguageServerTests(LanguageServerFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
     /// <summary>
     /// Test harness for LSP features - makes testing easier
     /// </summary>
@@ -33,14 +74,16 @@ public class LanguageServerTests
         public HoverHandler HoverHandler { get; }
         public SignatureHelpHandler SignatureHelpHandler { get; }
 
-        public LspTestHarness()
+        public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
         {
-            // Create services with null loggers (no console spam in tests)
-            DocumentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
-            XmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
-            TypeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
+            // Reuse shared XmlDocReader and TypeResolver from fixture
+            XmlDocReader = xmlDocReader;
+            TypeResolver = typeResolver;
 
-            // Create handlers
+            // Create test-specific DocumentManager (each test needs its own)
+            DocumentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+
+            // Create handlers with shared services
             CompletionHandler = new CompletionHandler(
                 DocumentManager,
                 TypeResolver,
@@ -129,7 +172,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_Keywords()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "f");
@@ -145,7 +188,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_PrimitiveTypes()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "i");
@@ -160,7 +203,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_CommonDotNetTypes()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "C");
@@ -175,7 +218,7 @@ public class LanguageServerTests
     [Fact]
     public async Task Completion_LocalFunctions()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -196,7 +239,7 @@ func main(): void
     [Fact]
     public async Task Completion_MemberAccess_Console()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -216,7 +259,7 @@ func main(): void
     [Fact]
     public async Task Completion_MemberAccess_String()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -242,7 +285,7 @@ func main(): void
     [Fact]
     public async Task Hover_Keyword()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -259,7 +302,7 @@ func main(): void
     [Fact]
     public async Task Hover_PrimitiveType()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func test(): int");
@@ -276,7 +319,7 @@ func main(): void
     [Fact]
     public async Task Hover_LocalVariable()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -298,7 +341,7 @@ func main(): void
     [Fact]
     public async Task Hover_FunctionName()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -318,7 +361,7 @@ func greet(name: string): string
     [Fact]
     public async Task Hover_MemberAccess_Property()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -341,7 +384,7 @@ func main(): void
     [Fact]
     public async Task Hover_MemberAccess_Method()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -364,7 +407,7 @@ func main(): void
     [Fact]
     public async Task Hover_MemberAccess_MethodWithParameters()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -388,7 +431,7 @@ func main(): void
     [Fact(Skip = "TODO: Same as Completion_ChainedMemberAccess - needs expression type resolution")]
     public async Task Hover_ChainedMemberAccess()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -410,7 +453,7 @@ func main(): void
     [Fact]
     public async Task Hover_ConsoleWriteLine()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -433,7 +476,7 @@ func main(): void
     [Fact]
     public async Task Hover_VariableWithSystemType()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -460,7 +503,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_ConsoleWriteLine()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -479,7 +522,7 @@ func main(): void
     [Fact]
     public async Task SignatureHelp_StringFormat()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -502,7 +545,7 @@ func main(): void
     [Fact]
     public void Diagnostics_SyntaxError()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -518,7 +561,7 @@ func main(: void";
     [Fact]
     public void Diagnostics_ValidCode_NoDiagnostics()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -540,7 +583,7 @@ func main(): void
     [Fact]
     public async Task DocumentUpdate_CompletionsReflectChanges()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         // Initial document
@@ -563,7 +606,7 @@ func main(): void
     [Fact]
     public async Task Completion_EmptyDocument()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "");
@@ -578,7 +621,7 @@ func main(): void
     [Fact]
     public async Task Hover_InvalidPosition()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         harness.OpenDocument(uri, "func main(): void");
@@ -593,7 +636,7 @@ func main(): void
     [Fact]
     public async Task Completion_AfterDot_NoIdentifier()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -615,7 +658,7 @@ func main(): void
     [Fact(Skip = "TODO: Implement proper expression type resolution for chained method calls")]
     public async Task Completion_ChainedMemberAccess()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
@@ -636,7 +679,7 @@ func main(): void
     [Fact]
     public async Task Completion_NestedFunctions()
     {
-        var harness = new LspTestHarness();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test.nl";
 
         var source = @"
