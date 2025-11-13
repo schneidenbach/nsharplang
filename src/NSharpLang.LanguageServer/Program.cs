@@ -21,7 +21,7 @@ class Program
 
         System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(logPath)!);
 
-        Console.Error.WriteLine($"N# Language Server starting... (log: {logPath})");
+        await Console.Error.WriteLineAsync($"N# Language Server starting... (log: {logPath})");
 
         try
         {
@@ -47,23 +47,24 @@ class Program
                     .WithHandler<SignatureHelpHandler>()
                     .WithHandler<DefinitionHandler>()
                     .WithHandler<CodeActionHandler>()
-                    .OnInitialize(async (server, request, cancellationToken) =>
+                    .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
                         logger.LogInformation("N# Language Server initialized");
                         logger.LogInformation("Client: {ClientName} {ClientVersion}",
                             request.ClientInfo?.Name,
                             request.ClientInfo?.Version);
+                        return Task.CompletedTask;
                     })
             );
 
-            Console.Error.WriteLine("N# Language Server initialized successfully");
+            await Console.Error.WriteLineAsync("N# Language Server initialized successfully");
 
             await server.WaitForExit;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Fatal error in Language Server: {ex}");
+            await Console.Error.WriteLineAsync($"Fatal error in Language Server: {ex}");
             throw;
         }
     }

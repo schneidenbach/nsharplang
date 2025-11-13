@@ -374,18 +374,16 @@ public class Transpiler
         }
 
         // Determine function name (operator keyword for overloads and conversions)
-        string functionName;
         if (func.IsConversionOperator)
         {
             // For conversion operators, the "return type" is actually the target type
             // Syntax: public static implicit/explicit operator TargetType(SourceType source)
             var conversionKeyword = func.IsImplicitConversion ? "implicit" : "explicit";
             Write($"{modifiers}{conversionKeyword} operator {returnType}({parameters})");
-            functionName = null; // Skip the normal function signature below
         }
         else
         {
-            functionName = func.IsOperatorOverload ? $"operator {func.OperatorSymbol}" : func.Name;
+            var functionName = func.IsOperatorOverload ? $"operator {func.OperatorSymbol}" : func.Name;
             Write($"{modifiers}{returnType} {functionName}{typeParams}({parameters})");
         }
 
