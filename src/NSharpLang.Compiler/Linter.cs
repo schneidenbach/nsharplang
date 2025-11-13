@@ -749,10 +749,24 @@ internal class LintVisitor
 
     private void MarkVariableUsed(string name)
     {
+        // Check current scope
         if (_declaredVariables.ContainsKey(name))
         {
             var (line, column, _) = _declaredVariables[name];
             _declaredVariables[name] = (line, column, true);
+        }
+        else
+        {
+            // Check parent scopes
+            foreach (var scope in _scopeStack)
+            {
+                if (scope.ContainsKey(name))
+                {
+                    var (line, column, _) = scope[name];
+                    scope[name] = (line, column, true);
+                    break;
+                }
+            }
         }
         _usedVariables.Add(name);
     }

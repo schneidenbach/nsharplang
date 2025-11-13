@@ -15,18 +15,43 @@ namespace NSharpLang.LanguageServer.Services;
 /// </summary>
 public class DocumentManager
 {
+    private const int MaxDocuments = 100; // Limit number of cached documents
+
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new();
+    private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ILogger<DocumentManager> _logger;
+    private readonly Analyzer _sharedAnalyzer;
+    private readonly HashSet<string> _loadedProjectDirs = new();
+    private readonly object _analyzerLock = new();
 
     public DocumentManager(ILogger<DocumentManager> logger)
     {
         _logger = logger;
+
+        // Initialize shared analyzer ONCE with system assemblies
+        _sharedAnalyzer = new Analyzer();
+        _sharedAnalyzer.LoadSystemAssemblies();
+
+        _logger.LogInformation("DocumentManager initialized with shared Analyzer (system assemblies loaded)");
     }
 
     public void UpdateDocument(string uri, string text, int version)
     {
         try
         {
+            // Enforce document limit to prevent unbounded growth
+            if (_documents.Count >= MaxDocuments && !_documents.ContainsKey(uri))
+            {
+                // Evict the least recently accessed document
+                var oldest = _lastAccessTimes.OrderBy(kvp => kvp.Value).FirstOrDefault();
+                if (oldest.Key != null)
+                {
+                    _documents.TryRemove(oldest.Key, out _);
+                    _lastAccessTimes.TryRemove(oldest.Key, out _);
+                    _logger.LogInformation("Evicted least recently used document: {Uri}", oldest.Key);
+                }
+            }
+
             _logger.LogInformation("Updating document: {Uri} (version {Version})", uri, version);
 
             var state = new DocumentState(uri, text, version);
@@ -42,24 +67,28 @@ public class DocumentManager
             // Start with parse errors
             var diagnostics = new List<CompilerError>(parseResult.Errors);
 
-            // Analyze the document (only if parsing succeeded)
-            var analyzer = new Analyzer();
-
-            // Load system assemblies
-            analyzer.LoadSystemAssemblies();
-
             // Try to find and load project configuration
             var filePath = UriToFilePath(uri);
             var projectDir = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
 
-            // Load assemblies from project configuration
-            analyzer.LoadFromProjectConfig(projectConfig, projectDir);
+            // Load assemblies from project configuration ONCE per project directory
+            // Use lock to ensure thread-safe access to shared analyzer and loaded projects cache
+            lock (_analyzerLock)
+            {
+                if (!_loadedProjectDirs.Contains(projectDir))
+                {
+                    _logger.LogInformation("Loading assemblies for new project directory: {ProjectDir}", projectDir);
+                    _sharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir);
+                    _loadedProjectDirs.Add(projectDir);
+                }
+            }
 
             // Only run analysis if we have a valid compilation unit
             if (state.CompilationUnit != null)
             {
-                var analysisResult = analyzer.Analyze(state.CompilationUnit, uri, projectDir);
+                // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
+                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, uri, projectDir);
                 diagnostics.AddRange(analysisResult.Errors);
 
                 // Store semantic model for IDE features (IntelliSense, hover, etc.)
@@ -77,6 +106,7 @@ public class DocumentManager
 
             state.Diagnostics = diagnostics;
             _documents[uri] = state;
+            _lastAccessTimes[uri] = DateTime.UtcNow;
 
             _logger.LogInformation("Document updated successfully with {DiagnosticCount} diagnostics ({ParseErrors} parse errors)",
                 state.Diagnostics.Count, parseResult.Errors.Count);
@@ -105,13 +135,18 @@ public class DocumentManager
 
     public DocumentState? GetDocument(string uri)
     {
-        _documents.TryGetValue(uri, out var doc);
-        return doc;
+        if (_documents.TryGetValue(uri, out var doc))
+        {
+            _lastAccessTimes[uri] = DateTime.UtcNow;
+            return doc;
+        }
+        return null;
     }
 
     public void CloseDocument(string uri)
     {
         _documents.TryRemove(uri, out _);
+        _lastAccessTimes.TryRemove(uri, out _);
         _logger.LogInformation("Document closed: {Uri}", uri);
     }
 

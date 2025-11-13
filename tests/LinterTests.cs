@@ -538,5 +538,29 @@ func test() {
         Assert.DoesNotContain(unusedVars, d => d.Message.Contains("'items'"));
     }
 
+    [Fact]
+    public void Linter_ForeachWithLINQResult_DoesNotReportUnused()
+    {
+        var source = @"
+import System
+import System.Linq
+
+class Program {
+    static func Main() {
+        let numbers: int[] = [1, 2, 3, 4, 5]
+        doubled := numbers.Select(x => x * 2).ToList()
+
+        foreach num in doubled {
+            Console.WriteLine(num)
+        }
+    }
+}";
+        var diagnostics = Lint(source);
+
+        // 'doubled' should NOT be reported as unused because it's used in foreach
+        var unusedDoubled = diagnostics.Where(d => d.Code == "NL001" && d.Message.Contains("'doubled'")).ToList();
+        Assert.Empty(unusedDoubled);
+    }
+
     #endregion
 }

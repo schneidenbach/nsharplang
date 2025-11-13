@@ -1564,16 +1564,20 @@ public class Parser
 
     private Statement ParseVariableDeclaration(VariableKind kind)
     {
-        var line = Current.Line;
-        var column = Current.Column;
         Advance(); // consume let/const/readonly
 
         // Check if this is a tuple deconstruction: (x, y) := ...
         if (Check(TokenType.LeftParen))
         {
-            return ParseTupleDeconstruction(kind, line, column);
+            // For tuple deconstruction, use the paren position
+            var tupleVarLine = Current.Line;
+            var tupleVarColumn = Current.Column;
+            return ParseTupleDeconstruction(kind, tupleVarLine, tupleVarColumn);
         }
 
+        // Capture the identifier's position (for diagnostics)
+        var line = Current.Line;
+        var column = Current.Column;
         var name = ConsumeIdentifier("Expected variable name");
 
         TypeReference? type = null;
