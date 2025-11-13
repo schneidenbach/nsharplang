@@ -18,29 +18,20 @@ namespace NSharpLang.Tests;
 
 /// <summary>
 /// Shared fixture for Language Server tests - creates expensive resources once
-/// Uses lazy initialization to avoid deadlocks during xUnit test discovery
+/// CRITICAL: Do NOT use Lazy - causes test hangs during discovery/initialization
 /// </summary>
 public class LanguageServerFixture : IDisposable
 {
-    private readonly Lazy<XmlDocReader> _xmlDocReader;
-    private readonly Lazy<TypeResolver> _typeResolver;
-
-    public XmlDocReader XmlDocReader => _xmlDocReader.Value;
-    public TypeResolver TypeResolver => _typeResolver.Value;
+    // CRITICAL FIX: Direct field initialization instead of Lazy
+    // Lazy initialization was causing deadlocks during xUnit test discovery
+    public XmlDocReader XmlDocReader { get; }
+    public TypeResolver TypeResolver { get; }
 
     public LanguageServerFixture()
     {
-        // Use lazy initialization to defer expensive assembly loading
-        // until tests actually run (not during xUnit test discovery)
-        _xmlDocReader = new Lazy<XmlDocReader>(
-            () => new XmlDocReader(NullLogger<XmlDocReader>.Instance),
-            LazyThreadSafetyMode.ExecutionAndPublication
-        );
-
-        _typeResolver = new Lazy<TypeResolver>(
-            () => new TypeResolver(NullLogger<TypeResolver>.Instance, _xmlDocReader.Value),
-            LazyThreadSafetyMode.ExecutionAndPublication
-        );
+        // Direct initialization - fast enough, no hangs
+        XmlDocReader = new XmlDocReader(NullLogger<XmlDocReader>.Instance);
+        TypeResolver = new TypeResolver(NullLogger<TypeResolver>.Instance, XmlDocReader);
     }
 
     public void Dispose()
