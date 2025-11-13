@@ -530,10 +530,10 @@ internal class LintVisitor
                 break;
 
             case AwaitForEachStatement awaitForeach:
+                VisitExpression(awaitForeach.Collection); // Visit collection in outer scope FIRST
                 PushScope();
                 DeclareVariable(awaitForeach.VariableName, awaitForeach.Line, awaitForeach.Column);
                 MarkVariableUsed(awaitForeach.VariableName);
-                VisitExpression(awaitForeach.Collection);
                 VisitStatement(awaitForeach.Body);
                 PopScope();
                 break;
