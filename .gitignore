@@ -3,6 +3,11 @@ bin/
 obj/
 *.g.cs
 
+# Debug/test files
+debug_*.cs
+debug_*.ns
+test-output.log
+
 # IDE
 .vs/
 .vscode/
