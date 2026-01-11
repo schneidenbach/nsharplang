@@ -104,14 +104,17 @@ public class TranspileTests : Task
                         var sourceFile = kvp.Key;
                         var csharpCode = kvp.Value;
 
-                        // Generate output path
-                        var fileName = Path.GetFileNameWithoutExtension(sourceFile);
-                        var outputFile = Path.Combine(OutputPath, $"{fileName}.g.cs");
+                        var relativePath = Path.GetRelativePath(ProjectRoot, sourceFile);
+                        var relativeDirectory = Path.GetDirectoryName(relativePath);
+                        var outputDirectory = string.IsNullOrEmpty(relativeDirectory)
+                            ? OutputPath
+                            : Path.Combine(OutputPath, relativeDirectory);
 
-                        // Ensure output directory exists
-                        Directory.CreateDirectory(OutputPath);
+                        Directory.CreateDirectory(outputDirectory);
 
                         // Write the C# file
+                        var fileName = Path.GetFileNameWithoutExtension(sourceFile);
+                        var outputFile = Path.Combine(outputDirectory, $"{fileName}.g.cs");
                         File.WriteAllText(outputFile, csharpCode);
 
                         Log.LogMessage(MessageImportance.Normal, $"  {Path.GetFileName(sourceFile)} -> {Path.GetFileName(outputFile)}");
