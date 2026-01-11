@@ -4,8 +4,8 @@
     <!-- Auto-detect project.yml in project directory -->
     <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
 
-    <!-- Output path for generated C# files -->
-    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
+    <!-- Prevent stale generated sources under ./nsharp from being compiled by default globs -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/nsharp/**</DefaultItemExcludes>
 
     <!-- Enable by default -->
     <EnableNSharpCompilation Condition="'$(EnableNSharpCompilation)' == ''">true</EnableNSharpCompilation>
