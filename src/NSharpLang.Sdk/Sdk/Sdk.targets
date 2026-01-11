@@ -3,6 +3,11 @@
   <!-- Import base SDK targets first -->
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
 
+  <PropertyGroup>
+    <!-- Output path for generated C# files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
+    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
+  </PropertyGroup>
+
   <!-- Reference the NSharp build tasks -->
   <UsingTask TaskName="NSharpLang.Build.Tasks.NSharpCompile"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
@@ -49,37 +54,37 @@
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Detect if test files exist -->
-  <Target Name="DetectNSharpTestFiles" BeforeTargets="CollectPackageReferences">
-    <PropertyGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
-      <HasNSharpTestFiles Condition="'@(NSharpTestFiles)' != ''">true</HasNSharpTestFiles>
+  <!-- Add xUnit dependencies when test files exist (done in a target so NuGet restore sees them) -->
+  <Target Name="AddNSharpTestDependencies" BeforeTargets="CollectPackageReferences" Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <PropertyGroup>
+      <_NSharpTestFiles>@(NSharpTestFiles)</_NSharpTestFiles>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(_NSharpTestFiles)' != ''">
+      <PackageReference Include="xunit" Version="2.9.2" />
+      <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
+      <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+      <PackageReference Include="coverlet.msbuild" Version="6.0.2">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+      </PackageReference>
+    </ItemGroup>
+
+    <PropertyGroup Condition="'$(_NSharpTestFiles)' != ''">
+      <HasNSharpTestFiles>true</HasNSharpTestFiles>
+
+      <!-- Default coverage settings -->
+      <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
+      <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
+      <ExcludeByFile Condition="'$(ExcludeByFile)' == ''">**/*.g.cs</ExcludeByFile>
+
+      <!-- Only enable by default if explicitly requested -->
+      <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
     </PropertyGroup>
   </Target>
-
-  <!-- Add xUnit package references when test files are detected -->
-  <ItemGroup Condition="'$(HasNSharpTestFiles)' == 'true'">
-    <PackageReference Include="xunit" Version="2.9.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
-    <PackageReference Include="coverlet.msbuild" Version="6.0.2">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
-
-  <!-- Configure Coverlet defaults -->
-  <PropertyGroup Condition="'$(HasNSharpTestFiles)' == 'true'">
-    <!-- Default coverage settings -->
-    <CoverletOutputFormat Condition="'$(CoverletOutputFormat)' == ''">opencover</CoverletOutputFormat>
-    <CoverletOutput Condition="'$(CoverletOutput)' == ''">$(MSBuildProjectDirectory)/coverage.</CoverletOutput>
-    <ExcludeByFile Condition="'$(ExcludeByFile)' == ''">**/*.g.cs</ExcludeByFile>
-
-    <!-- Only enable by default if explicitly requested -->
-    <CollectCoverage Condition="'$(CollectCoverage)' == ''">false</CollectCoverage>
-  </PropertyGroup>
 
   <!-- Load dependencies from project.yml and add them to MSBuild items -->
   <Target Name="LoadNSharpReferences" BeforeTargets="CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences">
@@ -94,7 +99,7 @@
           BeforeTargets="CoreCompile"
           Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpCompile)' != ''"
           Inputs="@(NSharpCompile);$(NSharpProjectFile)"
-          Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(Filename).g.cs')">
+          Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(RecursiveDir)%(Filename).g.cs')">
 
     <Message Importance="High" Text="Compiling N# files from $(MSBuildProjectDirectory)..." />
 
@@ -103,7 +108,6 @@
       OutputPath="$(NSharpOutputPath)"
       ProjectRoot="$(MSBuildProjectDirectory)"
       ProjectFile="$(NSharpProjectFile)">
-      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
       <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
     </NSharpCompile>
 
@@ -115,7 +119,7 @@
           BeforeTargets="CoreCompile"
           Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''"
           Inputs="@(NSharpTestFiles);$(NSharpProjectFile)"
-          Outputs="@(NSharpTestFiles->'$(NSharpOutputPath)%(Filename).g.cs')">
+          Outputs="@(NSharpTestFiles->'$(NSharpOutputPath)%(RecursiveDir)%(Filename).g.cs')">
 
     <Message Importance="High" Text="Transpiling N# test files from $(MSBuildProjectDirectory)..." />
 
@@ -124,11 +128,20 @@
       OutputPath="$(NSharpOutputPath)"
       ProjectRoot="$(MSBuildProjectDirectory)"
       ProjectFile="$(NSharpProjectFile)">
-      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
       <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
     </TranspileTests>
 
     <Message Importance="High" Text="N# test transpilation complete. Generated test files added to C# compilation." />
+  </Target>
+
+  <!-- Always include generated sources (even when compilation targets are skipped as up-to-date) -->
+  <Target Name="IncludeNSharpGeneratedFiles"
+          BeforeTargets="CoreCompile"
+          AfterTargets="CompileNSharp;TranspileNSharpTests"
+          Condition="'$(EnableNSharpCompilation)' == 'true'">
+    <ItemGroup>
+      <Compile Include="$(NSharpOutputPath)**/*.g.cs" />
+    </ItemGroup>
   </Target>
 
   <!-- Clean generated files -->

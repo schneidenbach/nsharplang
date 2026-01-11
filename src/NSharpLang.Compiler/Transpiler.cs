@@ -34,6 +34,9 @@ public class Transpiler
         _output.Clear();
         _indentLevel = 0;
 
+        WriteLine("#nullable enable annotations");
+        _output.AppendLine();
+
         // Check if we have test declarations to add Xunit using
         var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
 
