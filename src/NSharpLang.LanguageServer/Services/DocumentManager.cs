@@ -196,6 +196,7 @@ public class DocumentManager
             if (decl is FunctionDeclaration funcDecl)
             {
                 symbols[funcDecl.Name] = CreateFunctionSymbol(funcDecl, SymbolKind.Function);
+                ExtractLocalFunctionSymbols(symbols, funcDecl.Body);
             }
             else if (decl is ClassDeclaration classDecl)
             {
@@ -224,6 +225,99 @@ public class DocumentManager
         }
 
         return symbols;
+    }
+
+    private void ExtractLocalFunctionSymbols(Dictionary<string, SymbolInfo> symbols, BlockStatement? body)
+    {
+        if (body == null) return;
+
+        foreach (var stmt in body.Statements)
+        {
+            ExtractLocalFunctionSymbols(symbols, stmt);
+        }
+    }
+
+    private void ExtractLocalFunctionSymbols(Dictionary<string, SymbolInfo> symbols, Statement stmt)
+    {
+        switch (stmt)
+        {
+            case LocalFunctionStatement localFunc:
+                symbols[localFunc.Function.Name] = CreateFunctionSymbol(localFunc.Function, SymbolKind.Function);
+                ExtractLocalFunctionSymbols(symbols, localFunc.Function.Body);
+                break;
+
+            case BlockStatement block:
+                foreach (var s in block.Statements)
+                {
+                    ExtractLocalFunctionSymbols(symbols, s);
+                }
+                break;
+
+            case IfStatement ifStmt:
+                ExtractLocalFunctionSymbols(symbols, ifStmt.ThenStatement);
+                if (ifStmt.ElseStatement != null)
+                {
+                    ExtractLocalFunctionSymbols(symbols, ifStmt.ElseStatement);
+                }
+                break;
+
+            case ForStatement forStmt:
+                if (forStmt.Initializer != null)
+                {
+                    ExtractLocalFunctionSymbols(symbols, forStmt.Initializer);
+                }
+                ExtractLocalFunctionSymbols(symbols, forStmt.Body);
+                break;
+
+            case ForeachStatement foreachStmt:
+                ExtractLocalFunctionSymbols(symbols, foreachStmt.Body);
+                break;
+
+            case AwaitForEachStatement awaitForeachStmt:
+                ExtractLocalFunctionSymbols(symbols, awaitForeachStmt.Body);
+                break;
+
+            case WhileStatement whileStmt:
+                ExtractLocalFunctionSymbols(symbols, whileStmt.Body);
+                break;
+
+            case TryStatement tryStmt:
+                ExtractLocalFunctionSymbols(symbols, tryStmt.TryBlock);
+                foreach (var catchClause in tryStmt.CatchClauses)
+                {
+                    ExtractLocalFunctionSymbols(symbols, catchClause.Block);
+                }
+                if (tryStmt.FinallyBlock != null)
+                {
+                    ExtractLocalFunctionSymbols(symbols, tryStmt.FinallyBlock);
+                }
+                break;
+
+            case UsingStatement usingStmt:
+                if (usingStmt.Declaration != null)
+                {
+                    ExtractLocalFunctionSymbols(symbols, usingStmt.Declaration);
+                }
+                if (usingStmt.Body != null)
+                {
+                    ExtractLocalFunctionSymbols(symbols, usingStmt.Body);
+                }
+                break;
+
+            case LockStatement lockStmt:
+                ExtractLocalFunctionSymbols(symbols, lockStmt.Body);
+                break;
+
+            case SwitchStatement switchStmt:
+                foreach (var switchCase in switchStmt.Cases)
+                {
+                    foreach (var caseStmt in switchCase.Statements)
+                    {
+                        ExtractLocalFunctionSymbols(symbols, caseStmt);
+                    }
+                }
+                break;
+        }
     }
 
     private SymbolInfo CreateFunctionSymbol(FunctionDeclaration func, SymbolKind kind)

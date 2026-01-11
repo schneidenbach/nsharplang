@@ -212,7 +212,7 @@ public class HoverHandler : HoverHandlerBase
 
     private Hover? ResolveMemberAccess(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
     {
-        var memberInfo = resolver.ResolveMemberInfo(memberAccess);
+        var memberInfo = TryResolveMemberInfo(memberAccess, resolver);
         if (memberInfo == null) return null;
 
         string? markdown = memberInfo switch
@@ -240,10 +240,10 @@ public class HoverHandler : HoverHandlerBase
 
     private Hover? ResolveMethodCall(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
     {
-        var memberInfo = resolver.ResolveMemberInfo(memberAccess);
+        var memberInfo = TryResolveMemberInfo(memberAccess, resolver);
         if (memberInfo is MethodInfo method)
         {
-            var overloads = resolver.GetMethodOverloads(memberAccess);
+            var overloads = TryGetMethodOverloads(memberAccess, resolver);
             var markdown = overloads.Length > 1
                 ? FormatMethodWithOverloads(method, overloads)
                 : FormatMethod(method);
@@ -259,6 +259,59 @@ public class HoverHandler : HoverHandlerBase
         }
 
         return null;
+    }
+
+    private MemberInfo? TryResolveMemberInfo(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
+    {
+        var resolved = resolver.ResolveMemberInfo(memberAccess);
+        if (resolved != null)
+        {
+            return resolved;
+        }
+
+        // Fallback: allow static member resolution on known .NET types like `Console.WriteLine`
+        // where `Console` is a type name (not a variable in the semantic model).
+        if (memberAccess.Object is IdentifierExpression id)
+        {
+            var type = _typeResolver.ResolveType(id.Name);
+            if (type == null) return null;
+
+            var bindingFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
+
+            var methods = type.GetMethods(bindingFlags)
+                .Where(m => m.Name == memberAccess.MemberName)
+                .ToArray();
+            if (methods.Length > 0) return methods[0];
+
+            var property = type.GetProperty(memberAccess.MemberName, bindingFlags);
+            if (property != null) return property;
+
+            var field = type.GetField(memberAccess.MemberName, bindingFlags);
+            if (field != null) return field;
+        }
+
+        return null;
+    }
+
+    private MethodInfo[] TryGetMethodOverloads(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
+    {
+        var overloads = resolver.GetMethodOverloads(memberAccess);
+        if (overloads.Length > 0)
+        {
+            return overloads;
+        }
+
+        if (memberAccess.Object is IdentifierExpression id)
+        {
+            var type = _typeResolver.ResolveType(id.Name);
+            if (type == null) return Array.Empty<MethodInfo>();
+
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+                .Where(m => m.Name == memberAccess.MemberName)
+                .ToArray();
+        }
+
+        return Array.Empty<MethodInfo>();
     }
 
     protected override HoverRegistrationOptions CreateRegistrationOptions(

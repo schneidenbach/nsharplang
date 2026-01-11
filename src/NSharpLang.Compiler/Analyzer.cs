@@ -236,6 +236,16 @@ public class Analyzer
         if (func.Body != null)
         {
             AnalyzeStatement(func.Body);
+
+            // Missing return (all-paths) check for non-void functions.
+            if (_currentReturnType != BuiltInTypes.Void && !StatementAlwaysReturns(func.Body))
+            {
+                Error(
+                    ErrorCode.MissingReturn,
+                    $"Not all code paths return a value of type '{_currentReturnType}'",
+                    func.Line,
+                    func.Column);
+            }
         }
         else if (func.ExpressionBody != null)
         {
@@ -269,6 +279,34 @@ public class Analyzer
 
         _currentReturnType = null;
         PopScope();
+    }
+
+    private static bool StatementAlwaysReturns(Statement statement)
+    {
+        switch (statement)
+        {
+            case ReturnStatement:
+            case ThrowStatement:
+                return true;
+
+            case BlockStatement block:
+                // If any statement always returns, the remainder of the block is unreachable,
+                // so the block always returns.
+                foreach (var stmt in block.Statements)
+                {
+                    if (StatementAlwaysReturns(stmt))
+                        return true;
+                }
+                return false;
+
+            case IfStatement ifStmt:
+                return ifStmt.ElseStatement != null &&
+                       StatementAlwaysReturns(ifStmt.ThenStatement) &&
+                       StatementAlwaysReturns(ifStmt.ElseStatement);
+
+            default:
+                return false;
+        }
     }
 
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
@@ -823,7 +861,7 @@ public class Analyzer
                 }
                 else
                 {
-                    Error($"Cannot assign '{inferredType}' to '{declaredType}'", varDecl.Line, varDecl.Column);
+                    Error(ErrorCode.TypeMismatch, $"Cannot assign '{inferredType}' to '{declaredType}'", varDecl.Line, varDecl.Column);
                 }
             }
             finalType = declaredType;

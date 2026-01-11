@@ -143,6 +143,7 @@ public enum TokenType
     // Special
     Eof,
     Newline,
+    Unknown,
 
     // Preprocessor
     PreprocessorDirective,

@@ -397,21 +397,28 @@ public class LexerTests
     public void TestUnterminatedString()
     {
         var source = "\"unterminated";
-        Assert.Throws<Exception>(() => Tokenize(source));
+        var tokens = Tokenize(source);
+        Assert.Equal(TokenType.StringLiteral, tokens[0].Type);
+        Assert.Equal("\"unterminated", tokens[0].Value);
     }
 
     [Fact]
     public void TestUnterminatedMultiLineComment()
     {
         var source = "/* unterminated";
-        Assert.Throws<Exception>(() => Tokenize(source));
+        var tokens = Tokenize(source);
+        // Comments are filtered out by the lexer; unterminated comments should not crash tokenization.
+        Assert.Equal(TokenType.Eof, tokens[^1].Type);
+        Assert.Single(tokens);
     }
 
     [Fact]
     public void TestUnexpectedCharacter()
     {
         var source = "@";
-        Assert.Throws<Exception>(() => Tokenize(source));
+        var tokens = Tokenize(source);
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+        Assert.Equal("@", tokens[0].Value);
     }
 
     [Fact]

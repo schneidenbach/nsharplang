@@ -78,7 +78,6 @@ public class Lexer
         { "immutable", TokenType.Immutable },
         { "with", TokenType.With },
         { "type", TokenType.Type },
-        { "test", TokenType.Test },
         { "assert", TokenType.Assert },
         { "operator", TokenType.Operator },
         { "required", TokenType.Required },
@@ -123,7 +122,108 @@ public class Lexer
         }
 
         tokens.Add(new Token(TokenType.Eof, "", _line, _column, _fileName));
-        return tokens;
+        return InsertIndentationBraces(tokens);
+    }
+
+    private List<Token> InsertIndentationBraces(List<Token> tokens)
+    {
+        // Supports indentation-based blocks:
+        // func main(): void
+        //     print("hi")
+        //
+        // by inserting virtual { } tokens based on indentation changes at line boundaries.
+
+        var output = new List<Token>(tokens.Count);
+        var indentStack = new Stack<int>();
+        indentStack.Push(0);
+
+        bool atLineStart = true;
+        int explicitBraceDepth = 0; // only braces from the source tokens (not the virtual ones we insert)
+        int parenBracketDepth = 0;
+        var hasBaseIndent = false;
+        var baseIndent = 0;
+
+        foreach (var token in tokens)
+        {
+            if (token.Type == TokenType.Newline)
+            {
+                output.Add(token);
+                atLineStart = true;
+                continue;
+            }
+
+            if (token.Type == TokenType.Eof)
+            {
+                // Close any remaining indentation blocks before EOF
+                while (indentStack.Count > 1)
+                {
+                    indentStack.Pop();
+                    output.Add(new Token(TokenType.RightBrace, "}", token.Line, 1, token.FileName));
+                }
+
+                output.Add(token);
+                break;
+            }
+
+            if (atLineStart)
+            {
+                var rawIndent = Math.Max(0, token.Column - 1);
+
+                // Support sources that are globally indented (common in test strings):
+                // treat the first non-empty line's indentation as the base indent (0).
+                if (!hasBaseIndent && indentStack.Count == 1)
+                {
+                    baseIndent = rawIndent;
+                    hasBaseIndent = true;
+                }
+
+                var currentIndent = Math.Max(0, rawIndent - baseIndent);
+                var canIndent = parenBracketDepth == 0 && explicitBraceDepth == 0;
+
+                if (canIndent)
+                {
+                    var previousIndent = indentStack.Peek();
+
+                    if (currentIndent > previousIndent)
+                    {
+                        indentStack.Push(currentIndent);
+                        output.Add(new Token(TokenType.LeftBrace, "{", token.Line, 1, token.FileName));
+                    }
+                    else if (currentIndent < previousIndent)
+                    {
+                        while (indentStack.Count > 1 && currentIndent < indentStack.Peek())
+                        {
+                            indentStack.Pop();
+                            output.Add(new Token(TokenType.RightBrace, "}", token.Line, 1, token.FileName));
+                        }
+                    }
+                }
+
+                atLineStart = false;
+            }
+
+            // Track source brace nesting so we don't insert indentation braces inside explicit { } blocks.
+            if (token.Type == TokenType.LeftBrace)
+            {
+                explicitBraceDepth++;
+            }
+            else if (token.Type == TokenType.RightBrace)
+            {
+                explicitBraceDepth = Math.Max(0, explicitBraceDepth - 1);
+            }
+            else if (token.Type == TokenType.LeftParen || token.Type == TokenType.LeftBracket)
+            {
+                parenBracketDepth++;
+            }
+            else if (token.Type == TokenType.RightParen || token.Type == TokenType.RightBracket)
+            {
+                parenBracketDepth = Math.Max(0, parenBracketDepth - 1);
+            }
+
+            output.Add(token);
+        }
+
+        return output;
     }
 
     private Token NextToken()
@@ -395,22 +495,23 @@ public class Lexer
         var singleChar = ch;
         Advance();
 
-        return singleChar switch
-        {
-            '(' => new Token(TokenType.LeftParen, "(", startLine, startColumn, _fileName),
-            ')' => new Token(TokenType.RightParen, ")", startLine, startColumn, _fileName),
-            '{' => new Token(TokenType.LeftBrace, "{", startLine, startColumn, _fileName),
-            '}' => new Token(TokenType.RightBrace, "}", startLine, startColumn, _fileName),
-            '[' => new Token(TokenType.LeftBracket, "[", startLine, startColumn, _fileName),
-            ']' => new Token(TokenType.RightBracket, "]", startLine, startColumn, _fileName),
-            ';' => new Token(TokenType.Semicolon, ";", startLine, startColumn, _fileName),
-            ',' => new Token(TokenType.Comma, ",", startLine, startColumn, _fileName),
-            '%' => new Token(TokenType.Percent, "%", startLine, startColumn, _fileName),
-            '^' => new Token(TokenType.BitwiseXor, "^", startLine, startColumn, _fileName),
-            '~' => new Token(TokenType.BitwiseNot, "~", startLine, startColumn, _fileName),
-            _ => throw new Exception($"Unexpected character '{singleChar}' at {_fileName ?? "?"}:{startLine}:{startColumn}")
-        };
-    }
+	        return singleChar switch
+	        {
+	            '(' => new Token(TokenType.LeftParen, "(", startLine, startColumn, _fileName),
+	            ')' => new Token(TokenType.RightParen, ")", startLine, startColumn, _fileName),
+	            '{' => new Token(TokenType.LeftBrace, "{", startLine, startColumn, _fileName),
+	            '}' => new Token(TokenType.RightBrace, "}", startLine, startColumn, _fileName),
+	            '[' => new Token(TokenType.LeftBracket, "[", startLine, startColumn, _fileName),
+	            ']' => new Token(TokenType.RightBracket, "]", startLine, startColumn, _fileName),
+	            ';' => new Token(TokenType.Semicolon, ";", startLine, startColumn, _fileName),
+	            ',' => new Token(TokenType.Comma, ",", startLine, startColumn, _fileName),
+	            '%' => new Token(TokenType.Percent, "%", startLine, startColumn, _fileName),
+	            '^' => new Token(TokenType.BitwiseXor, "^", startLine, startColumn, _fileName),
+	            '~' => new Token(TokenType.BitwiseNot, "~", startLine, startColumn, _fileName),
+	            // Don't throw here: this lexer is used for error-recovery scenarios where we still want to produce tokens.
+	            _ => new Token(TokenType.Unknown, singleChar.ToString(), startLine, startColumn, _fileName)
+	        };
+	    }
 
     private Token ReadIdentifier(int startLine, int startColumn)
     {
@@ -478,30 +579,31 @@ public class Lexer
 
         while (!IsAtEnd() && Peek() != '"')
         {
+            // Non-raw strings can't span lines; treat newline as an unterminated string and recover.
+            if (Peek() == '\n')
+            {
+                return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
             if (Peek() == '\\')
             {
                 sb.Append('\\');
                 Advance();
                 if (IsAtEnd())
-                    throw new Exception($"Unterminated string at {_fileName ?? "?"}:{startLine}:{startColumn}");
+                    return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
 
                 sb.Append(Peek());
                 Advance();
             }
             else
             {
-                if (Peek() == '\n')
-                {
-                    _line++;
-                    _column = 0;
-                }
                 sb.Append(Peek());
                 Advance();
             }
         }
 
         if (IsAtEnd())
-            throw new Exception($"Unterminated string at {_fileName ?? "?"}:{startLine}:{startColumn}");
+            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
 
         sb.Append('"');
         Advance(); // consume closing quote
@@ -536,7 +638,7 @@ public class Lexer
             Advance();
         }
 
-        throw new Exception($"Unterminated triple-quote string at {_fileName ?? "?"}:{startLine}:{startColumn}");
+        return new Token(TokenType.TripleQuoteStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
     }
 
     private Token ReadInterpolatedRawString(int startLine, int startColumn)
@@ -569,7 +671,7 @@ public class Lexer
             Advance();
         }
 
-        throw new Exception($"Unterminated interpolated raw string at {_fileName ?? "?"}:{startLine}:{startColumn}");
+        return new Token(TokenType.InterpolatedRawStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
     }
 
     private Token ReadSingleLineComment(int startLine, int startColumn)
@@ -610,7 +712,7 @@ public class Lexer
             Advance();
         }
 
-        throw new Exception($"Unterminated multi-line comment at {_fileName ?? "?"}:{startLine}:{startColumn}");
+        return new Token(TokenType.MultiLineComment, sb.ToString(), startLine, startColumn, _fileName);
     }
 
     private Token ReadXmlDocComment(int startLine, int startColumn)

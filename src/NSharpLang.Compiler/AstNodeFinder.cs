@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
 
@@ -219,9 +220,11 @@ public class AstNodeFinder
 
         private bool IsAtPosition(int line, int column)
         {
-            // LSP is 0-indexed, AST might be 1-indexed depending on implementation
-            // This is a simple range check - could be made more sophisticated
-            return line == _targetLine && column <= _targetColumn;
+            // LSP uses 0-based line/column; lexer+parser currently store 1-based.
+            // Always normalize node positions to 0-based before comparing.
+            var nodeLine = Math.Max(0, line - 1);
+            var nodeColumn = Math.Max(0, column - 1);
+            return nodeLine == _targetLine && nodeColumn <= _targetColumn;
         }
     }
 }

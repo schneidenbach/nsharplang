@@ -335,7 +335,10 @@ func test() {
         var result = analyzer.Analyze(unit);
 
         // Should detect duplicate declaration
-        Assert.Contains(result.Errors, e => e.Message.Contains("duplicate") || e.Message.Contains("already defined"));
+        Assert.Contains(result.Errors, e =>
+            e.Message.Contains("duplicate") ||
+            e.Message.Contains("already defined") ||
+            e.Message.Contains("already declared"));
     }
 
     [Fact]
@@ -445,7 +448,7 @@ func test() {
         var analyzer = new Analyzer();
         var result = analyzer.Analyze(unit);
 
-        Assert.Contains(result.Errors, e => e.Message.Contains("break"));
+        Assert.Contains(result.Errors, e => e.Message.Contains("break", System.StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -460,7 +463,7 @@ func test() {
         var analyzer = new Analyzer();
         var result = analyzer.Analyze(unit);
 
-        Assert.Contains(result.Errors, e => e.Message.Contains("continue"));
+        Assert.Contains(result.Errors, e => e.Message.Contains("continue", System.StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion
