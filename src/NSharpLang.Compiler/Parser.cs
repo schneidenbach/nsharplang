@@ -168,8 +168,8 @@ public class Parser
 
     private Declaration ParseDeclaration()
     {
-        // Test declarations don't have attributes or modifiers
-        if (Check(TokenType.Test))
+        // Test declarations don't have attributes or modifiers (contextual keyword "test")
+        if (IsTestDeclarationStart())
             return ParseTestDeclaration();
 
         // Preprocessor directives can appear at top level
@@ -401,9 +401,19 @@ public class Parser
         var parameters = ParseParameterList();
 
         // For regular functions, return type comes AFTER parameters (with colon)
-        if (!isConversionOperator && Check(TokenType.Colon))
+        if (!isConversionOperator &&
+            (Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater)))
         {
-            Advance();
+            if (Check(TokenType.Colon))
+            {
+                Advance();
+            }
+            else
+            {
+                // Support `->` return type syntax (common in tests / functional-style code)
+                Advance(); // consume '-'
+                Consume(TokenType.Greater, "Expected '>' after '-' in return type arrow");
+            }
             returnType = ParseTypeReference();
         }
 
@@ -429,7 +439,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Test, "Expected 'test'");
+        ConsumeTestKeyword();
 
         // Test description must be a string literal
         string description;
@@ -461,6 +471,31 @@ public class Parser
         var body = ParseBlock();
 
         return new TestDeclaration(description, body, line, column);
+    }
+
+    private bool IsTestDeclarationStart()
+    {
+        if (Check(TokenType.Test))
+            return true;
+
+        return Check(TokenType.Identifier) && Current.Value == "test";
+    }
+
+    private void ConsumeTestKeyword()
+    {
+        if (Check(TokenType.Test))
+        {
+            Advance();
+            return;
+        }
+
+        if (Check(TokenType.Identifier) && Current.Value == "test")
+        {
+            Advance();
+            return;
+        }
+
+        Consume(TokenType.Test, "Expected 'test'");
     }
 
     private List<TypeParameter>? ParseTypeParameters()
@@ -597,7 +632,14 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             members.Add(ParseMemberDeclaration());
+
+            // Safety: ensure we always make progress, even on unexpected tokens in class bodies.
+            if (_position == startPosition && !IsAtEnd())
+            {
+                Advance();
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -636,7 +678,13 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             members.Add(ParseMemberDeclaration());
+
+            if (_position == startPosition && !IsAtEnd())
+            {
+                Advance();
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -683,7 +731,13 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             members.Add(ParseMemberDeclaration());
+
+            if (_position == startPosition && !IsAtEnd())
+            {
+                Advance();
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -722,7 +776,13 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             members.Add(ParseMemberDeclaration());
+
+            if (_position == startPosition && !IsAtEnd())
+            {
+                Advance();
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -1408,7 +1468,14 @@ public class Parser
         var statements = new List<Statement>();
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             statements.Add(ParseStatement());
+
+            // Safety: ensure we always make progress, even in error recovery paths.
+            if (_position == startPosition && !IsAtEnd())
+            {
+                Advance();
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -1417,6 +1484,15 @@ public class Parser
 
     private Statement ParseStatement()
     {
+        // Optional statement terminator / empty statement
+        if (Check(TokenType.Semicolon))
+        {
+            var line = Current.Line;
+            var column = Current.Column;
+            Advance(); // consume ';'
+            return new EmptyStatement(line, column);
+        }
+
         if (Check(TokenType.Let))
             return ParseVariableDeclaration(VariableKind.Let);
         if (Check(TokenType.Const))
@@ -1516,9 +1592,17 @@ public class Parser
         var parameters = ParseParameterList();
 
         TypeReference? returnType = null;
-        if (Check(TokenType.Colon))
+        if (Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater))
         {
-            Advance();
+            if (Check(TokenType.Colon))
+            {
+                Advance();
+            }
+            else
+            {
+                Advance(); // consume '-'
+                Consume(TokenType.Greater, "Expected '>' after '-' in return type arrow");
+            }
             returnType = ParseTypeReference();
         }
 
@@ -1681,6 +1765,13 @@ public class Parser
         }
 
         // C-style for loop
+        var hasParens = false;
+        if (Check(TokenType.LeftParen))
+        {
+            hasParens = true;
+            Advance(); // consume '('
+        }
+
         Statement? initializer = null;
         if (!Check(TokenType.Semicolon))
         {
@@ -1720,9 +1811,14 @@ public class Parser
         Consume(TokenType.Semicolon, "Expected ';'");
 
         Expression? iterator = null;
-        if (!Check(TokenType.LeftBrace))
+        if (hasParens ? !Check(TokenType.RightParen) : !Check(TokenType.LeftBrace))
         {
             iterator = ParseExpression();
+        }
+
+        if (hasParens)
+        {
+            Consume(TokenType.RightParen, "Expected ')'");
         }
 
         var forBody = ParseStatement();
@@ -1778,13 +1874,40 @@ public class Parser
         Consume(TokenType.Return, "Expected 'return'");
 
         Expression? value = null;
-        if (!Check(TokenType.RightBrace) && !IsAtEnd())
+        if (!Check(TokenType.RightBrace) && !IsAtEnd() && CanStartExpression(Current.Type))
         {
             value = ParseExpression();
         }
 
         return new ReturnStatement(value, line, column);
     }
+
+    private static bool CanStartExpression(TokenType type) =>
+        type is
+            TokenType.Identifier or
+            TokenType.IntLiteral or
+            TokenType.FloatLiteral or
+            TokenType.StringLiteral or
+            TokenType.True or
+            TokenType.False or
+            TokenType.Null or
+            TokenType.New or
+            TokenType.Match or
+            TokenType.This or
+            TokenType.Base or
+            TokenType.LeftParen or
+            TokenType.LeftBracket or
+            TokenType.Immutable or
+            TokenType.DotDotDot or
+            // Unary operators / keywords that start expressions
+            TokenType.Plus or
+            TokenType.Minus or
+            TokenType.Not or
+            TokenType.BitwiseNot or
+            TokenType.Increment or
+            TokenType.Decrement or
+            TokenType.Await or
+            TokenType.Throw;
 
     private YieldStatement ParseYieldStatement()
     {
@@ -2305,6 +2428,30 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
+
+        // Typed variable declaration without `let` (common in tests):
+        //   name: string = "John"
+        //   numbers: int[] = [1, 2, 3]
+        //   optional: string? = null
+        if (Check(TokenType.Identifier) &&
+            LookAhead(1).Type == TokenType.Colon &&
+            LookAhead(2).Type == TokenType.Identifier)
+        {
+            var saved = _position;
+            var name = Advance().Value;
+            Advance(); // consume ':'
+            var typeRef = ParseTypeReference();
+
+            if (Check(TokenType.Assign))
+            {
+                Advance(); // consume '='
+                var initializer = ParseExpression();
+                return new VariableDeclarationStatement(name, typeRef, initializer, VariableKind.Let, line, column);
+            }
+
+            // Not a declaration; rewind and parse as a normal expression statement.
+            _position = saved;
+        }
 
         // Check for tuple deconstruction without parens: x, y := expr
         // This handles cases like: result, err := MightFail()
@@ -2876,7 +3023,32 @@ public class Parser
             {
                 var isNullConditional = Check(TokenType.QuestionDot);
                 var dotToken = Advance();
-                var memberName = ConsumeIdentifier("Expected member name");
+                string memberName;
+
+                // If the dot is the last token on the line, the next token may be on a new line
+                // (e.g. "x.\n y"), which should be treated as an incomplete member access.
+                if (Current.Line != dotToken.Line)
+                {
+                    ReportError(
+                        ErrorCode.ExpectedToken,
+                        $"Expected member name. Got '{Current.Value}'",
+                        dotToken.Line,
+                        dotToken.Column,
+                        humanExplanation: "I see a dot (.) operator but no member name after it.",
+                        hint: "After a dot, I need to see a property or method name.",
+                        suggestions: new List<string> {
+                            "Check if you forgot to finish this line",
+                            "Common members: Length, Count, ToString(), GetHashCode()",
+                            "If this is end of statement, remove the trailing dot"
+                        },
+                        length: dotToken.Value.Length
+                    );
+                    memberName = "<error>";
+                }
+                else
+                {
+                    memberName = ConsumeIdentifier("Expected member name");
+                }
                 expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
             }
             else if (Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket))
@@ -2990,7 +3162,7 @@ public class Parser
                     var line = Current.Line;
                     var column = Current.Column;
 
-                    if (Check(TokenType.Identifier) && Current.Value == "var")
+                    if ((Check(TokenType.Identifier) || Check(TokenType.Let)) && Current.Value == "var")
                     {
                         // out var identifier
                         Advance(); // consume 'var'
@@ -3492,7 +3664,33 @@ public class Parser
 
             // Simple type cast: (TypeName) or (Qualified.TypeName)
             if (Check(TokenType.RightParen))
-                return true;
+            {
+                // Disambiguate from parenthesized expressions like `(x)`:
+                // casts must be followed by an expression start token.
+                var next = LookAhead(1).Type;
+                return next is
+                    TokenType.Identifier or
+                    TokenType.IntLiteral or
+                    TokenType.FloatLiteral or
+                    TokenType.StringLiteral or
+                    TokenType.True or
+                    TokenType.False or
+                    TokenType.Null or
+                    TokenType.New or
+                    TokenType.This or
+                    TokenType.Base or
+                    TokenType.LeftParen or
+                    TokenType.LeftBracket or
+                    TokenType.Immutable or
+                    TokenType.Plus or
+                    TokenType.Minus or
+                    TokenType.Not or
+                    TokenType.BitwiseNot or
+                    TokenType.Increment or
+                    TokenType.Decrement or
+                    TokenType.Await or
+                    TokenType.Throw;
+            }
 
             // Generic or complex type (not supported in cast check yet)
             return false;

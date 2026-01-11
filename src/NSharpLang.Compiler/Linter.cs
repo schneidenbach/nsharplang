@@ -402,9 +402,33 @@ internal class LintVisitor
 
             case BlockStatement block:
                 PushScope();
+                var unreachableReported = false;
+                var restIsUnreachable = false;
+
                 foreach (var stmt in block.Statements)
                 {
+                    if (restIsUnreachable)
+                    {
+                        if (!unreachableReported)
+                        {
+                            AddDiagnostic(
+                                "NL006",
+                                "unreachable code detected",
+                                new Location(stmt.Line, stmt.Column, _filePath),
+                                _config.GetSeverity("NL006"));
+                            unreachableReported = true;
+                        }
+
+                        // Don't cascade other diagnostics/variable usage from unreachable statements.
+                        continue;
+                    }
+
                     VisitStatement(stmt);
+
+                    if (stmt is ReturnStatement or ThrowStatement)
+                    {
+                        restIsUnreachable = true;
+                    }
                 }
                 PopScope();
                 break;

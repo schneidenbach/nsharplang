@@ -19,6 +19,49 @@ public class TypeResolver
     private bool _assembliesLoaded = false;
     private readonly object _loadLock = new();
 
+    private static readonly Dictionary<string, string> AliasToFullName = new(StringComparer.Ordinal)
+    {
+        ["bool"] = "System.Boolean",
+        ["byte"] = "System.Byte",
+        ["sbyte"] = "System.SByte",
+        ["short"] = "System.Int16",
+        ["ushort"] = "System.UInt16",
+        ["int"] = "System.Int32",
+        ["uint"] = "System.UInt32",
+        ["long"] = "System.Int64",
+        ["ulong"] = "System.UInt64",
+        ["char"] = "System.Char",
+        ["float"] = "System.Single",
+        ["double"] = "System.Double",
+        ["decimal"] = "System.Decimal",
+        ["string"] = "System.String",
+        ["object"] = "System.Object",
+        ["void"] = "System.Void",
+    };
+
+    private static readonly Dictionary<string, string> CommonShortTypeToFullName = new(StringComparer.Ordinal)
+    {
+        ["Console"] = "System.Console",
+        ["String"] = "System.String",
+        ["Math"] = "System.Math",
+        ["DateTime"] = "System.DateTime",
+        ["Guid"] = "System.Guid",
+        ["Exception"] = "System.Exception",
+        ["Task"] = "System.Threading.Tasks.Task",
+        ["CancellationToken"] = "System.Threading.CancellationToken",
+    };
+
+    private static readonly string[] CommonNamespacePrefixes =
+    [
+        "System",
+        "System.Collections",
+        "System.Collections.Generic",
+        "System.Linq",
+        "System.Text",
+        "System.Threading",
+        "System.Threading.Tasks",
+    ];
+
     public TypeResolver(ILogger<TypeResolver> logger, XmlDocReader xmlDocReader)
     {
         _logger = logger;
@@ -102,33 +145,114 @@ public class TypeResolver
     {
         EnsureAssembliesLoaded();
 
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            return null;
+        }
+
+        typeName = typeName.Trim();
+
+        // Strip generic arguments for now (e.g., Task<string> -> Task)
+        // IntelliSense uses reflection against the open type; generic argument resolution is handled elsewhere.
+        var genericStart = typeName.IndexOf('<');
+        if (genericStart >= 0)
+        {
+            typeName = typeName.Substring(0, genericStart).TrimEnd();
+        }
+
+        if (AliasToFullName.TryGetValue(typeName, out var aliasFullName))
+        {
+            typeName = aliasFullName;
+        }
+        else if (!typeName.Contains('.') && CommonShortTypeToFullName.TryGetValue(typeName, out var commonFullName))
+        {
+            typeName = commonFullName;
+        }
+
         if (_typeCache.TryGetValue(typeName, out var cachedType))
         {
             return cachedType;
         }
 
         // Try to find type in loaded assemblies
+        Type? resolved = null;
+        try
+        {
+            // Exact match (fast path)
+            resolved = ResolveTypeByFullName(typeName);
+
+            // If input is a short name, try a few common namespaces (still cheap).
+            if (resolved == null && !typeName.Contains('.'))
+            {
+                foreach (var ns in CommonNamespacePrefixes)
+                {
+                    resolved = ResolveTypeByFullName($"{ns}.{typeName}");
+                    if (resolved != null)
+                        break;
+                }
+            }
+
+            // Last resort: exported-type scan (cached per assembly).
+            // This fixes missing completions like `Console.` while avoiding repeated hangs.
+            if (resolved == null && !typeName.Contains('.'))
+            {
+                resolved = ResolveTypeBySimpleName(typeName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error resolving type {Type}", typeName);
+        }
+
+        if (resolved != null)
+        {
+            _typeCache[typeName] = resolved;
+            return resolved;
+        }
+
+        return null;
+    }
+
+    private Type? ResolveTypeByFullName(string fullName)
+    {
         foreach (var assembly in _loadedAssemblies)
         {
             try
             {
-                // Try exact match first (fast path)
-                var type = assembly.GetType(typeName);
+                var type = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
                 if (type != null)
-                {
-                    _typeCache[typeName] = type;
                     return type;
-                }
-
-                // CRITICAL FIX: GetExportedTypes() causes test hangs - completely skip for now
-                // TODO: Implement on-demand type loading or use a different strategy
-                // Fallback: Try simple name match in all assemblies
-                // This is slower but safer than GetExportedTypes()
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Error searching assembly {Assembly} for type {Type}",
-                    assembly.GetName().Name, typeName);
+                    assembly.GetName().Name, fullName);
+            }
+        }
+
+        return null;
+    }
+
+    private Type? ResolveTypeBySimpleName(string simpleName)
+    {
+        foreach (var assembly in _loadedAssemblies)
+        {
+            try
+            {
+                if (!_exportedTypesCache.TryGetValue(assembly, out var exportedTypes))
+                {
+                    exportedTypes = assembly.GetExportedTypes();
+                    _exportedTypesCache[assembly] = exportedTypes;
+                }
+
+                var match = exportedTypes.FirstOrDefault(t => t.Name == simpleName);
+                if (match != null)
+                    return match;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error scanning exported types in assembly {Assembly}",
+                    assembly.GetName().Name);
             }
         }
 
