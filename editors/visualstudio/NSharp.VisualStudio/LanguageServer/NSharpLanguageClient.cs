@@ -149,11 +149,11 @@ namespace NSharpLang.VisualStudio.LanguageServer
             var assemblyLocation = typeof(NSharpLanguageClient).Assembly.Location;
             var assemblyDir = Path.GetDirectoryName(assemblyLocation);
 
-            // Go up to find src/LanguageServer
+            // Go up to find src/NSharpLang.LanguageServer
             var currentDir = new DirectoryInfo(assemblyDir);
             while (currentDir != null)
             {
-                var langServerPath = Path.Combine(currentDir.FullName, "src", "LanguageServer",
+                langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
                     "bin", "Debug", "net9.0", "LanguageServer.dll");
 
                 if (File.Exists(langServerPath))
@@ -162,7 +162,7 @@ namespace NSharpLang.VisualStudio.LanguageServer
                 }
 
                 // Also check Release
-                langServerPath = Path.Combine(currentDir.FullName, "src", "LanguageServer",
+                langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
                     "bin", "Release", "net9.0", "LanguageServer.dll");
 
                 if (File.Exists(langServerPath))

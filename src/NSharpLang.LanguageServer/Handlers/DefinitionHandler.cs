@@ -4,10 +4,14 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Services;
+using NSharpLang.LanguageServer.Models;
+using ServerSymbolKind = NSharpLang.LanguageServer.Models.SymbolKind;
 using Microsoft.Extensions.Logging;
+using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -46,18 +50,25 @@ public class DefinitionHandler : DefinitionHandlerBase
 
             _logger.LogDebug("Go to definition for: {Word}", word);
 
-            // Look for the symbol in the current document
-            if (doc.SymbolsInfo != null && doc.SymbolsInfo.TryGetValue(word, out var symbolInfo))
+            var candidates = _documentManager.FindSymbolLocations(word);
+            if (candidates.Count == 0)
             {
-                // For now, we don't have location information stored
-                // This would require enhancing the DocumentManager to track declaration locations
-                _logger.LogDebug("Found symbol {Word} but location tracking not implemented yet", word);
+                return Task.FromResult<LocationOrLocationLinks?>(null);
             }
 
-            // TODO: Implement cross-file definition lookup
-            // TODO: Implement external assembly metadata view
+            var best = PickBestLocation(word, candidates, doc, request.Position);
+            if (best == null)
+            {
+                return Task.FromResult<LocationOrLocationLinks?>(null);
+            }
 
-            return Task.FromResult<LocationOrLocationLinks?>(null);
+            var location = new Location
+            {
+                Uri = DocumentUri.From(best.Uri),
+                Range = new LspRange(best.Line, best.Column, best.Line, best.Column + Math.Max(1, best.Length))
+            };
+
+            return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(location));
         }
         catch (Exception ex)
         {
@@ -79,7 +90,11 @@ public class DefinitionHandler : DefinitionHandlerBase
         if (line >= lines.Length) return string.Empty;
 
         var lineText = lines[line];
-        if (character >= lineText.Length) return string.Empty;
+        if (lineText.Length == 0) return string.Empty;
+
+        // LSP positions can be at end-of-line; treat that as "after the last character".
+        character = Math.Min(character, lineText.Length);
+        if (character == lineText.Length) character = Math.Max(0, character - 1);
 
         // Find word boundaries
         int start = character;
@@ -100,5 +115,72 @@ public class DefinitionHandler : DefinitionHandlerBase
     private bool IsIdentifierChar(char c)
     {
         return char.IsLetterOrDigit(c) || c == '_';
+    }
+
+    private static SymbolLocation? PickBestLocation(
+        string name,
+        IReadOnlyList<SymbolLocation> candidates,
+        DocumentState currentDoc,
+        Position position)
+    {
+        static bool IsTypeKind(ServerSymbolKind kind) =>
+            kind is ServerSymbolKind.Class
+                or ServerSymbolKind.Struct
+                or ServerSymbolKind.Record
+                or ServerSymbolKind.Interface
+                or ServerSymbolKind.Enum
+                or ServerSymbolKind.Union;
+
+        static int KindPriority(ServerSymbolKind kind) => kind switch
+        {
+            ServerSymbolKind.LocalVariable => 0,
+            ServerSymbolKind.Parameter => 1,
+            ServerSymbolKind.Field => 2,
+            ServerSymbolKind.Property => 3,
+            ServerSymbolKind.Method => 4,
+            ServerSymbolKind.Function => 5,
+            ServerSymbolKind.Class => 6,
+            ServerSymbolKind.Struct => 6,
+            ServerSymbolKind.Record => 6,
+            ServerSymbolKind.Interface => 6,
+            ServerSymbolKind.Enum => 6,
+            ServerSymbolKind.Union => 6,
+            _ => 10
+        };
+
+        var sameFile = candidates.Where(c => string.Equals(c.Uri, currentDoc.Uri, StringComparison.Ordinal)).ToList();
+
+        // If semantic analysis recognizes this as a local variable, prefer the closest declaration before the cursor.
+        if (currentDoc.SemanticModel?.Variables.ContainsKey(name) == true)
+        {
+            var localBest = sameFile
+                .Where(c => c.Kind == ServerSymbolKind.LocalVariable)
+                .Where(c => c.Line < position.Line || (c.Line == position.Line && c.Column <= position.Character))
+                .OrderByDescending(c => c.Line)
+                .ThenByDescending(c => c.Column)
+                .FirstOrDefault();
+
+            if (localBest != null) return localBest;
+        }
+
+        // If it looks like a type name, prefer type declarations.
+        if (name.Length > 0 && char.IsUpper(name[0]))
+        {
+            var typeBest = (sameFile.Count > 0 ? sameFile : candidates)
+                .Where(c => IsTypeKind(c.Kind))
+                .OrderBy(c => Math.Abs(c.Line - position.Line))
+                .ThenBy(c => Math.Abs(c.Column - position.Character))
+                .FirstOrDefault();
+
+            if (typeBest != null) return typeBest;
+        }
+
+        // Otherwise, prefer same-file results, then closest by (kind priority, distance).
+        var pool = sameFile.Count > 0 ? sameFile : candidates;
+        return pool
+            .OrderBy(c => KindPriority(c.Kind))
+            .ThenBy(c => Math.Abs(c.Line - position.Line))
+            .ThenBy(c => Math.Abs(c.Column - position.Character))
+            .FirstOrDefault();
     }
 }

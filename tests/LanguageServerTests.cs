@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
 
 namespace NSharpLang.Tests;
 
@@ -103,6 +104,111 @@ public class LanguageServerTests
         _fixture = fixture;
     }
 
+    private static LspLocation ExtractSingleDefinitionLocation(LocationOrLocationLinks value)
+    {
+        static IEnumerable<System.Reflection.FieldInfo> GetAllFields(Type t)
+        {
+            while (t != null)
+            {
+                foreach (var field in t.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly))
+                {
+                    yield return field;
+                }
+                t = t.BaseType;
+            }
+        }
+
+        static System.Reflection.FieldInfo? GetField(Type t, string name)
+        {
+            while (t != null)
+            {
+                var field = t.GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly);
+                if (field != null) return field;
+                t = t.BaseType;
+            }
+
+            return null;
+        }
+
+        static LspLocation? ToLocation(LocationLink link) => new LspLocation
+        {
+            Uri = link.TargetUri,
+            Range = link.TargetRange
+        };
+
+        static LspLocation? TryExtractLocationOrLink(object obj)
+        {
+            if (obj is LspLocation loc) return loc;
+            if (obj is LocationLink link) return ToLocation(link);
+
+            var type = obj.GetType();
+
+            foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                object? propValue;
+                try
+                {
+                    propValue = prop.GetValue(obj);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (propValue is LspLocation propLoc) return propLoc;
+                if (propValue is LocationLink propLink) return ToLocation(propLink);
+            }
+
+            foreach (var field in GetAllFields(type))
+            {
+                object? fieldValue;
+                try
+                {
+                    fieldValue = field.GetValue(obj);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (fieldValue is LspLocation fieldLoc) return fieldLoc;
+                if (fieldValue is LocationLink fieldLink) return ToLocation(fieldLink);
+            }
+
+            return null;
+        }
+
+        var boxed = (object)value;
+
+        var type = boxed.GetType();
+
+        // OmniSharp's LocationOrLocationLinks is an internal wrapper around IEnumerable<LocationOrLocationLink>.
+        var itemsField = GetField(type, "_items");
+        if (itemsField?.GetValue(boxed) is System.Collections.IEnumerable items)
+        {
+            foreach (var item in items)
+            {
+                if (item == null) continue;
+                var extracted = TryExtractLocationOrLink(item);
+                if (extracted != null) return extracted;
+            }
+        }
+
+        // Fallback: scan the wrapper itself for a direct Location/LocationLink.
+        foreach (var field in GetAllFields(type))
+        {
+            var fieldValue = field.GetValue(boxed);
+            if (fieldValue == null) continue;
+            var extracted = TryExtractLocationOrLink(fieldValue);
+            if (extracted != null) return extracted;
+        }
+
+        var props = string.Join(", ", type.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+            .Select(p => $"{p.Name}:{p.PropertyType.FullName}"));
+        var fields = string.Join(", ", GetAllFields(type).Select(f => $"{f.Name}:{f.FieldType.FullName}"));
+        throw new InvalidOperationException($"Unsupported {type.FullName} shape for definition response (properties: {props}; fields: {fields})");
+    }
+
     /// <summary>
     /// Test harness for LSP features - makes testing easier
     /// </summary>
@@ -114,6 +220,7 @@ public class LanguageServerTests
         public CompletionHandler CompletionHandler { get; }
         public HoverHandler HoverHandler { get; }
         public SignatureHelpHandler SignatureHelpHandler { get; }
+        public DefinitionHandler DefinitionHandler { get; }
 
         public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
         {
@@ -141,6 +248,11 @@ public class LanguageServerTests
                 DocumentManager,
                 TypeResolver,
                 NullLogger<SignatureHelpHandler>.Instance
+            );
+
+            DefinitionHandler = new DefinitionHandler(
+                DocumentManager,
+                NullLogger<DefinitionHandler>.Instance
             );
         }
 
@@ -205,6 +317,17 @@ public class LanguageServerTests
             };
 
             return await SignatureHelpHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<LocationOrLocationLinks?> GetDefinitionAsync(string uri, int line, int character)
+        {
+            var request = new DefinitionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
+                Position = new Position(line, character)
+            };
+
+            return await DefinitionHandler.Handle(request, CancellationToken.None);
         }
     }
 
@@ -577,6 +700,54 @@ func main(): void
         Assert.NotNull(sigHelp);
         Assert.NotEmpty(sigHelp.Signatures);
         Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Format"));
+    }
+
+    #endregion
+
+    #region Definition Tests
+
+    [Fact]
+    public async Task Definition_TopLevelFunctionAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    Foo()
+
+func Foo(): void
+    return";
+
+        harness.OpenDocument(uri, source);
+
+        var definition = await harness.GetDefinitionAsync(uri, 2, 6);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(4, location.Range.Start.Line);
+        Assert.Equal(5, location.Range.Start.Character);
+    }
+
+    [Fact]
+    public async Task Definition_LocalVariableAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let x := 1
+    print(x)";
+
+        harness.OpenDocument(uri, source);
+
+        var definition = await harness.GetDefinitionAsync(uri, 3, 10);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(2, location.Range.Start.Line);
+        Assert.Equal(8, location.Range.Start.Character);
     }
 
     #endregion

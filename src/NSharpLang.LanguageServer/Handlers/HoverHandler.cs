@@ -330,7 +330,11 @@ public class HoverHandler : HoverHandlerBase
         if (line >= lines.Length) return string.Empty;
 
         var lineText = lines[line];
-        if (character >= lineText.Length) return string.Empty;
+        if (lineText.Length == 0) return string.Empty;
+
+        // LSP positions can be at end-of-line; treat that as "after the last character".
+        character = Math.Min(character, lineText.Length);
+        if (character == lineText.Length) character = Math.Max(0, character - 1);
 
         // Find word boundaries
         int start = character;
@@ -354,7 +358,8 @@ public class HoverHandler : HoverHandlerBase
         if (line >= lines.Length) return new LspRange(line, character, line, character);
 
         var lineText = lines[line];
-        var startChar = lineText.IndexOf(word, character - word.Length);
+        var startSearch = Math.Max(0, Math.Min(lineText.Length, character) - word.Length);
+        var startChar = lineText.IndexOf(word, startSearch, StringComparison.Ordinal);
         if (startChar < 0) startChar = character;
 
         return new LspRange(line, startChar, line, startChar + word.Length);

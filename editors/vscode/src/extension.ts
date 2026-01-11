@@ -36,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const devServerPath = path.join(
                     workspaceRoot,
                     'src',
-                    'LanguageServer',
+                    'NSharpLang.LanguageServer',
                     'bin',
                     'Debug',
                     'net9.0',
@@ -102,6 +102,10 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.languages.registerDocumentFormattingEditProvider('nsharp', {
             provideDocumentFormattingEdits(document: vscode.TextDocument): vscode.TextEdit[] {
+                const config = vscode.workspace.getConfiguration('nsharp');
+                const enabled = config.get<boolean>('format.enable', true);
+                if (!enabled) return [];
+
                 try {
                     const formatted = formatDocument(document);
                     const fullRange = new vscode.Range(
