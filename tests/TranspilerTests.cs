@@ -337,6 +337,47 @@ async func FetchData(): Task<string> {
     }
 
     [Fact]
+    public void TestAsyncMainTranspilation_UsesTask_NotValueTask()
+    {
+        // async Main must use Task (not ValueTask) because C# entry points don't support ValueTask
+        var source = @"
+import System.Threading.Tasks
+
+async func Main() {
+    await Task.Delay(100)
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate async Task Main() for entry point
+        Assert.Contains("async Task Main()", result);
+        // Should NOT use ValueTask for Main
+        Assert.DoesNotContain("ValueTask Main()", result);
+    }
+
+    [Fact]
+    public void TestAsyncMainWithReturnType_UsesTask_NotValueTask()
+    {
+        // async Main with int return must use Task<int> (not ValueTask<int>)
+        var source = @"
+import System.Threading.Tasks
+
+async func Main(): int {
+    await Task.Delay(100)
+    return 0
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Should generate async Task<int> Main() for entry point
+        Assert.Contains("async Task<int> Main()", result);
+        // Should NOT use ValueTask<int> for Main
+        Assert.DoesNotContain("ValueTask<int> Main()", result);
+    }
+
+    [Fact]
     public void TestIteratorFunctionTranspilation()
     {
         var source = @"

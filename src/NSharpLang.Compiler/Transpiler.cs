@@ -370,7 +370,9 @@ public class Transpiler
         // Async iterators return IAsyncEnumerable<T>, which should not be wrapped in Task/ValueTask
         if (func.Modifiers.HasFlag(Modifiers.Async) && !func.IsAsyncIterator)
         {
-            returnType = WrapAsyncReturnType(returnType, func.ReturnType);
+            // Check if this is an entry point (Main function) - C# doesn't support async ValueTask Main()
+            var isEntryPoint = func.Name.Equals("Main", StringComparison.Ordinal);
+            returnType = WrapAsyncReturnType(returnType, func.ReturnType, isEntryPoint);
         }
 
         // Determine function name (operator keyword for overloads and conversions)
@@ -2144,16 +2146,28 @@ public class Transpiler
     /// If the return type is already Task/ValueTask, returns it as-is (explicit mode for nested scenarios).
     /// Otherwise, wraps with the configured async default type.
     /// </summary>
-    private string WrapAsyncReturnType(string returnTypeString, TypeReference? returnType)
+    /// <param name="returnTypeString">The return type string to wrap</param>
+    /// <param name="returnType">The original return type reference</param>
+    /// <param name="isEntryPoint">If true, forces Task instead of ValueTask (C# entry points don't support ValueTask)</param>
+    private string WrapAsyncReturnType(string returnTypeString, TypeReference? returnType, bool isEntryPoint = false)
     {
         // Check if return type is already Task or ValueTask (explicit mode - no wrapping)
         if (returnTypeString.StartsWith("Task") || returnTypeString.StartsWith("ValueTask"))
         {
+            // If this is an entry point and user specified ValueTask, convert to Task
+            // because C# doesn't support async ValueTask Main() as an entry point
+            if (isEntryPoint && returnTypeString.StartsWith("ValueTask"))
+            {
+                return returnTypeString.Replace("ValueTask", "Task");
+            }
             return returnTypeString;
         }
 
         // Get the configured async default type (defaults to ValueTask)
-        var asyncDefaultType = _projectConfig?.Language?.AsyncDefaultType ?? "ValueTask";
+        // EXCEPTION: Entry points (Main) must use Task, not ValueTask, per C# spec
+        var asyncDefaultType = isEntryPoint
+            ? "Task"
+            : (_projectConfig?.Language?.AsyncDefaultType ?? "ValueTask");
 
         // Wrap the return type
         if (returnTypeString == "void")
