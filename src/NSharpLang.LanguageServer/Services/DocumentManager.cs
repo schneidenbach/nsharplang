@@ -102,6 +102,7 @@ public class DocumentManager
                 // Store symbol information for later use
                 state.Symbols = ExtractSymbols(state.CompilationUnit);
                 state.SymbolsInfo = ExtractSymbolsInfo(state.CompilationUnit);
+                state.SymbolLocations = ExtractSymbolLocations(state.CompilationUnit, uri, text);
             }
 
             state.Diagnostics = diagnostics;
@@ -148,6 +149,21 @@ public class DocumentManager
         _documents.TryRemove(uri, out _);
         _lastAccessTimes.TryRemove(uri, out _);
         _logger.LogInformation("Document closed: {Uri}", uri);
+    }
+
+    public IReadOnlyList<SymbolLocation> FindSymbolLocations(string name)
+    {
+        var results = new List<SymbolLocation>();
+
+        foreach (var doc in _documents.Values)
+        {
+            if (doc.SymbolLocations != null && doc.SymbolLocations.TryGetValue(name, out var locations))
+            {
+                results.AddRange(locations);
+            }
+        }
+
+        return results;
     }
 
     private Dictionary<string, TypeInfo> ExtractSymbols(CompilationUnit compilationUnit)
@@ -225,6 +241,206 @@ public class DocumentManager
         }
 
         return symbols;
+    }
+
+    private Dictionary<string, List<SymbolLocation>> ExtractSymbolLocations(CompilationUnit compilationUnit, string uri, string text)
+    {
+        var lines = text.Split('\n');
+        var locations = new Dictionary<string, List<SymbolLocation>>(System.StringComparer.Ordinal);
+
+        void AddLocation(string name, SymbolKind kind, int line1Based, int column1Based, int? forcedNameColumn0 = null)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var line0 = Math.Max(0, line1Based - 1);
+            var column0 = Math.Max(0, column1Based - 1);
+            var nameColumn0 = forcedNameColumn0 ?? FindNameColumn(lines, line0, column0, name);
+
+            if (!locations.TryGetValue(name, out var list))
+            {
+                list = new List<SymbolLocation>();
+                locations[name] = list;
+            }
+
+            list.Add(new SymbolLocation(
+                name,
+                kind,
+                uri,
+                line0,
+                nameColumn0,
+                name.Length
+            ));
+        }
+
+        void VisitDeclaration(Declaration decl)
+        {
+            switch (decl)
+            {
+                case FunctionDeclaration funcDecl:
+                    AddLocation(funcDecl.Name, SymbolKind.Function, funcDecl.Line, funcDecl.Column);
+                    VisitBlock(funcDecl.Body);
+                    break;
+
+                case ClassDeclaration classDecl:
+                    AddLocation(classDecl.Name, SymbolKind.Class, classDecl.Line, classDecl.Column);
+                    foreach (var member in classDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case StructDeclaration structDecl:
+                    AddLocation(structDecl.Name, SymbolKind.Struct, structDecl.Line, structDecl.Column);
+                    foreach (var member in structDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case RecordDeclaration recordDecl:
+                    AddLocation(recordDecl.Name, SymbolKind.Record, recordDecl.Line, recordDecl.Column);
+                    foreach (var member in recordDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case InterfaceDeclaration interfaceDecl:
+                    AddLocation(interfaceDecl.Name, SymbolKind.Interface, interfaceDecl.Line, interfaceDecl.Column);
+                    foreach (var member in interfaceDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case EnumDeclaration enumDecl:
+                    AddLocation(enumDecl.Name, SymbolKind.Enum, enumDecl.Line, enumDecl.Column);
+                    break;
+
+                case UnionDeclaration unionDecl:
+                    AddLocation(unionDecl.Name, SymbolKind.Union, unionDecl.Line, unionDecl.Column);
+                    break;
+
+                case TypeAliasDeclaration typeAliasDecl:
+                    AddLocation(typeAliasDecl.Name, SymbolKind.Class, typeAliasDecl.Line, typeAliasDecl.Column);
+                    break;
+
+                case PropertyDeclaration propDecl:
+                    AddLocation(propDecl.Name, SymbolKind.Property, propDecl.Line, propDecl.Column);
+                    break;
+
+                case FieldDeclaration fieldDecl:
+                    AddLocation(fieldDecl.Name, SymbolKind.Field, fieldDecl.Line, fieldDecl.Column);
+                    break;
+            }
+        }
+
+        void VisitStatement(Statement stmt)
+        {
+            switch (stmt)
+            {
+                case BlockStatement block:
+                    VisitBlock(block);
+                    break;
+
+                case VariableDeclarationStatement varDecl:
+                    AddLocation(varDecl.Name, SymbolKind.LocalVariable, varDecl.Line, varDecl.Column, forcedNameColumn0: Math.Max(0, varDecl.Column - 1));
+                    break;
+
+                case TupleDeconstructionStatement tupleDecl:
+                {
+                    var line0 = Math.Max(0, tupleDecl.Line - 1);
+                    var searchFrom = Math.Max(0, tupleDecl.Column - 1);
+
+                    foreach (var name in tupleDecl.Names)
+                    {
+                        if (name == "_") continue;
+
+                        var col = FindNameColumn(lines, line0, searchFrom, name);
+                        AddLocation(name, SymbolKind.LocalVariable, tupleDecl.Line, tupleDecl.Column, forcedNameColumn0: col);
+                        searchFrom = Math.Min(lines.ElementAtOrDefault(line0)?.Length ?? 0, col + name.Length);
+                    }
+
+                    break;
+                }
+
+                case ForeachStatement foreachStmt:
+                {
+                    var line0 = Math.Max(0, foreachStmt.Line - 1);
+                    var col = FindNameColumn(lines, line0, Math.Max(0, foreachStmt.Column - 1), foreachStmt.VariableName);
+                    AddLocation(foreachStmt.VariableName, SymbolKind.LocalVariable, foreachStmt.Line, foreachStmt.Column, forcedNameColumn0: col);
+                    VisitStatement(foreachStmt.Body);
+                    break;
+                }
+
+                case AwaitForEachStatement awaitForeachStmt:
+                {
+                    var line0 = Math.Max(0, awaitForeachStmt.Line - 1);
+                    var col = FindNameColumn(lines, line0, Math.Max(0, awaitForeachStmt.Column - 1), awaitForeachStmt.VariableName);
+                    AddLocation(awaitForeachStmt.VariableName, SymbolKind.LocalVariable, awaitForeachStmt.Line, awaitForeachStmt.Column, forcedNameColumn0: col);
+                    VisitStatement(awaitForeachStmt.Body);
+                    break;
+                }
+
+                case LocalFunctionStatement localFunc:
+                    AddLocation(localFunc.Function.Name, SymbolKind.Function, localFunc.Function.Line, localFunc.Function.Column);
+                    VisitBlock(localFunc.Function.Body);
+                    break;
+
+                case IfStatement ifStmt:
+                    VisitStatement(ifStmt.ThenStatement);
+                    if (ifStmt.ElseStatement != null) VisitStatement(ifStmt.ElseStatement);
+                    break;
+
+                case ForStatement forStmt:
+                    if (forStmt.Initializer != null) VisitStatement(forStmt.Initializer);
+                    VisitStatement(forStmt.Body);
+                    break;
+
+                case WhileStatement whileStmt:
+                    VisitStatement(whileStmt.Body);
+                    break;
+
+                case TryStatement tryStmt:
+                    VisitBlock(tryStmt.TryBlock);
+                    foreach (var catchClause in tryStmt.CatchClauses) VisitBlock(catchClause.Block);
+                    if (tryStmt.FinallyBlock != null) VisitBlock(tryStmt.FinallyBlock);
+                    break;
+
+                case UsingStatement usingStmt:
+                    if (usingStmt.Declaration != null) VisitStatement(usingStmt.Declaration);
+                    if (usingStmt.Body != null) VisitStatement(usingStmt.Body);
+                    break;
+
+                case LockStatement lockStmt:
+                    VisitBlock(lockStmt.Body);
+                    break;
+
+                case SwitchStatement switchStmt:
+                    foreach (var switchCase in switchStmt.Cases)
+                    foreach (var caseStmt in switchCase.Statements)
+                        VisitStatement(caseStmt);
+                    break;
+            }
+        }
+
+        void VisitBlock(BlockStatement? block)
+        {
+            if (block == null) return;
+            foreach (var stmt in block.Statements) VisitStatement(stmt);
+        }
+
+        foreach (var decl in compilationUnit.Declarations)
+        {
+            VisitDeclaration(decl);
+        }
+
+        return locations;
+    }
+
+    private static int FindNameColumn(string[] lines, int line0, int startColumn0, string name)
+    {
+        if (line0 < 0 || line0 >= lines.Length) return Math.Max(0, startColumn0);
+
+        var lineText = lines[line0];
+        if (string.IsNullOrEmpty(lineText)) return Math.Max(0, startColumn0);
+
+        var start = Math.Clamp(startColumn0, 0, lineText.Length);
+        var index = lineText.IndexOf(name, start, StringComparison.Ordinal);
+        if (index < 0 && start > 0)
+        {
+            index = lineText.IndexOf(name, StringComparison.Ordinal);
+        }
+
+        return index >= 0 ? index : Math.Max(0, startColumn0);
     }
 
     private void ExtractLocalFunctionSymbols(Dictionary<string, SymbolInfo> symbols, BlockStatement? body)

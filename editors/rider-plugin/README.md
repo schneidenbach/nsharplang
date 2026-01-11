@@ -4,19 +4,9 @@ This plugin provides basic language support for N# (NewLang Sharp) in JetBrains 
 
 ## Features
 
-- **Syntax Highlighting**: Full syntax highlighting for `.nl` files
-- **IntelliSense via LSP**: Language Server Protocol integration for intelligent code completion
-- **Code Completion**: Context-aware auto-completion
-- **Signature Help**: Function parameter hints and documentation
-- **Hover Documentation**: Type information and documentation on hover
-- **Go to Definition**: Navigate to symbol definitions
-- **Find References**: Find all usages of a symbol
-- **File Recognition**: Automatic detection of N# files and `project.yml` files
-- **Project Icons**: Custom icons for N# files and projects in the project view
-- **Build Integration**: Build and rebuild N# projects using `dotnet build`
-- **Run Configurations**: Run N# projects using `dotnet run`
-- **File Templates**: Create new N# files from templates
+- **Syntax Highlighting**: Keyword/string/number/comment/operator highlighting for `.nl` files
 - **Color Settings**: Customize syntax highlighting colors in IDE preferences
+- **File Templates**: Create new N# files from templates
 
 ## Installation
 
@@ -101,31 +91,12 @@ src/main/
 ├── kotlin/com/nsharp/
 │   ├── NSharpLanguage.kt              # Language definition
 │   ├── NSharpFileType.kt              # File type definition
-│   ├── NSharpParserDefinition.kt      # Parser setup
-│   ├── NSharpSyntaxHighlighter.kt     # Syntax highlighting
+│   ├── NSharpSyntaxHighlighterFactory.kt # Syntax highlighter entry point
 │   ├── NSharpColorSettingsPage.kt     # Color preferences
-│   ├── actions/
-│   │   ├── NSharpBuildAction.kt       # Build action
-│   │   ├── NSharpRebuildAction.kt     # Rebuild action
-│   │   └── NewNSharpFileAction.kt     # New file action
-│   ├── icons/
-│   │   ├── NSharpIcons.kt             # Icon definitions
-│   │   └── NSharpIconProvider.kt      # Icon provider
-│   ├── lexer/
-│   │   └── NSharpLexer.kt             # Lexical analyzer
-│   ├── lsp/
-│   │   └── NSharpLanguageServerSupportProvider.kt  # LSP integration
-│   ├── parser/
-│   │   └── NSharpParser.kt            # Parser
-│   ├── project/
-│   │   └── NSharpProjectViewNodeDecorator.kt  # Project view
-│   ├── psi/
-│   │   ├── NSharpFile.kt              # PSI file
-│   │   └── NSharpTokenTypes.kt        # Token definitions
-│   └── run/
-│       ├── NSharpConfigurationType.kt        # Run config type
-│       ├── NSharpRunConfiguration.kt         # Run config
-│       └── NSharpRunConfigurationProducer.kt # Auto-config
+│   └── highlighting/
+│       ├── NSharpLexer.kt             # Lightweight lexer (highlighting only)
+│       ├── NSharpSyntaxHighlighter.kt # Token → color mapping
+│       └── NSharpTokenTypes.kt        # Token types
 └── resources/
     ├── META-INF/
     │   └── plugin.xml                 # Plugin manifest
@@ -138,29 +109,15 @@ src/main/
 
 ## Known Limitations
 
-- **Basic Parser**: The current parser is minimal and doesn't build a full AST (used only for syntax highlighting)
+- **No Parser / PSI**: This plugin currently provides highlighting only (no AST-based features).
+- **No LSP Integration Yet**: IntelliSense (completion/hover/definition) is not wired up in Rider yet.
 - **No Debugging**: Debugging support requires additional Rider-specific integration
 - **No Refactorings**: Advanced refactorings are not yet implemented
-
-## LSP Integration
-
-The plugin integrates with the N# Language Server to provide IntelliSense features. The Language Server is located in one of these locations:
-
-1. Bundled with plugin: `<plugin-path>/nsharp/server/LanguageServer.dll`
-2. User SDK: `~/.nsharp/sdk/LanguageServer.dll`
-3. System installation: Found via `dotnet --list-sdks`
-
-The LSP integration provides:
-- Auto-completion with context awareness
-- Signature help for functions and methods
-- Hover documentation with type information
-- Go to definition
-- Find all references
-- Error squiggles with diagnostics
 
 ## Future Enhancements
 
 Planned improvements:
+- LSP integration for IntelliSense (completion, hover, definition)
 - Debugging integration with Rider debugger
 - Advanced refactorings (rename, extract method, etc.)
 - Code lens (references, implementations)

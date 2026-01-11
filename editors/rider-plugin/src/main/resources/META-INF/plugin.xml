@@ -13,13 +13,8 @@
         <p><b>Features:</b></p>
         <ul>
             <li>Syntax highlighting for .nl files</li>
-            <li>IntelliSense via Language Server Protocol (LSP)</li>
-            <li>Auto-completion, signature help, and hover documentation</li>
-            <li>Go to definition and find references</li>
-            <li>Recognition of project.yml project files</li>
-            <li>Build integration with dotnet build</li>
-            <li>Run configurations for N# projects</li>
             <li>File templates for new N# files</li>
+            <li>Color settings page for customizing highlight colors</li>
         </ul>
         <br/>
         <p>Learn more at <a href="https://nsharp.dev">nsharp.dev</a></p>
@@ -29,10 +24,7 @@
         <h2>Version 0.1.0</h2>
         <ul>
             <li>Initial release</li>
-            <li>Basic syntax highlighting for .nl files</li>
-            <li>LSP integration for IntelliSense (completion, hover, go-to-definition)</li>
-            <li>project.yml file recognition</li>
-            <li>Build and run configurations</li>
+            <li>Syntax highlighting and color settings</li>
         </ul>
     ]]></change-notes>
 
@@ -48,11 +40,6 @@
             language="NSharp"
             extensions="nl"/>
 
-        <!-- Language -->
-        <lang.parserDefinition
-            language="NSharp"
-            implementationClass="com.nsharp.NSharpParserDefinition"/>
-
         <!-- Syntax Highlighter -->
         <lang.syntaxHighlighterFactory
             language="NSharp"
@@ -62,51 +49,5 @@
         <colorSettingsPage
             implementation="com.nsharp.NSharpColorSettingsPage"/>
 
-        <!-- Run Configuration -->
-        <configurationType
-            implementation="com.nsharp.run.NSharpConfigurationType"/>
-
-        <runConfigurationProducer
-            implementation="com.nsharp.run.NSharpRunConfigurationProducer"/>
-
-        <!-- Project View -->
-        <projectViewNodeDecorator
-            implementation="com.nsharp.project.NSharpProjectViewNodeDecorator"/>
-
-        <!-- Icons -->
-        <iconProvider
-            implementation="com.nsharp.icons.NSharpIconProvider"/>
-
-        <!-- LSP Support -->
-        <platform.lsp.serverSupportProvider
-            implementation="com.nsharp.lsp.NSharpLanguageServerSupportProvider"/>
     </extensions>
-
-    <actions>
-        <!-- Build Actions -->
-        <action id="NSharp.Build"
-                class="com.nsharp.actions.NSharpBuildAction"
-                text="Build N# Project"
-                description="Build the current N# project using dotnet build"
-                icon="AllIcons.Actions.Compile">
-            <add-to-group group-id="BuildMenu" anchor="first"/>
-        </action>
-
-        <action id="NSharp.Rebuild"
-                class="com.nsharp.actions.NSharpRebuildAction"
-                text="Rebuild N# Project"
-                description="Clean and rebuild the current N# project"
-                icon="AllIcons.Actions.ForceRefresh">
-            <add-to-group group-id="BuildMenu" anchor="after" relative-to-action="NSharp.Build"/>
-        </action>
-
-        <!-- New File Action -->
-        <action id="NSharp.NewFile"
-                class="com.nsharp.actions.NewNSharpFileAction"
-                text="N# File"
-                description="Create new N# file"
-                icon="com.nsharp.icons.NSharpIcons.FILE">
-            <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFile"/>
-        </action>
-    </actions>
 </idea-plugin>
