@@ -166,6 +166,92 @@ public class DocumentManager
         return results;
     }
 
+    /// <summary>
+    /// Find all references to a symbol name in a document's source text.
+    /// Returns 0-based line/column positions of each whole-word occurrence
+    /// that is a valid identifier (not inside a string literal or comment).
+    /// </summary>
+    public List<(int Line, int Column, int Length)> FindAllReferences(string uri, string symbolName)
+    {
+        var results = new List<(int Line, int Column, int Length)>();
+        var doc = GetDocument(uri);
+        if (doc?.Text == null || string.IsNullOrEmpty(symbolName)) return results;
+
+        var lines = doc.Text.Split('\n');
+        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
+        {
+            var line = lines[lineIdx];
+            int searchStart = 0;
+            while (searchStart < line.Length)
+            {
+                int idx = line.IndexOf(symbolName, searchStart, StringComparison.Ordinal);
+                if (idx < 0) break;
+
+                // Check whole-word boundary
+                bool leftBound = idx == 0 || !IsIdentChar(line[idx - 1]);
+                bool rightBound = idx + symbolName.Length >= line.Length || !IsIdentChar(line[idx + symbolName.Length]);
+
+                if (leftBound && rightBound && !IsInsideStringOrComment(line, idx))
+                {
+                    results.Add((lineIdx, idx, symbolName.Length));
+                }
+
+                searchStart = idx + 1;
+            }
+        }
+
+        return results;
+    }
+
+    private static bool IsIdentChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    private static bool IsInsideStringOrComment(string line, int position)
+    {
+        // Track string/comment/interpolation state up to `position`.
+        // Inside an interpolated string, content between { } is CODE, not string.
+        bool inString = false;
+        bool isInterpolated = false;
+        int interpolationDepth = 0; // nesting depth of { } inside interpolated string
+        for (int i = 0; i < position && i < line.Length; i++)
+        {
+            var c = line[i];
+            if (inString && isInterpolated && interpolationDepth > 0)
+            {
+                // Inside an interpolation expression — treat as code
+                if (c == '{') interpolationDepth++;
+                else if (c == '}') interpolationDepth--;
+                // Don't check for string end while inside interpolation
+            }
+            else if (inString)
+            {
+                if (c == '\\') { i++; continue; } // skip escaped char
+                if (c == '"') inString = false;
+                else if (isInterpolated && c == '{')
+                {
+                    // Check for {{ (escaped brace, stays in string)
+                    if (i + 1 < line.Length && line[i + 1] == '{') { i++; continue; }
+                    interpolationDepth = 1; // entering interpolation expression
+                }
+            }
+            else
+            {
+                if (c == '$' && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    inString = true;
+                    isInterpolated = true;
+                    interpolationDepth = 0;
+                    i++; // skip the '"'
+                }
+                else if (c == '"') { inString = true; isInterpolated = false; interpolationDepth = 0; }
+                else if (c == '\'') { inString = true; isInterpolated = false; interpolationDepth = 0; }
+                else if (c == '/' && i + 1 < line.Length && line[i + 1] == '/') return true; // line comment
+            }
+        }
+        // If we're in a string but inside an interpolation expression, it's code
+        if (inString && isInterpolated && interpolationDepth > 0) return false;
+        return inString;
+    }
+
     private Dictionary<string, TypeInfo> ExtractSymbols(CompilationUnit compilationUnit)
     {
         var symbols = new Dictionary<string, TypeInfo>();
@@ -278,6 +364,18 @@ public class DocumentManager
             {
                 case FunctionDeclaration funcDecl:
                     AddLocation(funcDecl.Name, SymbolKind.Function, funcDecl.Line, funcDecl.Column);
+                    // Track parameters for go-to-definition
+                    // Parameters don't have their own line/column, so search for them on the function's line
+                    {
+                        var funcLine0 = Math.Max(0, funcDecl.Line - 1);
+                        var searchFrom = Math.Max(0, funcDecl.Column - 1);
+                        foreach (var param in funcDecl.Parameters)
+                        {
+                            var col = FindNameColumn(lines, funcLine0, searchFrom, param.Name);
+                            AddLocation(param.Name, SymbolKind.Parameter, funcDecl.Line, funcDecl.Column, forcedNameColumn0: col);
+                            searchFrom = Math.Min(lines.ElementAtOrDefault(funcLine0)?.Length ?? 0, col + param.Name.Length);
+                        }
+                    }
                     VisitBlock(funcDecl.Body);
                     break;
 
@@ -391,7 +489,21 @@ public class DocumentManager
 
                 case TryStatement tryStmt:
                     VisitBlock(tryStmt.TryBlock);
-                    foreach (var catchClause in tryStmt.CatchClauses) VisitBlock(catchClause.Block);
+                    foreach (var catchClause in tryStmt.CatchClauses)
+                    {
+                        // Track catch variable for go-to-definition
+                        // CatchClause doesn't have Line/Column, use the block's position
+                        if (!string.IsNullOrEmpty(catchClause.VariableName) && catchClause.Block.Line > 0)
+                        {
+                            var catchLine0 = Math.Max(0, catchClause.Block.Line - 1);
+                            // Search backwards from block start to find the variable name
+                            var col = FindNameColumn(lines, catchLine0 > 0 ? catchLine0 - 1 : catchLine0, 0, catchClause.VariableName);
+                            AddLocation(catchClause.VariableName, SymbolKind.LocalVariable,
+                                catchLine0 > 0 ? catchLine0 : catchClause.Block.Line,
+                                catchClause.Block.Column, forcedNameColumn0: col);
+                        }
+                        VisitBlock(catchClause.Block);
+                    }
                     if (tryStmt.FinallyBlock != null) VisitBlock(tryStmt.FinallyBlock);
                     break;
 

@@ -912,4 +912,53 @@ func outer(): void
     }
 
     #endregion
+
+    #region Rename / FindAllReferences Tests
+
+    [Fact]
+    public void FindAllReferences_FindsIdentifierInsideStringInterpolation()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/interpolation.nl";
+        var source = @"func Main() {
+    name := ""Spencer""
+    greeting := $""Hello, {name}!""
+    print name
+}";
+        harness.OpenDocument(uri, source);
+
+        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
+
+        // Should find 3 references: declaration, interpolation, and print
+        Assert.Equal(3, refs.Count);
+
+        // Line 1: name := "Spencer"
+        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration on line 1");
+        // Line 2: $"Hello, {name}!" — inside interpolation, should NOT be skipped
+        Assert.True(refs.Any(r => r.Line == 2 && r.Column > 20), "Should find 'name' inside string interpolation on line 2");
+        // Line 3: print name
+        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement on line 3");
+    }
+
+    [Fact]
+    public void FindAllReferences_DoesNotFindIdentifierInsideRegularString()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/regularstring.nl";
+        var source = @"func Main() {
+    name := ""Spencer""
+    greeting := ""Hello, name!""
+    print name
+}";
+        harness.OpenDocument(uri, source);
+
+        var refs = harness.DocumentManager.FindAllReferences(uri, "name");
+
+        // Should find only 2 references: declaration and print (NOT inside regular string)
+        Assert.Equal(2, refs.Count);
+        Assert.True(refs.Any(r => r.Line == 1 && r.Column == 4), "Should find 'name' in declaration");
+        Assert.True(refs.Any(r => r.Line == 3), "Should find 'name' in print statement");
+    }
+
+    #endregion
 }
