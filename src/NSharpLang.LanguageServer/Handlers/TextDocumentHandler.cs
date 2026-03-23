@@ -217,15 +217,28 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
             _ => LspDiagnosticSeverity.Warning
         };
 
-        // Extract symbol name from message for better range highlighting
-        // Most linter messages follow pattern: "Unused variable 'name'"
-        int length = 10; // Default approximate length
-        if (diagnostic.Code == "NL001") // Unused variable
+        // Extract symbol name from message for accurate range highlighting
+        // Linter messages often contain 'symbolName' in quotes
+        int length = 1;
+        var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
+        if (quoteMatch.Success)
         {
-            var match = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-            if (match.Success)
+            length = quoteMatch.Groups[1].Value.Length;
+        }
+        else if (_currentDiagnosticUri != null)
+        {
+            // Fall back to finding the token at the reported position in source
+            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
+            if (doc?.Text != null)
             {
-                length = match.Groups[1].Value.Length;
+                var lines = doc.Text.Split('\n');
+                if (line < lines.Length && column < lines[line].Length)
+                {
+                    int end = column;
+                    while (end < lines[line].Length && (char.IsLetterOrDigit(lines[line][end]) || lines[line][end] == '_'))
+                        end++;
+                    if (end > column) length = end - column;
+                }
             }
         }
 

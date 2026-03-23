@@ -1521,7 +1521,7 @@ public class Analyzer
         {
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression => BuiltInTypes.Double,
-            StringLiteralExpression => BuiltInTypes.String,
+            StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
             BoolLiteralExpression => BuiltInTypes.Bool,
             NullLiteralExpression => BuiltInTypes.Null,
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
@@ -1602,6 +1602,73 @@ public class Analyzer
         // For now, we just return the inner type (the collection type itself)
         return innerType;
     }
+
+    private TypeInfo AnalyzeStringLiteral(StringLiteralExpression strExpr)
+    {
+        // Check identifiers inside interpolated strings: $"...{identifier}..."
+        var value = strExpr.Value;
+        if (value.StartsWith("$\""))
+        {
+            // Scan for {identifier} patterns and validate each identifier against scope
+            for (int i = 2; i < value.Length; i++)
+            {
+                if (value[i] == '{' && i + 1 < value.Length && value[i + 1] != '{')
+                {
+                    // Extract the expression inside { }
+                    int start = i + 1;
+                    int depth = 1;
+                    int end = start;
+                    while (end < value.Length && depth > 0)
+                    {
+                        if (value[end] == '{') depth++;
+                        else if (value[end] == '}') depth--;
+                        if (depth > 0) end++;
+                    }
+
+                    if (end > start)
+                    {
+                        var expr = value.Substring(start, end - start).Trim();
+                        // Handle simple identifiers (not complex expressions like method calls)
+                        // Split on common expression operators to get the base identifier
+                        var identParts = expr.Split(new[] { '.', '(', ')', '[', ']', ' ', ',', ':', '?', '!' },
+                            StringSplitOptions.RemoveEmptyEntries);
+                        if (identParts.Length > 0)
+                        {
+                            var ident = identParts[0];
+                            if (ident.Length > 0 && char.IsLetter(ident[0]) && !IsKeyword(ident))
+                            {
+                                // Check if this identifier is declared in any scope
+                                bool found = false;
+                                foreach (var scope in _scopes)
+                                {
+                                    if (scope.Symbols.ContainsKey(ident)) { found = true; break; }
+                                }
+                                if (!found && TryResolveExternalType(ident) != null) found = true;
+                                if (!found && LookupType(ident) != null) found = true;
+                                if (!found)
+                                {
+                                    // Calculate approximate column position within the source line
+                                    var col = strExpr.Column + (start - 0); // approximate
+                                    _errors.Add(CompilerError.Create(
+                                        ErrorCode.UndefinedVariable,
+                                        $"Undeclared identifier '{ident}' in string interpolation",
+                                        strExpr.Line,
+                                        col,
+                                        ErrorSeverity.Error
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    i = end; // skip past the interpolation
+                }
+            }
+        }
+        return BuiltInTypes.String;
+    }
+
+    private static bool IsKeyword(string name) =>
+        name is "true" or "false" or "null" or "this" or "base" or "new" or "typeof" or "nameof";
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
     {
