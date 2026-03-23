@@ -217,17 +217,33 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
             _ => LspDiagnosticSeverity.Warning
         };
 
-        // Extract symbol name from message for accurate range highlighting
-        // Linter messages often contain 'symbolName' in quotes
+        // Extract symbol name from message and find its actual position in source
+        // Linter column positions can be inaccurate, so we search the source line
         int length = 1;
         var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
+        string? symbolName = quoteMatch.Success ? quoteMatch.Groups[1].Value : null;
+
+        if (symbolName != null && _currentDiagnosticUri != null)
         {
-            length = quoteMatch.Groups[1].Value.Length;
+            length = symbolName.Length;
+            // Find the actual column of the symbol in the source line
+            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
+            if (doc?.Text != null)
+            {
+                var lines = doc.Text.Split('\n');
+                if (line < lines.Length)
+                {
+                    var idx = lines[line].IndexOf(symbolName, StringComparison.Ordinal);
+                    if (idx >= 0)
+                    {
+                        column = idx; // Use the actual position, not the linter's
+                    }
+                }
+            }
         }
         else if (_currentDiagnosticUri != null)
         {
-            // Fall back to finding the token at the reported position in source
+            // No symbol in message — find the token at the reported position
             var doc = _documentManager.GetDocument(_currentDiagnosticUri);
             if (doc?.Text != null)
             {
