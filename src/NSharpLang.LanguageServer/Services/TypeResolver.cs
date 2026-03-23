@@ -152,6 +152,26 @@ public class TypeResolver
 
         typeName = typeName.Trim();
 
+        // Handle nullable types (e.g., "string?" -> "string")
+        if (typeName.EndsWith("?"))
+        {
+            typeName = typeName.Substring(0, typeName.Length - 1).TrimEnd();
+        }
+
+        // Handle array types (e.g., "int[]" -> resolve int, then make array type)
+        if (typeName.EndsWith("[]"))
+        {
+            var elementTypeName = typeName.Substring(0, typeName.Length - 2).TrimEnd();
+            var elementType = ResolveType(elementTypeName);
+            if (elementType != null)
+            {
+                var arrayType = elementType.MakeArrayType();
+                _typeCache[typeName] = arrayType;
+                return arrayType;
+            }
+            return null;
+        }
+
         // Strip generic arguments for now (e.g., Task<string> -> Task)
         // IntelliSense uses reflection against the open type; generic argument resolution is handled elsewhere.
         var genericStart = typeName.IndexOf('<');

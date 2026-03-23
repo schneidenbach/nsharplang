@@ -103,6 +103,38 @@ public class CompletionHandler : CompletionHandlerBase
             }
         }
 
+        // Add variables and parameters from semantic model
+        if (doc?.SemanticModel != null)
+        {
+            foreach (var (name, typeInfo) in doc.SemanticModel.Variables)
+            {
+                if (!items.Any(i => i.Label == name))
+                {
+                    items.Add(new CompletionItem
+                    {
+                        Label = name,
+                        Kind = CompletionItemKind.Variable,
+                        Detail = $"variable: {typeInfo}",
+                        InsertText = name
+                    });
+                }
+            }
+
+            foreach (var (name, typeInfo) in doc.SemanticModel.Functions)
+            {
+                if (!items.Any(i => i.Label == name))
+                {
+                    items.Add(new CompletionItem
+                    {
+                        Label = name,
+                        Kind = CompletionItemKind.Function,
+                        Detail = $"func: {typeInfo}",
+                        InsertText = name
+                    });
+                }
+            }
+        }
+
         // Add common .NET types
         var commonTypes = new[]
         {

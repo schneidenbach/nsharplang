@@ -27,6 +27,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     private readonly DocumentManager _documentManager;
     private readonly ILanguageServerFacade _languageServer;
     private readonly ILogger<TextDocumentHandler> _logger;
+    private string? _currentDiagnosticUri; // Set during PublishDiagnostics for token length lookup
 
     public TextDocumentHandler(
         DocumentManager documentManager,
@@ -121,6 +122,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var doc = _documentManager.GetDocument(uri);
         if (doc == null) return;
 
+        _currentDiagnosticUri = uri;
         var allDiagnostics = new List<LspDiagnostic>();
 
         // Add compiler diagnostics
@@ -150,14 +152,55 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
         var column = Math.Max(0, error.Column - 1);
 
+        // Try to determine the actual token length at the error position
+        int length = GetTokenLengthAtPosition(error, line, column);
+
         return new LspDiagnostic
         {
-            Range = new LspRange(line, column, line, column + 10), // Approximate range
+            Range = new LspRange(line, column, line, column + length),
             Severity = error.Severity == ErrorSeverity.Warning ? LspDiagnosticSeverity.Warning : LspDiagnosticSeverity.Error,
-            Code = $"NL{(int)error.Code:D3}",
+            Code = error.DiagnosticId,
             Source = "N#",
-            Message = error.Message
+            Message = error.FormatForTooling(includeCode: true, includeLocation: false)
         };
+    }
+
+    private int GetTokenLengthAtPosition(CompilerError error, int line0, int column0)
+    {
+        var fallbackLength = Math.Max(1, error.Length);
+
+        // Try to extract a symbol name from the error message (e.g., "'name'", "identifier 'foo'")
+        var quoteMatch = System.Text.RegularExpressions.Regex.Match(error.Message, @"'([^']+)'");
+        if (quoteMatch.Success)
+        {
+            return Math.Max(fallbackLength, quoteMatch.Groups[1].Value.Length);
+        }
+
+        // Try to find the token in the source text at the error position
+        var uri = _currentDiagnosticUri;
+        if (uri != null)
+        {
+            var doc = _documentManager.GetDocument(uri);
+            if (doc?.Text != null)
+            {
+                var lines = doc.Text.Split('\n');
+                if (line0 < lines.Length)
+                {
+                    var lineText = lines[line0];
+                    if (column0 < lineText.Length)
+                    {
+                        // Find the end of the current token (identifier or keyword)
+                        int end = column0;
+                        while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
+                            end++;
+                        if (end > column0)
+                            return Math.Max(fallbackLength, end - column0);
+                    }
+                }
+            }
+        }
+
+        return fallbackLength;
     }
 
     private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
