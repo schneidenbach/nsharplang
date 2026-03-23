@@ -280,19 +280,16 @@ public class TypeResolver
     }
 
     /// <summary>
-    /// Get all public members of a type
+    /// Get all public members of a type, filtered by access mode
     /// </summary>
-    public List<MemberCompletionItem> GetMembers(Type type, bool includeStatic = true)
+    public List<MemberCompletionItem> GetMembers(Type type, MemberAccessMode mode = MemberAccessMode.All)
     {
         var items = new List<MemberCompletionItem>();
 
         try
         {
-            var bindingFlags = BindingFlags.Public | BindingFlags.Instance;
-            if (includeStatic)
-            {
-                bindingFlags |= BindingFlags.Static;
-            }
+            // Always fetch both static and instance, then filter after
+            var bindingFlags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
 
             // Get properties
             foreach (var prop in type.GetProperties(bindingFlags))
@@ -360,6 +357,12 @@ public class TypeResolver
         {
             _logger.LogError(ex, "Error getting members for type {Type}", type.FullName);
         }
+
+        // Filter by access mode
+        if (mode == MemberAccessMode.StaticOnly)
+            return items.Where(i => i.IsStatic).ToList();
+        if (mode == MemberAccessMode.InstanceOnly)
+            return items.Where(i => !i.IsStatic).ToList();
 
         return items;
     }
@@ -481,4 +484,14 @@ public enum MemberKind
     Property,
     Field,
     Event
+}
+
+/// <summary>
+/// Controls which members to return based on static/instance access
+/// </summary>
+public enum MemberAccessMode
+{
+    All,
+    StaticOnly,
+    InstanceOnly
 }

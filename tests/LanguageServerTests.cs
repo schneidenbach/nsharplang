@@ -961,4 +961,79 @@ func outer(): void
     }
 
     #endregion
+
+    #region Member Completion Tests
+
+    [Fact]
+    public async Task Completion_MemberAccess_StringVariableAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/string-members.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello""
+    message.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 3, 12);
+
+        Assert.NotEmpty(completions.Items);
+        // String should have Length, ToUpper, Contains, etc.
+        Assert.Contains(completions.Items, c => c.Label == "Length");
+        Assert.Contains(completions.Items, c => c.Label == "ToUpper");
+    }
+
+    [Fact]
+    public async Task Completion_MemberAccess_StaticType_ConsoleAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/console-static.nl";
+
+        var source = @"
+func main(): void
+    Console.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
+
+        Assert.NotEmpty(completions.Items);
+        Assert.Contains(completions.Items, c => c.Label == "WriteLine");
+        Assert.Contains(completions.Items, c => c.Label == "Write");
+    }
+
+    [Fact]
+    public async Task Completion_MemberAccess_NSharpClassAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/nsharp-class.nl";
+
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+
+    func Greet(): string {
+        return ""Hello""
+    }
+}
+
+func main(): void
+    let p = new Person()
+    p.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 12, 6);
+
+        Assert.NotEmpty(completions.Items);
+        // Should show N# class members from SymbolsInfo
+        Assert.Contains(completions.Items, c => c.Label == "Name");
+        Assert.Contains(completions.Items, c => c.Label == "Age");
+        Assert.Contains(completions.Items, c => c.Label == "Greet");
+    }
+
+    #endregion
 }

@@ -180,7 +180,9 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
-    /// Get member completion items for the expression before the dot
+    /// Get member completion items for the expression before the dot.
+    /// Uses AST-based expression type resolution (like HoverHandler) as the primary path,
+    /// with text-based fallback for broken ASTs.
     /// </summary>
     private List<CompletionItem> GetMemberCompletionItems(Models.DocumentState doc, int line, int character)
     {
@@ -188,101 +190,19 @@ public class CompletionHandler : CompletionHandlerBase
 
         try
         {
-            var text = doc.Text;
-            var lines = text.Split('\n');
-            if (line >= lines.Length) return items;
-
-            var lineText = lines[line];
-            if (character == 0) return items;
-
-            // Get the expression before the dot
-            var beforeDot = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
-            if (!beforeDot.EndsWith(".")) return items;
-
-            beforeDot = beforeDot.Substring(0, beforeDot.Length - 1).TrimEnd();
-
-            _logger.LogDebug("Resolving type for expression: {Expression}", beforeDot);
-
-            Type? type = null;
-
-            // Extract the identifier (rightmost token)
-            var identifier = ExtractIdentifier(beforeDot);
-            if (string.IsNullOrEmpty(identifier))
+            // === PRIMARY PATH: AST-based resolution ===
+            if (doc.CompilationUnit != null && doc.SemanticModel != null)
             {
-                _logger.LogDebug("Could not extract identifier from: {Text}", beforeDot);
-                return items;
-            }
-
-            // Check if this looks like a method call (ends with ")") - this indicates a chained expression
-            // For now, we don't support these - would need full expression type resolution
-            // The performance fix (caching GetExportedTypes) means this won't hang anymore, just returns empty
-            if (identifier.EndsWith(")"))
-            {
-                _logger.LogDebug("Chained method call detected - not yet supported: {Identifier}", identifier);
-                return items; // Return empty for now - TODO: implement full expression type resolution
-            }
-
-            // First, try to find the identifier in the semantic model (variables, parameters, etc.)
-            if (doc?.SemanticModel != null)
-            {
-                var typeInfo = doc.SemanticModel.LookupIdentifier(identifier);
-                if (typeInfo != null)
+                items = GetMemberCompletionViaAst(doc, line, character);
+                if (items.Count > 0)
                 {
-                    var typeName = typeInfo.ToString();
-                    _logger.LogDebug("Found identifier '{Identifier}' in semantic model with type: {TypeName}",
-                        identifier, typeName);
-
-                    // Convert TypeInfo to System.Type for reflection
-                    type = _typeResolver.ResolveType(typeName);
-                    if (type == null)
-                    {
-                        _logger.LogDebug("Could not resolve TypeInfo '{TypeName}' to System.Type", typeName);
-                    }
+                    _logger.LogDebug("AST-based completion returned {Count} items", items.Count);
+                    return items;
                 }
             }
 
-            // If not found in semantic model, try to resolve as a type name (e.g., "Console", "String")
-            if (type == null)
-            {
-                type = _typeResolver.ResolveType(identifier);
-            }
-
-            if (type != null)
-            {
-                _logger.LogDebug("Resolved type: {TypeName}", type.FullName);
-                var members = _typeResolver.GetMembers(type);
-
-                foreach (var member in members)
-                {
-                    items.Add(new CompletionItem
-                    {
-                        Label = member.Name,
-                        Kind = member.Kind switch
-                        {
-                            MemberKind.Method => CompletionItemKind.Method,
-                            MemberKind.Property => CompletionItemKind.Property,
-                            MemberKind.Field => CompletionItemKind.Field,
-                            MemberKind.Event => CompletionItemKind.Event,
-                            _ => CompletionItemKind.Text
-                        },
-                        Detail = member.Parameters != null
-                            ? $"{member.Name}({member.Parameters}): {member.Type}"
-                            : $"{member.Name}: {member.Type}",
-                        InsertText = member.Name,
-                        Documentation = !string.IsNullOrEmpty(member.Documentation)
-                            ? new MarkupContent
-                            {
-                                Kind = MarkupKind.Markdown,
-                                Value = member.Documentation
-                            }
-                            : null
-                    });
-                }
-            }
-            else
-            {
-                _logger.LogDebug("Could not resolve type for identifier: {Identifier}", identifier);
-            }
+            // === FALLBACK: text-based resolution ===
+            items = GetMemberCompletionFallback(doc, line, character);
         }
         catch (Exception ex)
         {
@@ -293,9 +213,196 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
-    /// Extract the last identifier from a string (simplified)
+    /// AST-based member completion: find the MemberAccessExpression at cursor,
+    /// resolve the Object expression's type, and return its members.
     /// </summary>
-    private string ExtractIdentifier(string text)
+    private List<CompletionItem> GetMemberCompletionViaAst(Models.DocumentState doc, int line, int character)
+    {
+        // AstNodeFinder expects 0-based LSP coordinates as the target.
+        // It internally converts 1-based node positions to 0-based for comparison.
+        var expression = AstNodeFinder.FindExpressionAtPosition(
+            doc.CompilationUnit!, line, character);
+
+        if (expression is not MemberAccessExpression memberAccess)
+        {
+            _logger.LogDebug("No MemberAccessExpression found at ({Line}, {Col})", line, character);
+            return new List<CompletionItem>();
+        }
+
+        _logger.LogDebug("Found MemberAccessExpression, resolving Object type for: {MemberName}",
+            memberAccess.MemberName);
+
+        // Try to resolve the type of the object expression (the part before the dot)
+        var resolver = new ExpressionTypeResolver(doc.SemanticModel!);
+        var objectType = resolver.ResolveExpressionType(memberAccess.Object);
+
+        if (objectType != null)
+        {
+            var mode = IsStaticTypeAccess(memberAccess.Object, doc)
+                ? MemberAccessMode.StaticOnly
+                : MemberAccessMode.InstanceOnly;
+
+            _logger.LogDebug("Resolved to System.Type: {Type}, mode: {Mode}", objectType.FullName, mode);
+            return MembersToCompletionItems(_typeResolver.GetMembers(objectType, mode));
+        }
+
+        // ExpressionTypeResolver couldn't resolve — try LSP-layer fallbacks
+
+        // Fallback 1: If Object is an identifier, try resolving as a type name (Console, Math, etc.)
+        if (memberAccess.Object is IdentifierExpression id)
+        {
+            // Try as .NET type name first (static access like Console.WriteLine)
+            var resolvedType = _typeResolver.ResolveType(id.Name);
+            if (resolvedType != null)
+            {
+                _logger.LogDebug("Resolved '{Name}' as static .NET type", id.Name);
+                return MembersToCompletionItems(_typeResolver.GetMembers(resolvedType, MemberAccessMode.StaticOnly));
+            }
+
+            // Try semantic model for variable type
+            var typeInfo = doc.SemanticModel!.LookupIdentifier(id.Name);
+            if (typeInfo != null)
+            {
+                // Try to resolve TypeInfo to System.Type
+                var typeName = typeInfo.ToString();
+                var clrType = _typeResolver.ResolveType(typeName);
+                if (clrType != null)
+                {
+                    _logger.LogDebug("Resolved variable '{Name}' type '{TypeName}' to CLR type", id.Name, typeName);
+                    return MembersToCompletionItems(_typeResolver.GetMembers(clrType, MemberAccessMode.InstanceOnly));
+                }
+
+                // TypeInfo is a user-defined N# type — enumerate members from SymbolsInfo
+                var nsharpMembers = GetNSharpTypeMembers(typeInfo, doc);
+                if (nsharpMembers.Count > 0)
+                {
+                    _logger.LogDebug("Resolved '{Name}' as N# type with {Count} members", id.Name, nsharpMembers.Count);
+                    return nsharpMembers;
+                }
+            }
+        }
+
+        _logger.LogDebug("Could not resolve type for member access");
+        return new List<CompletionItem>();
+    }
+
+    /// <summary>
+    /// Get members from a user-defined N# type (class, struct, record) via SymbolsInfo
+    /// </summary>
+    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, Models.DocumentState doc)
+    {
+        var items = new List<CompletionItem>();
+        if (doc.SymbolsInfo == null) return items;
+
+        // Get the type name from the TypeInfo — handle all TypeInfo variants
+        string? typeName = typeInfo switch
+        {
+            ClassTypeInfo c => c.Declaration.Name,
+            StructTypeInfo s => s.Declaration.Name,
+            RecordTypeInfo r => r.Declaration.Name,
+            InterfaceTypeInfo i => i.Declaration.Name,
+            UnionTypeInfo u => u.Declaration.Name,
+            _ => typeInfo.ToString() // SimpleTypeInfo, etc. — ToString() returns the type name
+        };
+
+        if (typeName != null && doc.SymbolsInfo.TryGetValue(typeName, out var symbolInfo))
+        {
+            foreach (var member in symbolInfo.Members)
+            {
+                items.Add(new CompletionItem
+                {
+                    Label = member.Name,
+                    Kind = GetCompletionItemKindFromSymbol(member.Kind),
+                    Detail = GetSymbolDetail(member),
+                    InsertText = member.Name
+                });
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// Determine if a member access is on a type (static) vs on a variable (instance)
+    /// </summary>
+    private bool IsStaticTypeAccess(Expression objectExpr, Models.DocumentState doc)
+    {
+        if (objectExpr is not IdentifierExpression id) return false;
+
+        // If the identifier exists as a variable in the semantic model, it's instance access
+        if (doc.SemanticModel?.LookupIdentifier(id.Name) != null) return false;
+
+        // If the identifier resolves as a type name, it's static access
+        return _typeResolver.ResolveType(id.Name) != null;
+    }
+
+    /// <summary>
+    /// Convert MemberCompletionItems to LSP CompletionItems
+    /// </summary>
+    private static List<CompletionItem> MembersToCompletionItems(List<MemberCompletionItem> members)
+    {
+        return members.Select(member => new CompletionItem
+        {
+            Label = member.Name,
+            Kind = member.Kind switch
+            {
+                MemberKind.Method => CompletionItemKind.Method,
+                MemberKind.Property => CompletionItemKind.Property,
+                MemberKind.Field => CompletionItemKind.Field,
+                MemberKind.Event => CompletionItemKind.Event,
+                _ => CompletionItemKind.Text
+            },
+            Detail = member.Parameters != null
+                ? $"{member.Name}({member.Parameters}): {member.Type}"
+                : $"{member.Name}: {member.Type}",
+            InsertText = member.Name,
+            Documentation = !string.IsNullOrEmpty(member.Documentation)
+                ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
+                : null
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Fallback: text-based member completion (used when AST is too broken)
+    /// </summary>
+    private List<CompletionItem> GetMemberCompletionFallback(Models.DocumentState doc, int line, int character)
+    {
+        var items = new List<CompletionItem>();
+        var text = doc.Text;
+        if (text == null) return items;
+
+        var lines = text.Split('\n');
+        if (line >= lines.Length) return items;
+
+        var lineText = lines[line];
+        if (character == 0) return items;
+
+        var beforeDot = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
+        if (!beforeDot.EndsWith(".")) return items;
+        beforeDot = beforeDot.Substring(0, beforeDot.Length - 1).TrimEnd();
+
+        var identifier = ExtractIdentifier(beforeDot);
+        if (string.IsNullOrEmpty(identifier)) return items;
+
+        // Try semantic model
+        Type? type = null;
+        if (doc.SemanticModel != null)
+        {
+            var typeInfo = doc.SemanticModel.LookupIdentifier(identifier);
+            if (typeInfo != null)
+                type = _typeResolver.ResolveType(typeInfo.ToString());
+        }
+
+        // Try as type name
+        type ??= _typeResolver.ResolveType(identifier);
+
+        if (type != null)
+            return MembersToCompletionItems(_typeResolver.GetMembers(type));
+
+        return items;
+    }
+
+    private static string ExtractIdentifier(string text)
     {
         var parts = text.Split(new[] { ' ', '\t', '(', ')', '[', ']', '{', '}', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
         return parts.LastOrDefault() ?? "";
