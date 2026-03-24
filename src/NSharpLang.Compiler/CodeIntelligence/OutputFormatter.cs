@@ -125,6 +125,51 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string CompletionsToJson(CompletionResult result, string file, int line, int col)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "completions",
+            file,
+            position = new { line, column = col },
+            context = result.Context.ToString().ToLowerInvariant(),
+            receiver = result.Receiver != null ? new { name = result.Receiver, type = result.ReceiverType } : null,
+            completions = result.Completions
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string CompletionsToText(CompletionResult result, string file, int line, int col)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Completions at {file}:{line}:{col} (context: {result.Context.ToString().ToLowerInvariant()})");
+
+        if (result.Receiver != null)
+        {
+            sb.AppendLine($"Receiver: {result.Receiver}" + (result.ReceiverType != null ? $" ({result.ReceiverType})" : ""));
+        }
+
+        sb.AppendLine();
+
+        foreach (var (category, items) in result.Completions)
+        {
+            sb.AppendLine($"  {category} ({items.Count}):");
+            foreach (var item in items.Take(50)) // Limit for text output
+            {
+                var typeStr = item.Type != null ? $": {item.Type}" : "";
+                var paramStr = item.Parameters != null ? $" {item.Parameters}" : "";
+                sb.AppendLine($"    {item.Name}{paramStr}{typeStr}");
+            }
+            if (items.Count > 50)
+            {
+                sb.AppendLine($"    ... and {items.Count - 50} more");
+            }
+        }
+
+        return sb.ToString();
+    }
+
     public static string ErrorToJson(string command, string error)
     {
         var envelope = new

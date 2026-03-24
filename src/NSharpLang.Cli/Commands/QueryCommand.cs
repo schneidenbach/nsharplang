@@ -32,6 +32,7 @@ public static class QueryCommand
             "type" => TypeCommand(positionalArgs, options),
             "definition" or "def" => DefinitionCommand(positionalArgs, options),
             "references" or "refs" => ReferencesCommand(positionalArgs, options),
+            "completions" => CompletionsCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
             _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
         };
@@ -280,6 +281,39 @@ public static class QueryCommand
         return 0;
     }
 
+    private static int CompletionsCommand(string[] args, QueryOptions options)
+    {
+        var file = GetOption(args, "--file") ?? options.File;
+        var posStr = GetOption(args, "--pos") ?? options.Pos;
+
+        if (file == null || posStr == null)
+        {
+            return QueryError("Usage: nlc query completions --file <path> --pos <line>:<col>");
+        }
+
+        if (!TryParsePosition(posStr, out var line, out var col))
+        {
+            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+        }
+
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var engine = new CompletionEngine();
+        var result = engine.GetCompletions(snapshot, file, line, col);
+
+        if (options.UseText)
+        {
+            Console.Write(OutputFormatter.CompletionsToText(result, file, line, col));
+        }
+        else
+        {
+            Console.Write(OutputFormatter.CompletionsToJson(result, file, line, col));
+        }
+
+        return 0;
+    }
+
     // ── Option Parsing ──────────────────────────────────────────────────
 
     private record QueryOptions(
@@ -392,6 +426,7 @@ Commands:
   type          Get type info at a position
   definition    Find where a symbol is defined (aliases: def)
   references    Find all references to a symbol (aliases: refs)
+  completions   Get completions at a position (LLM-optimized)
 
 Global Options:
   --json        Output as JSON (default)
