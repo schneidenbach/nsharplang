@@ -256,42 +256,8 @@ public class CompletionHandler : CompletionHandlerBase
 
         // ExpressionTypeResolver couldn't resolve — try LSP-layer fallbacks
 
-        // Fallback 0: Namespace completion — if Object is an identifier or chained access matching a namespace
-        {
-            string? nsPrefix = null;
-            if (memberAccess.Object is IdentifierExpression nsId)
-                nsPrefix = nsId.Name;
-            else
-                nsPrefix = BuildNamespacePath(memberAccess);
-
-            if (nsPrefix != null)
-            {
-                var nsItems = new List<CompletionItem>();
-
-                // Add sub-namespaces (e.g., System. → Collections, Threading, Linq, ...)
-                foreach (var sub in GetSubNamespaces(nsPrefix))
-                {
-                    nsItems.Add(new CompletionItem
-                    {
-                        Label = sub,
-                        Kind = CompletionItemKind.Module,
-                        Detail = $"namespace {nsPrefix}.{sub}",
-                        InsertText = sub
-                    });
-                }
-
-                // Add types directly in this namespace
-                nsItems.AddRange(NamespaceTypesToCompletionItems(_typeResolver.GetTypesInNamespace(nsPrefix)));
-
-                if (nsItems.Count > 0)
-                {
-                    _logger.LogDebug("Resolved '{Prefix}' as namespace with {Count} items", nsPrefix, nsItems.Count);
-                    return nsItems;
-                }
-            }
-        }
-
-        // Fallback 1: If Object is an identifier, try resolving as a type name (Console, Math, etc.)
+        // Fallback 1: If Object is an identifier, try type/variable resolution FIRST (before namespace)
+        // This ensures real symbols in scope take priority over namespace names (Codex review fix)
         if (memberAccess.Object is IdentifierExpression id)
         {
             // Try as .NET type name first (static access like Console.WriteLine)
@@ -321,6 +287,37 @@ public class CompletionHandler : CompletionHandlerBase
                 {
                     _logger.LogDebug("Resolved '{Name}' as N# type with {Count} members", id.Name, nsharpMembers.Count);
                     return nsharpMembers;
+                }
+            }
+        }
+
+        // Fallback last: Namespace completion — only after symbol resolution failed
+        // Gated with IsKnownNamespace to avoid expensive reflection scans (Codex review fix)
+        {
+            string? nsPrefix = null;
+            if (memberAccess.Object is IdentifierExpression nsId)
+                nsPrefix = nsId.Name;
+            else
+                nsPrefix = BuildNamespacePath(memberAccess);
+
+            if (nsPrefix != null && _typeResolver.IsKnownNamespace(nsPrefix))
+            {
+                var nsItems = new List<CompletionItem>();
+                foreach (var sub in GetSubNamespaces(nsPrefix))
+                {
+                    nsItems.Add(new CompletionItem
+                    {
+                        Label = sub,
+                        Kind = CompletionItemKind.Module,
+                        Detail = $"namespace {nsPrefix}.{sub}",
+                        InsertText = sub
+                    });
+                }
+                nsItems.AddRange(NamespaceTypesToCompletionItems(_typeResolver.GetTypesInNamespace(nsPrefix)));
+                if (nsItems.Count > 0)
+                {
+                    _logger.LogDebug("Resolved '{Prefix}' as namespace with {Count} items", nsPrefix, nsItems.Count);
+                    return nsItems;
                 }
             }
         }
@@ -550,8 +547,10 @@ public class CompletionHandler : CompletionHandlerBase
     {
         return new CompletionRegistrationOptions
         {
-            // DocumentSelector will be set automatically
-            ResolveProvider = false, // We provide all info upfront
+            DocumentSelector = new TextDocumentSelector(
+                new TextDocumentFilter { Language = "nsharp" }
+            ),
+            ResolveProvider = false,
             TriggerCharacters = new Container<string>(".", ":", " ")
         };
     }
