@@ -22,6 +22,7 @@ public class MultiFileCompiler
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
+    private readonly BindingMap _projectBindings = new();
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -34,6 +35,7 @@ public class MultiFileCompiler
     public IReadOnlyList<CompilerError> AllErrors => _allErrors;
     public IReadOnlyList<string> SourceFiles => _sourceFiles;
     public string ProjectRoot => _projectRoot;
+    public BindingMap ProjectBindings => _projectBindings;
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
@@ -144,6 +146,12 @@ public class MultiFileCompiler
 
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
+
+                // Merge binding map for cross-file semantic references
+                if (result.Bindings != null)
+                {
+                    _projectBindings.Merge(result.Bindings);
+                }
 
                 // Collect errors
                 foreach (var error in result.Errors)

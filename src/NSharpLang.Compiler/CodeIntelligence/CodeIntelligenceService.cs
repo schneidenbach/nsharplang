@@ -32,7 +32,8 @@ public class CodeIntelligenceService
             compiler.SemanticModels,
             compiler.AllErrors,
             compiler.SharedAnalyzer,
-            compiler.SourceFiles
+            compiler.SourceFiles,
+            compiler.ProjectBindings
         );
     }
 
@@ -288,13 +289,112 @@ public class CodeIntelligenceService
     /// <summary>
     /// Find all semantic references to the symbol at a position.
     /// Position-based ONLY — this is a semantic operation.
+    ///
+    /// Uses the BindingMap when available (semantic resolution).
+    /// Falls back to text-based search when BindingMap has no data for the position.
     /// </summary>
     public List<ReferenceResult> FindReferences(ProjectSnapshot snapshot, string file, int line, int col)
     {
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
         if (cu == null) return new List<ReferenceResult>();
 
-        // Resolve the symbol name at position
+        // Try semantic path via BindingMap first
+        if (snapshot.Bindings != null)
+        {
+            var semanticResults = FindReferencesViaBindingMap(snapshot, filePath, line, col);
+            if (semanticResults != null && semanticResults.Count > 0)
+                return semanticResults;
+        }
+
+        // Fallback to text-based search (for cases where BindingMap doesn't cover)
+        return FindReferencesViaTextSearch(snapshot, cu, filePath, line, col);
+    }
+
+    /// <summary>
+    /// Semantic FindReferences via BindingMap — resolves the declaration at position,
+    /// then returns all recorded usages of that declaration.
+    /// </summary>
+    private List<ReferenceResult>? FindReferencesViaBindingMap(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        var bindings = snapshot.Bindings!;
+        var (declaration, usages) = bindings.FindAllReferences(filePath, line, col);
+
+        if (declaration == null)
+        {
+            // Try to find by name as a fallback (position might not match exactly)
+            var name = ExtractWordAtPosition(snapshot, filePath, line, col);
+            if (name == null) return null;
+
+            var declarations = bindings.FindDeclarationsByName(name);
+            if (declarations.Count == 0) return null;
+
+            // Use the first matching declaration
+            declaration = declarations[0];
+            usages = bindings.GetReferences(declaration);
+        }
+
+        if (usages.Count == 0 && declaration != null)
+        {
+            // Return just the declaration itself
+            var relFile = GetRelativePath(snapshot.ProjectRoot, declaration.File ?? "");
+            var context = GetSourceContext(declaration.File, declaration.Line);
+            return new List<ReferenceResult>
+            {
+                new(relFile, declaration.Line, declaration.Column, declaration.Name.Length, context, IsDefinition: true)
+            };
+        }
+
+        // Build source text cache for context extraction
+        var sourceCache = new Dictionary<string, string[]>();
+
+        var results = new List<ReferenceResult>();
+
+        // Add the declaration itself
+        if (declaration != null)
+        {
+            var relFile = GetRelativePath(snapshot.ProjectRoot, declaration.File ?? "");
+            var context = GetSourceContext(declaration.File, declaration.Line);
+            results.Add(new ReferenceResult(relFile, declaration.Line, declaration.Column,
+                declaration.Name.Length, context, IsDefinition: true));
+        }
+
+        // Add all usages
+        foreach (var usage in usages)
+        {
+            var relFile = GetRelativePath(snapshot.ProjectRoot, usage.File ?? "");
+            var context = GetSourceContext(usage.File, usage.Line);
+
+            // Don't add if it's the same location as the declaration
+            var isDefinition = declaration != null &&
+                usage.File == declaration.File &&
+                usage.Line == declaration.Line &&
+                usage.Column == declaration.Column;
+
+            if (!isDefinition)
+            {
+                results.Add(new ReferenceResult(relFile, usage.Line, usage.Column,
+                    usage.Length, context, IsDefinition: false));
+            }
+        }
+
+        // Deduplicate and sort
+        results = results
+            .GroupBy(r => (r.File, r.Line, r.Column))
+            .Select(g => g.First())
+            .OrderBy(r => r.File)
+            .ThenBy(r => r.Line)
+            .ThenBy(r => r.Column)
+            .ToList();
+
+        return results;
+    }
+
+    /// <summary>
+    /// Fallback text-based FindReferences (used when BindingMap doesn't cover the position).
+    /// </summary>
+    private List<ReferenceResult> FindReferencesViaTextSearch(ProjectSnapshot snapshot,
+        CompilationUnit cu, string filePath, int line, int col)
+    {
         var expr = AstNodeFinder.FindExpressionAtPosition(cu, line, col);
         var name = expr switch
         {
@@ -307,7 +407,6 @@ public class CodeIntelligenceService
 
         var results = new List<ReferenceResult>();
 
-        // Search all files for references
         foreach (var (refFile, refCu) in snapshot.CompilationUnits)
         {
             var relativeFile = GetRelativePath(snapshot.ProjectRoot, refFile);
@@ -317,7 +416,7 @@ public class CodeIntelligenceService
 
             var lines = sourceText.Split('\n');
 
-            // Check declarations for definition
+            // Check declarations
             foreach (var decl in refCu.Declarations)
             {
                 var declName = GetDeclarationName(decl);
@@ -327,7 +426,6 @@ public class CodeIntelligenceService
                     results.Add(new ReferenceResult(relativeFile, decl.Line, decl.Column, name.Length, context, IsDefinition: true));
                 }
 
-                // Check members of type declarations
                 if (decl is ClassDeclaration cls)
                     FindReferencesInMembers(cls.Members, name, relativeFile, lines, results);
                 else if (decl is StructDeclaration str)
@@ -338,12 +436,9 @@ public class CodeIntelligenceService
                     FindReferencesInMembers(iface.Members, name, relativeFile, lines, results);
             }
 
-            // Semantic text search for identifier usage (not just declarations)
-            // This finds usages in function bodies, expressions, etc.
             FindIdentifierUsagesInSource(sourceText, name, relativeFile, lines, results);
         }
 
-        // Deduplicate by file:line:col
         results = results
             .GroupBy(r => (r.File, r.Line, r.Column))
             .Select(g => g.First())
@@ -353,6 +448,20 @@ public class CodeIntelligenceService
             .ToList();
 
         return results;
+    }
+
+    private string? GetSourceContext(string? filePath, int line)
+    {
+        if (filePath == null || line <= 0) return null;
+        try
+        {
+            var source = File.ReadAllText(filePath);
+            var lines = source.Split('\n');
+            if (line <= lines.Length)
+                return lines[line - 1].Trim();
+        }
+        catch { }
+        return null;
     }
 
     // ── Private Helpers ──────────────────────────────────────────────────
@@ -908,6 +1017,7 @@ public class ProjectSnapshot
     public IReadOnlyList<CompilerError> AllErrors { get; }
     public Analyzer SharedAnalyzer { get; }
     public IReadOnlyList<string> SourceFiles { get; }
+    public BindingMap? Bindings { get; }
 
     public ProjectSnapshot(
         string projectRoot,
@@ -915,7 +1025,8 @@ public class ProjectSnapshot
         IReadOnlyDictionary<string, SemanticModel> semanticModels,
         IReadOnlyList<CompilerError> allErrors,
         Analyzer sharedAnalyzer,
-        IReadOnlyList<string> sourceFiles)
+        IReadOnlyList<string> sourceFiles,
+        BindingMap? bindings = null)
     {
         ProjectRoot = projectRoot;
         CompilationUnits = compilationUnits;
@@ -923,6 +1034,7 @@ public class ProjectSnapshot
         AllErrors = allErrors;
         SharedAnalyzer = sharedAnalyzer;
         SourceFiles = sourceFiles;
+        Bindings = bindings;
     }
 }
 
