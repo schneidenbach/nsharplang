@@ -23,6 +23,18 @@ public class MultiFileCompiler
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
 
+    /// <summary>
+    /// Public read-only accessors for code intelligence tooling.
+    /// These expose the intermediate products of compilation (ASTs, semantic models)
+    /// without requiring a full transpile pass.
+    /// </summary>
+    public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
+    public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
+    public Analyzer SharedAnalyzer => _sharedAnalyzer;
+    public IReadOnlyList<CompilerError> AllErrors => _allErrors;
+    public IReadOnlyList<string> SourceFiles => _sourceFiles;
+    public string ProjectRoot => _projectRoot;
+
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
         _projectRoot = projectRoot;
@@ -182,6 +194,20 @@ public class MultiFileCompiler
                     ErrorSeverity.Error
                 ));
             }
+        }
+    }
+
+    /// <summary>
+    /// Parse and analyze all files without transpiling.
+    /// This is the fast path for code intelligence queries — skips the transpile phase
+    /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
+    /// </summary>
+    public void CompileForAnalysis()
+    {
+        ParseAllFiles();
+        if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+        {
+            AnalyzeAllFiles();
         }
     }
 
