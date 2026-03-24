@@ -646,6 +646,6 @@ func main() {
 
 ## Resources
 
-- [N# GitHub Repository](https://github.com/anthropics/NewCLILang)
+- [Project README](../../README.md)
 - [Examples](../../examples/)
 - [Language Design](../../DESIGN.md)

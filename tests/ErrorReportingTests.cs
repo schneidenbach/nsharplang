@@ -25,6 +25,20 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void DiagnosticId_UsesNlPrefix()
+    {
+        var error = CompilerError.Create(
+            ErrorCode.TypeMismatch,
+            "Type mismatch",
+            1,
+            1,
+            ErrorSeverity.Error
+        );
+
+        Assert.Equal("NL202", error.DiagnosticId);
+    }
+
+    [Fact]
     public void ErrorCode_Format_IncludesLocation()
     {
         var error = CompilerError.Create(
@@ -81,6 +95,52 @@ public class ErrorReportingTests
         Assert.Contains("return \"string\"", formatted);
         Assert.Contains("^^^", formatted); // Marker
         Assert.Contains("Change return type to string", formatted);
+    }
+
+    [Fact]
+    public void FormatForTooling_PreservesRichContextWithoutLocation()
+    {
+        var error = ErrorMessageBuilder.TypeMismatch(
+            "test.nl",
+            10,
+            5,
+            "x: int = \"hello\"",
+            7,
+            "string",
+            "int"
+        );
+
+        var formatted = error.FormatForTooling(includeCode: true, includeLocation: false);
+
+        Assert.Contains("NL202: Type mismatch", formatted);
+        Assert.Contains("I am having trouble", formatted);
+        Assert.Contains("x: int = \"hello\"", formatted);
+        Assert.Contains("^^^^^^^", formatted);
+        Assert.Contains("actual: string", formatted);
+        Assert.Contains("expected: int", formatted);
+        Assert.DoesNotContain("at test.nl:10:5", formatted);
+    }
+
+    [Fact]
+    public void FormatForMsBuild_CollapsesRichContextOntoOneLine()
+    {
+        var error = ErrorMessageBuilder.TypeMismatch(
+            "test.nl",
+            10,
+            5,
+            "x: int = \"hello\"",
+            7,
+            "string",
+            "int"
+        );
+
+        var formatted = error.FormatForMsBuild();
+
+        Assert.Contains("Type mismatch", formatted);
+        Assert.Contains("actual: string", formatted);
+        Assert.Contains("expected: int", formatted);
+        Assert.Contains("I am having trouble", formatted);
+        Assert.DoesNotContain("\n", formatted);
     }
 
     [Fact]

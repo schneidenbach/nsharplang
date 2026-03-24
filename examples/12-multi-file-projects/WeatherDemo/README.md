@@ -40,8 +40,8 @@ WeatherDemo/
 
 ```bash
 # From the WeatherDemo directory
-nlc build   # Compile all .nl files
-nlc run     # Compile and run the application
+dotnet build
+dotnet run
 ```
 
 ## Code Highlights
@@ -139,4 +139,4 @@ This example proves that N# is ready for **real-world multi-file projects**:
 - Add more complex business logic
 - Implement error handling with automatic exception capture
 - Add discriminated unions for API responses
-- Create test files (.tests.nl) when testing support is implemented
+- Create `.tests.nl` files and run them with `dotnet test`

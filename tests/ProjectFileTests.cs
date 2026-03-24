@@ -255,6 +255,32 @@ version: 2.0.0
     }
 
     [Fact]
+    public void TestParseGeneratedTemplateWithCommentedDependencies()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, ProjectFileParser.GenerateTemplate("GeneratedProject"));
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func main() { }");
+
+            var config = ProjectFileParser.Parse(projectFile);
+
+            Assert.Equal("GeneratedProject", config.Name);
+            Assert.Equal("Program.nl", config.Entry);
+            Assert.Empty(config.Dependencies);
+            Assert.Empty(config.TestDependencies);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestEffectiveName()
     {
         var config = new ProjectConfig { Name = "ExplicitName" };

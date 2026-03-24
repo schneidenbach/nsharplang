@@ -25,14 +25,6 @@ stages:
       inputs:
         version: '9.0.x'
 
-    - script: dotnet tool install -g nlc
-      displayName: 'Install N# CLI'
-
-    - script: |
-        export PATH="$PATH:$HOME/.dotnet/tools"
-        nlc --version
-      displayName: 'Verify N# CLI installation'
-
     - task: Cache@2
       displayName: 'Cache NuGet packages'
       inputs:
@@ -76,7 +68,7 @@ stages:
       inputs:
         version: '9.0.x'
 
-    - script: dotnet tool install -g nlc
+    - script: dotnet tool install -g NSharpLang.Cli
       displayName: 'Install N# CLI'
 
     - script: |
@@ -92,7 +84,7 @@ stages:
       inputs:
         version: '9.0.x'
 
-    - script: dotnet tool install -g nlc
+    - script: dotnet tool install -g NSharpLang.Cli
       displayName: 'Install N# CLI'
 
     - script: |
@@ -114,9 +106,6 @@ stages:
       displayName: 'Install .NET SDK'
       inputs:
         version: '9.0.x'
-
-    - script: dotnet tool install -g nlc
-      displayName: 'Install N# CLI'
 
     - script: dotnet restore
       displayName: 'Restore dependencies'

@@ -2,16 +2,16 @@
 
 ## Test Suite
 
-**Total Tests:** 506 passing, 0 skipped
+**Total Tests:** 876 total, 873 passing, 3 skipped
 
 ## Test Organization
 
 ### By Component
-- **Lexer**: 33 tests
-- **Parser**: 86 tests
-- **Analyzer**: 78 tests
-- **Transpiler**: 71 tests
-- **Integration**: 238+ tests
+- Lexer coverage
+- Parser coverage
+- Analyzer coverage
+- Transpiler coverage
+- Integration coverage
 
 ### Test Files
 ```

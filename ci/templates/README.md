@@ -110,7 +110,7 @@ Set in: Azure DevOps → Pipelines → Library → Variable groups
 
 ## Usage Examples
 
-See the `ci-examples/` directory for complete working examples:
+See the `ci/examples/` directory for complete working examples:
 
 - **console-app/** - Console application CI/CD
 - **web-api/** - Web API with Docker deployment
@@ -156,5 +156,5 @@ Full documentation: [docs/guide/ci-cd.md](../docs/guide/ci-cd.md)
 ## Support
 
 - [N# Documentation](../docs/README.md)
-- [GitHub Issues](https://github.com/yourusername/nsharp/issues)
-- [Examples](../ci-examples/)
+- [GitHub Issues](https://github.com/nsharp-lang/nsharp/issues)
+- [Examples](../examples/)

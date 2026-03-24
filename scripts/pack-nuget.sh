@@ -29,22 +29,22 @@ dotnet pack templates/NSharpLang.Templates.csproj \
 
 # Pack the compiler library
 echo ""
-echo "Packing NSharp.Compiler..."
-dotnet pack src/Compiler/Compiler.csproj \
+echo "Packing NSharpLang.Compiler..."
+dotnet pack src/NSharpLang.Compiler/Compiler.csproj \
   -c Release \
   -o artifacts/nuget
 
 # Pack the CLI tool
 echo ""
 echo "Packing nlc (N# CLI tool)..."
-dotnet pack src/Cli/Cli.csproj \
+dotnet pack src/NSharpLang.Cli/Cli.csproj \
   -c Release \
   -o artifacts/nuget
 
 # Pack the Language Server
 echo ""
-echo "Packing NSharp.LanguageServer..."
-dotnet pack src/LanguageServer/LanguageServer.csproj \
+echo "Packing NSharpLang.LanguageServer..."
+dotnet pack src/NSharpLang.LanguageServer/LanguageServer.csproj \
   -c Release \
   -o artifacts/nuget
 
@@ -62,5 +62,5 @@ echo "Core packages:"
 echo "  - NSharpLang.Sdk - MSBuild SDK"
 echo "  - NSharpLang.Templates - dotnet new templates"
 echo "  - NSharpLang.Compiler - Compiler API library"
-echo "  - nlc - CLI tool (dotnet tool install -g nlc)"
+echo "  - NSharpLang.Cli - CLI tool (command: nlc)"
 echo "  - NSharpLang.LanguageServer - LSP server"

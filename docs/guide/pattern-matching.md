@@ -661,6 +661,6 @@ city := if person != null and person.Address != null {
 
 ## Resources
 
-- [N# GitHub Repository](https://github.com/anthropics/NewCLILang)
+- [Project README](../../README.md)
 - [Language Design](../../DESIGN.md)
 - [Pattern Matching Examples](../../examples/04-pattern-matching/)

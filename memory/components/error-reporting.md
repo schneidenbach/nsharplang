@@ -1,6 +1,6 @@
 # Error Reporting Component
 
-**File:** `src/Compiler/ErrorReporting.cs`
+**File:** `src/NSharpLang.Compiler/ErrorReporting.cs`
 
 ## Responsibility
 

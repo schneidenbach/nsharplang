@@ -178,6 +178,13 @@ public class Reference
     public string Value => Nuget ?? Dll ?? Project ?? Framework
         ?? throw new InvalidOperationException("Invalid reference");
 
+    [YamlIgnore]
+    public bool HasValue =>
+        !string.IsNullOrWhiteSpace(Nuget) ||
+        !string.IsNullOrWhiteSpace(Dll) ||
+        !string.IsNullOrWhiteSpace(Project) ||
+        !string.IsNullOrWhiteSpace(Framework);
+
     /// <summary>
     /// Validate this reference
     /// </summary>
@@ -463,12 +470,6 @@ public class ProjectFileParser
                     $"Entry file not found: {config.Entry} (resolved to {entryPath})");
             }
         }
-        else if (config.OutputType == "exe")
-        {
-            // Warn if exe but no entry specified (will look for Program.nl or Main())
-            Console.Error.WriteLine("Warning: No entry file specified in project.yml. Will look for Program.nl or Main() method.");
-        }
-
         // Validate targetFramework format (basic check)
         if (!config.TargetFramework.StartsWith("net"))
         {
@@ -476,6 +477,14 @@ public class ProjectFileParser
         }
 
         // Validate dependencies (skip file validation for NuGet and Framework references)
+        config.Dependencies = config.Dependencies
+            .Where(reference => reference != null && reference.HasValue)
+            .ToList();
+
+        config.TestDependencies = config.TestDependencies
+            .Where(reference => reference != null && reference.HasValue)
+            .ToList();
+
         foreach (var reference in config.Dependencies)
         {
             try
@@ -504,28 +513,10 @@ entry: Program.nl
 outputType: exe
 targetFramework: net9.0
 
-# Dependencies - all external dependencies go here
-dependencies:
-  # NuGet packages (with version)
-  # - nuget: Microsoft.EntityFrameworkCore
-  #   version: 9.0.0
-
-  # NuGet packages (shorthand with version)
-  # - nuget: Newtonsoft.Json@13.0.3
-
-  # NuGet packages (latest version)
-  # - nuget: Dapper
-
-  # Local DLL files
-  # - dll: libs/MyCustomLibrary.dll
-  # - dll: ../shared/Utils.dll
-
-  # Local project references (.csproj or project.yml)
-  # - project: ../SharedModels/SharedModels.csproj
-  # - project: ../CoreLibrary/project.yml
-
-  # Framework references
-  # - framework: Microsoft.AspNetCore.App
+# Add your dependencies here
+# dependencies:
+#   - nuget: Newtonsoft.Json
+#     version: 13.0.3
 
 language:
   asyncDefaultType: ValueTask

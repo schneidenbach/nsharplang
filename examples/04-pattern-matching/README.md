@@ -25,7 +25,7 @@ Pattern matching is one of N#'s most powerful features, enabling concise and exp
 
 ```bash
 cd examples/04-pattern-matching
-nsharp run GuardsSimple.nl
+dotnet run --project ../../src/NSharpLang.Cli/Cli.csproj -- run GuardsSimple.nl
 ```
 
 ## Key Concepts

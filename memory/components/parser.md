@@ -1,6 +1,6 @@
 # Parser Component
 
-**File:** `src/Compiler/Parser.cs`
+**File:** `src/NSharpLang.Compiler/Parser.cs`
 
 ## Responsibility
 
@@ -60,7 +60,7 @@ From highest to lowest:
 
 ## AST Node Types
 
-See `src/Compiler/Ast/` folder:
+See `src/NSharpLang.Compiler/Ast/` folder:
 
 ### Expressions (`Expressions.cs`)
 - **BinaryExpression**: `a + b`, `a && b`

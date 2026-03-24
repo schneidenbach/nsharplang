@@ -115,6 +115,8 @@ public record CompilerError
     public List<string>? Suggestions { get; init; }
     public Dictionary<string, string>? RelatedInfo { get; init; }
 
+    public string DiagnosticId => $"NL{(int)Code:D3}";
+
     public CompilerError(ErrorCode code, string message, int line, int column, ErrorSeverity severity)
     {
         Code = code;
@@ -122,6 +124,141 @@ public record CompilerError
         Line = line;
         Column = column;
         Severity = severity;
+    }
+
+    /// <summary>
+    /// Format diagnostics for external tooling such as MSBuild and LSP.
+    /// Keeps the richer compiler context without ANSI color sequences.
+    /// </summary>
+    public string FormatForTooling(bool includeCode = true, bool includeLocation = false)
+    {
+        var builder = new StringBuilder();
+        builder.Append(includeCode ? $"{DiagnosticId}: {Message}" : Message);
+
+        if (includeLocation)
+        {
+            var location = FileName != null
+                ? $"{FileName}:{Line}:{Column}"
+                : $"line {Line}, column {Column}";
+            builder.AppendLine();
+            builder.Append($"at {location}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(HumanExplanation))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.Append(HumanExplanation.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(SourceSnippet))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.AppendLine(SourceSnippet);
+            var markerIndent = Column > 0 ? new string(' ', Column - 1) : string.Empty;
+            builder.Append($"{markerIndent}{new string('^', Math.Max(1, Length))}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ActualType) || !string.IsNullOrWhiteSpace(ExpectedType))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            if (!string.IsNullOrWhiteSpace(ActualType))
+            {
+                builder.AppendLine($"actual: {ActualType}");
+            }
+            if (!string.IsNullOrWhiteSpace(ExpectedType))
+            {
+                builder.Append($"expected: {ExpectedType}");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(ContextualHint))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.Append(ContextualHint.Trim());
+        }
+
+        if (Suggestions is { Count: > 0 })
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.AppendLine("did you mean:");
+            foreach (var suggestion in Suggestions)
+            {
+                builder.AppendLine($"- {suggestion}");
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(Suggestion))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.Append($"help: {Suggestion.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(DocsUrl))
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.Append($"docs: {DocsUrl}");
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Format diagnostics for MSBuild, which renders each newline as a separate error record.
+    /// Keep the extra context, but collapse it into a single logical line.
+    /// </summary>
+    public string FormatForMsBuild()
+    {
+        var parts = new List<string> { Message };
+
+        if (!string.IsNullOrWhiteSpace(HumanExplanation))
+        {
+            parts.Add(NormalizeInlineText(HumanExplanation));
+        }
+
+        if (!string.IsNullOrWhiteSpace(ActualType))
+        {
+            parts.Add($"actual: {ActualType}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ExpectedType))
+        {
+            parts.Add($"expected: {ExpectedType}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(ContextualHint))
+        {
+            parts.Add(NormalizeInlineText(ContextualHint));
+        }
+
+        if (Suggestions is { Count: > 0 })
+        {
+            parts.Add($"did you mean: {string.Join(", ", Suggestions)}");
+        }
+        else if (!string.IsNullOrWhiteSpace(Suggestion))
+        {
+            parts.Add($"help: {NormalizeInlineText(Suggestion)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(DocsUrl))
+        {
+            parts.Add($"docs: {DocsUrl}");
+        }
+
+        return string.Join(" | ", parts);
+    }
+
+    private static string NormalizeInlineText(string value)
+    {
+        return string.Join(" ", value
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Trim())
+            .Where(part => part.Length > 0));
     }
 
     /// <summary>
@@ -273,11 +410,11 @@ public record CompilerError
         // First line: error/warning with code and message
         if (useColors)
         {
-            builder.AppendLine($"{severityColor}{severityText}{Reset} {Bold}NL{(int)Code:D3}{Reset}: {Message}");
+            builder.AppendLine($"{severityColor}{severityText}{Reset} {Bold}{DiagnosticId}{Reset}: {Message}");
         }
         else
         {
-            builder.AppendLine($"{severityText} NL{(int)Code:D3}: {Message}");
+            builder.AppendLine($"{severityText} {DiagnosticId}: {Message}");
         }
 
         // Location

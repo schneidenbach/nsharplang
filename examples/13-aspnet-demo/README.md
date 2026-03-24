@@ -18,7 +18,7 @@ A production-quality ASP.NET Core Web API built entirely in N# to showcase real-
 This project uses a **flat, vertical slice architecture** - each feature lives in one file:
 
 ```
-EmployeeApi/
+13-aspnet-demo/
   Program.nl              # Entry point, app configuration
   Database.nl             # EF Core DbContext
   Employees.nl            # Everything for Employees feature:
@@ -40,33 +40,28 @@ EmployeeApi/
 ## Prerequisites
 
 - .NET 9.0 SDK
-- N# compiler (`nsharp`)
-
-Install N# globally:
-```bash
-dotnet tool install -g nsharp
-```
+- Local N# setup from this repo: `./scripts/setup-local.sh`
 
 ## Building and Running
 
 ### Option 1: Using N# Run Command (Simplest)
 ```bash
-cd examples/13-aspnet-demo/EmployeeApi
-nsharp run Program.nl
+cd examples/13-aspnet-demo
+dotnet run
 ```
 
-That's it! The N# compiler automatically:
+That's it! The N# SDK automatically:
 - Discovers and transpiles all `.nl` files
 - Compiles to .NET
 - Runs the application
-- Cleans up temporary files
+- Uses the normal .NET build output
 
 ### Option 2: Build then Run Separately
 ```bash
-cd examples/13-aspnet-demo/EmployeeApi
+cd examples/13-aspnet-demo
 
 # Build all .nl files (auto-discovers Program.nl, Database.nl, Employees.nl)
-nsharp build
+dotnet build
 
 # Run with dotnet
 dotnet run
@@ -257,7 +252,7 @@ The application uses SQLite for simplicity:
 
 1. **Start the application**
    ```bash
-   nsharp run Program.nl
+   dotnet run
    ```
 
 2. **Navigate to Swagger**

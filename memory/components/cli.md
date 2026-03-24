@@ -1,6 +1,6 @@
 # CLI Component
 
-**File:** `src/Cli/Program.cs`
+**File:** `src/NSharpLang.Cli/Program.cs`
 
 ## Responsibility
 
@@ -124,7 +124,7 @@ nlc test                # Discovers and runs *.tests.nl files
 Install as global .NET tool:
 
 ```bash
-dotnet tool install --global NewCLILang.Cli
+dotnet tool install --global NSharpLang.Cli
 ```
 
 Then use anywhere:
@@ -135,7 +135,7 @@ nlc run myprogram.nl
 
 Uninstall:
 ```bash
-dotnet tool uninstall --global NewCLILang.Cli
+dotnet tool uninstall --global NSharpLang.Cli
 ```
 
 ## Exit Codes
@@ -147,13 +147,12 @@ dotnet tool uninstall --global NewCLILang.Cli
 
 ## Debugging
 
-Set `DEBUG_COMPILER` environment variable to see:
+Set `NSHARP_DEBUG_LOG=1` to enable compiler debug logs:
 - Generated C# code
-- Temp directory location
-- Analyzer results
+- Compilation trace output in `compile-debug.log`
 
 ```bash
-export DEBUG_COMPILER=1
+export NSHARP_DEBUG_LOG=1
 nlc build example.nl
 ```
 
@@ -161,19 +160,19 @@ nlc build example.nl
 
 ```bash
 # Transpile to C#
-nlc transpile examples/hello.nl
+nlc transpile examples/04-pattern-matching/GuardsSimple.nl
 
 # Build single file
-nlc build examples/hello.nl
+nlc build examples/04-pattern-matching/GuardsSimple.nl
 
 # Run single file
-nlc run examples/hello.nl
+nlc run examples/04-pattern-matching/GuardsSimple.nl
 
 # Build multi-file project
-cd examples/WeatherDemo
+cd examples/12-multi-file-projects/WeatherDemo
 nlc build
 
 # Run multi-file project
-cd examples/WeatherDemo
+cd examples/12-multi-file-projects/WeatherDemo
 nlc run
 ```

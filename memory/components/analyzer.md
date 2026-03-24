@@ -1,6 +1,6 @@
 # Analyzer Component
 
-**File:** `src/Compiler/Analyzer.cs`
+**File:** `src/NSharpLang.Compiler/Analyzer.cs`
 
 ## Responsibility
 
@@ -39,7 +39,7 @@ Scopes are managed via:
 
 ## Type System
 
-See `src/Compiler/TypeSystem/TypeInfo.cs` for type representations:
+See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 
 ### Built-in Types
 - **PrimitiveTypeInfo**: `int`, `long`, `float`, `double`, `bool`, `string`, `void`

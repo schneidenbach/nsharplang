@@ -721,6 +721,6 @@ var message = result switch
 
 ## Resources
 
-- [N# GitHub Repository](https://github.com/anthropics/NewCLILang)
+- [Project README](../../README.md)
 - [Language Design](../../DESIGN.md)
 - [ASP.NET Core Example](../../examples/13-aspnet-demo/)

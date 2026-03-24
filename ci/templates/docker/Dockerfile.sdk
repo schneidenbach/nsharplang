@@ -5,14 +5,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS base
 
 # Install N# CLI tools
-RUN dotnet tool install -g nlc && \
-    dotnet tool install -g NSharp.LanguageServer
+RUN dotnet tool install -g NSharpLang.Cli && \
+    dotnet tool install -g NSharpLang.LanguageServer
 
 # Add .NET tools to PATH
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
 # Install N# templates
-RUN dotnet new install NSharp.Templates
+RUN dotnet new install NSharpLang.Templates
 
 # Verify installation
 RUN nlc --version

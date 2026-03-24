@@ -23,9 +23,12 @@ dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
 # Pack the SDK
 dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o ~/.nuget/local-feed -v q
 
-# 3. Install template
-echo "📝 Installing dotnet new template..."
-dotnet new install templates/nsharp-console/ --force
+# 3. Pack and install templates from the local feed
+echo "📝 Packing and installing dotnet new templates..."
+dotnet pack templates/NSharpLang.Templates.csproj -o ~/.nuget/local-feed -v q
+dotnet new uninstall templates/nsharp-console/ > /dev/null 2>&1 || true
+dotnet new uninstall templates/nsharp-webapi/ > /dev/null 2>&1 || true
+dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force
 
 echo
 echo "✅ Setup complete!"

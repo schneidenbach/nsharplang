@@ -853,7 +853,7 @@ public void LanguageServer_ShowsErrorAtCorrectLocation()
 ### Internal Documentation
 - `memory/components/parser.md` - Current parser documentation
 - `memory/components/error-reporting.md` - Error system documentation
-- `src/Compiler/ErrorReporting.cs` - Existing error infrastructure
+- `src/NSharpLang.Compiler/ErrorReporting.cs` - Existing error infrastructure
 
 ---
 

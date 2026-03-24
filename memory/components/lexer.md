@@ -1,6 +1,6 @@
 # Lexer Component
 
-**File:** `src/Compiler/Lexer.cs`
+**File:** `src/NSharpLang.Compiler/Lexer.cs`
 
 ## Responsibility
 
@@ -38,7 +38,7 @@ Converts raw source code text into a stream of tokens for the parser.
 
 ## Token Types
 
-See `src/Compiler/Token.cs` for complete list (50+ token types).
+See `src/NSharpLang.Compiler/Token.cs` for complete list (50+ token types).
 
 Notable tokens:
 - **QuestionDot**: `?.` for null-conditional member access

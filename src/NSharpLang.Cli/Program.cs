@@ -53,12 +53,10 @@ class Program
         }
 
         // Single file build - use temp directory
-        var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
+        var tempDir = CreateTempBuildDirectory();
         try
         {
             Console.WriteLine($"Building {sourceFile}...");
-
-            Directory.CreateDirectory(tempDir);
 
             var source = File.ReadAllText(sourceFile);
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
@@ -123,17 +121,10 @@ class Program
 
     static int BuildMultiFile(string projectRoot, bool keepGenerated = false)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
+        var tempDir = CreateTempBuildDirectory();
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
-
-            // Clean and create temp directory
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, true);
-            }
-            Directory.CreateDirectory(tempDir);
 
             // Load project config
             var config = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -223,7 +214,7 @@ class Program
         }
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool announceGeneratedFiles = true)
     {
         string? generatedCsprojPath = null;
         string? generatedGlobalJsonPath = null;
@@ -348,7 +339,7 @@ class Program
                     Console.WriteLine("Deleted NuGet.config");
                 }
             }
-            else
+            else if (announceGeneratedFiles)
             {
                 Console.WriteLine($"Generated files kept in: {projectRoot}");
             }
@@ -368,6 +359,30 @@ class Program
         }
         // Fallback: assume we're in the repo
         return startPath;
+    }
+
+    static string CreateTempBuildDirectory()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-build-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        return tempDir;
+    }
+
+    static void CleanupDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, true);
+        }
+        catch
+        {
+            // Ignore cleanup errors for temp directories
+        }
     }
 
     static int TranspileCommand(string[] args)
@@ -416,6 +431,7 @@ class Program
         }
 
         // Single file run
+        var tempDir = CreateTempBuildDirectory();
         try
         {
             Console.WriteLine($"Running {sourceFile}...");
@@ -428,9 +444,6 @@ class Program
             var csharpCode = CompileToCSharp(source, sourceFile, projectConfig);
 
             // Write C# to temp file
-            var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
-            Directory.CreateDirectory(tempDir);
-
             var csharpFile = Path.Combine(tempDir, "Program.cs");
             File.WriteAllText(csharpFile, csharpCode);
 
@@ -474,10 +487,15 @@ class Program
         {
             return Error($"Run failed: {ex.Message}");
         }
+        finally
+        {
+            CleanupDirectory(tempDir);
+        }
     }
 
     static int RunMultiFile(string projectRoot)
     {
+        var tempDir = CreateTempBuildDirectory();
         try
         {
             Console.WriteLine($"Running project in {projectRoot}...");
@@ -501,9 +519,6 @@ class Program
             }
 
             // Write C# to temp directory
-            var tempDir = Path.Combine(Path.GetTempPath(), "nlc-build");
-            Directory.CreateDirectory(tempDir);
-
             foreach (var kvp in result.TranspiledFiles)
             {
                 var sourceFile = kvp.Key;
@@ -561,12 +576,16 @@ class Program
         {
             return Error($"Run failed: {ex.Message}");
         }
+        finally
+        {
+            CleanupDirectory(tempDir);
+        }
     }
 
     static int RunWithMSBuild(string projectRoot)
     {
         // Build first (generates .csproj, builds, deletes .csproj)
-        var buildResult = BuildWithMSBuild(projectRoot, keepGenerated: true); // Keep it for run
+        var buildResult = BuildWithMSBuild(projectRoot, keepGenerated: true, announceGeneratedFiles: false); // Keep it for run
         if (buildResult != 0)
         {
             return buildResult;
@@ -811,13 +830,9 @@ class Program
 
             // Create Program.nl
             var programNl = Path.Combine(projectDir, "Program.nl");
-            File.WriteAllText(programNl, $@"namespace {projectName}
-
-func Main() {{
-    print ""Hello, World from N#!""
-    print $""Project: {projectName}""
-}}
-");
+            File.WriteAllText(programNl, @"func main() {
+    print ""Hello, N#!""
+}");
 
             Console.WriteLine($"Created: {projectName}/project.yml");
             Console.WriteLine($"Created: {projectName}/Program.nl");
