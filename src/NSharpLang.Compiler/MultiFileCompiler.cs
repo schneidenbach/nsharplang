@@ -12,6 +12,7 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class MultiFileCompiler
 {
+    private const string DebugLogEnvVar = "NSHARP_DEBUG_LOG";
     private readonly string _projectRoot;
     private readonly ProjectConfig? _config;
     private readonly List<string> _sourceFiles;
@@ -20,12 +21,14 @@ public class MultiFileCompiler
     private readonly Dictionary<string, string> _transpiledFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
+    private readonly bool _debugLoggingEnabled;
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
         _sourceFiles = DiscoverSourceFiles(projectRoot, _config);
+        _debugLoggingEnabled = IsDebugLoggingEnabled();
 
         // Initialize shared analyzer ONCE with system assemblies and project config
         _sharedAnalyzer = new Analyzer();
@@ -38,6 +41,7 @@ public class MultiFileCompiler
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
         _sourceFiles = sourceFiles.ToList();
+        _debugLoggingEnabled = IsDebugLoggingEnabled();
 
         // Initialize shared analyzer ONCE with system assemblies and project config
         _sharedAnalyzer = new Analyzer();
@@ -67,22 +71,21 @@ public class MultiFileCompiler
     /// </summary>
     private void ParseAllFiles()
     {
-        var logPath = Path.Combine(_projectRoot, "compile-debug.log");
         foreach (var sourceFile in _sourceFiles)
         {
             try
             {
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}");
                 var source = File.ReadAllText(sourceFile);
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)");
                 var lexer = new Lexer(source, sourceFile);
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created");
                 var tokens = lexer.Tokenize();
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Tokenized ({tokens.Count} tokens)\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Tokenized ({tokens.Count} tokens)");
                 var parser = new Parser(tokens, sourceFile, source);  // Pass source code
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Parser created\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parser created");
                 var parseResult = parser.ParseCompilationUnit();
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parsed compilation unit");
 
                 // Add parse errors to our error list
                 _allErrors.AddRange(parseResult.Errors);
@@ -92,11 +95,11 @@ public class MultiFileCompiler
                 {
                     _compilationUnits[sourceFile] = parseResult.CompilationUnit;
                 }
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Done parsing {Path.GetFileName(sourceFile)}");
             }
             catch (Exception ex)
             {
-                File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}]   EXCEPTION: {ex.Message}\n");
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   EXCEPTION: {ex.Message}");
                 _allErrors.Add(new CompilerError(
                     ErrorCode.InvalidSyntax,
                     $"Failed to parse {sourceFile}: {ex.Message}",
@@ -187,18 +190,17 @@ public class MultiFileCompiler
     /// </summary>
     public MultiFileCompilationResult Compile()
     {
-        var logPath = Path.Combine(_projectRoot, "compile-debug.log");
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Compile START\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Compile START");
 
         // Pass 1: Parse
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles START\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles START");
         ParseAllFiles();
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END");
 
         // Stop if parse errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Parse errors found, returning\n");
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Parse errors found, returning");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -207,14 +209,14 @@ public class MultiFileCompiler
         }
 
         // Pass 2: Analyze
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
         AnalyzeAllFiles();
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
 
         // Stop if analysis errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Analysis errors found, returning\n");
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Analysis errors found, returning");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -223,14 +225,32 @@ public class MultiFileCompiler
         }
 
         // Pass 2: Transpile
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START");
         TranspileAllFiles();
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END");
 
         // Return results
         var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
-        File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Compile END (success={success})\n");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Compile END (success={success})");
         return new MultiFileCompilationResult(success, _allErrors, _transpiledFiles);
+    }
+
+    private static bool IsDebugLoggingEnabled()
+    {
+        var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
+        return string.Equals(value, "1", StringComparison.Ordinal) ||
+            string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void AppendDebugLog(string message)
+    {
+        if (!_debugLoggingEnabled)
+        {
+            return;
+        }
+
+        var logPath = Path.Combine(_projectRoot, "compile-debug.log");
+        File.AppendAllText(logPath, message + Environment.NewLine);
     }
 
     /// <summary>

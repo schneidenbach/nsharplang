@@ -4,9 +4,9 @@ Welcome to the N# examples! These examples demonstrate the language features and
 
 ## Getting Started
 
-Make sure you have N# installed:
+For local repo development:
 ```bash
-dotnet tool install -g nsharp
+./scripts/setup-local.sh
 ```
 
 ## Example Categories
@@ -52,16 +52,15 @@ Production-quality ASP.NET Core Web API built with N#.
 
 ## Running Examples
 
-Each example can be run using:
+Project-based examples can be run with the normal .NET workflow:
 ```bash
-cd examples/XX-category-name
-nsharp run ExampleFile.nl
+cd examples/01-hello-world
+dotnet run
 ```
 
-Or compiled and run:
+Single-file examples can be run with the CLI from source:
 ```bash
-nsharp build ExampleFile.nl
-dotnet ExampleFile.dll
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-matching/ListPatterns.nl
 ```
 
 ## Learning Path

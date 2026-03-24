@@ -8,7 +8,7 @@
 
 ```bash
 git clone <repo-url>
-cd NewCLILang
+cd nsharplang
 ./scripts/setup-local.sh
 ```
 
@@ -22,7 +22,7 @@ cd MyApp
 **Files created:**
 - `project.yml` - YOUR config (edit this)
 - `Program.nl` - YOUR code
-- `MyApp.csproj` - 4 lines (never touch)
+- `MyApp.csproj` - 1 line (never touch)
 - `global.json` - SDK config
 - `NuGet.config` - Package sources (auto-configured)
 
@@ -94,11 +94,11 @@ Process(new FileReader())  // Works via structural typing!
 
 ## Installation
 
-### From NuGet (Recommended)
+### From Templates
 
 ```bash
 # Install templates
-dotnet new install NSharp.Templates
+dotnet new install NSharpLang.Templates
 
 # Create a new console app
 dotnet new nsharp-console -o MyApp
@@ -114,29 +114,29 @@ The SDK (`NSharpLang.Sdk`) is automatically downloaded when you build.
 ### Build from Source
 
 ```bash
-git clone https://github.com/anthropics/NewCLILang.git
-cd NewCLILang
+git clone <repo-url>
+cd nsharplang
 dotnet build
-dotnet test  # 568 tests passing
+dotnet test  # 876 tests total, 873 passing, 3 skipped
 ```
 
 ### CLI Usage
 
 ```bash
 # Transpile to C# (stdout)
-dotnet run --project src/Cli/Cli.csproj -- transpile Program.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- transpile Program.nl
 
 # Build single file (auto-cleanup)
-dotnet run --project src/Cli/Cli.csproj -- build Program.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build Program.nl
 
 # Build all .nl files in project (auto-cleanup)
-dotnet run --project src/Cli/Cli.csproj -- build
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build
 
 # Build and run
-dotnet run --project src/Cli/Cli.csproj -- run Program.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run Program.nl
 
 # Keep generated .cs files for debugging
-dotnet run --project src/Cli/Cli.csproj -- build --keep-generated
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build --keep-generated
 ```
 
 **Note:** Generated `.cs` files are automatically cleaned up after build. Use `--keep-generated` for debugging.
@@ -169,17 +169,17 @@ dotnet run --project src/Cli/Cli.csproj -- build --keep-generated
 ## Examples
 
 See `examples/` directory:
-- **hello.nl** - Basic syntax
-- **WeatherDemo/** - Multi-file project (10+ features)
-- **unions_and_match.nl** - Discriminated unions
-- **duck_interfaces.nl** - Structural typing
-- **list_patterns.nl** - Pattern matching
-- **error_handling.nl** - Exception handling
+- **01-hello-world/** - Small project that builds with `dotnet run`
+- **04-pattern-matching/** - Pattern matching and exhaustiveness
+- **05-unions/** - Discriminated unions
+- **12-multi-file-projects/** - Multi-file apps and tests
+- **13-aspnet-demo/** - ASP.NET Core Web API
+- **14-minimal-api/** - Minimal API example
 
 ## Status
 
 **Version:** v1.71
-**Tests:** 568 passing (100%)
+**Tests:** 876 total, 873 passing, 3 skipped
 **Features:** All from DESIGN.md implemented + Assembly resolution + Override support
 
 ## CI/CD

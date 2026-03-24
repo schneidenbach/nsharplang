@@ -1,22 +1,23 @@
-# Using N# with dotnet build
+# Using N# with `dotnet build`
 
-N# now supports native `dotnet build` integration through an MSBuild SDK.
+The primary N# workflow is an MSBuild SDK project: `project.yml` holds N# settings, a minimal `.csproj` opts into `NSharpLang.Sdk`, and the standard `dotnet` commands do the rest.
 
-## Current Status
+## Recommended Workflow
 
-✅ **MSBuild SDK implemented** - `dotnet build` works with `project.yml`
-⏳ **NuGet publishing** - Not yet published (coming soon in Task 044)
+For local repo development, set up the SDK and templates once:
 
-## How to Use (Local Development)
+```bash
+./scripts/setup-local.sh
+```
 
-### 1. Create a project with project.yml
+Then create a project:
 
 ```bash
 mkdir MyApp
 cd MyApp
 ```
 
-**project.yml:**
+`project.yml`
 ```yaml
 name: MyApp
 version: 1.0.0
@@ -25,28 +26,21 @@ outputType: exe
 targetFramework: net9.0
 ```
 
-**Program.nl:**
+`MyApp.csproj`
+```xml
+<Project Sdk="NSharpLang.Sdk" />
+```
+
+`Program.nl`
 ```n#
 func main() {
     print "Hello from N#!"
 }
 ```
 
-### 2. Create minimal .csproj file
+For local development against this repo, add:
 
-**MyApp.csproj:**
-```xml
-<Project Sdk="NSharpLang.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-  </PropertyGroup>
-</Project>
-```
-
-### 3. Configure local SDK (for now)
-
-**global.json:**
+`global.json`
 ```json
 {
   "sdk": {
@@ -58,84 +52,67 @@ func main() {
 }
 ```
 
-**NuGet.config:**
+`NuGet.config`
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <packageSources>
     <clear />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    <add key="local" value="PATH_TO_REPO/src/NSharpLang.Sdk/bin/Debug" />
+    <add key="local" value="PATH_TO_REPO/artifacts/nuget" />
   </packageSources>
 </configuration>
 ```
 
-Replace `PATH_TO_REPO` with the actual path to this repository.
+Replace `PATH_TO_REPO` with the absolute path to this repository, or generate a working project with `dotnet new nsharp-console` after running `./scripts/setup-local.sh`.
 
-### 4. Build and run
+## Build, Run, and Test
 
 ```bash
 dotnet build
 dotnet run
+dotnet test
 ```
 
-Output:
-```
+Expected output:
+
+```text
 Hello from N#!
 ```
 
-## What Happens Behind the Scenes
+## What the SDK Does
 
-1. MSBuild finds the `NSharpLang.Sdk` SDK
-2. SDK auto-detects `project.yml` in the project directory
-3. SDK auto-discovers all `.nl` files (excluding `.tests.nl`)
-4. N# compiler transpiles `.nl` files to C# in `obj/nsharp/` folder
-5. Generated C# files are automatically added to the C# compilation
-6. Standard .NET build process takes over
+1. MSBuild loads `NSharpLang.Sdk` from `global.json`.
+2. The SDK reads `project.yml`.
+3. It discovers `.nl` files automatically, excluding `.tests.nl` from the main build.
+4. The compiler transpiles N# source into generated C# under `obj/nsharp/`.
+5. The generated C# is compiled as part of the normal .NET build.
 
-## Future: ONE COMMAND Install (Task 044)
+## Why This Is the Preferred Path
 
-Once we publish to NuGet, users will just:
+- Minimal `.csproj`: the N# configuration lives in `project.yml`.
+- Standard commands: `dotnet build`, `dotnet run`, and `dotnet test` work as expected.
+- Better project ergonomics: multi-file projects, solutions, CI, and IDEs all fit the normal .NET model.
+- Fewer moving parts: no temporary project generation is required for the common case.
 
-```bash
-# Install N# workload
-dotnet workload install nsharp
+The direct `nlc` workflow is still useful for single-file experiments and compiler debugging, but it is not the main project story.
 
-# Create projects (no global.json/NuGet.config needed!)
-dotnet new nsharp-console -o MyApp
-cd MyApp
-dotnet build
-dotnet run
-```
+## Relevant Source Layout
 
-No XML config, no manual SDK references - just works!
-
-## Benefits
-
-- ✅ **No XML project files needed** - just `project.yml`
-- ✅ **Auto-discovery** - all `.nl` files compiled automatically
-- ✅ **Native dotnet CLI** - `dotnet build`, `dotnet run`, `dotnet test` all work
-- ✅ **Solution support** - works in multi-project solutions
-- ✅ **IDE integration** - Visual Studio, Rider, VS Code (once plugins updated)
-- ✅ **CI/CD friendly** - standard .NET build pipelines just work
-
-## Files Structure
-
-```
-src/Build/
-├── NSharp.Build.Tasks/           # MSBuild task that compiles .nl files
-│   ├── NSharpCompile.cs           # The compilation task
-│   └── NSharp.Build.targets       # Standalone targets (old approach)
-└── NSharpLang.Sdk/     # MSBuild SDK package
+```text
+src/
+├── NSharpLang.Build.Tasks/       # MSBuild task implementation
+│   ├── NSharpCompile.cs
+│   └── NSharpLang.Build.targets
+└── NSharpLang.Sdk/               # MSBuild SDK package
     ├── Sdk/
-    │   ├── Sdk.props              # Property defaults
-    │   └── Sdk.targets            # Compilation targets
-    └── NSharpLang.Sdk.csproj  # SDK package definition
+    │   ├── Sdk.props
+    │   └── Sdk.targets
+    └── NSharpLang.Sdk.csproj
 ```
 
 ## See Also
 
-- **Task 041** (completed): MSBuild compilation task
-- **Task 042** (completed): MSBuild SDK with project.yml
-- **Task 043** (next): `dotnet new` templates
-- **Task 044** (next): Publish SDK to NuGet
+- [Quick Start](QUICK-START.md)
+- [Templates](../templates/README.md)
+- [Repository README](../README.md)

@@ -5,10 +5,6 @@
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-env
 
-# Install N# CLI
-RUN dotnet tool install -g nlc
-ENV PATH="${PATH}:/root/.dotnet/tools"
-
 WORKDIR /app
 
 # Copy project configuration files

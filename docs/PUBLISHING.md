@@ -1,246 +1,126 @@
-# Publishing N# to NuGet
+# Publishing N# Packages
 
-This document describes how to publish N# SDK and templates to NuGet.org.
+This document describes how to pack and publish the NuGet packages that make up the N# toolchain.
+
+## Package Set
+
+The current package set is:
+
+- `NSharpLang.Sdk`: MSBuild SDK for `dotnet build`
+- `NSharpLang.Templates`: `dotnet new` templates
+- `NSharpLang.Compiler`: compiler API package
+- `NSharpLang.Cli`: standalone CLI tool package that provides the `nlc` command
+- `NSharpLang.LanguageServer`: standalone LSP tool package
 
 ## Prerequisites
 
-1. **NuGet API Key**: Get your API key from [nuget.org](https://www.nuget.org/account/apikeys)
-2. **NuGet Account**: You need an account on nuget.org
-3. **Package ID Ownership**: Ensure you own the package IDs:
-   - `NSharpLang.Sdk`
-   - `NSharp.Templates`
+1. A NuGet.org account with permission to publish these package IDs.
+2. `NUGET_API_KEY` exported in your shell.
+3. A clean `artifacts/nuget/` directory containing fresh packages from this repo.
 
-## Packages
+## Pack Locally
 
-N# consists of two NuGet packages:
-
-### 1. NSharpLang.Sdk
-
-MSBuild SDK that enables building N# projects with `dotnet build`.
-
-**Contains:**
-- SDK props and targets files
-- MSBuild tasks (`NSharp.Build.Tasks.dll`)
-- N# compiler (`Compiler.dll`)
-- Dependencies (YamlDotNet, MSBuild assemblies)
-
-**Installation:** Automatically downloaded when users build projects with `<Project Sdk="NSharpLang.Sdk" />`
-
-### 2. NSharp.Templates
-
-Templates for `dotnet new` command.
-
-**Contains:**
-- Console app template (`nsharp-console`)
-- (Future: webapi, classlib, etc.)
-
-**Installation:** `dotnet new install NSharp.Templates`
-
-## Build Packages Locally
-
-Run the pack script:
+Run:
 
 ```bash
-./pack-nuget.sh
+./scripts/pack-nuget.sh
 ```
 
-This will:
-1. Build `NSharp.Build.Tasks` in Release mode
-2. Pack `NSharpLang.Sdk` SDK
-3. Pack `NSharp.Templates`
-4. Output packages to `artifacts/nuget/`
+This builds the task assembly and packs all published artifacts into `artifacts/nuget/`.
 
-**Output:**
-- `artifacts/nuget/NSharpLang.Sdk.1.0.0.nupkg` (~723KB)
-- `artifacts/nuget/NSharp.Templates.1.0.0.nupkg` (~3.4KB)
+Expected output files:
 
-## Test Packages Locally
+- `artifacts/nuget/NSharpLang.Sdk.0.1.0.nupkg`
+- `artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg`
+- `artifacts/nuget/NSharpLang.Compiler.1.0.0.nupkg`
+- `artifacts/nuget/NSharpLang.Cli.0.1.0.nupkg`
+- `artifacts/nuget/NSharpLang.LanguageServer.1.0.0.nupkg`
 
-Before publishing, test the packages locally:
+## Smoke Test Locally
 
-### 1. Install Templates Locally
+### Templates
 
 ```bash
-dotnet new uninstall NSharp.Templates  # Uninstall if already installed
-dotnet new install artifacts/nuget/NSharp.Templates.1.0.0.nupkg
+dotnet new uninstall NSharpLang.Templates
+dotnet new install artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg
+dotnet new list nsharp
 ```
 
-### 2. Add Local Package Source
+### SDK
 
-Create a test directory and add the local NuGet source:
+Create a temporary test project and point it at the local package feed:
 
 ```bash
 mkdir -p /tmp/nsharp-test
 cd /tmp/nsharp-test
 
-# Add local package source
-dotnet nuget add source /Users/claude/Repos/NewCLILang/artifacts/nuget \
-  --name NSharpLocal
-```
-
-### 3. Create Test Project
-
-```bash
+dotnet nuget add source /absolute/path/to/nsharplang/artifacts/nuget --name NSharpLocal
 dotnet new nsharp-console -o TestApp
 cd TestApp
-```
-
-### 4. Update SDK Reference (for local testing)
-
-Edit the `global.json` to use a local path or update the .csproj to reference the local SDK:
-
-```json
-{
-  "msbuild-sdks": {
-    "NSharpLang.Sdk": "1.0.0"
-  }
-}
-```
-
-Then add the local package source to `NuGet.config`:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <add key="NSharpLocal" value="/Users/claude/Repos/NewCLILang/artifacts/nuget" />
-  </packageSources>
-</configuration>
-```
-
-### 5. Build and Run
-
-```bash
 dotnet build
 dotnet run
 ```
 
-**Expected output:** `Hello, N#!`
-
-### 6. Clean Up
+When finished:
 
 ```bash
 cd /tmp
-rm -rf nsharp-test
+rm -rf /tmp/nsharp-test
 dotnet nuget remove source NSharpLocal
 ```
 
 ## Publish to NuGet.org
 
-⚠️ **Warning:** Once published, packages cannot be deleted, only unlisted!
-
-### 1. Set API Key
+Run:
 
 ```bash
 export NUGET_API_KEY=your_api_key_here
+./scripts/publish-nuget.sh
 ```
 
-### 2. Run Publish Script
+The publish script verifies that all expected package files exist, then pushes each package to NuGet.org.
+
+## Manual Publishing
+
+If you need to push packages manually:
 
 ```bash
-./publish-nuget.sh
+dotnet nuget push artifacts/nuget/NSharpLang.Sdk.0.1.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+dotnet nuget push artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+dotnet nuget push artifacts/nuget/NSharpLang.Compiler.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+dotnet nuget push artifacts/nuget/NSharpLang.Cli.0.1.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+dotnet nuget push artifacts/nuget/NSharpLang.LanguageServer.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
 ```
 
-This will:
-1. Verify packages exist
-2. Push `NSharpLang.Sdk.1.0.0.nupkg` to NuGet.org
-3. Push `NSharp.Templates.1.0.0.nupkg` to NuGet.org
+## After Publishing
 
-### 3. Verify on NuGet.org
-
-Check that packages appear at:
-- https://www.nuget.org/packages/NSharpLang.Sdk
-- https://www.nuget.org/packages/NSharp.Templates
-
-**Note:** Packages may take a few minutes to be indexed and searchable.
-
-## Version Updates
-
-To publish a new version:
-
-1. Update version in `.csproj` files:
-   - `src/NSharpLang.Sdk/NSharpLang.Sdk.csproj`
-   - `templates/NSharp.Templates.csproj`
-
-2. Update version references in templates:
-   - `templates/nsharp-console/global.json`
-
-3. Rebuild packages:
-   ```bash
-   ./pack-nuget.sh
-   ```
-
-4. Test locally
-
-5. Publish:
-   ```bash
-   ./publish-nuget.sh
-   ```
-
-## Manual Publishing (Alternative)
-
-If you prefer not to use the scripts:
+Verify the packages are searchable on NuGet.org, then update any external install docs to use:
 
 ```bash
-# Pack SDK
-cd sdk/NSharpLang.Sdk/Sdk/NSharpLang.Sdk
-dotnet pack -c Release -o ../../../../artifacts/nuget
-
-# Pack Templates
-cd templates
-dotnet pack -c Release -o ../artifacts/nuget
-
-# Publish SDK
-dotnet nuget push artifacts/nuget/NSharpLang.Sdk.1.0.0.nupkg \
-  --api-key $NUGET_API_KEY \
-  --source https://api.nuget.org/v3/index.json
-
-# Publish Templates
-dotnet nuget push artifacts/nuget/NSharp.Templates.1.0.0.nupkg \
-  --api-key $NUGET_API_KEY \
-  --source https://api.nuget.org/v3/index.json
+dotnet new install NSharpLang.Templates
+dotnet tool install -g NSharpLang.Cli
+dotnet tool install -g NSharpLang.LanguageServer
 ```
 
 ## Troubleshooting
 
-### Package already exists
+### SDK restore fails
 
-If you get "Package already exists" error, you need to increment the version number.
+Check that `global.json` references the correct `NSharpLang.Sdk` version and that the required package source is configured.
 
-### SDK not found when building
+### Templates do not appear in `dotnet new list`
 
-Ensure:
-1. `global.json` specifies correct SDK version
-2. NuGet package source includes nuget.org
-3. Package has been indexed (wait a few minutes)
-
-### Templates not showing up
+Clear the template cache and reinstall:
 
 ```bash
-# Clear template cache
 dotnet new --debug:reinit
-
-# List installed templates
-dotnet new list
+dotnet new uninstall NSharpLang.Templates
+dotnet new install artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg
 ```
 
-## Post-Publication
+### CLI or language server install command fails
 
-After publishing, update:
+Use the package IDs, not the command names:
 
-1. **README.md** - Add NuGet badges:
-   ```markdown
-   [![NuGet SDK](https://img.shields.io/nuget/v/NSharpLang.Sdk.svg)](https://www.nuget.org/packages/NSharpLang.Sdk/)
-   [![NuGet Templates](https://img.shields.io/nuget/v/NSharp.Templates.svg)](https://www.nuget.org/packages/NSharp.Templates/)
-   ```
-
-2. **Documentation** - Update installation instructions to use NuGet
-
-3. **GitHub Release** - Create a release tag matching the version
-
-## Support
-
-If you encounter issues:
-- Check [NuGet documentation](https://learn.microsoft.com/en-us/nuget/)
-- Check [MSBuild SDK documentation](https://learn.microsoft.com/en-us/visualstudio/msbuild/how-to-use-project-sdk)
-- Review package contents: `unzip -l package.nupkg`
+- `dotnet tool install -g NSharpLang.Cli`
+- `dotnet tool install -g NSharpLang.LanguageServer`

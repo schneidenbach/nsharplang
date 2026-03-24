@@ -25,10 +25,10 @@ web-api/
 
 ```bash
 mkdir -p .github/workflows
-cp ../../ci-templates/github-actions/build.yml .github/workflows/
-cp ../../ci-templates/docker/Dockerfile.webapi ./Dockerfile
-cp ../../ci-templates/docker/docker-compose.yml ./
-cp ../../ci-templates/docker/.dockerignore ./
+cp ../../ci/templates/github-actions/build.yml .github/workflows/
+cp ../../ci/templates/docker/Dockerfile.webapi ./Dockerfile
+cp ../../ci/templates/docker/docker-compose.yml ./
+cp ../../ci/templates/docker/.dockerignore ./
 ```
 
 Create `docker.yml` workflow (see below).

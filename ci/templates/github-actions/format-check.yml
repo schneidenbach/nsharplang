@@ -17,7 +17,10 @@ jobs:
         dotnet-version: '9.0.x'
 
     - name: Install N# CLI
-      run: dotnet tool install -g nlc
+      run: dotnet tool install -g NSharpLang.Cli
+
+    - name: Add .NET tools to PATH
+      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Check formatting
       run: nlc format --verify-no-changes
@@ -31,5 +34,5 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: '❌ Code formatting check failed. Please run `nlc format` locally and commit the changes.'
+            body: 'Code formatting check failed. Please run `nlc format` locally and commit the changes.'
           })

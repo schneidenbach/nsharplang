@@ -1,13 +1,13 @@
 # 12. Multi-File Projects
 
-Real applications consist of multiple files. These examples show how to structure N# projects with imports and dependencies.
+Real applications consist of multiple files. These examples show how to structure N# projects with imports, shared types, and test files.
 
 ## What You'll Learn
 
 - Importing other N# files
 - Project structure
 - Building multi-file applications
-- Testing with XUnit
+- Testing with N# `test` blocks and `dotnet test`
 
 ## Projects
 
@@ -21,7 +21,7 @@ A minimal project with just the essentials.
 Examples of various import patterns.
 
 ### TestExample
-Unit testing examples using XUnit.
+Unit testing examples using N# `test` blocks compiled through the SDK.
 
 ### WeatherDemo
 A complete weather application demonstrating a real-world multi-file structure.
@@ -30,13 +30,14 @@ A complete weather application demonstrating a real-world multi-file structure.
 
 A typical N# multi-file project:
 
-```
+```text
 MyProject/
   Program.nl           # Entry point
   Models.nl            # Domain models
   Services.nl          # Business logic
   Utils.nl             # Utility functions
-  MyProject.csproj     # .NET project file
+  MyProject.tests.nl   # Test files
+  MyProject.csproj     # Minimal SDK-style project file
 ```
 
 ## Using Imports
@@ -61,45 +62,40 @@ func Main() {
 }
 ```
 
+These example projects already include `global.json` and `NuGet.config` for local repo development.
+
 ## Building Multi-File Projects
 
 ```bash
 cd examples/12-multi-file-projects/WeatherDemo
-nsharp build
+dotnet build
 dotnet run
 ```
 
 ## Testing
 
 ```n#
-// Math.nl
-package MyLib
+namespace MyLib
 
-func Add(a: int, b: int): int {
-    return a + b
+class Math {
+    static func Add(a: int, b: int): int {
+        return a + b
+    }
 }
 
-// Math.tests.nl
-import Xunit
-import MyLib
-
-package MyLib.Tests
-
-class MathTests {
-    [Fact]
-    func Add_TwoNumbers_ReturnsSum() {
-        result := Add(2, 3)
-        Assert.Equal(5, result)
-    }
+test "adds two numbers" {
+    result := Math.Add(2, 3)
+    assert result == 5
 }
 ```
 
 Run tests:
+
 ```bash
-nsharp build Math.tests.nl
+cd examples/12-multi-file-projects/TestExample
 dotnet test
 ```
 
 ## Next Steps
 
-Check out the [13. ASP.NET Core Demo](../13-aspnet-demo/) for a production-quality example!
+Check out the [13. ASP.NET Core Demo](../13-aspnet-demo/) for a larger project built on the same `dotnet build` workflow.

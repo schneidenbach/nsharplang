@@ -20,7 +20,7 @@ N# projects work seamlessly with standard .NET CI/CD tools. Here's the fastest w
 1. Copy workflow templates:
    ```bash
    mkdir -p .github/workflows
-   cp ci-templates/github-actions/build.yml .github/workflows/
+   cp ci/templates/github-actions/build.yml .github/workflows/
    ```
 
 2. Push to GitHub - CI runs automatically!
@@ -29,7 +29,7 @@ N# projects work seamlessly with standard .NET CI/CD tools. Here's the fastest w
 
 1. Copy pipeline template:
    ```bash
-   cp ci-templates/azure-pipelines/azure-pipelines.yml .
+   cp ci/templates/azure-pipelines/azure-pipelines.yml .
    ```
 
 2. Create a new pipeline in Azure DevOps pointing to this file.
@@ -38,7 +38,7 @@ N# projects work seamlessly with standard .NET CI/CD tools. Here's the fastest w
 
 1. Copy Dockerfile:
    ```bash
-   cp ci-templates/docker/Dockerfile.webapi Dockerfile
+   cp ci/templates/docker/Dockerfile.webapi Dockerfile
    ```
 
 2. Build and run:
@@ -76,9 +76,6 @@ jobs:
       with:
         dotnet-version: '9.0.x'
 
-    - name: Install N# CLI
-      run: dotnet tool install -g nlc
-
     - name: Restore dependencies
       run: dotnet restore
 
@@ -112,9 +109,6 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '9.0.x'
-
-    - name: Install N# CLI
-      run: dotnet tool install -g nlc
 
     - name: Restore and Build
       run: |
@@ -166,7 +160,10 @@ jobs:
         dotnet-version: '9.0.x'
 
     - name: Install N# CLI
-      run: dotnet tool install -g nlc
+      run: dotnet tool install -g NSharpLang.Cli
+
+    - name: Add .NET tools to PATH
+      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Check formatting
       run: nlc format --verify-no-changes
@@ -196,7 +193,10 @@ jobs:
         dotnet-version: '9.0.x'
 
     - name: Install N# CLI
-      run: dotnet tool install -g nlc
+      run: dotnet tool install -g NSharpLang.Cli
+
+    - name: Add .NET tools to PATH
+      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Run linter
       run: nlc lint
@@ -270,14 +270,6 @@ stages:
       inputs:
         version: '9.0.x'
 
-    - script: dotnet tool install -g nlc
-      displayName: 'Install N# CLI'
-
-    - script: |
-        export PATH="$PATH:$HOME/.dotnet/tools"
-        nlc --version
-      displayName: 'Verify N# CLI'
-
     - task: Cache@2
       displayName: 'Cache NuGet packages'
       inputs:
@@ -310,7 +302,7 @@ stages:
         version: '9.0.x'
 
     - script: |
-        dotnet tool install -g nlc
+        dotnet tool install -g NSharpLang.Cli
         export PATH="$PATH:$HOME/.dotnet/tools"
         nlc lint
       displayName: 'Run linter'
@@ -322,7 +314,7 @@ stages:
         version: '9.0.x'
 
     - script: |
-        dotnet tool install -g nlc
+        dotnet tool install -g NSharpLang.Cli
         export PATH="$PATH:$HOME/.dotnet/tools"
         nlc format --verify-no-changes
       displayName: 'Check formatting'
@@ -337,8 +329,8 @@ Use this for building and development:
 ```dockerfile
 FROM mcr.microsoft.com/dotnet/sdk:9.0
 
-RUN dotnet tool install -g nlc && \
-    dotnet tool install -g NSharp.LanguageServer
+RUN dotnet tool install -g NSharpLang.Cli && \
+    dotnet tool install -g NSharpLang.LanguageServer
 
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
@@ -353,7 +345,7 @@ ENTRYPOINT ["dotnet", "run"]
 Build and run:
 
 ```bash
-docker build -t myapp-dev -f ci-templates/docker/Dockerfile.sdk .
+docker build -t myapp-dev -f ci/templates/docker/Dockerfile.sdk .
 docker run -it --rm myapp-dev
 ```
 
@@ -364,9 +356,6 @@ Multi-stage build for smaller images:
 ```dockerfile
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-
-RUN dotnet tool install -g nlc
-ENV PATH="${PATH}:/root/.dotnet/tools"
 
 WORKDIR /app
 COPY *.csproj project.yml ./
@@ -482,30 +471,30 @@ jobs:
 
 ## Examples
 
-See the `ci-examples/` directory for complete working examples:
+See the `ci/examples/` directory for complete working examples:
 
 ### Console App
-Location: `ci-examples/console-app/`
+Location: `ci/examples/console-app/`
 
 Features:
 - Build and test on every push
 - Automated NuGet publishing on version tags
 - Format and lint checks on PRs
 
-[View Console App Example →](../../ci-examples/console-app/README.md)
+[View Console App Example →](../../ci/examples/console-app/README.md)
 
 ### Web API
-Location: `ci-examples/web-api/`
+Location: `ci/examples/web-api/`
 
 Features:
 - Docker image building and publishing
 - Deployment to cloud platforms
 - Health checks and monitoring
 
-[View Web API Example →](../../ci-examples/web-api/README.md)
+[View Web API Example →](../../ci/examples/web-api/README.md)
 
 ### Library
-Location: `ci-examples/library/`
+Location: `ci/examples/library/`
 
 Features:
 - Multi-targeting multiple .NET versions
@@ -513,7 +502,7 @@ Features:
 - Symbol package publishing
 - Documentation generation
 
-[View Library Example →](../../ci-examples/library/README.md)
+[View Library Example →](../../ci/examples/library/README.md)
 
 ## Best Practices
 
@@ -661,9 +650,9 @@ Ensure CI environment matches local:
 
 ## Next Steps
 
-- [View complete console app example](../../ci-examples/console-app/README.md)
-- [View complete web API example](../../ci-examples/web-api/README.md)
-- [View complete library example](../../ci-examples/library/README.md)
+- [View complete console app example](../../ci/examples/console-app/README.md)
+- [View complete web API example](../../ci/examples/web-api/README.md)
+- [View complete library example](../../ci/examples/library/README.md)
 - [Learn about formatting](./formatter.md)
 - [Learn about linting](./linter.md)
 

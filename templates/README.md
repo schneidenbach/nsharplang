@@ -1,11 +1,11 @@
-# NSharp.Templates
+# NSharpLang.Templates
 
 Project templates for N# language.
 
 ## Installation
 
 ```bash
-dotnet new install NSharp.Templates
+dotnet new install NSharpLang.Templates
 ```
 
 ## Available Templates
@@ -28,10 +28,28 @@ dotnet run
 - `project.yml` - Project configuration
 - `.csproj` - MSBuild project file with SDK reference
 
+### Web API Application
+
+Creates a minimal ASP.NET Core N# web API.
+
+```bash
+dotnet new nsharp-webapi -o MyApi
+cd MyApi
+dotnet build
+dotnet run
+```
+
+**Template short name:** `nsharp-webapi`
+
+**What's included:**
+- `Program.nl` - API startup and route setup
+- `project.yml` - Project configuration and web SDK settings
+- `.csproj` - MSBuild project file with SDK reference
+
 ## Uninstall
 
 ```bash
-dotnet new uninstall NSharp.Templates
+dotnet new uninstall NSharpLang.Templates
 ```
 
 ## Template List

@@ -5,41 +5,24 @@
 ## Install (Local Development)
 
 ```bash
-# Clone the repo
 git clone <repo-url>
-cd NewCLILang
-
-# Build the CLI
-dotnet build src/Cli/Cli.csproj
+cd nsharplang
+./scripts/setup-local.sh
 ```
 
 ## Create Your First Project
 
 ```bash
-# Create a directory
-mkdir ~/MyApp
-cd ~/MyApp
-
-# Create project.yml
-cat > project.yml <<'EOF'
-name: MyApp
-version: 1.0.0
-entry: Program.nl
-outputType: exe
-targetFramework: net9.0
-EOF
-
-# Create your code
-cat > Program.nl <<'EOF'
-func main() {
-    print "Hello, N#!"
-}
-EOF
+dotnet new nsharp-console -o MyApp
+cd MyApp
 ```
 
-**That's it. Your directory has:**
+**Your project has:**
 ```
 MyApp/
+├── MyApp.csproj
+├── NuGet.config
+├── global.json
 ├── project.yml
 └── Program.nl
 ```
@@ -47,35 +30,21 @@ MyApp/
 ## Build and Run
 
 ```bash
-# Build (generates .csproj, builds, deletes .csproj)
-dotnet run --project /path/to/NewCLILang/src/Cli/Cli.csproj -- build
-
-# Run (generates .csproj, builds, runs, deletes .csproj)
-dotnet run --project /path/to/NewCLILang/src/Cli/Cli.csproj -- run
+dotnet build
+dotnet run
 ```
 
-**After build, your directory STILL only has:**
+Output:
+```text
+Hello, N#!
 ```
-MyApp/
-├── project.yml
-├── Program.nl
-├── bin/           # Build output
-└── obj/           # Build artifacts
-```
-
-**NO .csproj, NO global.json, NO NuGet.config files remain!**
 
 ## How It Works
 
-1. You run `nsharp build` or `nsharp run`
-2. CLI auto-generates:
-   - `{ProjectName}.csproj` (tells MSBuild to use N# SDK)
-   - `global.json` (points to local SDK)
-   - `NuGet.config` (points to local packages)
-3. Calls `dotnet build` (MSBuild SDK compiles your .nl files)
-4. **Deletes ALL generated files** when done
-
-Your source directory stays clean - just `.yml` and `.nl` files!
+1. `dotnet build` loads the minimal `.csproj`
+2. `NSharpLang.Sdk` reads `project.yml`
+3. The SDK discovers `.nl` files and transpiles them to C# under `obj/`
+4. The normal .NET toolchain builds and runs the result
 
 ## What You Can Do
 
@@ -151,28 +120,12 @@ func main() {
 }
 ```
 
-## Future: ONE COMMAND Install
+## Single-File CLI Workflow
 
-Once we publish to NuGet (Task 044), this becomes even simpler:
+If you want to compile a loose `.nl` file directly:
 
 ```bash
-# ONE COMMAND install
-dotnet tool install -g nsharp
-
-# Create and run projects
-nsharp new MyApp
-cd MyApp
-nsharp build
-nsharp run
+dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- run Program.nl
 ```
 
-No path needed, no manual builds - just `nsharp` command globally available.
-
-## Why This Approach?
-
-**You wanted:** Just `project.yml` + `.nl` files, nothing else
-**We deliver:** Exactly that - XML files auto-deleted after every build
-
-MSBuild requires a `.csproj` entry point, but you never have to see it or edit it. It's created and destroyed automatically.
-
-**This is "Go for .NET"** - pragmatic, clean, no XML nonsense.
+That path is useful for experiments, but the recommended workflow is template-generated projects plus `dotnet build` and `dotnet run`.

@@ -62,28 +62,28 @@ public class NSharpCompile : Task
                     {
                         Log.LogError(
                             subcategory: null,
-                            errorCode: error.Code.ToString(),
+                            errorCode: error.DiagnosticId,
                             helpKeyword: null,
                             file: error.FileName ?? "",
                             lineNumber: error.Line,
                             columnNumber: error.Column,
                             endLineNumber: error.Line,
-                            endColumnNumber: error.Column,
-                            message: error.Message
+                            endColumnNumber: error.Column + Math.Max(0, error.Length - 1),
+                            message: error.FormatForMsBuild()
                         );
                     }
                     else if (error.Severity == ErrorSeverity.Warning)
                     {
                         Log.LogWarning(
                             subcategory: null,
-                            warningCode: error.Code.ToString(),
+                            warningCode: error.DiagnosticId,
                             helpKeyword: null,
                             file: error.FileName ?? "",
                             lineNumber: error.Line,
                             columnNumber: error.Column,
                             endLineNumber: error.Line,
-                            endColumnNumber: error.Column,
-                            message: error.Message
+                            endColumnNumber: error.Column + Math.Max(0, error.Length - 1),
+                            message: error.FormatForMsBuild()
                         );
                     }
                 }

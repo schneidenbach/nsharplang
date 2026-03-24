@@ -72,16 +72,31 @@ else
     handle_error "SDK pack"
 fi
 
+section "Step 4b: Pack N# Templates"
+echo "Packing templates to local NuGet feed..."
+if dotnet pack templates/NSharpLang.Templates.csproj -o ~/.nuget/local-feed -v q; then
+    handle_success "Templates packed"
+else
+    handle_error "Templates pack"
+fi
+
 echo "Clearing NuGet caches..."
 dotnet nuget locals all --clear > /dev/null 2>&1
 handle_success "NuGet caches cleared"
 
 section "Step 5: Install dotnet new Template"
-echo "Installing nsharp-console template..."
-if dotnet new install templates/nsharp-console/ --force > /dev/null 2>&1; then
-    handle_success "Template installed"
+echo "Installing NSharpLang.Templates from local feed..."
+if dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force > /dev/null 2>&1; then
+    handle_success "Template package installed"
 else
     handle_error "Template installation"
+fi
+
+TEMPLATE_LIST=$(dotnet new list nsharp 2>/dev/null || true)
+if echo "$TEMPLATE_LIST" | grep -q "nsharp-console" && echo "$TEMPLATE_LIST" | grep -q "nsharp-webapi"; then
+    handle_success "Console and Web API templates are listed"
+else
+    handle_error "Template listing"
 fi
 
 section "Step 6: Test Template Creation"
@@ -95,19 +110,48 @@ else
     cd "$REPO_ROOT"
 fi
 
+if dotnet new nsharp-webapi -o TestWebApiApp > /dev/null 2>&1; then
+    handle_success "Web API template created test project"
+else
+    handle_error "Web API template creation"
+    cd "$REPO_ROOT"
+fi
+
 if [ -f "$TEMP_DIR/TestConsoleApp/project.yml" ]; then
     handle_success "project.yml exists"
 else
     handle_error "project.yml missing"
 fi
 
-section "Step 7: Build Template-Generated Project"
-cd "$TEMP_DIR/TestConsoleApp"
-echo "Building template-generated project..."
-if dotnet restore > /dev/null 2>&1 && dotnet build > /dev/null 2>&1; then
-    handle_success "Template project builds"
+if [ -f "$TEMP_DIR/TestWebApiApp/project.yml" ]; then
+    handle_success "webapi project.yml exists"
 else
-    handle_error "Template project build"
+    handle_error "webapi project.yml missing"
+fi
+
+section "Step 7: Build Template-Generated Project"
+if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
+    cd "$TEMP_DIR/TestConsoleApp"
+    echo "Building template-generated project..."
+    if dotnet restore > /dev/null 2>&1 && dotnet build > /dev/null 2>&1; then
+        handle_success "Template project builds"
+    else
+        handle_error "Template project build"
+    fi
+else
+    handle_error "Template project missing"
+fi
+
+if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
+    cd "$TEMP_DIR/TestWebApiApp"
+    echo "Building web API template-generated project..."
+    if dotnet restore > /dev/null 2>&1 && dotnet build > /dev/null 2>&1; then
+        handle_success "Web API template project builds"
+    else
+        handle_error "Web API template project build"
+    fi
+else
+    handle_error "Web API template project missing"
 fi
 
 cd "$REPO_ROOT"

@@ -1,6 +1,6 @@
 # Transpiler Component
 
-**File:** `src/Compiler/Transpiler.cs`
+**File:** `src/NSharpLang.Compiler/Transpiler.cs`
 
 ## Responsibility
 

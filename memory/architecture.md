@@ -31,12 +31,12 @@ Executable
 
 The compiler is composed of 6 main components:
 
-1. **Lexer** - Tokenizes source code (`src/Compiler/Lexer.cs`)
-2. **Parser** - Builds AST from tokens (`src/Compiler/Parser.cs`)
-3. **Analyzer** - Type checking and semantic analysis (`src/Compiler/Analyzer.cs`)
-4. **Transpiler** - Generates C# code (`src/Compiler/Transpiler.cs`)
-5. **CLI** - Command-line interface (`src/Cli/Program.cs`)
-6. **Error Reporting** - Diagnostics and suggestions (`src/Compiler/ErrorReporting.cs`)
+1. **Lexer** - Tokenizes source code (`src/NSharpLang.Compiler/Lexer.cs`)
+2. **Parser** - Builds AST from tokens (`src/NSharpLang.Compiler/Parser.cs`)
+3. **Analyzer** - Type checking and semantic analysis (`src/NSharpLang.Compiler/Analyzer.cs`)
+4. **Transpiler** - Generates C# code (`src/NSharpLang.Compiler/Transpiler.cs`)
+5. **CLI** - Command-line interface (`src/NSharpLang.Cli/Program.cs`)
+6. **Error Reporting** - Diagnostics and suggestions (`src/NSharpLang.Compiler/ErrorReporting.cs`)
 
 See `memory/components/` folder for detailed documentation on each component.
 
@@ -74,23 +74,27 @@ See `memory/components/` folder for detailed documentation on each component.
 
 ## Project Structure
 
-```
+```text
 src/
-├── Compiler/
-│   ├── Lexer.cs           - Tokenization
-│   ├── Token.cs           - Token types
-│   ├── Parser.cs          - Parsing logic
-│   ├── Analyzer.cs        - Semantic analysis
-│   ├── Transpiler.cs      - C# code generation
-│   ├── ErrorReporting.cs  - Error codes and formatting
+├── NSharpLang.Compiler/
+│   ├── Lexer.cs               - Tokenization
+│   ├── Token.cs               - Token types
+│   ├── Parser.cs              - Parsing logic
+│   ├── Analyzer.cs            - Semantic analysis
+│   ├── Transpiler.cs          - C# code generation
+│   ├── ErrorReporting.cs      - Error codes and formatting
 │   ├── Ast/
-│   │   ├── Expressions.cs    - Expression nodes
-│   │   ├── Statements.cs     - Statement nodes
-│   │   └── Declarations.cs   - Declaration nodes
+│   │   ├── Expressions.cs     - Expression nodes
+│   │   ├── Statements.cs      - Statement nodes
+│   │   └── Declarations.cs    - Declaration nodes
 │   └── TypeSystem/
-│       └── TypeInfo.cs    - Type representation
-└── Cli/
-    └── Program.cs         - CLI commands (build, run, transpile)
+│       └── TypeInfo.cs        - Type representation
+├── NSharpLang.Cli/
+│   └── Program.cs             - CLI commands (build, run, transpile)
+├── NSharpLang.Build.Tasks/
+│   └── NSharpCompile.cs       - MSBuild task wrapper
+└── NSharpLang.Sdk/
+    └── Sdk/                   - SDK props/targets
 
 tests/
 ├── LexerTests.cs
@@ -139,22 +143,22 @@ This enables seamless interop with the entire .NET ecosystem.
 
 ```bash
 # Build compiler
-dotnet build src/Compiler/Compiler.csproj
+dotnet build src/NSharpLang.Compiler/Compiler.csproj
 
 # Build CLI
-dotnet build src/Cli/Cli.csproj
+dotnet build src/NSharpLang.Cli/Cli.csproj
 
-# Run tests (506 tests, all passing)
+# Run tests
 dotnet test tests/Tests.csproj
 
 # Transpile a file
-dotnet run --project src/Cli/Cli.csproj transpile examples/hello.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- transpile examples/04-pattern-matching/GuardsSimple.nl
 
 # Build a file
-dotnet run --project src/Cli/Cli.csproj build examples/hello.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build examples/04-pattern-matching/GuardsSimple.nl
 
 # Run a file
-dotnet run --project src/Cli/Cli.csproj run examples/hello.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-matching/GuardsSimple.nl
 ```
 
 ## Performance Characteristics

@@ -19,7 +19,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="console/**/*" PackagePath="content/" />
+    <Content Include="nsharp-console/.template.config/template.json" Pack="true" PackagePath="content/nsharp-console/.template.config/template.json" />
+    <Content Include="nsharp-console/ConsoleApp.csproj" Pack="true" PackagePath="content/nsharp-console/ConsoleApp.csproj" />
+    <Content Include="nsharp-console/global.json" Pack="true" PackagePath="content/nsharp-console/global.json" />
+    <Content Include="nsharp-console/NuGet.config" Pack="true" PackagePath="content/nsharp-console/NuGet.config" />
+    <Content Include="nsharp-console/Program.nl" Pack="true" PackagePath="content/nsharp-console/Program.nl" />
+    <Content Include="nsharp-console/project.yml" Pack="true" PackagePath="content/nsharp-console/project.yml" />
+
+    <Content Include="nsharp-webapi/.template.config/template.json" Pack="true" PackagePath="content/nsharp-webapi/.template.config/template.json" />
+    <Content Include="nsharp-webapi/Controllers/WeatherController.nl" Pack="true" PackagePath="content/nsharp-webapi/Controllers/WeatherController.nl" />
+    <Content Include="nsharp-webapi/global.json" Pack="true" PackagePath="content/nsharp-webapi/global.json" />
+    <Content Include="nsharp-webapi/NuGet.config" Pack="true" PackagePath="content/nsharp-webapi/NuGet.config" />
+    <Content Include="nsharp-webapi/Program.nl" Pack="true" PackagePath="content/nsharp-webapi/Program.nl" />
+    <Content Include="nsharp-webapi/project.yml" Pack="true" PackagePath="content/nsharp-webapi/project.yml" />
+    <Content Include="nsharp-webapi/WebApi.csproj" Pack="true" PackagePath="content/nsharp-webapi/WebApi.csproj" />
+
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 

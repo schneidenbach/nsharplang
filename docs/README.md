@@ -20,7 +20,7 @@ N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's
 
 ```bash
 # Install the templates
-dotnet new install NSharp.Templates
+dotnet new install NSharpLang.Templates
 
 # Create a new console app
 dotnet new nsharp-console -o MyApp
@@ -168,7 +168,7 @@ Features:
 
 ### MSBuild Integration
 
-N# projects use a minimal `.nlproj` file that references the MSBuild SDK:
+N# projects use a minimal `.csproj` file that references the MSBuild SDK:
 
 ```xml
 <Project Sdk="NSharpLang.Sdk" />
@@ -178,14 +178,14 @@ All configuration goes in `project.yml`:
 
 ```yaml
 name: MyApp
+entry: Program.nl
 outputType: exe
 targetFramework: net9.0
-langVersion: latest
 ```
 
 ## Resources
 
-- **[GitHub Repository](https://github.com/anthropics/NewCLILang)** - Source code and issue tracker
+- **[Project README](../README.md)** - Repository overview and setup
 - **[Website](https://nsharp.dev)** - Official website
 - **[Examples](../examples/)** - Working code examples
 
@@ -203,7 +203,7 @@ N# follows these principles:
 
 N# is an open-source project. Contributions are welcome!
 
-- Report bugs on [GitHub Issues](https://github.com/anthropics/NewCLILang/issues)
+- Report bugs in the project repository
 - Submit pull requests
 - Improve documentation
 - Share your projects

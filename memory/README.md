@@ -1,7 +1,7 @@
 # N# Compiler and Toolset Documentation
 
 **Status:** Feature-complete compiler for the N# language
-**Tests:** 506 passing
+**Tests:** 876 total, 873 passing, 3 skipped
 
 Welcome to the N# compiler documentation. This folder contains technical documentation organized for fast lookup and minimal context usage.
 
@@ -165,7 +165,7 @@ C# interop, using statements, external types, attributes.
 Test suite organization, strategy, and examples.
 
 **Details:**
-- 506 passing tests (33 lexer, 86 parser, 78 analyzer, 71 transpiler, 238+ integration)
+- 876 total tests, 873 passing, 3 skipped
 - No mocks strategy
 - Test examples
 - Running tests
