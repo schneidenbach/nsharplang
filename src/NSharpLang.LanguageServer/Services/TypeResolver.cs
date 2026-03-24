@@ -280,6 +280,79 @@ public class TypeResolver
     }
 
     /// <summary>
+    /// Get all public types in a namespace from loaded assemblies
+    /// </summary>
+    public List<(string Name, string FullName, bool IsStatic, bool IsInterface, bool IsEnum)> GetTypesInNamespace(string namespaceName)
+    {
+        EnsureAssembliesLoaded();
+
+        var results = new List<(string Name, string FullName, bool IsStatic, bool IsInterface, bool IsEnum)>();
+        var seen = new HashSet<string>();
+
+        foreach (var assembly in _loadedAssemblies)
+        {
+            try
+            {
+                Type[]? types = null;
+                if (_exportedTypesCache.TryGetValue(assembly, out var cached))
+                {
+                    types = cached;
+                }
+                else
+                {
+                    // For uncached assemblies (like CoreLib), get exported types directly
+                    // but filter early to avoid the performance hit
+                    try { types = assembly.GetExportedTypes(); }
+                    catch { continue; }
+                }
+
+                foreach (var type in types)
+                {
+                    if (type.Namespace != namespaceName || !type.IsPublic || type.IsNested)
+                        continue;
+                    if (!seen.Add(type.Name))
+                        continue;
+                    // Skip compiler-generated types
+                    if (type.Name.StartsWith("<") || type.Name.Contains("__"))
+                        continue;
+
+                    // Clean generic type names (List`1 → List<T>)
+                    var name = type.Name;
+                    var backtick = name.IndexOf('`');
+                    if (backtick >= 0)
+                        name = name.Substring(0, backtick);
+
+                    results.Add((name, type.FullName ?? name, type.IsAbstract && type.IsSealed, type.IsInterface, type.IsEnum));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error getting types from assembly {Assembly}", assembly.GetName().Name);
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Check if a name matches a known namespace
+    /// </summary>
+    public bool IsKnownNamespace(string name)
+    {
+        EnsureAssembliesLoaded();
+
+        foreach (var assembly in _loadedAssemblies)
+        {
+            if (_exportedTypesCache.TryGetValue(assembly, out var types))
+            {
+                if (types.Any(t => t.Namespace == name))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Get all public members of a type, filtered by access mode
     /// </summary>
     public List<MemberCompletionItem> GetMembers(Type type, MemberAccessMode mode = MemberAccessMode.All)

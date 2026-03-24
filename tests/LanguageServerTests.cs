@@ -1035,5 +1035,27 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Greet");
     }
 
+    [Fact]
+    public async Task Completion_Namespace_SystemAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/namespace.nl";
+
+        var source = @"
+func main(): void
+    System.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 2, 11);
+
+        Assert.NotEmpty(completions.Items);
+        // System namespace should contain types from CoreLib (Array, Math, String, etc.)
+        Assert.Contains(completions.Items, c => c.Label == "Array");
+        Assert.Contains(completions.Items, c => c.Label == "Math");
+        // Should also show sub-namespaces like Collections, Threading
+        Assert.Contains(completions.Items, c => c.Label == "Collections" || c.Label == "Threading");
+    }
+
     #endregion
 }
