@@ -848,6 +848,11 @@ public class CodeIntelligenceService
         return decl.Line;
     }
 
+    /// <summary>
+    /// Public accessor for type reference formatting (used by CompletionEngine).
+    /// </summary>
+    public static string FormatTypeReferencePublic(TypeReference? typeRef) => FormatTypeReference(typeRef);
+
     private static string FormatTypeReference(TypeReference? typeRef) => typeRef switch
     {
         null => "void",
