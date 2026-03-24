@@ -248,6 +248,41 @@ public class CompletionHandler : CompletionHandlerBase
 
         // ExpressionTypeResolver couldn't resolve — try LSP-layer fallbacks
 
+        // Fallback 0: Namespace completion — if Object is an identifier or chained access matching a namespace
+        {
+            string? nsPrefix = null;
+            if (memberAccess.Object is IdentifierExpression nsId)
+                nsPrefix = nsId.Name;
+            else
+                nsPrefix = BuildNamespacePath(memberAccess);
+
+            if (nsPrefix != null)
+            {
+                var nsItems = new List<CompletionItem>();
+
+                // Add sub-namespaces (e.g., System. → Collections, Threading, Linq, ...)
+                foreach (var sub in GetSubNamespaces(nsPrefix))
+                {
+                    nsItems.Add(new CompletionItem
+                    {
+                        Label = sub,
+                        Kind = CompletionItemKind.Module,
+                        Detail = $"namespace {nsPrefix}.{sub}",
+                        InsertText = sub
+                    });
+                }
+
+                // Add types directly in this namespace
+                nsItems.AddRange(NamespaceTypesToCompletionItems(_typeResolver.GetTypesInNamespace(nsPrefix)));
+
+                if (nsItems.Count > 0)
+                {
+                    _logger.LogDebug("Resolved '{Prefix}' as namespace with {Count} items", nsPrefix, nsItems.Count);
+                    return nsItems;
+                }
+            }
+        }
+
         // Fallback 1: If Object is an identifier, try resolving as a type name (Console, Math, etc.)
         if (memberAccess.Object is IdentifierExpression id)
         {
@@ -400,6 +435,74 @@ public class CompletionHandler : CompletionHandlerBase
             return MembersToCompletionItems(_typeResolver.GetMembers(type));
 
         return items;
+    }
+
+    /// <summary>
+    /// Build a dotted namespace path from a chain of MemberAccessExpressions
+    /// e.g., System.Collections.Generic → "System.Collections.Generic"
+    /// </summary>
+    private static string? BuildNamespacePath(MemberAccessExpression memberAccess)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(memberAccess.MemberName) && memberAccess.MemberName != "<error>")
+            parts.Add(memberAccess.MemberName);
+
+        Expression current = memberAccess.Object;
+        while (current is MemberAccessExpression inner)
+        {
+            if (!string.IsNullOrEmpty(inner.MemberName) && inner.MemberName != "<error>")
+                parts.Insert(0, inner.MemberName);
+            current = inner.Object;
+        }
+
+        if (current is IdentifierExpression rootId)
+        {
+            parts.Insert(0, rootId.Name);
+            return string.Join(".", parts);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Get sub-namespace names under a prefix (e.g., "System" → ["Collections", "Threading", "Linq", ...])
+    /// </summary>
+    private List<string> GetSubNamespaces(string prefix)
+    {
+        var subNamespaces = new HashSet<string>();
+        var dotPrefix = prefix + ".";
+
+        // Check all known namespace prefixes
+        foreach (var ns in new[] { "System", "System.Collections", "System.Collections.Generic",
+            "System.Linq", "System.Text", "System.Threading", "System.Threading.Tasks",
+            "System.IO", "System.Net", "System.Net.Http" })
+        {
+            if (ns.StartsWith(dotPrefix) && ns.Length > dotPrefix.Length)
+            {
+                var remainder = ns.Substring(dotPrefix.Length);
+                var nextDot = remainder.IndexOf('.');
+                subNamespaces.Add(nextDot >= 0 ? remainder.Substring(0, nextDot) : remainder);
+            }
+        }
+
+        return subNamespaces.ToList();
+    }
+
+    /// <summary>
+    /// Convert namespace types to CompletionItems
+    /// </summary>
+    private static List<CompletionItem> NamespaceTypesToCompletionItems(
+        List<(string Name, string FullName, bool IsStatic, bool IsInterface, bool IsEnum)> types)
+    {
+        return types.Select(t => new CompletionItem
+        {
+            Label = t.Name,
+            Kind = t.IsInterface ? CompletionItemKind.Interface
+                : t.IsEnum ? CompletionItemKind.Enum
+                : CompletionItemKind.Class,
+            Detail = t.FullName,
+            InsertText = t.Name
+        }).ToList();
     }
 
     private static string ExtractIdentifier(string text)
