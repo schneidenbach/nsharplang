@@ -29,6 +29,7 @@ class Program
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => LintCommand(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
+            "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
