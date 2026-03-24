@@ -57,6 +57,9 @@ public class CompletionHandler : CompletionHandlerBase
         // Check if this is member completion (triggered by '.')
         // Use BOTH trigger character context AND text scanning — the trigger character
         // is more reliable because the document text may not be updated yet (race condition)
+        // Check if this is member completion (triggered by '.')
+        // Use trigger character as primary signal — more reliable than text scanning
+        // because the document text may not have the dot yet (race condition with didChange)
         var isMemberAccess = request.Context?.TriggerCharacter == "."
             || (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character));
 

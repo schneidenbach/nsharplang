@@ -310,17 +310,18 @@ public class TypeResolver
                 {
                     if (type.Namespace != namespaceName || !type.IsPublic || type.IsNested)
                         continue;
-                    if (!seen.Add(type.Name))
-                        continue;
                     // Skip compiler-generated types
                     if (type.Name.StartsWith("<") || type.Name.Contains("__"))
                         continue;
 
-                    // Clean generic type names (List`1 → List<T>)
+                    // Clean generic type names BEFORE dedup (Action`1, Action`2 → Action)
                     var name = type.Name;
                     var backtick = name.IndexOf('`');
                     if (backtick >= 0)
                         name = name.Substring(0, backtick);
+
+                    if (!seen.Add(name))
+                        continue;
 
                     results.Add((name, type.FullName ?? name, type.IsAbstract && type.IsSealed, type.IsInterface, type.IsEnum));
                 }
@@ -337,17 +338,40 @@ public class TypeResolver
     /// <summary>
     /// Check if a name matches a known namespace
     /// </summary>
+    // Common .NET namespaces — checked first to avoid expensive assembly scans
+    private static readonly HashSet<string> WellKnownNamespaces = new(StringComparer.Ordinal)
+    {
+        "System", "System.Collections", "System.Collections.Generic", "System.Collections.Concurrent",
+        "System.Linq", "System.Text", "System.Text.RegularExpressions",
+        "System.Threading", "System.Threading.Tasks",
+        "System.IO", "System.Net", "System.Net.Http",
+        "System.Reflection", "System.Runtime", "System.Diagnostics",
+        "System.Globalization", "System.ComponentModel",
+        "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.Logging",
+        "Microsoft.AspNetCore.Mvc",
+    };
+
     public bool IsKnownNamespace(string name)
     {
+        if (WellKnownNamespaces.Contains(name))
+            return true;
+
         EnsureAssembliesLoaded();
 
         foreach (var assembly in _loadedAssemblies)
         {
-            if (_exportedTypesCache.TryGetValue(assembly, out var types))
+            Type[]? types = null;
+            if (_exportedTypesCache.TryGetValue(assembly, out var cached))
+                types = cached;
+            else
             {
-                if (types.Any(t => t.Namespace == name))
-                    return true;
+                try { types = assembly.GetExportedTypes(); }
+                catch { continue; }
             }
+
+            if (types.Any(t => t.Namespace == name))
+                return true;
         }
         return false;
     }
