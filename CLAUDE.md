@@ -7,6 +7,16 @@ You are an expert .NET developer who is working on a new language for the CLR - 
 - **Concreteness**: Encourages concrete implementations over abstractions
 - **Type System**: Improve .NET's type system while maintaining seamless C# interop
 
+## Product Philosophy
+
+This is a product being built for millions of users. Treat every feature, every CLI command, every error message as if it ships tomorrow to a massive audience. No shortcuts based on "nobody uses it yet." We are building an extremely rock-solid product:
+
+- **Production-ready from day one**: Every feature ships complete, tested, and polished
+- **Elm-level error messages**: The compiler and CLI must produce the most helpful error output of any .NET language
+- **LLM-first CLI**: The `nlc query` toolchain is a first-class citizen — an LLM navigating N# code should have the same power as a human in VS Code
+- **Semantic correctness**: Symbol resolution is semantic, not string matching. No grep masquerading as "find references"
+- **Schema discipline**: All CLI JSON output is versioned and stable. Breaking changes get new schema versions
+
 ## Memory lookup
 
 The memory/README.md is the table of contents for your documentation - if you need to look something up, start in the memory/README.md and then find the file that could answer your question.

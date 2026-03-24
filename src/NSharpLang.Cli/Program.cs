@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
@@ -27,6 +28,7 @@ class Program
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => LintCommand(args.Skip(1).ToArray()),
+            "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
