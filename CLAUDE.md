@@ -24,7 +24,19 @@ ALWAYS: When making significant design decisions, implementing new features, or 
 - Build system or SDK changes
 - Any change where "should we do it this way?" is a real question
 
+At minimum, ALL code changes should go through Codex cursorily (`codex-code-review`). Bigger changes (new features, architecture, design decisions) get the full adversarial debate (`codex-review`).
+
 If Codex is unavailable (auth expired), document what you would have asked and why.
+
+## IDE Tooling Verification (MANDATORY)
+
+ALWAYS: After making ANY changes to the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE:
+1. Rebuild and reinstall the VS Code extension
+2. Use the `computer-use` skill to open VS Code, interact with the editor, and VISUALLY VERIFY the change works
+3. Take screenshots and confirm the feature works as expected in the real editor
+4. Do NOT rely only on unit tests — unit tests pass but the real editor can behave differently (workspace trust, cursor positioning, stale server binaries, etc.)
+
+This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tooling. You must see it work in VS Code with your own eyes (via screencapture).
 
 ## Rules
 
