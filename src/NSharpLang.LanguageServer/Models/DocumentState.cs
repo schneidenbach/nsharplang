@@ -20,6 +20,7 @@ public class DocumentState
     public Dictionary<string, SymbolInfo>? SymbolsInfo { get; set; }  // Enhanced symbol info for intellisense
     public Dictionary<string, List<SymbolLocation>>? SymbolLocations { get; set; } // Declaration locations for navigation
     public SemanticModel? SemanticModel { get; set; }  // Semantic model with resolved types for IDE features
+    public BindingMap? Bindings { get; set; }  // Binding map for semantic references (from Analyzer)
 
     // Convenience properties
     public CompilationUnit? Ast => CompilationUnit;
