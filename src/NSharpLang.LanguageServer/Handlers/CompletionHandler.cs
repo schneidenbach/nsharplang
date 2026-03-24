@@ -55,7 +55,12 @@ public class CompletionHandler : CompletionHandlerBase
         var items = new List<CompletionItem>();
 
         // Check if this is member completion (triggered by '.')
-        if (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character))
+        // Use BOTH trigger character context AND text scanning — the trigger character
+        // is more reliable because the document text may not be updated yet (race condition)
+        var isMemberAccess = request.Context?.TriggerCharacter == "."
+            || (doc?.Text != null && IsMemberCompletion(doc.Text, request.Position.Line, request.Position.Character));
+
+        if (isMemberAccess && doc?.Text != null)
         {
             var memberItems = GetMemberCompletionItems(doc, request.Position.Line, request.Position.Character);
             if (memberItems.Any())
@@ -412,12 +417,26 @@ public class CompletionHandler : CompletionHandlerBase
         var lineText = lines[line];
         if (character == 0) return items;
 
-        var beforeDot = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
-        if (!beforeDot.EndsWith(".")) return items;
-        beforeDot = beforeDot.Substring(0, beforeDot.Length - 1).TrimEnd();
+        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length)).TrimEnd();
+        // Handle race condition: dot might not be in text yet (trigger char arrives before didChange)
+        // In that case, the text before cursor IS the identifier (the dot was just typed but not in buffer)
+        string beforeDot;
+        if (beforeCursor.EndsWith("."))
+            beforeDot = beforeCursor.Substring(0, beforeCursor.Length - 1).TrimEnd();
+        else
+            beforeDot = beforeCursor; // dot not in text yet — treat text before cursor as the identifier
 
         var identifier = ExtractIdentifier(beforeDot);
         if (string.IsNullOrEmpty(identifier)) return items;
+
+        // Check for namespace completion first
+        if (_typeResolver.IsKnownNamespace(identifier))
+        {
+            foreach (var sub in GetSubNamespaces(identifier))
+                items.Add(new CompletionItem { Label = sub, Kind = CompletionItemKind.Module, Detail = $"namespace {identifier}.{sub}", InsertText = sub });
+            items.AddRange(NamespaceTypesToCompletionItems(_typeResolver.GetTypesInNamespace(identifier)));
+            if (items.Count > 0) return items;
+        }
 
         // Try semantic model
         Type? type = null;
@@ -432,7 +451,12 @@ public class CompletionHandler : CompletionHandlerBase
         type ??= _typeResolver.ResolveType(identifier);
 
         if (type != null)
-            return MembersToCompletionItems(_typeResolver.GetMembers(type));
+        {
+            var mode = doc.SemanticModel?.LookupIdentifier(identifier) != null
+                ? MemberAccessMode.InstanceOnly
+                : MemberAccessMode.StaticOnly;
+            return MembersToCompletionItems(_typeResolver.GetMembers(type, mode));
+        }
 
         return items;
     }
