@@ -293,18 +293,8 @@ public class TypeResolver
         {
             try
             {
-                Type[]? types = null;
-                if (_exportedTypesCache.TryGetValue(assembly, out var cached))
-                {
-                    types = cached;
-                }
-                else
-                {
-                    // For uncached assemblies (like CoreLib), get exported types directly
-                    // but filter early to avoid the performance hit
-                    try { types = assembly.GetExportedTypes(); }
-                    catch { continue; }
-                }
+                var types = GetOrCacheExportedTypes(assembly);
+                if (types == null) continue;
 
                 foreach (var type in types)
                 {
@@ -361,19 +351,31 @@ public class TypeResolver
 
         foreach (var assembly in _loadedAssemblies)
         {
-            Type[]? types = null;
-            if (_exportedTypesCache.TryGetValue(assembly, out var cached))
-                types = cached;
-            else
-            {
-                try { types = assembly.GetExportedTypes(); }
-                catch { continue; }
-            }
-
-            if (types.Any(t => t.Namespace == name))
+            var types = GetOrCacheExportedTypes(assembly);
+            if (types != null && types.Any(t => t.Namespace == name))
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Get exported types from an assembly, caching the result to avoid repeated reflection scans.
+    /// </summary>
+    private Type[]? GetOrCacheExportedTypes(Assembly assembly)
+    {
+        if (_exportedTypesCache.TryGetValue(assembly, out var cached))
+            return cached;
+
+        try
+        {
+            var types = assembly.GetExportedTypes();
+            _exportedTypesCache[assembly] = types;
+            return types;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
