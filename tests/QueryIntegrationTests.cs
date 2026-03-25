@@ -574,7 +574,7 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void Type_Dogfood_RecordPropertyUse_Resolves()
     {
-        var result = _service.GetTypeAtPosition(Dogfood, "Services/TaskService.nl", 106, 5);
+        var result = _service.GetTypeAtPosition(Dogfood, "Services/TaskService.nl", 107, 5);
         Assert.NotNull(result);
         Assert.Equal("Total", result!.Name);
         Assert.Equal("int", result.ResolvedType);
@@ -584,7 +584,7 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_Dogfood_MethodDeclaration_IsNotDuplicatedAsUsage()
     {
-        var refs = _service.FindReferences(Dogfood, "Services/TaskService.nl", 93, 10);
+        var refs = _service.FindReferences(Dogfood, "Services/TaskService.nl", 94, 10);
 
         Assert.Equal(2, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
@@ -600,7 +600,20 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal("GetStats", result!.Name);
         Assert.Equal("function", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(93, result.Line);
+        Assert.Equal(94, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_MethodUseSite_ClosingParen_SnapsToMember()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 85, 31);
+
+        Assert.NotNull(result);
+        Assert.Equal("GetStats", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(94, result.Line);
         Assert.Equal(5, result.Column);
     }
 
@@ -626,7 +639,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal("Total", result!.Name);
         Assert.Equal("field", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(106, result.Line);
+        Assert.Equal(107, result.Line);
         Assert.Equal(5, result.Column);
     }
 
@@ -649,7 +662,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal(6, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
         Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 39);
-        Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 114 && r.Column == 38);
+        Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 115 && r.Column == 38);
     }
 
     // ═══════════════════════════════════════════════════════════════════

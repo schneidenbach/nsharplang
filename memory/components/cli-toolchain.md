@@ -3,7 +3,7 @@
 **Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
 **Test count:** 944+ tests passing, 0 failures.
 
-The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, and `nlc fix` all output structured JSON by default with a versioned envelope. Add `--text` for human-readable output.
+The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, and `nlc fix` all output structured JSON by default with a versioned envelope. `check` and `fix` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output.
 
 ---
 
@@ -23,7 +23,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 
 ### Code Intelligence (`nlc query`)
 
-All query commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`). Add `--text` for human-readable output.
+All query commands output **JSON by default** with a versioned envelope (`schemaVersion: 1`). Add `--text` for human-readable output. When a daemon is already running, JSON query commands reuse it automatically; add `--no-daemon` to force in-process analysis.
 
 | Command | Purpose | Example |
 |---------|---------|---------|
@@ -72,8 +72,9 @@ $ nlc check
 {
   "schemaVersion": 1,
   "command": "check",
-  "checkedFiles": 3,
   "ok": true,
+  "checkedFiles": 3,
+  "projectRoot": "/abs/path/to/project",
   "results": [],
   "summary": { "errors": 0, "warnings": 0, "info": 0 }
 }
@@ -98,9 +99,13 @@ $ nlc fix
 {
   "schemaVersion": 1,
   "command": "fix",
-  "dryRun": false,
   "ok": true,
+  "dryRun": false,
+  "projectRoot": "/abs/path/to/project",
   "filesModified": 1,
+  "results": [
+    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Collections.Generic" }
+  ],
   "fixesApplied": [
     { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Collections.Generic" }
   ]
@@ -111,7 +116,7 @@ Fixed 1 issue in 1 file:
   Program.nl:
     [NL002] Add import System.Collections.Generic
 
-$ nlc fix --dry-run    # preview without applying
+$ nlc fix --dry-run    # preview without applying; exits 1 if fixes are available
 $ nlc fix --file F     # fix single file
 ```
 
@@ -224,18 +229,20 @@ $ nlc query symbols
 
 ## JSON Schema Discipline
 
-All `nlc query`, `nlc check`, and `nlc fix` commands output JSON with a versioned envelope:
+All `nlc check` and `nlc fix` commands output JSON with a versioned envelope:
 
 ```json
 {
   "schemaVersion": 1,
   "command": "<command-name>",
+  "ok": true,
   ...
 }
 ```
 
 - `schemaVersion` is always present and will increment on breaking changes
-- All paths are relative to project root
+- All project-scoped file paths are normalized to forward-slash separators
+- `projectRoot` is emitted as an absolute path when the command has a project root
 - Coordinates are 1-based (line 1, column 1)
 - `null` fields are omitted from output
 
@@ -253,7 +260,15 @@ All `nlc query`, `nlc check`, and `nlc fix` commands output JSON with a versione
 - `dryRun`
 - `ok`
 - `filesModified`
+- `results`
 - `fixesApplied`
+
+`query` expectations:
+- Success responses include `ok: true` and command-specific payloads
+- Failures use `ok: false` plus `error.message`
+- Position-based misses use `error.code: "noSymbol"` plus structured `error.details.file` / `error.details.position`
+- `outline` normalizes the file path relative to the project root
+- Project-aware query results normalize file paths to project-relative form where the command can resolve them
 
 `inspect` envelope:
 - `command`
@@ -326,7 +341,7 @@ nlc query <cmd>
 
 ## Daemon Mode
 
-The daemon caches project analysis and serves queries via Unix domain socket. Auto-starts on first `nlc query` call, auto-exits after 30 minutes idle.
+The daemon caches project analysis and serves queries via Unix domain socket. JSON `nlc query` commands reuse it only when one is already running; the CLI does not auto-start it. The daemon auto-exits after 30 minutes idle.
 
 ```bash
 nlc daemon start     # explicit start
@@ -335,6 +350,8 @@ nlc daemon status    # show pid, uptime, cached files
 
 # Queries auto-connect to daemon when running:
 nlc query symbols    # fast response from cache
+nlc query refs --file Program.nl --pos 5:4
+nlc query inspect --file Program.nl --pos 5:4
 ```
 
 Socket: `{projectRoot}/.nlc/daemon.sock`

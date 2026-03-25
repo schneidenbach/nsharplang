@@ -121,10 +121,10 @@ Commands:
 Options:
   --project <dir>   Project root directory (default: current directory)
 
-The daemon caches project analysis and serves nlc query requests
-via Unix domain socket for faster response times.
+The daemon caches project analysis and can serve JSON `nlc query` requests
+via Unix domain socket for faster repeated response times.
 
-- Auto-starts on first `nlc query` call (when not using --no-daemon)
+- `nlc query` reuses the daemon only when one is already running
 - Auto-exits after 30 minutes of inactivity
 - Watches .nl files for changes and invalidates cache automatically
 - Socket: {projectRoot}/.nlc/daemon.sock");

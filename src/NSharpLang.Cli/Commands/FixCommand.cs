@@ -37,7 +37,7 @@ public static class FixCommand
 
         if (!Directory.Exists(projectDir))
         {
-            return EmitError(useText, $"Directory not found: {projectDir}");
+            return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
         }
 
         try
@@ -46,11 +46,10 @@ public static class FixCommand
             List<string> files;
             if (fileArg != null)
             {
-                var fullPath = Path.IsPathRooted(fileArg) ? fileArg : Path.Combine(projectDir, fileArg);
+                var fullPath = Path.GetFullPath(Path.IsPathRooted(fileArg) ? fileArg : Path.Combine(projectDir, fileArg));
                 if (!File.Exists(fullPath))
                 {
-                    Console.Error.WriteLine($"File not found: {fullPath}");
-                    return 1;
+                    return EmitError(useText, $"File not found: {fullPath}", projectDir);
                 }
                 files = new List<string> { fullPath };
             }
@@ -82,7 +81,7 @@ public static class FixCommand
 
                 if (fixes.Count == 0) continue;
 
-                var relativeFile = Path.GetRelativePath(projectDir, file);
+                var relativeFile = NormalizePath(Path.GetRelativePath(projectDir, file));
                 var appliedForFile = fixes.Select(f => new AppliedFix(
                     relativeFile, f.DiagnosticCode, f.Title, f.Edits)).ToList();
 
@@ -116,11 +115,11 @@ public static class FixCommand
                 Console.Write(ResultJson(projectDir, dryRun, allAppliedFixes, filesModified));
             }
 
-            return 0;
+            return dryRun && filesModified > 0 ? 1 : 0;
         }
         catch (Exception ex)
         {
-            return EmitError(useText, $"Fix failed: {ex.Message}");
+            return EmitError(useText, $"Fix failed: {ex.Message}", projectDir);
         }
     }
 
@@ -172,28 +171,32 @@ Examples:
 
     private static string ResultJson(string projectDir, bool dryRun, IReadOnlyCollection<AppliedFix> fixes, int filesModified)
     {
+        var normalizedProjectRoot = NormalizePath(Path.GetFullPath(projectDir));
+        var normalizedFixes = fixes.Select(f => new
+        {
+            file = NormalizePath(f.File),
+            diagnostic = f.DiagnosticCode,
+            title = f.Title,
+            edits = f.Edits.Select(e => new
+            {
+                startLine = e.StartLine,
+                startColumn = e.StartColumn,
+                endLine = e.EndLine,
+                endColumn = e.EndColumn,
+                newText = e.NewText
+            }).ToList()
+        }).ToList();
+
         var envelope = new
         {
             schemaVersion = 1,
             command = "fix",
-            projectRoot = projectDir,
+            projectRoot = normalizedProjectRoot,
             dryRun,
-            ok = true,
+            ok = !dryRun || filesModified == 0,
             filesModified,
-            fixesApplied = fixes.Select(f => new
-            {
-                file = f.File,
-                diagnostic = f.DiagnosticCode,
-                title = f.Title,
-                edits = f.Edits.Select(e => new
-                {
-                    startLine = e.StartLine,
-                    startColumn = e.StartColumn,
-                    endLine = e.EndLine,
-                    endColumn = e.EndColumn,
-                    newText = e.NewText
-                })
-            })
+            results = normalizedFixes,
+            fixesApplied = normalizedFixes
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -202,10 +205,10 @@ Examples:
     {
         var projectOption = GetOption(args, "--project");
         if (!string.IsNullOrWhiteSpace(projectOption))
-            return projectOption;
+            return Path.GetFullPath(projectOption);
 
         var positional = GetFirstPositionalArg(args, "--project", "--file");
-        return positional ?? Directory.GetCurrentDirectory();
+        return Path.GetFullPath(positional ?? Directory.GetCurrentDirectory());
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -235,7 +238,7 @@ Examples:
         return null;
     }
 
-    private static int EmitError(bool useText, string message)
+    private static int EmitError(bool useText, string message, string? projectRoot = null)
     {
         if (useText)
         {
@@ -243,9 +246,11 @@ Examples:
         }
         else
         {
-            Console.Write(OutputFormatter.ErrorToJson("fix", message));
+            Console.Write(OutputFormatter.ErrorToJson("fix", message, projectRoot));
         }
 
         return 1;
     }
+
+    private static string NormalizePath(string path) => path.Replace('\\', '/');
 }

@@ -48,12 +48,18 @@ public static class DaemonClient
             var requestBytes = Encoding.UTF8.GetBytes(requestJson);
             socket.Send(requestBytes);
 
-            // Receive response
-            var buffer = new byte[1024 * 1024]; // 1MB buffer
-            var received = socket.Receive(buffer);
-            if (received == 0) return null;
+            using var responseStream = new MemoryStream();
+            var buffer = new byte[8192];
+            int received;
+            while ((received = socket.Receive(buffer)) > 0)
+            {
+                responseStream.Write(buffer, 0, received);
+            }
 
-            var responseJson = Encoding.UTF8.GetString(buffer, 0, received);
+            if (responseStream.Length == 0)
+                return null;
+
+            var responseJson = Encoding.UTF8.GetString(responseStream.ToArray());
             var response = JsonSerializer.Deserialize<DaemonResponse>(responseJson);
 
             if (response?.Error != null)

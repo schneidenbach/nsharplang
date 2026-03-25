@@ -19,7 +19,7 @@ public static class CheckCommand
 
         if (!Directory.Exists(projectDir))
         {
-            return EmitError(useText, $"Directory not found: {projectDir}");
+            return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
         }
 
         try
@@ -59,7 +59,7 @@ public static class CheckCommand
         }
         catch (Exception ex)
         {
-            return EmitError(useText, $"Check failed: {ex.Message}");
+            return EmitError(useText, $"Check failed: {ex.Message}", projectDir);
         }
     }
 
@@ -101,7 +101,7 @@ public static class CheckCommand
                         _ => "info"
                     },
                     diagnostic.Message,
-                    Path.GetRelativePath(projectDir, filePath),
+                    NormalizePath(Path.GetRelativePath(projectDir, filePath)),
                     diagnostic.Location.Line,
                     diagnostic.Location.Column,
                     1,
@@ -142,10 +142,10 @@ Examples:
     {
         var projectOption = GetOption(args, "--project");
         if (!string.IsNullOrWhiteSpace(projectOption))
-            return projectOption;
+            return Path.GetFullPath(projectOption);
 
         var positional = GetFirstPositionalArg(args, Array.Empty<string>());
-        return positional ?? Directory.GetCurrentDirectory();
+        return Path.GetFullPath(positional ?? Directory.GetCurrentDirectory());
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -176,7 +176,7 @@ Examples:
         return null;
     }
 
-    private static int EmitError(bool useText, string message)
+    private static int EmitError(bool useText, string message, string? projectRoot = null)
     {
         if (useText)
         {
@@ -184,11 +184,13 @@ Examples:
         }
         else
         {
-            Console.Write(OutputFormatter.ErrorToJson("check", message));
+            Console.Write(OutputFormatter.ErrorToJson("check", message, projectRoot));
         }
 
         return 1;
     }
+
+    private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private static string? ExtractSourceLine(string source, int line)
     {

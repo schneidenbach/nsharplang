@@ -187,6 +187,7 @@ public class DaemonServer
             var name = GetParam<string>(request.Params, "name");
             var kind = GetParam<string>(request.Params, "kind");
             var severity = GetParam<string>(request.Params, "severity");
+            var includeKeywords = GetParam<bool>(request.Params, "includeKeywords");
 
             int line = 0, col = 0;
             if (posStr != null)
@@ -208,7 +209,8 @@ public class DaemonServer
                 DaemonConstants.MethodType => HandleType(file, line, col),
                 DaemonConstants.MethodDefinition => HandleDefinition(file, line, col, name),
                 DaemonConstants.MethodReferences => HandleReferences(file, line, col),
-                DaemonConstants.MethodCompletions => HandleCompletions(file, line, col),
+                DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
+                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords),
                 _ => throw new Exception($"Unknown method: {request.Method}")
             };
 
@@ -251,7 +253,20 @@ public class DaemonServer
     {
         if (file == null) return OutputFormatter.ErrorToJson("type", "file and pos parameters required");
         var result = _service.GetTypeAtPosition(_snapshot!, file, line, col);
-        if (result == null) return OutputFormatter.ErrorToJson("type", $"No type info at {file}:{line}:{col}");
+        if (result == null)
+        {
+            return OutputFormatter.ErrorToJson(
+                "type",
+                $"No symbol found at {file}:{line}:{col}",
+                _snapshot!.ProjectRoot,
+                "noSymbol",
+                new
+                {
+                    file,
+                    position = new { line, column = col }
+                });
+        }
+
         return OutputFormatter.TypeToJson(result, file, line, col);
     }
 
@@ -264,7 +279,20 @@ public class DaemonServer
         }
         if (file == null) return OutputFormatter.ErrorToJson("definition", "file+pos or name required");
         var result = _service.FindDefinition(_snapshot!, file, line, col);
-        if (result == null) return OutputFormatter.ErrorToJson("definition", $"No definition at {file}:{line}:{col}");
+        if (result == null)
+        {
+            return OutputFormatter.ErrorToJson(
+                "definition",
+                $"No symbol found at {file}:{line}:{col}",
+                _snapshot!.ProjectRoot,
+                "noSymbol",
+                new
+                {
+                    file,
+                    position = new { line, column = col }
+                });
+        }
+
         return OutputFormatter.DefinitionToJson(result);
     }
 
@@ -274,21 +302,84 @@ public class DaemonServer
 
         // Resolve symbol metadata (same as CLI path — don't hardcode placeholders)
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
-        var symbolName = definition?.Name ?? "unknown";
-        var symbolKind = definition?.Kind ?? "unknown";
-        LocationResult? definedAt = definition != null
-            ? new LocationResult(definition.File, definition.Line, definition.Column)
-            : null;
+        if (definition == null)
+        {
+            return OutputFormatter.ErrorToJson(
+                "references",
+                $"No symbol found at {file}:{line}:{col}",
+                _snapshot!.ProjectRoot,
+                "noSymbol",
+                new
+                {
+                    file,
+                    position = new { line, column = col }
+                });
+        }
+
+        var symbolName = definition.Name;
+        var symbolKind = definition.Kind;
+        var definedAt = new LocationResult(definition.File, definition.Line, definition.Column);
 
         var results = _service.FindReferences(_snapshot!, file, line, col);
         return OutputFormatter.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 
-    private string HandleCompletions(string? file, int line, int col)
+    private string HandleCompletions(string? file, int line, int col, bool includeKeywords)
     {
         if (file == null) return OutputFormatter.ErrorToJson("completions", "file and pos required");
-        var result = _completionEngine.GetCompletions(_snapshot!, file, line, col);
+        var result = _completionEngine.GetCompletions(_snapshot!, file, line, col, includeKeywords);
         return OutputFormatter.CompletionsToJson(result, file, line, col);
+    }
+
+    private string HandleInspect(string? file, int line, int col, bool includeKeywords)
+    {
+        if (file == null) return OutputFormatter.ErrorToJson("inspect", "file and pos required");
+
+        var type = _service.GetTypeAtPosition(_snapshot!, file, line, col);
+        var definition = _service.FindDefinition(_snapshot!, file, line, col);
+        var references = definition != null
+            ? _service.FindReferences(_snapshot!, file, line, col)
+            : new List<ReferenceResult>();
+        var completions = _completionEngine.GetCompletions(_snapshot!, file, line, col, includeKeywords);
+
+        if (type == null && definition == null && references.Count == 0)
+        {
+            return OutputFormatter.ErrorToJson(
+                "inspect",
+                $"No symbol found at {file}:{line}:{col}",
+                _snapshot!.ProjectRoot,
+                "noSymbol",
+                new
+                {
+                    file,
+                    position = new { line, column = col }
+                });
+        }
+
+        InspectSymbolResult? symbol = null;
+        if (definition != null)
+        {
+            symbol = new InspectSymbolResult(
+                definition.Name,
+                definition.Kind,
+                new LocationResult(definition.File, definition.Line, definition.Column));
+        }
+        else if (type != null)
+        {
+            symbol = new InspectSymbolResult(type.Name, type.Kind, type.Definition);
+        }
+
+        var inspect = new InspectResult(
+            symbol,
+            type,
+            definition,
+            new InspectReferencesResult(
+                references.Count,
+                references.Count(r => r.IsDefinition),
+                references.ToArray()),
+            completions);
+
+        return OutputFormatter.InspectToJson(inspect, file, line, col);
     }
 
     // ── Snapshot Management ─────────────────────────────────────────────
