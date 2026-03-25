@@ -71,6 +71,20 @@ public class BindingMap
     public void RecordDeclaration(SymbolDeclaration declaration)
     {
         var key = (declaration.File, declaration.Line, declaration.Column);
+
+        // Don't overwrite a type declaration (class, struct, record, etc.) with
+        // internal symbols like "this" that share the same position.
+        if (_declarations.TryGetValue(key, out var existing))
+        {
+            var existingIsType = existing.Kind is "class" or "struct" or "record" or "interface" or "enum" or "union";
+            var newIsInternal = declaration.Name is "this" or "value";
+            if (existingIsType && newIsInternal)
+            {
+                // Keep the type declaration, skip the internal symbol
+                return;
+            }
+        }
+
         _declarations[key] = declaration;
 
         if (!_references.ContainsKey(key))

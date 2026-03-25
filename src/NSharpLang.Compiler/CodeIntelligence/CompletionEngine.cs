@@ -70,8 +70,10 @@ public class CompletionEngine
 
     /// <summary>
     /// Get completions at a position in a project.
+    /// By default, identifier completions exclude keywords/primitives/modifiers (LLMs don't need them).
+    /// Set includeKeywords=true to include them (for human/IDE use).
     /// </summary>
-    public CompletionResult GetCompletions(ProjectSnapshot snapshot, string file, int line, int col)
+    public CompletionResult GetCompletions(ProjectSnapshot snapshot, string file, int line, int col, bool includeKeywords = false)
     {
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
         if (cu == null)
@@ -107,7 +109,7 @@ public class CompletionEngine
         }
 
         // General identifier context
-        return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot);
+        return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords);
     }
 
     // ── Member Access Completions ───────────────────────────────────────
@@ -133,7 +135,7 @@ public class CompletionEngine
 
             foreach (var group in members.GroupBy(m => m.Kind))
             {
-                var key = group.Key + "s"; // "method" → "methods"
+                var key = Pluralize(group.Key);
                 completions[key] = group.ToList();
             }
 
@@ -150,28 +152,19 @@ public class CompletionEngine
             var typeInfo = semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
-                var typeName = FormatTypeInfo(typeInfo);
-                var clrType = TryResolveType(typeName, snapshot);
-                if (clrType != null)
-                {
-                    var members = GetTypeMembers(clrType, MemberFilter.InstanceOnly);
-                    foreach (var group in members.GroupBy(m => m.Kind))
-                    {
-                        completions[group.Key + "s"] = group.ToList();
-                    }
-                    return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
-                }
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(typeInfo, receiver, snapshot, completions);
+                if (memberResult != null) return memberResult;
+            }
+        }
 
-                // N# type — extract members from declarations
-                var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
-                if (nsharpMembers.Count > 0)
-                {
-                    foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
-                    {
-                        completions[group.Key + "s"] = group.ToList();
-                    }
-                    return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
-                }
+        // Fallback: scan AST for field/property/variable declarations matching the receiver name.
+        // This covers class fields that the flat SemanticModel doesn't record.
+        {
+            var typeFromAst = ResolveReceiverTypeFromAst(receiver, cu, snapshot);
+            if (typeFromAst != null)
+            {
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(typeFromAst, receiver, snapshot, completions);
+                if (memberResult != null) return memberResult;
             }
         }
 
@@ -192,7 +185,7 @@ public class CompletionEngine
     // ── General Identifier Completions ──────────────────────────────────
 
     private CompletionResult GetIdentifierCompletions(CompilationUnit cu, SemanticModel? semanticModel,
-        string beforeCursor, ProjectSnapshot snapshot)
+        string beforeCursor, ProjectSnapshot snapshot, bool includeKeywords = false)
     {
         var completions = new Dictionary<string, List<CompletionItem>>();
 
@@ -230,19 +223,125 @@ public class CompletionEngine
         if (types.Count > 0)
             completions["types"] = types;
 
-        // Keywords
-        completions["keywords"] = NSharpKeywords.Select(k =>
-            new CompletionItem(k, "keyword", null, null, null, false)).ToList();
-
-        // Primitive types
-        completions["primitiveTypes"] = PrimitiveTypes.Select(t =>
-            new CompletionItem(t, "type", null, null, null, false)).ToList();
-
-        // Modifiers
-        completions["modifiers"] = Modifiers.Select(m =>
-            new CompletionItem(m, "modifier", null, null, null, false)).ToList();
+        // Keywords, primitive types, and modifiers are omitted by default for LLM use.
+        // LLMs already know these — including them wastes tokens.
+        if (includeKeywords)
+        {
+            completions["keywords"] = NSharpKeywords.Select(k =>
+                new CompletionItem(k, "keyword", null, null, null, false)).ToList();
+            completions["primitiveTypes"] = PrimitiveTypes.Select(t =>
+                new CompletionItem(t, "type", null, null, null, false)).ToList();
+            completions["modifiers"] = Modifiers.Select(m =>
+                new CompletionItem(m, "modifier", null, null, null, false)).ToList();
+        }
 
         return new CompletionResult(CompletionContext.Identifier, null, null, completions);
+    }
+
+    /// <summary>
+    /// Resolve member completions from a TypeInfo — handles both .NET types (via reflection)
+    /// and N# user-defined types (via AST member extraction).
+    /// </summary>
+    private CompletionResult? ResolveMemberCompletionsFromTypeInfo(TypeInfo typeInfo, string receiver,
+        ProjectSnapshot snapshot, Dictionary<string, List<CompletionItem>> completions)
+    {
+        var typeName = FormatTypeInfo(typeInfo);
+
+        // For generic types, extract the base name for CLR resolution
+        var clrTypeName = typeName;
+        if (typeInfo is GenericTypeInfo genericInfo)
+        {
+            clrTypeName = genericInfo.Name; // "List", "Dictionary", etc.
+        }
+
+        var clrType = TryResolveType(clrTypeName, snapshot);
+        if (clrType != null)
+        {
+            var members = GetTypeMembers(clrType, MemberFilter.InstanceOnly);
+            foreach (var group in members.GroupBy(m => m.Kind))
+            {
+                completions[Pluralize(group.Key)] = group.ToList();
+            }
+            return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
+        }
+
+        // N# type — extract members from declarations
+        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
+        if (nsharpMembers.Count > 0)
+        {
+            foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
+            {
+                completions[Pluralize(group.Key)] = group.ToList();
+            }
+            return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Scan the AST for a variable/field/property declaration matching the receiver name.
+    /// This is the fallback when SemanticModel doesn't have the symbol (e.g., class fields).
+    /// </summary>
+    private TypeInfo? ResolveReceiverTypeFromAst(string name, CompilationUnit cu, ProjectSnapshot snapshot)
+    {
+        // Search all declarations for fields/properties/variables with this name
+        foreach (var decl in cu.Declarations)
+        {
+            // Check inside class/struct/record members
+            List<Declaration>? members = decl switch
+            {
+                ClassDeclaration c => c.Members,
+                StructDeclaration s => s.Members,
+                RecordDeclaration r => r.Members,
+                _ => null
+            };
+
+            if (members != null)
+            {
+                foreach (var member in members)
+                {
+                    if (member is FieldDeclaration field && field.Name == name && field.Type != null)
+                    {
+                        return ResolveTypeReferenceToTypeInfo(field.Type, snapshot);
+                    }
+                    if (member is PropertyDeclaration prop && prop.Name == name)
+                    {
+                        return ResolveTypeReferenceToTypeInfo(prop.Type, snapshot);
+                    }
+                }
+            }
+
+            // Check function parameters and local variables
+            if (decl is FunctionDeclaration func)
+            {
+                foreach (var param in func.Parameters)
+                {
+                    if (param.Name == name)
+                    {
+                        return ResolveTypeReferenceToTypeInfo(param.Type, snapshot);
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Convert a TypeReference (AST) to a TypeInfo (semantic) for completion resolution.
+    /// </summary>
+    private static TypeInfo ResolveTypeReferenceToTypeInfo(TypeReference typeRef, ProjectSnapshot snapshot)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference s => new SimpleTypeInfo(s.Name),
+            GenericTypeReference g => new GenericTypeInfo(g.Name,
+                g.TypeArguments.Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
+            ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
+            NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
+            _ => new SimpleTypeInfo("unknown")
+        };
     }
 
     // ── Type Member Resolution ──────────────────────────────────────────
@@ -368,16 +467,41 @@ public class CompletionEngine
     private static bool IsMemberAccessContext(string beforeCursor)
     {
         var trimmed = beforeCursor.TrimEnd();
-        return trimmed.EndsWith(".");
+        // Direct: cursor is right after dot — "people."
+        if (trimmed.EndsWith(".")) return true;
+
+        // Indirect: cursor is after "receiver.partial" — find the last dot
+        // This handles the case where an LLM queries at a position like people.Add(
+        var lastDot = trimmed.LastIndexOf('.');
+        if (lastDot > 0)
+        {
+            // Check that text before the dot is an identifier (not inside a string)
+            var beforeDot = trimmed.Substring(0, lastDot).TrimEnd();
+            if (beforeDot.Length > 0 && (char.IsLetterOrDigit(beforeDot[^1]) || beforeDot[^1] == '_'))
+                return true;
+        }
+
+        return false;
     }
 
     private static string? ExtractReceiver(string beforeCursor)
     {
         var trimmed = beforeCursor.TrimEnd();
-        if (!trimmed.EndsWith(".")) return null;
 
-        // Remove trailing dot
-        var withoutDot = trimmed.Substring(0, trimmed.Length - 1).TrimEnd();
+        // Find the last dot
+        int dotIndex;
+        if (trimmed.EndsWith("."))
+        {
+            dotIndex = trimmed.Length - 1;
+        }
+        else
+        {
+            dotIndex = trimmed.LastIndexOf('.');
+            if (dotIndex < 0) return null;
+        }
+
+        // Get the part before the dot
+        var withoutDot = trimmed.Substring(0, dotIndex).TrimEnd();
 
         // Walk backwards to find the receiver identifier
         var end = withoutDot.Length;
@@ -562,7 +686,7 @@ public class CompletionEngine
     {
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
-            if (filePath.Replace('\\', '/').EndsWith(file.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
+            if (MatchesFilePath(filePath, file))
                 return (filePath, cu);
         }
         var fullPath = Path.GetFullPath(Path.Combine(snapshot.ProjectRoot, file));
@@ -570,6 +694,32 @@ public class CompletionEngine
             return (fullPath, found);
         return (file, null);
     }
+
+    /// <summary>
+    /// Matches a full file path against a query, respecting path segment boundaries.
+    /// "Program.nl" matches "/project/Program.nl" but NOT "/project/OldProgram.nl".
+    /// </summary>
+    private static bool MatchesFilePath(string fullPath, string queryPath)
+    {
+        var normalizedFull = fullPath.Replace('\\', '/');
+        var normalizedQuery = queryPath.Replace('\\', '/');
+
+        if (normalizedFull.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!normalizedFull.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
+        return charBefore == '/';
+    }
+
+    private static string Pluralize(string kind) => kind switch
+    {
+        "property" => "properties",
+        "class" => "classes",
+        _ => kind + "s"
+    };
 
     private static CompletionResult EmptyResult(CompletionContext context)
     {

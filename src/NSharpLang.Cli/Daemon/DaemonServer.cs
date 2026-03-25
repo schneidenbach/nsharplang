@@ -271,8 +271,17 @@ public class DaemonServer
     private string HandleReferences(string? file, int line, int col)
     {
         if (file == null) return OutputFormatter.ErrorToJson("references", "file and pos required");
+
+        // Resolve symbol metadata (same as CLI path — don't hardcode placeholders)
+        var definition = _service.FindDefinition(_snapshot!, file, line, col);
+        var symbolName = definition?.Name ?? "unknown";
+        var symbolKind = definition?.Kind ?? "unknown";
+        LocationResult? definedAt = definition != null
+            ? new LocationResult(definition.File, definition.Line, definition.Column)
+            : null;
+
         var results = _service.FindReferences(_snapshot!, file, line, col);
-        return OutputFormatter.ReferencesToJson("symbol", "unknown", null, results);
+        return OutputFormatter.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 
     private string HandleCompletions(string? file, int line, int col)
