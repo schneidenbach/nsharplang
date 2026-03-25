@@ -170,6 +170,18 @@ public static class OutputFormatter
         return sb.ToString();
     }
 
+    public static string DocToJson(DocResult result, string query)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "doc",
+            query,
+            result
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string ErrorToJson(string command, string error)
     {
         var envelope = new
@@ -405,6 +417,71 @@ public static class OutputFormatter
             var contextStr = r.Context != null ? $"  {r.Context.Trim()}" : "";
             sb.AppendLine($"  {r.File}:{r.Line}:{r.Column}{defMarker}{contextStr}");
         }
+        return sb.ToString();
+    }
+
+    public static string DocToText(DocResult result)
+    {
+        var sb = new StringBuilder();
+
+        // Header
+        sb.AppendLine($"{result.Kind} {result.FullName}");
+        if (result.Namespace != null)
+            sb.AppendLine($"  Namespace: {result.Namespace}");
+
+        // Summary
+        if (!string.IsNullOrWhiteSpace(result.Summary))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  {result.Summary}");
+        }
+
+        // Base types
+        if (result.BaseTypes is { Length: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  Implements: {string.Join(", ", result.BaseTypes)}");
+        }
+
+        // Parameters (for methods)
+        if (result.Parameters is { Length: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("  Parameters:");
+            foreach (var p in result.Parameters)
+            {
+                var doc = p.Summary != null ? $" — {p.Summary}" : "";
+                sb.AppendLine($"    {p.Name}: {p.Type}{doc}");
+            }
+        }
+
+        // Return type
+        if (result.ReturnType != null && result.ReturnType != "void")
+        {
+            sb.AppendLine();
+            var doc = result.ReturnDoc != null ? $" — {result.ReturnDoc}" : "";
+            sb.AppendLine($"  Returns: {result.ReturnType}{doc}");
+        }
+
+        // Members (for types, or overloads for methods)
+        if (result.Members is { Length: > 0 })
+        {
+            sb.AppendLine();
+            var memberLabel = result.Kind.Contains("overload") ? "Overloads:" : "Members:";
+            sb.AppendLine($"  {memberLabel}");
+            foreach (var m in result.Members.Take(30))
+            {
+                var typeStr = m.Type != null ? $": {m.Type}" : "";
+                var docStr = m.Summary != null ? $" — {m.Summary}" : "";
+                var paramStr = m.Parameters != null ? $" {m.Parameters}" : "";
+                sb.AppendLine($"    {m.Kind} {m.Name}{paramStr}{typeStr}{docStr}");
+            }
+            if (result.Members.Length > 30)
+            {
+                sb.AppendLine($"    ... and {result.Members.Length - 30} more");
+            }
+        }
+
         return sb.ToString();
     }
 }
