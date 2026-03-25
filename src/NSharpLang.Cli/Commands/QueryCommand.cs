@@ -33,6 +33,7 @@ public static class QueryCommand
             "definition" or "def" => DefinitionCommand(positionalArgs, options),
             "references" or "refs" => ReferencesCommand(positionalArgs, options),
             "completions" => CompletionsCommand(positionalArgs, options),
+            "doc" => DocCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
             _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
         };
@@ -315,6 +316,48 @@ public static class QueryCommand
         return 0;
     }
 
+    private static readonly Lazy<DocQuery> _docQuery = new(() =>
+    {
+        var dq = new DocQuery();
+        dq.LoadSystemAssemblies();
+        return dq;
+    });
+
+    private static int DocCommand(string[] args, QueryOptions options)
+    {
+        var query = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null;
+
+        if (query == null)
+        {
+            return QueryError("Usage: nlc query doc <type-or-member>\n\nExamples:\n  nlc query doc Console\n  nlc query doc Console.WriteLine\n  nlc query doc List\n  nlc query doc System.IO.File");
+        }
+
+        var result = _docQuery.Value.Lookup(query);
+        if (result == null)
+        {
+            if (options.UseText)
+            {
+                Console.Error.WriteLine($"No documentation found for '{query}'.");
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ErrorToJson("doc", $"No documentation found for '{query}'."));
+            }
+            return 1;
+        }
+
+        if (options.UseText)
+        {
+            Console.Write(OutputFormatter.DocToText(result));
+        }
+        else
+        {
+            Console.Write(OutputFormatter.DocToJson(result, query));
+        }
+
+        return 0;
+    }
+
     // ── Option Parsing ──────────────────────────────────────────────────
 
     private record QueryOptions(
@@ -428,6 +471,7 @@ Commands:
   definition    Find where a symbol is defined (aliases: def)
   references    Find all references to a symbol (aliases: refs)
   completions   Get completions at a position (LLM-optimized)
+  doc           Look up .NET API documentation
 
 Global Options:
   --json        Output as JSON (default)
@@ -446,7 +490,10 @@ Examples:
   nlc query type --file Program.nl --pos 5:4 # Type at position
   nlc query def --file Program.nl --pos 5:4  # Definition at position
   nlc query def --name Person                # Search by name
-  nlc query refs --file Program.nl --pos 5:4 # All references");
+  nlc query refs --file Program.nl --pos 5:4 # All references
+  nlc query doc Console                      # Type documentation
+  nlc query doc Console.WriteLine            # Method documentation
+  nlc query doc List                         # Generic type docs");
 
         return 0;
     }
