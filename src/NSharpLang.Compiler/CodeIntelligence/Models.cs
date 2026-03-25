@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -158,3 +159,57 @@ public record InspectResult(
     DefinitionResult? Definition,
     InspectReferencesResult References,
     CompletionResult Completions);
+
+/// <summary>
+/// Compact inspect result for token-efficient LLM navigation.
+/// </summary>
+public record InspectSummaryResult(
+    InspectSummarySymbolResult? Symbol,
+    InspectSummaryTypeResult? Type,
+    LocationResult? Definition,
+    InspectSummaryReferencesResult References,
+    InspectSummaryCompletionsResult Completions);
+
+/// <summary>
+/// Compact symbol summary for inspect summary mode.
+/// </summary>
+public record InspectSummarySymbolResult(
+    string Name,
+    string Kind);
+
+/// <summary>
+/// Compact type summary for inspect summary mode.
+/// </summary>
+public record InspectSummaryTypeResult(
+    string Name,
+    string ResolvedType,
+    string Kind);
+
+/// <summary>
+/// Compact reference sample for inspect summary mode.
+/// </summary>
+public record InspectReferenceSummaryResult(
+    string File,
+    int Line,
+    int Column,
+    bool IsDefinition);
+
+/// <summary>
+/// Compact reference summary for inspect summary mode.
+/// </summary>
+public record InspectSummaryReferencesResult(
+    int Count,
+    int DefinitionCount,
+    string[] Files,
+    InspectReferenceSummaryResult[] Sample);
+
+/// <summary>
+/// Compact completion summary for inspect summary mode.
+/// </summary>
+public record InspectSummaryCompletionsResult(
+    string Context,
+    string? Receiver,
+    string? ReceiverType,
+    int TotalCount,
+    Dictionary<string, int> GroupCounts,
+    Dictionary<string, string[]> Groups);

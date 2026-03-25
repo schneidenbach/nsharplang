@@ -285,10 +285,16 @@ public static class QueryCommand
     {
         var file = GetOption(args, "--file") ?? options.File;
         var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summaryMode = options.InspectSummary;
 
         if (file == null || posStr == null)
         {
             return QueryError("Usage: nlc query inspect --file <path> --pos <line>:<col>");
+        }
+
+        if (summaryMode && options.UseText)
+        {
+            return QueryError("--summary is only supported with JSON output.");
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
@@ -362,7 +368,9 @@ public static class QueryCommand
         }
         else
         {
-            Console.Write(OutputFormatter.InspectToJson(inspect, file, line, col));
+            Console.Write(summaryMode
+                ? OutputFormatter.InspectSummaryToJson(inspect, file, line, col)
+                : OutputFormatter.InspectToJson(inspect, file, line, col));
         }
 
         return 0;
@@ -518,7 +526,8 @@ public static class QueryCommand
         string? File,
         string? Pos,
         bool UseText,
-        bool NoDaemon);
+        bool NoDaemon,
+        bool InspectSummary);
 
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
@@ -527,6 +536,7 @@ public static class QueryCommand
         string? pos = null;
         var useText = false;
         var noDaemon = false;
+        var inspectSummary = false;
 
         subcommand = args[0];
         var remaining = new List<string>();
@@ -553,6 +563,9 @@ public static class QueryCommand
                 case "--no-daemon":
                     noDaemon = true;
                     break;
+                case "--summary":
+                    inspectSummary = true;
+                    break;
                 default:
                     remaining.Add(args[i]);
                     break;
@@ -560,7 +573,7 @@ public static class QueryCommand
         }
 
         remainingArgs = remaining.ToArray();
-        return new QueryOptions(projectDir, file, pos, useText, noDaemon);
+        return new QueryOptions(projectDir, file, pos, useText, noDaemon, inspectSummary);
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -623,6 +636,7 @@ public static class QueryCommand
         var kind = GetOption(args, "--kind");
         var severity = GetOption(args, "--severity");
         var includeKeywords = args.Contains("--include-keywords");
+        var summaryMode = options.InspectSummary;
 
         if (!string.IsNullOrWhiteSpace(file))
             parameters["file"] = file;
@@ -636,6 +650,8 @@ public static class QueryCommand
             parameters["severity"] = severity;
         if (includeKeywords)
             parameters["includeKeywords"] = true;
+        if (summaryMode)
+            parameters["summary"] = true;
 
         return parameters;
     }
@@ -719,6 +735,7 @@ Examples:
   nlc query diagnostics --text               # Elm-style error output
   nlc query type --file Program.nl --pos 5:4 # Type at position
   nlc query inspect --file Program.nl --pos 5:4
+  nlc query inspect --file Program.nl --pos 5:4 --summary
   nlc query def --file Program.nl --pos 5:4  # Definition at position
   nlc query def --name Person                # Search by name
   nlc query refs --file Program.nl --pos 5:4 # All references

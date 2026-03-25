@@ -137,6 +137,28 @@ public class CliCommandTests
     }
 
     [Fact]
+    public void InspectSummary_Contract_UsesCompactEnvelope()
+    {
+        var examplesDir = FindExamplesDir();
+        var (_, json, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "inspect",
+            "--summary",
+            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+            "--file", "Program.nl",
+            "--pos", "86:39"
+        }));
+
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        AssertJsonContract("inspectSummary", json);
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
+        Assert.False(doc.RootElement.TryGetProperty("result", out _));
+        Assert.Equal("Total", summary.GetProperty("symbol").GetProperty("name").GetString());
+    }
+
+    [Fact]
     public void CheckCommand_ReportsMissingImportDiagnostics()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-check-{Guid.NewGuid():N}");
@@ -340,6 +362,19 @@ func Main() {
             new[]
             {
                 "inspect",
+                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+                "--file", "Program.nl",
+                "--pos", "86:39"
+            }
+        };
+
+        yield return new object[]
+        {
+            "inspectSummary",
+            new[]
+            {
+                "inspect",
+                "--summary",
                 "--project", Path.Combine(examplesDir, "15-dogfood-project"),
                 "--file", "Program.nl",
                 "--pos", "86:39"

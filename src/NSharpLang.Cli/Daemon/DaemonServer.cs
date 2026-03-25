@@ -188,6 +188,7 @@ public class DaemonServer
             var kind = GetParam<string>(request.Params, "kind");
             var severity = GetParam<string>(request.Params, "severity");
             var includeKeywords = GetParam<bool>(request.Params, "includeKeywords");
+            var summary = GetParam<bool>(request.Params, "summary");
 
             int line = 0, col = 0;
             if (posStr != null)
@@ -210,7 +211,7 @@ public class DaemonServer
                 DaemonConstants.MethodDefinition => HandleDefinition(file, line, col, name),
                 DaemonConstants.MethodReferences => HandleReferences(file, line, col),
                 DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
-                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords),
+                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary),
                 _ => throw new Exception($"Unknown method: {request.Method}")
             };
 
@@ -331,7 +332,7 @@ public class DaemonServer
         return OutputFormatter.CompletionsToJson(result, file, line, col);
     }
 
-    private string HandleInspect(string? file, int line, int col, bool includeKeywords)
+    private string HandleInspect(string? file, int line, int col, bool includeKeywords, bool summary)
     {
         if (file == null) return OutputFormatter.ErrorToJson("inspect", "file and pos required");
 
@@ -379,7 +380,9 @@ public class DaemonServer
                 references.ToArray()),
             completions);
 
-        return OutputFormatter.InspectToJson(inspect, file, line, col);
+        return summary
+            ? OutputFormatter.InspectSummaryToJson(inspect, file, line, col)
+            : OutputFormatter.InspectToJson(inspect, file, line, col);
     }
 
     // ── Snapshot Management ─────────────────────────────────────────────
