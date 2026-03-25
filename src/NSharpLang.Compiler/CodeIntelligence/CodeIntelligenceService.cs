@@ -1603,9 +1603,9 @@ public class CodeIntelligenceService
             if (line <= 0 || line > lines.Length) return null;
 
             var lineText = lines[line - 1];
-            if (lineText.Length == 0 || col <= 0) return null;
+            if (lineText.Length == 0 || col <= 0 || col > lineText.Length) return null;
 
-            var index = Math.Min(col - 1, lineText.Length - 1);
+            var index = col - 1;
             if (!IsIdentifierChar(lineText[index]) && index > 0 && IsIdentifierChar(lineText[index - 1]))
             {
                 index--;
@@ -1643,10 +1643,10 @@ public class CodeIntelligenceService
                 return null;
 
             var lineText = lines[line - 1];
-            if (lineText.Length == 0 || col <= 0)
+            if (lineText.Length == 0 || col <= 0 || col > lineText.Length)
                 return null;
 
-            var index = Math.Min(col - 1, lineText.Length - 1);
+            var index = col - 1;
             if (!IsIdentifierChar(lineText[index]) && index > 0 && IsIdentifierChar(lineText[index - 1]))
                 index--;
 
