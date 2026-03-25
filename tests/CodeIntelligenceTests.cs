@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
@@ -45,9 +46,11 @@ public class CodeIntelligenceOutputTests
         };
 
         var json = OutputFormatter.DiagnosticsToJson(diagnostics, "/project");
-        Assert.Contains("\"errors\": 1", json);
-        Assert.Contains("\"warnings\": 1", json);
-        Assert.Contains("\"info\": 0", json);
+        var doc = JsonDocument.Parse(json);
+        Assert.Equal("diagnostics", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+        Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("info").GetInt32());
     }
 
     [Fact]
@@ -81,11 +84,12 @@ public class CodeIntelligenceOutputTests
             new LocationResult("Models.nl", 5, 0));
 
         var json = OutputFormatter.TypeToJson(result, "Program.nl", 8, 4);
-        Assert.Contains("\"schemaVersion\": 1", json);
-        Assert.Contains("\"command\": \"type\"", json);
-        Assert.Contains("\"file\": \"Program.nl\"", json);
-        Assert.Contains("\"line\": 8", json);
-        Assert.Contains("\"resolvedType\": \"Person\"", json);
+        var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("type", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("Program.nl", doc.RootElement.GetProperty("file").GetString());
+        Assert.Equal(8, doc.RootElement.GetProperty("position").GetProperty("line").GetInt32());
+        Assert.Equal("Person", doc.RootElement.GetProperty("result").GetProperty("resolvedType").GetString());
     }
 
     [Fact]
@@ -93,9 +97,12 @@ public class CodeIntelligenceOutputTests
     {
         var result = new DefinitionResult("Person", "class", "Models.nl", 5, 0, 6);
         var json = OutputFormatter.DefinitionToJson(result);
-        Assert.Contains("\"name\": \"Person\"", json);
-        Assert.Contains("\"kind\": \"class\"", json);
-        Assert.Contains("\"file\": \"Models.nl\"", json);
+        var doc = JsonDocument.Parse(json);
+        var value = doc.RootElement.GetProperty("result");
+        Assert.Equal("definition", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("Person", value.GetProperty("name").GetString());
+        Assert.Equal("class", value.GetProperty("kind").GetString());
+        Assert.Equal("Models.nl", value.GetProperty("file").GetString());
     }
 
     [Fact]
@@ -136,10 +143,11 @@ public class CodeIntelligenceOutputTests
 
         var json = OutputFormatter.ReferencesToJson("Person", "class",
             new LocationResult("Models.nl", 5, 0), results);
-        Assert.Contains("\"count\": 2", json);
-        Assert.Contains("\"isDefinition\": true", json);
-        Assert.Contains("\"definedAt\":", json);
-        Assert.Contains("\"name\": \"Person\"", json);
+        var doc = JsonDocument.Parse(json);
+        Assert.Equal("references", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal(2, doc.RootElement.GetProperty("count").GetInt32());
+        Assert.Equal("Person", doc.RootElement.GetProperty("symbol").GetProperty("name").GetString());
+        Assert.True(doc.RootElement.GetProperty("results")[0].GetProperty("isDefinition").GetBoolean());
     }
 
     [Fact]
@@ -177,11 +185,32 @@ public class CodeIntelligenceOutputTests
                 }));
 
         var json = OutputFormatter.InspectToJson(inspect, "Program.nl", 85, 22);
-        Assert.Contains("\"command\": \"inspect\"", json);
-        Assert.Contains("\"symbol\":", json);
-        Assert.Contains("\"references\":", json);
-        Assert.Contains("\"definitionCount\": 1", json);
-        Assert.Contains("\"receiver\":", json);
+        var doc = JsonDocument.Parse(json);
+        var result = doc.RootElement.GetProperty("result");
+        Assert.Equal("inspect", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("GetStats", result.GetProperty("symbol").GetProperty("name").GetString());
+        Assert.Equal(1, result.GetProperty("references").GetProperty("definitionCount").GetInt32());
+        Assert.Equal("service", result.GetProperty("completions").GetProperty("receiver").GetString());
+    }
+
+    [Fact]
+    public void CheckToJson_HasStableEnvelope()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
+                null, null, null, null, "int", "string", null)
+        };
+
+        var json = OutputFormatter.CheckToJson(diagnostics, "/project", 3);
+        var doc = JsonDocument.Parse(json);
+
+        Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("check", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("/project", doc.RootElement.GetProperty("projectRoot").GetString());
+        Assert.Equal(3, doc.RootElement.GetProperty("checkedFiles").GetInt32());
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
     }
 
     // ── OutputFormatter Text Tests ──────────────────────────────────────

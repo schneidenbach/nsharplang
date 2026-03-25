@@ -72,6 +72,27 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
+    {
+        var summary = new DiagnosticSummary(
+            Errors: results.Count(d => d.Severity == "error"),
+            Warnings: results.Count(d => d.Severity == "warning"),
+            Info: results.Count(d => d.Severity == "info")
+        );
+
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "check",
+            projectRoot,
+            checkedFiles,
+            ok = summary.Errors == 0,
+            results,
+            summary
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string TypeToJson(TypeResult result, string file, int line, int col)
     {
         var envelope = new

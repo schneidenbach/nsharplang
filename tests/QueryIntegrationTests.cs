@@ -635,9 +635,10 @@ public class QueryIntegrationTests : IDisposable
     {
         var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 33);
 
-        Assert.Equal(7, refs.Count);
+        Assert.Equal(8, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
         Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 91 && r.Column == 43);
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 93 && r.Column == 23);
     }
 
     [Fact]
@@ -645,9 +646,10 @@ public class QueryIntegrationTests : IDisposable
     {
         var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 39);
 
-        Assert.Equal(5, refs.Count);
+        Assert.Equal(6, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
         Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 39);
+        Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 114 && r.Column == 38);
     }
 
     // ═══════════════════════════════════════════════════════════════════

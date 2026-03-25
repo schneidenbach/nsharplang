@@ -89,4 +89,6 @@ func Main() {
     Console.WriteLine($"Done: {stats.Done}")
     Console.WriteLine($"Overdue: {stats.Overdue}")
     Console.WriteLine($"Completion Rate: {stats.GetCompletionRate()}%")
+    Console.WriteLine("\nSummary")
+    Console.WriteLine(stats.FormatSummary())
 }

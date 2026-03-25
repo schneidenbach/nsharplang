@@ -3,7 +3,7 @@
 **Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
 **Test count:** 944+ tests passing, 0 failures.
 
-The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. Every command outputs structured JSON by default (for LLMs) with a `--text` flag for human-readable Elm-style output.
+The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, and `nlc fix` all output structured JSON by default with a versioned envelope. Add `--text` for human-readable output.
 
 ---
 
@@ -18,8 +18,8 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
-| `nlc check` | Fast type-check (no codegen) | `nlc check` |
-| `nlc fix` | Auto-apply compiler suggestions | `nlc fix` |
+| `nlc check` | Fast type-check (JSON by default) | `nlc check` |
+| `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
 ### Code Intelligence (`nlc query`)
 
@@ -34,6 +34,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query diagnostics` | Errors/warnings with Elm-level context | `nlc query diagnostics` |
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
 | `nlc query type --file F --pos L:C` | Type info at position | `nlc query type --file Program.nl --pos 5:4` |
+| `nlc query inspect --file F --pos L:C` | One-shot symbol/type/definition/refs/completions bundle | `nlc query inspect --file Program.nl --pos 5:4` |
 | `nlc query def --file F --pos L:C` | Definition at position (semantic) | `nlc query def --file Program.nl --pos 5:12` |
 | `nlc query def --name N` | Definition by name (search) | `nlc query def --name Person` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
@@ -68,9 +69,16 @@ The N# equivalent of `cargo check`. Parses and analyzes without transpiling or i
 
 ```bash
 $ nlc check
-  Checked 3 files — no errors.
+{
+  "schemaVersion": 1,
+  "command": "check",
+  "checkedFiles": 3,
+  "ok": true,
+  "results": [],
+  "summary": { "errors": 0, "warnings": 0, "info": 0 }
+}
 
-$ nlc check   # with errors
+$ nlc check --text   # with errors
 ── [NL301] ERROR ──────────────────── Program.nl:2:10 ──
     2 |     x := unknownVar
       |          ^
@@ -78,7 +86,7 @@ Undefined identifier 'unknownVar'
 ```
 
 - Exit code 0 = clean, 1 = errors
-- Elm-style errors to stderr
+- JSON by default, `--text` for Elm-style diagnostics
 - Uses `CompileForAnalysis()` internally (parse + analyze, skip transpile)
 
 ### `nlc fix` — Auto-Apply Suggestions
@@ -86,6 +94,18 @@ Undefined identifier 'unknownVar'
 The N# equivalent of `cargo clippy --fix`. Reads diagnostics, finds available code fixes, and applies them to source files.
 
 ```bash
+$ nlc fix
+{
+  "schemaVersion": 1,
+  "command": "fix",
+  "dryRun": false,
+  "ok": true,
+  "filesModified": 1,
+  "fixesApplied": [
+    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Collections.Generic" }
+  ]
+}
+
 $ nlc fix --text
 Fixed 1 issue in 1 file:
   Program.nl:
@@ -141,6 +161,27 @@ $ nlc query completions --file PersonService.nl --pos 15:15
 
 Add `--include-keywords` to also get keywords, primitives, and modifiers.
 
+### `nlc query inspect` — One Round Trip, Full Context
+
+`inspect` is the LLM-first navigation primitive. It bundles the semantic symbol, resolved type, definition, references summary, and completions for a single cursor position.
+
+```bash
+$ nlc query inspect --file Program.nl --pos 85:22
+{
+  "schemaVersion": 1,
+  "command": "inspect",
+  "file": "Program.nl",
+  "position": { "line": 85, "column": 22 },
+  "result": {
+    "symbol": { "name": "GetStats", "kind": "function", "definition": { "file": "Services/TaskService.nl", "line": 93, "column": 5 } },
+    "type": { "resolvedType": "TaskStats", "kind": "record" },
+    "definition": { "name": "GetStats", "kind": "function", "file": "Services/TaskService.nl", "line": 93, "column": 5 },
+    "references": { "count": 2, "definitionCount": 1, "results": [...] },
+    "completions": { "context": "memberaccess", "receiver": "service", "receiverType": "TaskService", "completions": { ... } }
+  }
+}
+```
+
 ### `nlc query diagnostics` — Elm-Level Error Output
 
 The richest error output of any .NET language. Every diagnostic includes source snippets, explanations, suggestions, type info, and documentation URLs.
@@ -183,7 +224,7 @@ $ nlc query symbols
 
 ## JSON Schema Discipline
 
-All `nlc query` and `nlc fix` commands output JSON with a versioned envelope:
+All `nlc query`, `nlc check`, and `nlc fix` commands output JSON with a versioned envelope:
 
 ```json
 {
@@ -197,6 +238,46 @@ All `nlc query` and `nlc fix` commands output JSON with a versioned envelope:
 - All paths are relative to project root
 - Coordinates are 1-based (line 1, column 1)
 - `null` fields are omitted from output
+
+`check` envelope:
+- `command`
+- `projectRoot`
+- `checkedFiles`
+- `ok`
+- `results`
+- `summary`
+
+`fix` envelope:
+- `command`
+- `projectRoot`
+- `dryRun`
+- `ok`
+- `filesModified`
+- `fixesApplied`
+
+`inspect` envelope:
+- `command`
+- `file`
+- `position`
+- `result.symbol`
+- `result.type`
+- `result.definition`
+- `result.references`
+- `result.completions`
+
+## Local Install
+
+Use [scripts/install-local-nlc.sh](/Users/spencer/repos/nsharplang/scripts/install-local-nlc.sh) to make the current repo’s CLI the global `nlc` in one step.
+
+```bash
+./scripts/install-local-nlc.sh
+```
+
+The script:
+- builds and packs the local CLI
+- clears stale dotnet-tool caches for `NSharpLang.Cli`
+- reinstalls the global tool from the repo package
+- verifies the installed `nlc`
 
 ---
 
