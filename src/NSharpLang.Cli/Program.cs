@@ -29,6 +29,7 @@ class Program
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => LintCommand(args.Skip(1).ToArray()),
             "check" => CheckCommand(args.Skip(1).ToArray()),
+            "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
@@ -1412,6 +1413,7 @@ class Program
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
         Console.WriteLine("  check                - Fast type-check (no codegen) — like cargo check");
+        Console.WriteLine("  fix                  - Auto-apply compiler suggestions — like cargo clippy --fix");
         Console.WriteLine("  lint [files...]      - Lint .nl files and show diagnostics");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");
