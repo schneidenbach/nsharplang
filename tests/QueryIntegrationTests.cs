@@ -591,6 +591,65 @@ public class QueryIntegrationTests : IDisposable
         Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 85);
     }
 
+    [Fact]
+    public void Definition_Dogfood_MethodUseSite_Resolves()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 85, 22);
+
+        Assert.NotNull(result);
+        Assert.Equal("GetStats", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(93, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_LocalVariableInInterpolation_Resolves()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 33);
+
+        Assert.NotNull(result);
+        Assert.Equal("stats", result!.Name);
+        Assert.Equal("record", result.Kind);
+        Assert.Equal("Program.nl", result.File);
+        Assert.Equal(85, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_RecordPropertyInInterpolation_Resolves()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 39);
+
+        Assert.NotNull(result);
+        Assert.Equal("Total", result!.Name);
+        Assert.Equal("field", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(106, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void References_Dogfood_LocalVariableUseSite_IncludeInterpolationUses()
+    {
+        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 33);
+
+        Assert.Equal(7, refs.Count);
+        Assert.Single(refs.Where(r => r.IsDefinition));
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 91 && r.Column == 43);
+    }
+
+    [Fact]
+    public void References_Dogfood_RecordPropertyUseSite_IncludeInterpolationUse()
+    {
+        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 39);
+
+        Assert.Equal(5, refs.Count);
+        Assert.Single(refs.Where(r => r.IsDefinition));
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 39);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════════

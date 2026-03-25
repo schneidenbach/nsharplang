@@ -140,6 +140,19 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string InspectToJson(InspectResult result, string file, int line, int col)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "inspect",
+            file,
+            position = new { line, column = col },
+            result
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string CompletionsToText(CompletionResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
@@ -167,6 +180,65 @@ public static class OutputFormatter
             }
         }
 
+        return sb.ToString();
+    }
+
+    public static string InspectToText(InspectResult result, string file, int line, int col)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Inspect {file}:{line}:{col}");
+        sb.AppendLine();
+
+        if (result.Symbol != null)
+        {
+            sb.AppendLine($"Symbol: {result.Symbol.Name} ({result.Symbol.Kind})");
+            if (result.Symbol.Definition != null)
+            {
+                sb.AppendLine($"  Defined at: {result.Symbol.Definition.File}:{result.Symbol.Definition.Line}:{result.Symbol.Definition.Column}");
+            }
+        }
+        else
+        {
+            sb.AppendLine("Symbol: none");
+        }
+
+        sb.AppendLine();
+
+        if (result.Type != null)
+        {
+            sb.AppendLine($"Type: {result.Type.ResolvedType} ({result.Type.Kind})");
+        }
+        else
+        {
+            sb.AppendLine("Type: unknown");
+        }
+
+        sb.AppendLine();
+
+        if (result.Definition != null)
+        {
+            sb.AppendLine($"Definition: {result.Definition.Kind} {result.Definition.Name} at {result.Definition.File}:{result.Definition.Line}:{result.Definition.Column}");
+        }
+        else
+        {
+            sb.AppendLine("Definition: none");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"References: {result.References.Count} total ({result.References.DefinitionCount} definitions)");
+        foreach (var reference in result.References.Results.Take(10))
+        {
+            var definitionMarker = reference.IsDefinition ? " [definition]" : "";
+            var context = reference.Context != null ? $"  {reference.Context.Trim()}" : "";
+            sb.AppendLine($"  {reference.File}:{reference.Line}:{reference.Column}{definitionMarker}{context}");
+        }
+        if (result.References.Count > 10)
+        {
+            sb.AppendLine($"  ... and {result.References.Count - 10} more");
+        }
+
+        sb.AppendLine();
+        sb.Append(CompletionsToText(result.Completions, file, line, col));
         return sb.ToString();
     }
 

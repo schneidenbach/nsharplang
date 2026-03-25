@@ -132,3 +132,29 @@ public record LocationResult(
     string File,
     int Line,
     int Column);
+
+/// <summary>
+/// Symbol summary for an inspect query.
+/// </summary>
+public record InspectSymbolResult(
+    string Name,
+    string Kind,
+    LocationResult? Definition);
+
+/// <summary>
+/// Reference summary for an inspect query.
+/// </summary>
+public record InspectReferencesResult(
+    int Count,
+    int DefinitionCount,
+    ReferenceResult[] Results);
+
+/// <summary>
+/// Aggregated one-shot inspect result for LLM-friendly navigation.
+/// </summary>
+public record InspectResult(
+    InspectSymbolResult? Symbol,
+    TypeResult? Type,
+    DefinitionResult? Definition,
+    InspectReferencesResult References,
+    CompletionResult Completions);

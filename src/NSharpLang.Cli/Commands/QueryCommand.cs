@@ -30,6 +30,7 @@ public static class QueryCommand
             "outline" => OutlineCommand(positionalArgs, options),
             "diagnostics" => DiagnosticsCommand(positionalArgs, options),
             "type" => TypeCommand(positionalArgs, options),
+            "inspect" => InspectCommand(positionalArgs, options),
             "definition" or "def" => DefinitionCommand(positionalArgs, options),
             "references" or "refs" => ReferencesCommand(positionalArgs, options),
             "completions" => CompletionsCommand(positionalArgs, options),
@@ -240,6 +241,67 @@ public static class QueryCommand
         }
 
         return QueryError("Usage: nlc query definition --file <path> --pos <line>:<col>\n       nlc query definition --name <name>");
+    }
+
+    private static int InspectCommand(string[] args, QueryOptions options)
+    {
+        var file = GetOption(args, "--file") ?? options.File;
+        var posStr = GetOption(args, "--pos") ?? options.Pos;
+
+        if (file == null || posStr == null)
+        {
+            return QueryError("Usage: nlc query inspect --file <path> --pos <line>:<col>");
+        }
+
+        if (!TryParsePosition(posStr, out var line, out var col))
+        {
+            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+        }
+
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var type = Service.GetTypeAtPosition(snapshot, file, line, col);
+        var definition = Service.FindDefinition(snapshot, file, line, col);
+        var references = Service.FindReferences(snapshot, file, line, col);
+
+        var includeKeywords = args.Contains("--include-keywords");
+        var engine = new CompletionEngine();
+        var completions = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
+
+        InspectSymbolResult? symbol = null;
+        if (definition != null)
+        {
+            symbol = new InspectSymbolResult(
+                definition.Name,
+                definition.Kind,
+                new LocationResult(definition.File, definition.Line, definition.Column));
+        }
+        else if (type != null)
+        {
+            symbol = new InspectSymbolResult(type.Name, type.Kind, type.Definition);
+        }
+
+        var inspect = new InspectResult(
+            symbol,
+            type,
+            definition,
+            new InspectReferencesResult(
+                references.Count,
+                references.Count(r => r.IsDefinition),
+                references.ToArray()),
+            completions);
+
+        if (options.UseText)
+        {
+            Console.Write(OutputFormatter.InspectToText(inspect, file, line, col));
+        }
+        else
+        {
+            Console.Write(OutputFormatter.InspectToJson(inspect, file, line, col));
+        }
+
+        return 0;
     }
 
     private static int ReferencesCommand(string[] args, QueryOptions options)
@@ -468,6 +530,7 @@ Commands:
   outline       Structural outline of a file
   diagnostics   Errors and warnings with rich context
   type          Get type info at a position
+  inspect       One-shot symbol/type/refs/completions bundle
   definition    Find where a symbol is defined (aliases: def)
   references    Find all references to a symbol (aliases: refs)
   completions   Get completions at a position (LLM-optimized)
@@ -488,6 +551,7 @@ Examples:
   nlc query diagnostics                      # All errors/warnings
   nlc query diagnostics --text               # Elm-style error output
   nlc query type --file Program.nl --pos 5:4 # Type at position
+  nlc query inspect --file Program.nl --pos 5:4
   nlc query def --file Program.nl --pos 5:4  # Definition at position
   nlc query def --name Person                # Search by name
   nlc query refs --file Program.nl --pos 5:4 # All references
