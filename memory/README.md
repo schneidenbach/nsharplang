@@ -284,8 +284,10 @@ These documentation files are optimized for AI context windows:
 8. ✅ How do I write tests?
 9. ✅ What are the current limitations?
 10. ✅ How does [tricky feature] work internally?
+11. ✅ What CLI commands exist? → [components/cli-toolchain.md](components/cli-toolchain.md)
+12. ✅ How does the LLM code intelligence toolchain work?
+13. ✅ How does N# compare to Go/Rust for LLM development?
 
 ---
 
-*Last Updated: 2025-11-08*
-*Documentation split from single 133KB file into focused files for better AI context usage*
+*Last Updated: 2026-03-25*
