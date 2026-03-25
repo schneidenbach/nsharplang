@@ -152,6 +152,38 @@ public class CodeIntelligenceOutputTests
         Assert.Contains("\"schemaVersion\": 1", json);
     }
 
+    [Fact]
+    public void InspectToJson_IncludesBundledNavigationData()
+    {
+        var inspect = new InspectResult(
+            new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
+            new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+            new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
+            new InspectReferencesResult(2, 1, new[]
+            {
+                new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+            }),
+            new CompletionResult(
+                CompletionContext.MemberAccess,
+                "service",
+                "TaskService",
+                new Dictionary<string, List<CompletionItem>>
+                {
+                    ["functions"] = new()
+                    {
+                        new CompletionItem("GetStats", "function", "TaskStats", "()", null, false)
+                    }
+                }));
+
+        var json = OutputFormatter.InspectToJson(inspect, "Program.nl", 85, 22);
+        Assert.Contains("\"command\": \"inspect\"", json);
+        Assert.Contains("\"symbol\":", json);
+        Assert.Contains("\"references\":", json);
+        Assert.Contains("\"definitionCount\": 1", json);
+        Assert.Contains("\"receiver\":", json);
+    }
+
     // ── OutputFormatter Text Tests ──────────────────────────────────────
 
     [Fact]
@@ -312,6 +344,39 @@ public class CodeIntelligenceOutputTests
         Assert.Contains("Definitions of 'Point'", text);
         Assert.Contains("record Point", text);
         Assert.Contains("struct Point", text);
+    }
+
+    [Fact]
+    public void InspectToText_FormatsSections()
+    {
+        var inspect = new InspectResult(
+            new InspectSymbolResult("stats", "variable", new LocationResult("Program.nl", 85, 5)),
+            new TypeResult("stats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+            new DefinitionResult("Total", "property", "Services/TaskService.nl", 106, 5, 5),
+            new InspectReferencesResult(2, 1, new[]
+            {
+                new ReferenceResult("Program.nl", 85, 5, 5, "stats := service.GetStats()", true),
+                new ReferenceResult("Program.nl", 86, 33, 5, "Console.WriteLine($\"Total: {stats.Total}\")", false)
+            }),
+            new CompletionResult(
+                CompletionContext.MemberAccess,
+                "stats",
+                "TaskStats",
+                new Dictionary<string, List<CompletionItem>>
+                {
+                    ["properties"] = new()
+                    {
+                        new CompletionItem("Total", "property", "int", null, null, false)
+                    }
+                }));
+
+        var text = OutputFormatter.InspectToText(inspect, "Program.nl", 86, 39);
+        Assert.Contains("Inspect Program.nl:86:39", text);
+        Assert.Contains("Symbol: stats", text);
+        Assert.Contains("Type: TaskStats", text);
+        Assert.Contains("Definition: property Total", text);
+        Assert.Contains("References: 2 total", text);
+        Assert.Contains("Completions at Program.nl:86:39", text);
     }
 
     // ── Model Record Tests ──────────────────────────────────────────────

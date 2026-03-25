@@ -228,34 +228,8 @@ public class CodeIntelligenceService
     /// </summary>
     public DefinitionResult? FindDefinition(ProjectSnapshot snapshot, string file, int line, int col)
     {
-        var (filePath, cu) = FindCompilationUnit(snapshot, file);
-        if (cu == null) return null;
-
-        // Find expression at position
-        var expr = AstNodeFinder.FindExpressionAtPosition(cu, line, col);
-        var name = expr switch
-        {
-            IdentifierExpression id => id.Name,
-            MemberAccessExpression ma => ma.MemberName,
-            _ => null
-        };
-
-        if (name == null)
-        {
-            // Fallback: extract word from source at position
-            name = ExtractWordAtPosition(snapshot, filePath, line, col);
-        }
-
-        if (name == null) return null;
-
-        // Search all compilation units for the declaration
-        foreach (var (defFile, defCu) in snapshot.CompilationUnits)
-        {
-            var result = FindDeclarationInUnit(defCu, name, GetRelativePath(snapshot.ProjectRoot, defFile));
-            if (result != null) return result;
-        }
-
-        return null;
+        var declaration = ResolveDefinitionSymbolAtPosition(snapshot, file, line, col);
+        return declaration != null ? ToDefinitionResult(snapshot, declaration) : null;
     }
 
     /// <summary>
@@ -283,22 +257,79 @@ public class CodeIntelligenceService
     /// </summary>
     public List<ReferenceResult> FindReferences(ProjectSnapshot snapshot, string file, int line, int col)
     {
-        var (filePath, cu) = FindCompilationUnit(snapshot, file);
-        if (cu == null) return new List<ReferenceResult>();
+        var declaration = ResolveDefinitionSymbolAtPosition(snapshot, file, line, col);
+        if (declaration == null)
+            return new List<ReferenceResult>();
 
-        // Try semantic path via BindingMap first
-        if (snapshot.Bindings != null)
+        var results = new List<ReferenceResult>
         {
-            var semanticResults = FindReferencesViaBindingMap(snapshot, filePath, line, col);
-            // Only use semantic results if we found actual usages (not just the declaration itself).
-            // If the BindingMap only returns the declaration, fall through to text-based search
-            // which can find cross-file references that the import resolution path didn't record.
-            if (semanticResults != null && semanticResults.Count > 1)
-                return semanticResults;
+            new(
+                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+                declaration.Line,
+                declaration.Column,
+                declaration.Name.Length,
+                GetSourceContext(declaration.File, declaration.Line),
+                IsDefinition: true)
+        };
+
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
+
+            foreach (var candidate in EnumerateReferenceCandidates(cu))
+            {
+                if (!string.Equals(candidate.Name, declaration.Name, StringComparison.Ordinal))
+                    continue;
+
+                var resolved = ResolveDefinitionSymbolFromExpression(snapshot, filePath, cu, semanticModel, candidate.Expression);
+                if (!MatchesDeclaration(resolved, declaration))
+                    continue;
+
+                if (declaration.File == filePath &&
+                    declaration.Line == candidate.Line &&
+                    declaration.Column == candidate.Column)
+                {
+                    continue;
+                }
+
+                results.Add(new ReferenceResult(
+                    GetRelativePath(snapshot.ProjectRoot, filePath),
+                    candidate.Line,
+                    candidate.Column,
+                    candidate.Length,
+                    GetSourceContext(filePath, candidate.Line),
+                    IsDefinition: false));
+            }
+
+            foreach (var occurrence in EnumerateSourceOccurrences(filePath, declaration.Name))
+            {
+                var resolved = ResolveDefinitionSymbolAtPosition(snapshot, filePath, occurrence.Line, occurrence.Column);
+                if (!MatchesDeclaration(resolved, declaration))
+                    continue;
+
+                if (declaration.File == filePath &&
+                    declaration.Line == occurrence.Line)
+                {
+                    continue;
+                }
+
+                results.Add(new ReferenceResult(
+                    GetRelativePath(snapshot.ProjectRoot, filePath),
+                    occurrence.Line,
+                    occurrence.Column,
+                    declaration.Name.Length,
+                    GetSourceContext(filePath, occurrence.Line),
+                    IsDefinition: false));
+            }
         }
 
-        // Fallback to text-based search (for cases where BindingMap doesn't cover)
-        return FindReferencesViaTextSearch(snapshot, cu, filePath, line, col);
+        return results
+            .GroupBy(r => (r.File, r.Line, r.Column))
+            .Select(g => g.First())
+            .OrderBy(r => r.File)
+            .ThenBy(r => r.Line)
+            .ThenBy(r => r.Column)
+            .ToList();
     }
 
     /// <summary>
@@ -474,7 +505,731 @@ public class CodeIntelligenceService
         return null;
     }
 
+    private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)
+        => new(
+            declaration.Name,
+            declaration.Kind,
+            GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+            declaration.Line,
+            declaration.Column,
+            declaration.Name.Length);
+
+    private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
+    {
+        var (filePath, cu) = FindCompilationUnit(snapshot, file);
+        if (cu == null) return null;
+
+        snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
+
+        var binding = TryResolveDefinitionViaBindings(snapshot, filePath, line, col);
+        if (binding != null)
+            return binding;
+
+        var expr = FindExpressionAtPositionRobust(cu, line, col);
+        var fromExpression = ResolveDefinitionSymbolFromExpression(snapshot, filePath, cu, semanticModel, expr);
+        if (fromExpression != null)
+            return fromExpression;
+
+        var fromSourceContext = ResolveDefinitionSymbolFromSourceContext(snapshot, filePath, cu, semanticModel, line, col);
+        if (fromSourceContext != null)
+            return fromSourceContext;
+
+        foreach (var candidateName in GetCandidateQueryNames(expr, snapshot, filePath, line, col))
+        {
+            var byName = FindBestDeclarationSymbolByName(snapshot, filePath, candidateName, line);
+            if (byName != null)
+                return byName;
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? ResolveDefinitionSymbolFromExpression(ProjectSnapshot snapshot, string filePath,
+        CompilationUnit currentUnit, SemanticModel? semanticModel, Expression? expr)
+    {
+        if (expr == null)
+            return null;
+
+        return expr switch
+        {
+            IdentifierExpression id => TryResolveDefinitionViaBindings(snapshot, filePath, id.Line, id.Column)
+                ?? FindDeclarationSymbol(snapshot, id.Name),
+            MemberAccessExpression memberAccess => ResolveMemberDefinitionSymbol(snapshot, currentUnit, semanticModel, memberAccess),
+            CallExpression call => ResolveDefinitionSymbolFromExpression(snapshot, filePath, currentUnit, semanticModel, call.Callee),
+            NewExpression newExpr when newExpr.Type != null => FindDeclarationSymbol(snapshot, GetTypeReferenceName(newExpr.Type)),
+            CastExpression castExpr => FindDeclarationSymbol(snapshot, GetTypeReferenceName(castExpr.TargetType)),
+            _ => null
+        };
+    }
+
+    private SymbolDeclaration? ResolveMemberDefinitionSymbol(ProjectSnapshot snapshot, CompilationUnit currentUnit,
+        SemanticModel? semanticModel, MemberAccessExpression memberAccess)
+    {
+        var receiverType = ResolveTypeInfoFromExpression(memberAccess.Object, semanticModel, snapshot, currentUnit);
+        if (receiverType == null && memberAccess.Object is IdentifierExpression receiverId)
+        {
+            receiverType = ResolveTypeInfoByName(receiverId.Name, semanticModel, snapshot, currentUnit);
+        }
+
+        return receiverType != null
+            ? FindMemberDeclarationSymbol(snapshot, receiverType, memberAccess.MemberName)
+            : null;
+    }
+
+    private SymbolDeclaration? TryResolveDefinitionViaBindings(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        if (snapshot.Bindings == null)
+            return null;
+
+        foreach (var candidateColumn in GetBindingCandidateColumns(snapshot, filePath, line, col))
+        {
+            var declaration = snapshot.Bindings.GetBindingAt(filePath, line, candidateColumn);
+            if (declaration != null)
+                return declaration;
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? ResolveDefinitionSymbolFromSourceContext(ProjectSnapshot snapshot, string filePath,
+        CompilationUnit currentUnit, SemanticModel? semanticModel, int line, int col)
+    {
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (span == null)
+            return null;
+
+        var name = ExtractWordAtPosition(snapshot, filePath, line, col);
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var receiverName = ExtractMemberReceiverName(filePath, line, span.Value.StartColumn);
+        if (!string.IsNullOrWhiteSpace(receiverName))
+        {
+            var receiverType = ResolveTypeInfoByName(receiverName, semanticModel, snapshot, currentUnit);
+            if (receiverType != null)
+            {
+                var memberDeclaration = FindMemberDeclarationSymbol(snapshot, receiverType, name);
+                if (memberDeclaration != null)
+                    return memberDeclaration;
+            }
+        }
+
+        return FindBestDeclarationSymbolByName(snapshot, filePath, name, line);
+    }
+
+    private static IEnumerable<int> GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        var seen = new HashSet<int>();
+
+        if (col > 0)
+            seen.Add(col);
+        if (col > 1)
+            seen.Add(col - 1);
+        seen.Add(col + 1);
+
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (span != null)
+        {
+            for (int candidate = span.Value.StartColumn; candidate <= span.Value.EndColumn; candidate++)
+            {
+                seen.Add(candidate);
+            }
+        }
+
+        return seen.OrderBy(candidate => Math.Abs(candidate - col));
+    }
+
+    private SymbolDeclaration? FindDeclarationSymbol(ProjectSnapshot snapshot, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            var declaration = FindDeclarationSymbolInUnit(cu, name, filePath);
+            if (declaration != null)
+                return declaration;
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? FindBestDeclarationSymbolByName(ProjectSnapshot snapshot, string filePath, string? name, int line)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        var bindingDeclaration = FindNearestBindingDeclarationByName(snapshot, filePath, name, line);
+        if (bindingDeclaration != null)
+            return bindingDeclaration;
+
+        return FindDeclarationSymbol(snapshot, name);
+    }
+
+    private SymbolDeclaration? FindNearestBindingDeclarationByName(ProjectSnapshot snapshot, string filePath, string name, int line)
+    {
+        if (snapshot.Bindings == null)
+            return null;
+
+        return snapshot.Bindings.FindDeclarationsByName(name)
+            .Where(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal) && declaration.Line <= line)
+            .OrderByDescending(declaration => declaration.Line)
+            .ThenByDescending(declaration => declaration.Column)
+            .FirstOrDefault();
+    }
+
+    private SymbolDeclaration? FindDeclarationSymbolInUnit(CompilationUnit cu, string name, string filePath)
+    {
+        foreach (var decl in cu.Declarations)
+        {
+            if (GetDeclarationName(decl) == name)
+            {
+                return new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl));
+            }
+
+            var nested = FindDeclarationSymbolInMembers(GetDeclarationMembers(decl), name, filePath);
+            if (nested != null)
+                return nested;
+
+            if (decl is EnumDeclaration enumDecl)
+            {
+                foreach (var member in enumDecl.Members)
+                {
+                    if (member.Name == name)
+                        return new SymbolDeclaration(name, filePath, member.Line, member.Column, "enumMember");
+                }
+            }
+
+            if (decl is UnionDeclaration unionDecl)
+            {
+                foreach (var unionCase in unionDecl.Cases)
+                {
+                    if (unionCase.Name == name)
+                        return new SymbolDeclaration(name, filePath, unionCase.Line, unionCase.Column, "unionCase");
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? FindDeclarationSymbolInMembers(IEnumerable<Declaration>? members, string name, string filePath)
+    {
+        if (members == null)
+            return null;
+
+        foreach (var member in members)
+        {
+            if (GetDeclarationName(member) == name)
+            {
+                return new SymbolDeclaration(name, filePath, member.Line, member.Column, GetDeclarationKind(member));
+            }
+
+            var nested = FindDeclarationSymbolInMembers(GetDeclarationMembers(member), name, filePath);
+            if (nested != null)
+                return nested;
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? FindMemberDeclarationSymbol(ProjectSnapshot snapshot, TypeInfo receiverType, string memberName)
+    {
+        return receiverType switch
+        {
+            ClassTypeInfo classType => FindMemberDeclarationSymbol(snapshot, classType.Declaration.Name, memberName)
+                ?? (classType.Declaration.BaseClass != null
+                    ? FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(classType.Declaration.BaseClass, snapshot), memberName)
+                    : null),
+            StructTypeInfo structType => FindMemberDeclarationSymbol(snapshot, structType.Declaration.Name, memberName),
+            RecordTypeInfo recordType => FindMemberDeclarationSymbol(snapshot, recordType.Declaration.Name, memberName),
+            InterfaceTypeInfo interfaceType => FindMemberDeclarationSymbol(snapshot, interfaceType.Declaration.Name, memberName),
+            EnumTypeInfo enumType => FindMemberDeclarationSymbol(snapshot, enumType.Declaration.Name, memberName),
+            UnionTypeInfo unionType => FindMemberDeclarationSymbol(snapshot, unionType.Declaration.Name, memberName),
+            AliasTypeInfo aliasType => FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
+            NullableTypeInfo nullableType => FindMemberDeclarationSymbol(snapshot, nullableType.InnerType, memberName),
+            _ => null
+        };
+    }
+
+    private SymbolDeclaration? FindMemberDeclarationSymbol(ProjectSnapshot snapshot, string typeName, string memberName)
+    {
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            foreach (var decl in cu.Declarations)
+            {
+                if (GetDeclarationName(decl) != typeName)
+                    continue;
+
+                var member = FindMemberDeclarationSymbolInDeclaration(decl, memberName, filePath);
+                if (member != null)
+                    return member;
+            }
+        }
+
+        return null;
+    }
+
+    private SymbolDeclaration? FindMemberDeclarationSymbolInDeclaration(Declaration declaration, string memberName, string filePath)
+    {
+        foreach (var member in GetDeclarationMembers(declaration) ?? Enumerable.Empty<Declaration>())
+        {
+            if (GetDeclarationName(member) == memberName)
+            {
+                return new SymbolDeclaration(memberName, filePath, member.Line, member.Column, GetDeclarationKind(member));
+            }
+        }
+
+        if (declaration is EnumDeclaration enumDecl)
+        {
+            foreach (var member in enumDecl.Members)
+            {
+                if (member.Name == memberName)
+                    return new SymbolDeclaration(memberName, filePath, member.Line, member.Column, "enumMember");
+            }
+        }
+
+        if (declaration is UnionDeclaration unionDecl)
+        {
+            foreach (var unionCase in unionDecl.Cases)
+            {
+                if (unionCase.Name == memberName)
+                    return new SymbolDeclaration(memberName, filePath, unionCase.Line, unionCase.Column, "unionCase");
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesDeclaration(SymbolDeclaration? left, SymbolDeclaration right)
+        => left != null
+            && string.Equals(left.File, right.File, StringComparison.Ordinal)
+            && left.Line == right.Line
+            && left.Column == right.Column;
+
+    private IEnumerable<(int Line, int Column)> EnumerateSourceOccurrences(string filePath, string name)
+    {
+        string source;
+        try
+        {
+            source = File.ReadAllText(filePath);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        var lines = source.Split('\n');
+        for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            var line = lines[lineIndex];
+            var index = 0;
+            while ((index = line.IndexOf(name, index, StringComparison.Ordinal)) >= 0)
+            {
+                var before = index > 0 ? line[index - 1] : ' ';
+                var after = index + name.Length < line.Length ? line[index + name.Length] : ' ';
+
+                if (!char.IsLetterOrDigit(before) && before != '_' &&
+                    !char.IsLetterOrDigit(after) && after != '_' &&
+                    IsResolvableSourceOccurrence(line, index))
+                {
+                    yield return (lineIndex + 1, index + 1);
+                }
+
+                index += name.Length;
+            }
+        }
+    }
+
+    private static bool IsResolvableSourceOccurrence(string line, int index)
+    {
+        var inString = false;
+        var interpolatedString = false;
+        var interpolationDepth = 0;
+        var quoteChar = '\0';
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (!inString)
+            {
+                if (i < index && line[i] == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                    return false;
+
+                if (line[i] == '"' || line[i] == '\'')
+                {
+                    inString = true;
+                    quoteChar = line[i];
+                    interpolatedString = i > 0 && line[i - 1] == '$';
+                    interpolationDepth = 0;
+                }
+            }
+            else
+            {
+                if (interpolatedString)
+                {
+                    if (line[i] == '{')
+                    {
+                        interpolationDepth++;
+                    }
+                    else if (line[i] == '}' && interpolationDepth > 0)
+                    {
+                        interpolationDepth--;
+                    }
+                }
+
+                if (line[i] == quoteChar && interpolationDepth == 0 && (i == 0 || line[i - 1] != '\\'))
+                {
+                    inString = false;
+                    interpolatedString = false;
+                }
+            }
+
+            if (i == index)
+            {
+                if (!inString)
+                    return true;
+
+                return interpolatedString && interpolationDepth > 0;
+            }
+        }
+
+        return false;
+    }
+
+    private IEnumerable<ReferenceCandidate> EnumerateReferenceCandidates(CompilationUnit cu)
+    {
+        foreach (var declaration in cu.Declarations)
+        {
+            foreach (var candidate in EnumerateReferenceCandidatesInDeclaration(declaration))
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    private IEnumerable<ReferenceCandidate> EnumerateReferenceCandidatesInDeclaration(Declaration declaration)
+    {
+        switch (declaration)
+        {
+            case FunctionDeclaration function when function.Body != null:
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(function.Body))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case ClassDeclaration classDeclaration:
+                foreach (var member in classDeclaration.Members)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInDeclaration(member))
+                    {
+                        yield return candidate;
+                    }
+                }
+                break;
+
+            case StructDeclaration structDeclaration:
+                foreach (var member in structDeclaration.Members)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInDeclaration(member))
+                    {
+                        yield return candidate;
+                    }
+                }
+                break;
+
+            case RecordDeclaration recordDeclaration:
+                foreach (var member in recordDeclaration.Members)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInDeclaration(member))
+                    {
+                        yield return candidate;
+                    }
+                }
+                break;
+
+            case InterfaceDeclaration interfaceDeclaration:
+                foreach (var member in interfaceDeclaration.Members)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInDeclaration(member))
+                    {
+                        yield return candidate;
+                    }
+                }
+                break;
+        }
+    }
+
+    private IEnumerable<ReferenceCandidate> EnumerateReferenceCandidatesInStatement(Statement? statement)
+    {
+        if (statement == null)
+            yield break;
+
+        switch (statement)
+        {
+            case BlockStatement block:
+                foreach (var child in block.Statements)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInStatement(child))
+                    {
+                        yield return candidate;
+                    }
+                }
+                break;
+
+            case ExpressionStatement expressionStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(expressionStatement.Expression))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case VariableDeclarationStatement variableDeclaration when variableDeclaration.Initializer != null:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(variableDeclaration.Initializer))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(returnStatement.Value))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case IfStatement ifStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(ifStatement.Condition))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(ifStatement.ThenStatement))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(ifStatement.ElseStatement))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case WhileStatement whileStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(whileStatement.Condition))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(whileStatement.Body))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case ForStatement forStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(forStatement.Initializer))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(forStatement.Condition))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(forStatement.Iterator))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(forStatement.Body))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case ForeachStatement foreachStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(foreachStatement.Collection))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(foreachStatement.Body))
+                {
+                    yield return candidate;
+                }
+                break;
+
+            case TryStatement tryStatement:
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(tryStatement.TryBlock))
+                {
+                    yield return candidate;
+                }
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInStatement(catchClause.Block))
+                    {
+                        yield return candidate;
+                    }
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInStatement(tryStatement.FinallyBlock))
+                {
+                    yield return candidate;
+                }
+                break;
+        }
+    }
+
+    private IEnumerable<ReferenceCandidate> EnumerateReferenceCandidatesInExpression(Expression? expression)
+    {
+        if (expression == null)
+            yield break;
+
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                yield return new ReferenceCandidate(identifier, identifier.Name, identifier.Line, identifier.Column, identifier.Name.Length);
+                yield break;
+
+            case MemberAccessExpression memberAccess:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(memberAccess.Object))
+                {
+                    yield return candidate;
+                }
+                yield return new ReferenceCandidate(
+                    memberAccess,
+                    memberAccess.MemberName,
+                    memberAccess.Line,
+                    GetMemberNameColumn(memberAccess),
+                    memberAccess.MemberName.Length);
+                yield break;
+
+            case CallExpression call:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(call.Callee))
+                {
+                    yield return candidate;
+                }
+                foreach (var argument in call.Arguments)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInExpression(argument.Value))
+                    {
+                        yield return candidate;
+                    }
+                }
+                yield break;
+
+            case BinaryExpression binary:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(binary.Left))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(binary.Right))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case UnaryExpression unary:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(unary.Operand))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case IndexAccessExpression indexAccess:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(indexAccess.Object))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(indexAccess.Index))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInExpression(element))
+                    {
+                        yield return candidate;
+                    }
+                }
+                yield break;
+
+            case AssignmentExpression assignment:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(assignment.Target))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(assignment.Value))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case LambdaExpression lambda:
+                if (lambda.ExpressionBody != null)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInExpression(lambda.ExpressionBody))
+                    {
+                        yield return candidate;
+                    }
+                }
+                else
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInStatement(lambda.BlockBody))
+                    {
+                        yield return candidate;
+                    }
+                }
+                yield break;
+
+            case WithExpression withExpression:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(withExpression.Target))
+                {
+                    yield return candidate;
+                }
+                foreach (var initializer in withExpression.Properties)
+                {
+                    foreach (var candidate in EnumerateReferenceCandidatesInExpression(initializer.Value))
+                    {
+                        yield return candidate;
+                    }
+                }
+                yield break;
+
+            case AwaitExpression awaitExpression:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(awaitExpression.Expression))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case CastExpression castExpression:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(castExpression.Expression))
+                {
+                    yield return candidate;
+                }
+                yield break;
+
+            case TernaryExpression ternary:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(ternary.Condition))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(ternary.ThenExpression))
+                {
+                    yield return candidate;
+                }
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(ternary.ElseExpression))
+                {
+                    yield return candidate;
+                }
+                yield break;
+        }
+    }
+
+    private static int GetMemberNameColumn(MemberAccessExpression memberAccess)
+        => memberAccess.Column + (memberAccess.IsNullConditional ? 2 : 1);
+
     // ── Private Helpers ──────────────────────────────────────────────────
+
+    private readonly record struct ReferenceCandidate(Expression Expression, string Name, int Line, int Column, int Length);
 
     private void ExtractDeclarationSymbols(List<Declaration> declarations, string file, List<SymbolResult> results)
     {
@@ -1308,31 +2063,131 @@ public class CodeIntelligenceService
 
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (span == null)
+            return null;
+
         try
         {
             var source = File.ReadAllText(filePath);
             var lines = source.Split('\n');
-            if (line <= 0 || line > lines.Length) return null;
-
             var lineText = lines[line - 1];
-            if (col < 0 || col >= lineText.Length) return null;
-
-            // Find word boundaries
-            var start = col;
-            while (start > 0 && (char.IsLetterOrDigit(lineText[start - 1]) || lineText[start - 1] == '_'))
-                start--;
-
-            var end = col;
-            while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
-                end++;
-
-            return start < end ? lineText.Substring(start, end - start) : null;
+            var startIndex = span.Value.StartColumn - 1;
+            var length = span.Value.EndColumn - span.Value.StartColumn + 1;
+            return lineText.Substring(startIndex, length);
         }
         catch
         {
             return null;
         }
     }
+
+    private static string? ExtractMemberReceiverName(string filePath, int line, int memberStartColumn)
+    {
+        try
+        {
+            var source = File.ReadAllText(filePath);
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            var memberStartIndex = memberStartColumn - 1;
+            if (memberStartIndex <= 0 || memberStartIndex > lineText.Length)
+                return null;
+
+            var separatorIndex = memberStartIndex - 1;
+            if (separatorIndex >= 0 && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 1;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                    receiverEnd--;
+                if (receiverEnd < 0)
+                    return null;
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                    receiverStart--;
+
+                receiverStart++;
+                return receiverStart <= receiverEnd
+                    ? lineText.Substring(receiverStart, receiverEnd - receiverStart + 1)
+                    : null;
+            }
+
+            if (separatorIndex >= 1 && lineText[separatorIndex - 1] == '?' && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 2;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                    receiverEnd--;
+                if (receiverEnd < 0)
+                    return null;
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                    receiverStart--;
+
+                receiverStart++;
+                return receiverStart <= receiverEnd
+                    ? lineText.Substring(receiverStart, receiverEnd - receiverStart + 1)
+                    : null;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (int StartColumn, int EndColumn)? ExtractIdentifierSpanAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        try
+        {
+            var source = File.ReadAllText(filePath);
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            if (lineText.Length == 0)
+                return null;
+
+            var index = Math.Clamp(col - 1, 0, lineText.Length - 1);
+            if (!IsIdentifierChar(lineText[index]))
+            {
+                if (index > 0 && IsIdentifierChar(lineText[index - 1]))
+                {
+                    index--;
+                }
+                else if (index + 1 < lineText.Length && IsIdentifierChar(lineText[index + 1]))
+                {
+                    index++;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+
+            var start = index;
+            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
+                start--;
+
+            var end = index;
+            while (end + 1 < lineText.Length && IsIdentifierChar(lineText[end + 1]))
+                end++;
+
+            return (start + 1, end + 1);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static string? ExtractVariableDeclarationNameAtPosition(ProjectSnapshot snapshot, string filePath, int line)
     {
