@@ -240,7 +240,9 @@ public class Analyzer
             AnalyzeStatement(func.Body);
 
             // Missing return (all-paths) check for non-void functions.
-            if (_currentReturnType != BuiltInTypes.Void && !StatementAlwaysReturns(func.Body))
+            // Iterator functions (func* / async*) use yield, not explicit return.
+            var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
+            if (_currentReturnType != BuiltInTypes.Void && !isIterator && !StatementAlwaysReturns(func.Body))
             {
                 Error(
                     ErrorCode.MissingReturn,
@@ -305,6 +307,9 @@ public class Analyzer
                 return ifStmt.ElseStatement != null &&
                        StatementAlwaysReturns(ifStmt.ThenStatement) &&
                        StatementAlwaysReturns(ifStmt.ElseStatement);
+
+            case LockStatement lockStmt:
+                return StatementAlwaysReturns(lockStmt.Body);
 
             default:
                 return false;
@@ -1630,35 +1635,31 @@ public class Analyzer
                     if (end > start)
                     {
                         var expr = value.Substring(start, end - start).Trim();
-                        // Handle simple identifiers (not complex expressions like method calls)
-                        // Split on common expression operators to get the base identifier
-                        var identParts = expr.Split(new[] { '.', '(', ')', '[', ']', ' ', ',', ':', '?', '!' },
-                            StringSplitOptions.RemoveEmptyEntries);
-                        if (identParts.Length > 0)
+                        // Only validate bare identifiers (e.g. {foo}, {count}).
+                        // Complex expressions (method calls, member access, casts, ternaries, etc.)
+                        // are left to the C# backend to validate.
+                        var ident = expr;
+                        var isBareIdentifier = ident.Length > 0 && char.IsLetter(ident[0]) &&
+                            ident.All(c => char.IsLetterOrDigit(c) || c == '_');
+                        if (isBareIdentifier && !IsKeyword(ident))
                         {
-                            var ident = identParts[0];
-                            if (ident.Length > 0 && char.IsLetter(ident[0]) && !IsKeyword(ident))
+                            bool found = false;
+                            foreach (var scope in _scopes)
                             {
-                                // Check if this identifier is declared in any scope
-                                bool found = false;
-                                foreach (var scope in _scopes)
-                                {
-                                    if (scope.Symbols.ContainsKey(ident)) { found = true; break; }
-                                }
-                                if (!found && TryResolveExternalType(ident) != null) found = true;
-                                if (!found && LookupType(ident) != null) found = true;
-                                if (!found)
-                                {
-                                    // Calculate approximate column position within the source line
-                                    var col = strExpr.Column + (start - 0); // approximate
-                                    _errors.Add(CompilerError.Create(
-                                        ErrorCode.UndefinedVariable,
-                                        $"Undeclared identifier '{ident}' in string interpolation",
-                                        strExpr.Line,
-                                        col,
-                                        ErrorSeverity.Error
-                                    ));
-                                }
+                                if (scope.Symbols.ContainsKey(ident)) { found = true; break; }
+                            }
+                            if (!found && TryResolveExternalType(ident) != null) found = true;
+                            if (!found && LookupType(ident) != null) found = true;
+                            if (!found)
+                            {
+                                var col = strExpr.Column + (start - 0);
+                                _errors.Add(CompilerError.Create(
+                                    ErrorCode.UndefinedVariable,
+                                    $"Undeclared identifier '{ident}' in string interpolation",
+                                    strExpr.Line,
+                                    col,
+                                    ErrorSeverity.Error
+                                ));
                             }
                         }
                     }
@@ -1670,7 +1671,10 @@ public class Analyzer
     }
 
     private static bool IsKeyword(string name) =>
-        name is "true" or "false" or "null" or "this" or "base" or "new" or "typeof" or "nameof";
+        name is "true" or "false" or "null" or "this" or "base" or "new" or "typeof" or "nameof"
+            // Built-in type names (used in casts inside interpolated strings)
+            or "int" or "long" or "float" or "double" or "bool" or "string" or "object"
+            or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "decimal" or "char" or "void";
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
     {
