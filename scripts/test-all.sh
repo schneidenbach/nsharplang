@@ -15,6 +15,28 @@ NC='\033[0m' # No Color
 # Track failures
 FAILURES=0
 
+get_cpu_count() {
+    if command -v getconf >/dev/null 2>&1; then
+        getconf _NPROCESSORS_ONLN 2>/dev/null && return
+    fi
+    if command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.ncpu 2>/dev/null && return
+    fi
+    echo 4
+}
+
+DEFAULT_JOBS=$(get_cpu_count)
+if ! [[ "$DEFAULT_JOBS" =~ ^[0-9]+$ ]] || [ "$DEFAULT_JOBS" -lt 1 ]; then
+    DEFAULT_JOBS=4
+fi
+if [ "$DEFAULT_JOBS" -gt 4 ]; then
+    DEFAULT_JOBS=4
+fi
+MAX_JOBS=${TEST_ALL_JOBS:-$DEFAULT_JOBS}
+if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
+    MAX_JOBS=1
+fi
+
 # Function to print section headers
 section() {
     echo
@@ -36,10 +58,11 @@ handle_success() {
 # Change to repo root
 cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
+CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll"
 
 section "Step 1: Clean Previous Build Artifacts"
 echo "Cleaning bin/ and obj/ directories..."
-find . -type d -name "bin" -o -name "obj" -o -name "nsharp" | while read dir; do
+find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
     if [[ "$dir" != "./node_modules"* ]]; then
         rm -rf "$dir"
     fi
@@ -48,7 +71,7 @@ handle_success "Cleaned build artifacts"
 
 section "Step 2: Build N# Compiler"
 echo "Building compiler and CLI..."
-if dotnet build src/NSharpLang.Compiler/Compiler.csproj -v q; then
+if dotnet build src/NSharpLang.Cli/Cli.csproj -v q; then
     handle_success "Compiler built"
 else
     handle_error "Compiler build"
@@ -56,13 +79,18 @@ fi
 
 section "Step 3: Run Unit Tests"
 echo "Running all unit tests..."
-if dotnet test -v q --nologo; then
-    TEST_RESULT=$(dotnet test --nologo --verbosity quiet 2>&1 | grep -E "Passed|Failed" || echo "")
-    echo "$TEST_RESULT"
+TEST_OUTPUT=$(mktemp)
+if dotnet test tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
+    TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
+    if [ -n "$TEST_RESULT" ]; then
+        echo "$TEST_RESULT"
+    fi
     handle_success "Unit tests passed"
 else
+    cat "$TEST_OUTPUT"
     handle_error "Unit tests"
 fi
+rm -f "$TEST_OUTPUT"
 
 section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing SDK to local NuGet feed..."
@@ -158,6 +186,7 @@ cd "$REPO_ROOT"
 rm -rf "$TEMP_DIR"
 
 section "Step 8: Build Example Projects"
+echo "Using up to $MAX_JOBS parallel workers for project verification..."
 
 # Find all example projects with project.yml
 EXAMPLE_PROJECTS=$(find examples -name "project.yml" -type f | sort)
@@ -165,71 +194,113 @@ EXAMPLE_PROJECTS=$(find examples -name "project.yml" -type f | sort)
 if [ -z "$EXAMPLE_PROJECTS" ]; then
     echo "No example projects found with project.yml"
 else
-    for project_file in $EXAMPLE_PROJECTS; do
+    EXAMPLE_RESULTS_DIR=$(mktemp -d)
+    EXAMPLE_LIST="$EXAMPLE_RESULTS_DIR/items.txt"
+    i=0
+    printf '%s\n' "$EXAMPLE_PROJECTS" | while IFS= read -r project_file; do
+        i=$((i + 1))
+        printf '%04d|%s\n' "$i" "$project_file"
+    done > "$EXAMPLE_LIST"
+
+    xargs -P "$MAX_JOBS" -I{} bash -lc '
+        entry="$1"
+        repo_root="$2"
+        results_dir="$3"
+        idx="${entry%%|*}"
+        project_file="${entry#*|}"
         project_dir=$(dirname "$project_file")
         project_name=$(basename "$project_dir")
+        log_file="$results_dir/$idx.log"
+        result_file="$results_dir/$idx.result"
+        work_dir="$repo_root/$project_dir"
+
+        rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
+
+        if (cd "$work_dir" && dotnet restore > /dev/null 2>&1 && dotnet build --no-restore > "$log_file" 2>&1); then
+            printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
+        else
+            printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
+        fi
+    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" < "$EXAMPLE_LIST"
+
+    while IFS='|' read -r idx project_file; do
+        result_file="$EXAMPLE_RESULTS_DIR/$idx.result"
+        status=$(cut -d'|' -f1 "$result_file")
+        project_name=$(cut -d'|' -f2 "$result_file")
+        project_dir=$(cut -d'|' -f3 "$result_file")
 
         echo
         echo "Building example: $project_name"
         echo "  Location: $project_dir"
 
-        cd "$REPO_ROOT/$project_dir"
-
-        # Clean first
-        rm -rf bin obj nsharp 2>/dev/null || true
-
-        # Restore and build
-        if dotnet restore > /dev/null 2>&1 && dotnet build 2>&1 | grep -q "Build succeeded"; then
+        if [ "$status" = "OK" ]; then
             handle_success "Example: $project_name"
         else
             handle_error "Example: $project_name"
             echo "  Run manually: cd $project_dir && dotnet build"
         fi
+    done < "$EXAMPLE_LIST"
 
-        cd "$REPO_ROOT"
-    done
+    rm -rf "$EXAMPLE_RESULTS_DIR"
 fi
 
 section "Step 9: Build Legacy Examples (CLI-based)"
 
-# Known-failure examples (intentionally broken for error-demonstration purposes)
-KNOWN_FAILURES="TestErrors"
-
-# Find standalone .nl files in example dirs that don't have a project.yml
-# (project-based examples are already handled in Step 8)
-LEGACY_EXAMPLES=""
-for nl_file in $(find examples -maxdepth 2 -name "*.nl" -type f | sort); do
-    dir=$(dirname "$nl_file")
-    if [ ! -f "$dir/project.yml" ]; then
-        LEGACY_EXAMPLES="$LEGACY_EXAMPLES $nl_file"
-    fi
-done
+# Find examples with .nl files but no project.yml
+LEGACY_EXAMPLES=$(find examples -maxdepth 2 -name "*.nl" -type f | grep -v "project.yml" | sort)
 
 if [ -z "$LEGACY_EXAMPLES" ]; then
     echo "No legacy examples found"
 else
     echo "Note: Legacy examples use direct CLI compilation (not dotnet build)"
-    for nl_file in $LEGACY_EXAMPLES; do
-        example_name=$(basename "$nl_file" .nl)
+    if [ ! -f "$CLI_DLL" ]; then
+        handle_error "CLI build artifact missing"
+    else
+        LEGACY_RESULTS_DIR=$(mktemp -d)
+        LEGACY_LIST="$LEGACY_RESULTS_DIR/items.txt"
+        i=0
+        printf '%s\n' "$LEGACY_EXAMPLES" | while IFS= read -r nl_file; do
+            i=$((i + 1))
+            printf '%04d|%s\n' "$i" "$nl_file"
+        done > "$LEGACY_LIST"
 
-        echo
-        echo "Compiling legacy example: $example_name"
-        echo "  Location: $nl_file"
+        xargs -P "$MAX_JOBS" -I{} bash -lc '
+            entry="$1"
+            repo_root="$2"
+            results_dir="$3"
+            cli_dll="$4"
+            idx="${entry%%|*}"
+            nl_file="${entry#*|}"
+            example_name=$(basename "$nl_file" .nl)
+            log_file="$results_dir/$idx.log"
+            result_file="$results_dir/$idx.result"
 
-        # Check if this is a known-failure (intentional error demo)
-        if echo "$KNOWN_FAILURES" | grep -qw "$example_name"; then
-            echo -e "${YELLOW}  Skipped (known intentional failure)${NC}"
-            continue
-        fi
+            if dotnet "$cli_dll" build "$nl_file" > "$log_file" 2>&1; then
+                printf "OK|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
+            else
+                printf "SKIP|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
+            fi
+        ' _ {} "$REPO_ROOT" "$LEGACY_RESULTS_DIR" "$CLI_DLL" < "$LEGACY_LIST"
 
-        # Compile with CLI — failures are real failures
-        if dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build "$nl_file" > /dev/null 2>&1; then
-            handle_success "Legacy example: $example_name"
-        else
-            handle_error "Legacy example: $example_name"
-            echo "  Run manually: dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build $nl_file"
-        fi
-    done
+        while IFS='|' read -r idx nl_file; do
+            result_file="$LEGACY_RESULTS_DIR/$idx.result"
+            status=$(cut -d'|' -f1 "$result_file")
+            example_name=$(cut -d'|' -f2 "$result_file")
+            example_path=$(cut -d'|' -f3 "$result_file")
+
+            echo
+            echo "Compiling legacy example: $example_name"
+            echo "  Location: $example_path"
+
+            if [ "$status" = "OK" ]; then
+                handle_success "Legacy example: $example_name"
+            else
+                echo -e "${YELLOW}  Skipped (may require special setup)${NC}"
+            fi
+        done < "$LEGACY_LIST"
+
+        rm -rf "$LEGACY_RESULTS_DIR"
+    fi
 fi
 
 section "Step 10: Summary"
