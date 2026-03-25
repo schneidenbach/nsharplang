@@ -96,5 +96,5 @@ All three warnings from Codex adversarial code review were fixed:
 - `~/.claude/skills/computer-use/SKILL.md` — Computer use skill for GUI automation
 
 ## Test Status
-- **882 tests passing, 0 failures, 3 skipped**
-- Tests cover: lexer, parser, analyzer, transpiler, integration, LSP handlers, FindAllReferences, member completion, namespace completion
+- **944+ tests passing, 0 failures, 3 skipped**
+- Tests cover: lexer, parser, analyzer, transpiler, integration, LSP handlers, FindAllReferences, member completion, namespace completion, CodeIntelligence (symbols, outline, diagnostics, definition, references, completions, BindingMap), OutputFormatter, CodeFix
