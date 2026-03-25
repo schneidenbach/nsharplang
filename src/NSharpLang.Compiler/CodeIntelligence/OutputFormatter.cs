@@ -27,6 +27,79 @@ public static class OutputFormatter
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
 
+    private static string? NormalizePath(string? path) => path?.Replace('\\', '/');
+
+    private static SymbolResult Normalize(SymbolResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File,
+            Members = result.Members?.Select(Normalize).ToArray()
+        };
+
+    private static OutlineResult Normalize(OutlineResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File,
+            Outline = result.Outline.Select(Normalize).ToArray()
+        };
+
+    private static OutlineEntry Normalize(OutlineEntry entry) =>
+        entry with
+        {
+            Children = entry.Children?.Select(Normalize).ToArray()
+        };
+
+    private static DiagnosticResult Normalize(DiagnosticResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File
+        };
+
+    private static TypeResult Normalize(TypeResult result) =>
+        result with
+        {
+            Definition = result.Definition != null ? Normalize(result.Definition) : null
+        };
+
+    private static DefinitionResult Normalize(DefinitionResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File
+        };
+
+    private static ReferenceResult Normalize(ReferenceResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File
+        };
+
+    private static LocationResult Normalize(LocationResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File
+        };
+
+    private static InspectSymbolResult Normalize(InspectSymbolResult result) =>
+        result with
+        {
+            Definition = result.Definition != null ? Normalize(result.Definition) : null
+        };
+
+    private static InspectReferencesResult Normalize(InspectReferencesResult result) =>
+        result with
+        {
+            Results = result.Results.Select(Normalize).ToArray()
+        };
+
+    private static InspectResult Normalize(InspectResult result) =>
+        result with
+        {
+            Symbol = result.Symbol != null ? Normalize(result.Symbol) : null,
+            Type = result.Type != null ? Normalize(result.Type) : null,
+            Definition = result.Definition != null ? Normalize(result.Definition) : null,
+            References = Normalize(result.References)
+        };
+
     // ── JSON Output ────────────────────────────────────────────────────
 
     public static string SymbolsToJson(List<SymbolResult> results, string? projectRoot = null)
@@ -35,8 +108,9 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "symbols",
-            projectRoot,
-            results
+            ok = true,
+            projectRoot = NormalizePath(projectRoot),
+            results = results.Select(Normalize).ToList()
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -47,9 +121,10 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "outline",
-            file = result.File,
+            ok = true,
+            file = NormalizePath(result.File),
             imports = result.Imports,
-            outline = result.Outline
+            outline = Normalize(result).Outline
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -65,8 +140,9 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "diagnostics",
-            projectRoot,
-            results,
+            ok = summary.Errors == 0,
+            projectRoot = NormalizePath(projectRoot),
+            results = results.Select(Normalize).ToList(),
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -84,10 +160,10 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "check",
-            projectRoot,
+            projectRoot = NormalizePath(projectRoot),
             checkedFiles,
             ok = summary.Errors == 0,
-            results,
+            results = results.Select(Normalize).ToList(),
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -99,9 +175,10 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "type",
-            file,
+            ok = true,
+            file = NormalizePath(file),
             position = new { line, column = col },
-            result
+            result = Normalize(result)
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -112,7 +189,8 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "definition",
-            result
+            ok = true,
+            result = Normalize(result)
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -123,8 +201,9 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "definition",
+            ok = results.Count > 0,
             query = new { name },
-            results,
+            results = results.Select(Normalize).ToList(),
             note = results.Count > 1
                 ? "Multiple matches. Use --file --pos for unambiguous semantic resolution."
                 : (string?)null
@@ -139,9 +218,10 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "references",
-            symbol = new { name = symbolName, kind = symbolKind, definedAt },
+            ok = true,
+            symbol = new { name = symbolName, kind = symbolKind, definedAt = definedAt != null ? Normalize(definedAt) : null },
             count = results.Count,
-            results
+            results = results.Select(Normalize).ToList()
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -152,7 +232,8 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "completions",
-            file,
+            ok = true,
+            file = NormalizePath(file),
             position = new { line, column = col },
             context = result.Context.ToString().ToLowerInvariant(),
             receiver = result.Receiver != null ? new { name = result.Receiver, type = result.ReceiverType } : null,
@@ -167,9 +248,10 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "inspect",
-            file,
+            ok = true,
+            file = NormalizePath(file),
             position = new { line, column = col },
-            result
+            result = Normalize(result)
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
@@ -269,19 +351,28 @@ public static class OutputFormatter
         {
             schemaVersion = SchemaVersion,
             command = "doc",
+            ok = true,
             query,
             result
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
-    public static string ErrorToJson(string command, string error)
+    public static string ErrorToJson(string command, string error, string? projectRoot = null,
+        string? errorCode = null, object? details = null)
     {
         var envelope = new
         {
             schemaVersion = SchemaVersion,
             command,
-            error
+            ok = false,
+            projectRoot = NormalizePath(projectRoot),
+            error = new
+            {
+                code = errorCode,
+                message = error,
+                details
+            }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }

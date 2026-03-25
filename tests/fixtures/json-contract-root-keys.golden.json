@@ -1,0 +1,99 @@
+{
+  "symbols": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "results"
+  ],
+  "outline": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "imports",
+    "outline"
+  ],
+  "diagnostics": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "results",
+    "summary"
+  ],
+  "doc": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "query",
+    "result"
+  ],
+  "type": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "position",
+    "result"
+  ],
+  "definition": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "result"
+  ],
+  "definitionSearch": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "query",
+    "results",
+    "note"
+  ],
+  "references": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "symbol",
+    "count",
+    "results"
+  ],
+  "completions": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "position",
+    "context",
+    "receiver",
+    "completions"
+  ],
+  "inspect": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "position",
+    "result"
+  ],
+  "check": [
+    "schemaVersion",
+    "command",
+    "projectRoot",
+    "checkedFiles",
+    "ok",
+    "results",
+    "summary"
+  ],
+  "fix": [
+    "schemaVersion",
+    "command",
+    "projectRoot",
+    "dryRun",
+    "ok",
+    "filesModified",
+    "results",
+    "fixesApplied"
+  ]
+}

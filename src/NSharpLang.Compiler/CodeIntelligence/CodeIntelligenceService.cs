@@ -1615,10 +1615,17 @@ public class CodeIntelligenceService
 
     private static Expression? FindExpressionAtPositionRobust(CompilationUnit cu, int line, int col)
     {
-        // CLI positions are 1-based. AstNodeFinder historically expected 0-based coordinates,
-        // so try both until all callers are aligned.
-        return AstNodeFinder.FindExpressionAtPosition(cu, line - 1, col - 1)
-            ?? AstNodeFinder.FindExpressionAtPosition(cu, line, col);
+        foreach (var candidateColumn in GetNearbyColumns(col, maxDistance: 3))
+        {
+            // CLI positions are 1-based. AstNodeFinder historically expected 0-based coordinates,
+            // so try both until all callers are aligned.
+            var expression = AstNodeFinder.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1)
+                ?? AstNodeFinder.FindExpressionAtPosition(cu, line, candidateColumn);
+            if (expression != null)
+                return expression;
+        }
+
+        return null;
     }
 
     private TypeInfo? ResolveTypeInfoAtPosition(Expression? expr, IReadOnlyList<string> candidateNames,
@@ -2154,22 +2161,9 @@ public class CodeIntelligenceService
             if (lineText.Length == 0)
                 return null;
 
-            var index = Math.Clamp(col - 1, 0, lineText.Length - 1);
-            if (!IsIdentifierChar(lineText[index]))
-            {
-                if (index > 0 && IsIdentifierChar(lineText[index - 1]))
-                {
-                    index--;
-                }
-                else if (index + 1 < lineText.Length && IsIdentifierChar(lineText[index + 1]))
-                {
-                    index++;
-                }
-                else
-                {
-                    return null;
-                }
-            }
+            var index = FindNearestIdentifierIndex(lineText, Math.Clamp(col - 1, 0, lineText.Length - 1));
+            if (index < 0)
+                return null;
 
             var start = index;
             while (start > 0 && IsIdentifierChar(lineText[start - 1]))
@@ -2188,6 +2182,66 @@ public class CodeIntelligenceService
     }
 
     private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static IEnumerable<int> GetNearbyColumns(int col, int maxDistance)
+    {
+        if (col > 0)
+            yield return col;
+
+        for (int distance = 1; distance <= maxDistance; distance++)
+        {
+            if (col - distance > 0)
+                yield return col - distance;
+
+            yield return col + distance;
+        }
+    }
+
+    private static int FindNearestIdentifierIndex(string lineText, int index)
+    {
+        if (lineText.Length == 0)
+            return -1;
+
+        if (index >= 0 && index < lineText.Length && IsIdentifierChar(lineText[index]))
+            return index;
+
+        const int maxDistance = 3;
+        for (int distance = 1; distance <= maxDistance; distance++)
+        {
+            var left = index - distance;
+            if (left >= 0 && IsIdentifierChar(lineText[left]) && IsSnapFriendlyNeighbor(lineText, left + 1, index))
+                return left;
+
+            var right = index + distance;
+            if (right < lineText.Length && IsIdentifierChar(lineText[right]) && IsSnapFriendlyNeighbor(lineText, index, right - 1))
+                return right;
+        }
+
+        return -1;
+    }
+
+    private static bool IsSnapFriendlyNeighbor(string lineText, int start, int end)
+    {
+        if (start > end)
+            return true;
+
+        for (int i = start; i <= end; i++)
+        {
+            if (i < 0 || i >= lineText.Length)
+                continue;
+
+            var ch = lineText[i];
+            if (char.IsWhiteSpace(ch))
+                continue;
+
+            if (ch is '.' or '?' or '(' or ')' or '[' or ']' or '{' or '}' or ',' or ';' or ':')
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
 
     private static string? ExtractVariableDeclarationNameAtPosition(ProjectSnapshot snapshot, string filePath, int line)
     {

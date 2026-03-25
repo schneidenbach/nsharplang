@@ -99,4 +99,5 @@ public static class DaemonConstants
     public const string MethodDefinition = "query/definition";
     public const string MethodReferences = "query/references";
     public const string MethodCompletions = "query/completions";
+    public const string MethodInspect = "query/inspect";
 }

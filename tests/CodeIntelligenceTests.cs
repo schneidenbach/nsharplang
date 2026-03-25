@@ -153,11 +153,23 @@ public class CodeIntelligenceOutputTests
     [Fact]
     public void ErrorToJson_FormatsCorrectly()
     {
-        var json = OutputFormatter.ErrorToJson("type", "No type information found at file:5:4");
-        Assert.Contains("\"error\":", json);
-        Assert.Contains("No type information found", json);
-        Assert.Contains("\"command\": \"type\"", json);
-        Assert.Contains("\"schemaVersion\": 1", json);
+        var json = OutputFormatter.ErrorToJson(
+            "type",
+            "No symbol found at Program.nl:83:1",
+            "/project",
+            "noSymbol",
+            new
+            {
+                file = "Program.nl",
+                position = new { line = 83, column = 1 }
+            });
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal("type", doc.RootElement.GetProperty("command").GetString());
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("/project", doc.RootElement.GetProperty("projectRoot").GetString());
+        Assert.Equal("noSymbol", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("Program.nl", doc.RootElement.GetProperty("error").GetProperty("details").GetProperty("file").GetString());
     }
 
     [Fact]
@@ -211,6 +223,176 @@ public class CodeIntelligenceOutputTests
         Assert.Equal(3, doc.RootElement.GetProperty("checkedFiles").GetInt32());
         Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+    }
+
+    [Fact]
+    public void JsonContracts_MatchGoldenRootKeys()
+    {
+        var expected = LoadJsonContractRootKeys();
+
+        AssertJsonContract("symbols",
+            OutputFormatter.SymbolsToJson(
+                new List<SymbolResult>
+                {
+                    new(
+                        "Main",
+                        SymbolKind.Function,
+                        "Program.nl",
+                        1,
+                        0,
+                        "void",
+                        new[] { "pub" },
+                        new[]
+                        {
+                            new SymbolResult("Run", SymbolKind.Function, "Program.nl", 2, 4, "void", null, null, null)
+                        },
+                        new[]
+                        {
+                            new ParameterResult("args", "string[]", false, null)
+                        })
+                },
+                "/project"),
+            expected);
+
+        AssertJsonContract("outline",
+            OutputFormatter.OutlineToJson(new OutlineResult(
+                "Program.nl",
+                new[] { "System", "System.Linq" },
+                new[]
+                {
+                    new OutlineEntry("Main", SymbolKind.Function, 3, 10, "void", null, null),
+                    new OutlineEntry("Person", SymbolKind.Class, 12, 20, null, null,
+                        new[]
+                        {
+                            new OutlineEntry("Name", SymbolKind.Property, 13, 13, null, "string", null)
+                        })
+                })),
+            expected);
+
+        AssertJsonContract("diagnostics",
+            OutputFormatter.DiagnosticsToJson(
+                new List<DiagnosticResult>
+                {
+                    new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
+                        null, null, null, null, "int", "string", null),
+                    new("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1,
+                        null, null, null, null, null, null, null)
+                },
+                "/project"),
+            expected);
+
+        AssertJsonContract("doc",
+            OutputFormatter.DocToJson(
+                new DocResult(
+                    "Console",
+                    "System.Console",
+                    "class",
+                    "Represents the standard input, output, and error streams.",
+                    "System",
+                    new[]
+                    {
+                        new DocMemberResult("WriteLine", "method", "void", "Writes a line", "(string value)")
+                    },
+                    new[]
+                    {
+                        new DocParameterResult("value", "string", "The text to write")
+                    },
+                    null,
+                    null,
+                    new[] { "Object" }),
+                "Console"),
+            expected);
+
+        AssertJsonContract("type",
+            OutputFormatter.TypeToJson(
+                new TypeResult("stats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+                "Program.nl",
+                85,
+                22),
+            expected);
+
+        AssertJsonContract("definition",
+            OutputFormatter.DefinitionToJson(
+                new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8)),
+            expected);
+
+        AssertJsonContract("definitionSearch",
+            OutputFormatter.DefinitionSearchToJson(
+                "Person",
+                new List<DefinitionResult>
+                {
+                    new("Person", "record", "Models.nl", 5, 0, 5),
+                    new("Person", "class", "Other.nl", 10, 0, 5)
+                }),
+            expected);
+
+        AssertJsonContract("references",
+            OutputFormatter.ReferencesToJson(
+                "Person",
+                "class",
+                new LocationResult("Models.nl", 5, 0),
+                new List<ReferenceResult>
+                {
+                    new("Models.nl", 5, 0, 6, "class Person {", true),
+                    new("Program.nl", 3, 8, 6, "p := Person{}", false)
+                }),
+            expected);
+
+        AssertJsonContract("completions",
+            OutputFormatter.CompletionsToJson(
+                new CompletionResult(
+                    CompletionContext.MemberAccess,
+                    "service",
+                    "TaskService",
+                    new Dictionary<string, List<CompletionItem>>
+                    {
+                        ["functions"] = new()
+                        {
+                            new CompletionItem("GetStats", "function", "TaskStats", "()", "Returns the task statistics", false)
+                        }
+                    }),
+                "Program.nl",
+                85,
+                22),
+            expected);
+
+        AssertJsonContract("inspect",
+            OutputFormatter.InspectToJson(
+                new InspectResult(
+                    new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
+                    new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+                    new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
+                    new InspectReferencesResult(2, 1, new[]
+                    {
+                        new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
+                        new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                    }),
+                    new CompletionResult(
+                        CompletionContext.MemberAccess,
+                        "service",
+                        "TaskService",
+                        new Dictionary<string, List<CompletionItem>>
+                        {
+                            ["functions"] = new()
+                            {
+                                new CompletionItem("GetStats", "function", "TaskStats", "()", null, false)
+                            }
+                        })),
+                "Program.nl",
+                85,
+                22),
+            expected);
+
+        AssertJsonContract("check",
+            OutputFormatter.CheckToJson(
+                new List<DiagnosticResult>
+                {
+                    new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
+                        null, null, null, null, "int", "string", null)
+                },
+                "/project",
+                3),
+            expected);
     }
 
     // ── OutputFormatter Text Tests ──────────────────────────────────────
@@ -425,5 +607,62 @@ public class CodeIntelligenceOutputTests
         Assert.Equal(3, summary.Errors);
         Assert.Equal(2, summary.Warnings);
         Assert.Equal(1, summary.Info);
+    }
+
+    private static void AssertJsonContract(string name, string json, IReadOnlyDictionary<string, string[]> expected)
+    {
+        var actual = GetRootPropertyNames(json);
+        Assert.True(expected.TryGetValue(name, out var expectedKeys), $"Missing JSON contract snapshot: {name}");
+        Assert.True(expectedKeys!.SequenceEqual(actual),
+            $"{name} JSON envelope changed.\nExpected: [{string.Join(", ", expectedKeys)}]\nActual:   [{string.Join(", ", actual)}]");
+    }
+
+    private static IReadOnlyDictionary<string, string[]> LoadJsonContractRootKeys()
+    {
+        var path = FindJsonContractFixturePath();
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+
+        return document.RootElement.EnumerateObject()
+            .ToDictionary(property => property.Name,
+                property => property.Value.EnumerateArray()
+                    .Select(value => value.GetString() ?? string.Empty)
+                    .ToArray(),
+                StringComparer.Ordinal);
+    }
+
+    private static string[] GetRootPropertyNames(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.EnumerateObject().Select(property => property.Name).ToArray();
+    }
+
+    private static string FindJsonContractFixturePath()
+    {
+        var dir = Directory.GetCurrentDirectory();
+
+        for (var i = 0; i < 10; i++)
+        {
+            var candidate = Path.Combine(dir, "tests", "fixtures", "json-contract-root-keys.golden.json");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+            {
+                break;
+            }
+
+            dir = parent.FullName;
+        }
+
+        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures/json-contract-root-keys.golden.json";
+        if (File.Exists(fallback))
+        {
+            return fallback;
+        }
+
+        throw new DirectoryNotFoundException("Could not find json-contract-root-keys.golden.json.");
     }
 }

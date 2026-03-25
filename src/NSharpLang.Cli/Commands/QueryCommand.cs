@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -44,6 +46,9 @@ public static class QueryCommand
 
     private static int SymbolsCommand(string[] args, QueryOptions options)
     {
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
+
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
@@ -108,6 +113,9 @@ public static class QueryCommand
 
     private static int DiagnosticsCommand(string[] args, QueryOptions options)
     {
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
+
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
@@ -148,6 +156,9 @@ public static class QueryCommand
             return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
         }
 
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodType, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
+
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
@@ -160,7 +171,16 @@ public static class QueryCommand
             }
             else
             {
-                Console.Write(OutputFormatter.ErrorToJson("type", $"No type information found at {file}:{line}:{col}"));
+                Console.Write(OutputFormatter.ErrorToJson(
+                    "type",
+                    $"No symbol found at {file}:{line}:{col}",
+                    GetProjectRoot(options),
+                    "noSymbol",
+                    new
+                    {
+                        file = NormalizePath(file),
+                        position = new { line, column = col }
+                    }));
             }
             return 1;
         }
@@ -191,6 +211,9 @@ public static class QueryCommand
                 return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
             }
 
+            if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, BuildDaemonParameters(args, options), out var daemonExitCode))
+                return daemonExitCode;
+
             var snapshot = LoadProjectOrFail(options);
             if (snapshot == null) return 1;
 
@@ -203,7 +226,16 @@ public static class QueryCommand
                 }
                 else
                 {
-                    Console.Write(OutputFormatter.ErrorToJson("definition", $"No definition found at {file}:{line}:{col}"));
+                    Console.Write(OutputFormatter.ErrorToJson(
+                        "definition",
+                        $"No symbol found at {file}:{line}:{col}",
+                        GetProjectRoot(options),
+                        "noSymbol",
+                        new
+                        {
+                            file = NormalizePath(file),
+                            position = new { line, column = col }
+                        }));
                 }
                 return 1;
             }
@@ -223,6 +255,12 @@ public static class QueryCommand
         // Name-based (search sugar)
         if (name != null)
         {
+            if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, new Dictionary<string, object?>
+            {
+                ["name"] = name
+            }, out var daemonExitCode))
+                return daemonExitCode;
+
             var snapshot = LoadProjectOrFail(options);
             if (snapshot == null) return 1;
 
@@ -258,6 +296,9 @@ public static class QueryCommand
             return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
         }
 
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodInspect, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
+
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
@@ -292,6 +333,29 @@ public static class QueryCommand
                 references.ToArray()),
             completions);
 
+        if (type == null && definition == null && references.Count == 0)
+        {
+            if (options.UseText)
+            {
+                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ErrorToJson(
+                    "inspect",
+                    $"No symbol found at {file}:{line}:{col}",
+                    GetProjectRoot(options),
+                    "noSymbol",
+                    new
+                    {
+                        file = NormalizePath(file),
+                        position = new { line, column = col }
+                    }));
+            }
+
+            return 1;
+        }
+
         if (options.UseText)
         {
             Console.Write(OutputFormatter.InspectToText(inspect, file, line, col));
@@ -319,16 +383,40 @@ public static class QueryCommand
             return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
         }
 
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodReferences, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
+
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
         // First resolve what symbol is at this position
         var definition = Service.FindDefinition(snapshot, file, line, col);
-        var symbolName = definition?.Name ?? "unknown";
-        var symbolKind = definition?.Kind ?? "unknown";
-        LocationResult? definedAt = definition != null
-            ? new LocationResult(definition.File, definition.Line, definition.Column)
-            : null;
+        if (definition == null)
+        {
+            if (options.UseText)
+            {
+                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ErrorToJson(
+                    "references",
+                    $"No symbol found at {file}:{line}:{col}",
+                    GetProjectRoot(options),
+                    "noSymbol",
+                    new
+                    {
+                        file = NormalizePath(file),
+                        position = new { line, column = col }
+                    }));
+            }
+
+            return 1;
+        }
+
+        var symbolName = definition.Name;
+        var symbolKind = definition.Kind;
+        LocationResult definedAt = new(definition.File, definition.Line, definition.Column);
 
         var results = Service.FindReferences(snapshot, file, line, col);
 
@@ -358,6 +446,9 @@ public static class QueryCommand
         {
             return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
         }
+
+        if (TryExecuteViaDaemon(options, DaemonConstants.MethodCompletions, BuildDaemonParameters(args, options), out var daemonExitCode))
+            return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
@@ -426,7 +517,8 @@ public static class QueryCommand
         string? ProjectDir,
         string? File,
         string? Pos,
-        bool UseText);
+        bool UseText,
+        bool NoDaemon);
 
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
@@ -434,6 +526,7 @@ public static class QueryCommand
         string? file = null;
         string? pos = null;
         var useText = false;
+        var noDaemon = false;
 
         subcommand = args[0];
         var remaining = new List<string>();
@@ -457,6 +550,9 @@ public static class QueryCommand
                 case "--json":
                     useText = false;
                     break;
+                case "--no-daemon":
+                    noDaemon = true;
+                    break;
                 default:
                     remaining.Add(args[i]);
                     break;
@@ -464,7 +560,7 @@ public static class QueryCommand
         }
 
         remainingArgs = remaining.ToArray();
-        return new QueryOptions(projectDir, file, pos, useText);
+        return new QueryOptions(projectDir, file, pos, useText, noDaemon);
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -488,7 +584,7 @@ public static class QueryCommand
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {
-        var projectDir = options.ProjectDir ?? Directory.GetCurrentDirectory();
+        var projectDir = GetProjectRoot(options);
 
         if (!Directory.Exists(projectDir))
         {
@@ -511,6 +607,76 @@ public static class QueryCommand
     {
         try { return Path.GetRelativePath(basePath, filePath); }
         catch { return filePath; }
+    }
+
+    private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static string GetProjectRoot(QueryOptions options)
+        => Path.GetFullPath(options.ProjectDir ?? Directory.GetCurrentDirectory());
+
+    private static Dictionary<string, object?> BuildDaemonParameters(string[] args, QueryOptions options)
+    {
+        var parameters = new Dictionary<string, object?>();
+        var file = GetOption(args, "--file") ?? options.File;
+        var pos = GetOption(args, "--pos") ?? options.Pos;
+        var name = GetOption(args, "--name");
+        var kind = GetOption(args, "--kind");
+        var severity = GetOption(args, "--severity");
+        var includeKeywords = args.Contains("--include-keywords");
+
+        if (!string.IsNullOrWhiteSpace(file))
+            parameters["file"] = file;
+        if (!string.IsNullOrWhiteSpace(pos))
+            parameters["pos"] = pos;
+        if (!string.IsNullOrWhiteSpace(name))
+            parameters["name"] = name;
+        if (!string.IsNullOrWhiteSpace(kind))
+            parameters["kind"] = kind;
+        if (!string.IsNullOrWhiteSpace(severity))
+            parameters["severity"] = severity;
+        if (includeKeywords)
+            parameters["includeKeywords"] = true;
+
+        return parameters;
+    }
+
+    private static bool TryExecuteViaDaemon(QueryOptions options, string method,
+        Dictionary<string, object?> parameters, out int exitCode)
+    {
+        exitCode = 0;
+        if (options.UseText || options.NoDaemon)
+            return false;
+
+        var projectRoot = GetProjectRoot(options);
+        if (!Directory.Exists(projectRoot))
+            return false;
+
+        if (!DaemonClient.IsRunning(projectRoot))
+            return false;
+
+        var result = DaemonClient.Query(projectRoot, method, parameters);
+        if (string.IsNullOrWhiteSpace(result))
+            return false;
+
+        Console.Write(result);
+        exitCode = GetJsonExitCode(result);
+        return true;
+    }
+
+    private static int GetJsonExitCode(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.TryGetProperty("ok", out var okElement))
+                return okElement.ValueKind == JsonValueKind.True ? 0 : 1;
+        }
+        catch
+        {
+            // Fall back to success when daemon returned malformed/non-envelope JSON.
+        }
+
+        return 0;
     }
 
     private static int QueryError(string message)
@@ -539,6 +705,7 @@ Commands:
 Global Options:
   --json        Output as JSON (default)
   --text        Output as human-readable text (Elm-style)
+  --no-daemon   Force in-process analysis even if a daemon is running
   --project     Project root directory (default: current directory)
   --file        Target file for file-scoped operations
   --pos         Position as line:col (e.g. 5:12)
@@ -557,7 +724,10 @@ Examples:
   nlc query refs --file Program.nl --pos 5:4 # All references
   nlc query doc Console                      # Type documentation
   nlc query doc Console.WriteLine            # Method documentation
-  nlc query doc List                         # Generic type docs");
+  nlc query doc List                         # Generic type docs
+
+JSON queries reuse `nlc daemon` automatically when a daemon is already running.
+Use `--no-daemon` to bypass the daemon for debugging.");
 
         return 0;
     }
