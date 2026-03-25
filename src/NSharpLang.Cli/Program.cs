@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
@@ -27,6 +28,10 @@ class Program
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => LintCommand(args.Skip(1).ToArray()),
+            "check" => CheckCommand(args.Skip(1).ToArray()),
+            "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
+            "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
+            "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             _ => Error($"Unknown command: {command}")
         };
@@ -1198,6 +1203,49 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Fast type-check without generating assemblies. The N# equivalent of `cargo check`.
+    /// Parse + analyze only — no transpile, no dotnet build.
+    /// Exit code 0 = clean, 1 = errors. Elm-style output to stderr.
+    /// </summary>
+    static int CheckCommand(string[] args)
+    {
+        var projectDir = args.Length > 0 ? args[0] : Directory.GetCurrentDirectory();
+
+        if (!Directory.Exists(projectDir))
+        {
+            Console.Error.WriteLine($"Directory not found: {projectDir}");
+            return 1;
+        }
+
+        try
+        {
+            var service = new NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceService();
+            var snapshot = service.LoadProject(projectDir);
+            var diagnostics = service.GetDiagnostics(snapshot);
+
+            var errors = diagnostics.Where(d => d.Severity == "error").ToList();
+            var warnings = diagnostics.Where(d => d.Severity == "warning").ToList();
+
+            if (errors.Count == 0 && warnings.Count == 0)
+            {
+                var fileCount = snapshot.SourceFiles.Count;
+                Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors.");
+                return 0;
+            }
+
+            // Print Elm-style diagnostics to stderr
+            Console.Error.Write(NSharpLang.Compiler.CodeIntelligence.OutputFormatter.DiagnosticsToText(diagnostics));
+
+            return errors.Count > 0 ? 1 : 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Check failed: {ex.Message}");
+            return 1;
+        }
+    }
+
     static int LintCommand(string[] args)
     {
         try
@@ -1364,6 +1412,8 @@ class Program
         Console.WriteLine("  run                  - Compile and run all .nl files in project");
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
+        Console.WriteLine("  check                - Fast type-check (no codegen) — like cargo check");
+        Console.WriteLine("  fix                  - Auto-apply compiler suggestions — like cargo clippy --fix");
         Console.WriteLine("  lint [files...]      - Lint .nl files and show diagnostics");
         Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
         Console.WriteLine("  help                 - Show this help message");

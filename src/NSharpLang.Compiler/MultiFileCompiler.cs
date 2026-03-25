@@ -22,6 +22,20 @@ public class MultiFileCompiler
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
+    private readonly BindingMap _projectBindings = new();
+
+    /// <summary>
+    /// Public read-only accessors for code intelligence tooling.
+    /// These expose the intermediate products of compilation (ASTs, semantic models)
+    /// without requiring a full transpile pass.
+    /// </summary>
+    public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
+    public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
+    public Analyzer SharedAnalyzer => _sharedAnalyzer;
+    public IReadOnlyList<CompilerError> AllErrors => _allErrors;
+    public IReadOnlyList<string> SourceFiles => _sourceFiles;
+    public string ProjectRoot => _projectRoot;
+    public BindingMap ProjectBindings => _projectBindings;
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
@@ -133,6 +147,12 @@ public class MultiFileCompiler
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
 
+                // Merge binding map for cross-file semantic references
+                if (result.Bindings != null)
+                {
+                    _projectBindings.Merge(result.Bindings);
+                }
+
                 // Collect errors
                 foreach (var error in result.Errors)
                 {
@@ -182,6 +202,20 @@ public class MultiFileCompiler
                     ErrorSeverity.Error
                 ));
             }
+        }
+    }
+
+    /// <summary>
+    /// Parse and analyze all files without transpiling.
+    /// This is the fast path for code intelligence queries — skips the transpile phase
+    /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
+    /// </summary>
+    public void CompileForAnalysis()
+    {
+        ParseAllFiles();
+        if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+        {
+            AnalyzeAllFiles();
         }
     }
 

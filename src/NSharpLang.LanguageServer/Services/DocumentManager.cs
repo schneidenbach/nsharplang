@@ -91,8 +91,9 @@ public class DocumentManager
                 var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, uri, projectDir);
                 diagnostics.AddRange(analysisResult.Errors);
 
-                // Store semantic model for IDE features (IntelliSense, hover, etc.)
+                // Store semantic model and binding map for IDE features
                 state.SemanticModel = analysisResult.SemanticModel;
+                state.Bindings = analysisResult.Bindings;
 
                 // Run linter for additional diagnostics
                 var linterConfig = LinterConfig.FromEditorConfig(projectDir);
@@ -177,6 +178,12 @@ public class DocumentManager
         var doc = GetDocument(uri);
         if (doc?.Text == null || string.IsNullOrEmpty(symbolName)) return results;
 
+        // NOTE: BindingMap is stored for future use by handlers that need semantic resolution.
+        // For FindAllReferences in the LSP context, we continue using the battle-tested text search
+        // because the BindingMap doesn't yet cover all expression paths (interpolation, etc.).
+        // The CLI's CodeIntelligenceService.FindReferences() uses BindingMap directly.
+
+        // Text-based search
         var lines = doc.Text.Split('\n');
         for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
         {
