@@ -102,11 +102,8 @@ public class CodeIntelligenceService
         }
 
         var imports = cu.Imports.Select(i => i.Namespace).ToArray();
-        var outline = cu.Declarations
-            .Select(d => DeclarationToOutlineEntry(d))
-            .Where(e => e != null)
-            .Cast<OutlineEntry>()
-            .ToArray();
+        var sourceText = File.ReadAllText(filePath);
+        var outline = BuildOutline(cu, sourceText);
 
         return new OutlineResult(GetRelativePath(snapshot.ProjectRoot, filePath), imports, outline);
     }
@@ -129,11 +126,7 @@ public class CodeIntelligenceService
 
         var cu = parseResult.CompilationUnit;
         var imports = cu.Imports.Select(i => i.Namespace).ToArray();
-        var outline = cu.Declarations
-            .Select(d => DeclarationToOutlineEntry(d))
-            .Where(e => e != null)
-            .Cast<OutlineEntry>()
-            .ToArray();
+        var outline = BuildOutline(cu, source);
 
         return new OutlineResult(filePath, imports, outline);
     }
@@ -230,32 +223,7 @@ public class CodeIntelligenceService
     {
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
         if (cu == null) return null;
-
-        // Find expression at position
-        var expr = AstNodeFinder.FindExpressionAtPosition(cu, line, col);
-        var name = expr switch
-        {
-            IdentifierExpression id => id.Name,
-            MemberAccessExpression ma => ma.MemberName,
-            _ => null
-        };
-
-        if (name == null)
-        {
-            // Fallback: extract word from source at position
-            name = ExtractWordAtPosition(snapshot, filePath, line, col);
-        }
-
-        if (name == null) return null;
-
-        // Search all compilation units for the declaration
-        foreach (var (defFile, defCu) in snapshot.CompilationUnits)
-        {
-            var result = FindDeclarationInUnit(defCu, name, GetRelativePath(snapshot.ProjectRoot, defFile));
-            if (result != null) return result;
-        }
-
-        return null;
+        return ResolveDefinitionAtPosition(snapshot, filePath, cu, line, col);
     }
 
     /// <summary>
@@ -286,10 +254,13 @@ public class CodeIntelligenceService
         var (filePath, cu) = FindCompilationUnit(snapshot, file);
         if (cu == null) return new List<ReferenceResult>();
 
+        var resolvedDefinition = ResolveDefinitionAtPosition(snapshot, filePath, cu, line, col);
+        List<ReferenceResult>? semanticResults = null;
+
         // Try semantic path via BindingMap first
         if (snapshot.Bindings != null)
         {
-            var semanticResults = FindReferencesViaBindingMap(snapshot, filePath, line, col);
+            semanticResults = FindReferencesViaBindingMap(snapshot, filePath, line, col);
             // Only use semantic results if we found actual usages (not just the declaration itself).
             // If the BindingMap only returns the declaration, fall through to text-based search
             // which can find cross-file references that the import resolution path didn't record.
@@ -297,8 +268,13 @@ public class CodeIntelligenceService
                 return semanticResults;
         }
 
-        // Fallback to text-based search (for cases where BindingMap doesn't cover)
-        return FindReferencesViaTextSearch(snapshot, cu, filePath, line, col);
+        // Fallback to text-based search only when we resolved a concrete symbol.
+        // Returning an empty set is better than returning unrelated results.
+        if (resolvedDefinition == null)
+            return semanticResults ?? new List<ReferenceResult>();
+
+        var textResults = FindReferencesViaTextSearch(snapshot, resolvedDefinition.Name);
+        return MergeReferenceResults(semanticResults, textResults);
     }
 
     /// <summary>
@@ -389,19 +365,8 @@ public class CodeIntelligenceService
     /// <summary>
     /// Fallback text-based FindReferences (used when BindingMap doesn't cover the position).
     /// </summary>
-    private List<ReferenceResult> FindReferencesViaTextSearch(ProjectSnapshot snapshot,
-        CompilationUnit cu, string filePath, int line, int col)
+    private List<ReferenceResult> FindReferencesViaTextSearch(ProjectSnapshot snapshot, string name)
     {
-        var expr = AstNodeFinder.FindExpressionAtPosition(cu, line, col);
-        var name = expr switch
-        {
-            IdentifierExpression id => id.Name,
-            MemberAccessExpression ma => ma.MemberName,
-            _ => ExtractWordAtPosition(snapshot, filePath, line, col)
-        };
-
-        if (name == null) return new List<ReferenceResult>();
-
         var results = new List<ReferenceResult>();
 
         foreach (var (refFile, refCu) in snapshot.CompilationUnits)
@@ -537,7 +502,7 @@ public class CodeIntelligenceService
                 TypeName: null,
                 Modifiers: FormatModifiers(e.Modifiers),
                 Members: e.Members.Select(m => new SymbolResult(
-                    m.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
+                    m.Name, SymbolKind.EnumMember, file, m.Line, m.Column, null, null, null, null)).ToArray(),
                 Parameters: null),
 
             UnionDeclaration u => new SymbolResult(
@@ -545,7 +510,7 @@ public class CodeIntelligenceService
                 TypeName: null,
                 Modifiers: FormatModifiers(u.Modifiers),
                 Members: u.Cases.Select(c => new SymbolResult(
-                    c.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
+                    c.Name, SymbolKind.EnumMember, file, c.Line, c.Column, null, null, null, null)).ToArray(),
                 Parameters: null),
 
             FieldDeclaration fd => new SymbolResult(
@@ -590,51 +555,69 @@ public class CodeIntelligenceService
         };
     }
 
-    private OutlineEntry? DeclarationToOutlineEntry(Declaration decl)
+    private OutlineEntry[] BuildOutline(CompilationUnit cu, string sourceText)
+    {
+        var lines = sourceText.Split('\n');
+        return cu.Declarations
+            .Select(d => DeclarationToOutlineEntry(d, lines))
+            .Where(e => e != null)
+            .Cast<OutlineEntry>()
+            .ToArray();
+    }
+
+    private OutlineEntry? DeclarationToOutlineEntry(Declaration decl, string[] sourceLines)
     {
         return decl switch
         {
             FunctionDeclaration f => new OutlineEntry(
-                f.Name, SymbolKind.Function, f.Line, EstimateEndLine(f),
+                f.Name, SymbolKind.Function, f.Line, EstimateEndLine(f, sourceLines),
                 ReturnType: FormatTypeReference(f.ReturnType),
                 TypeName: null,
                 Children: null),
 
             ClassDeclaration c => new OutlineEntry(
-                c.Name, SymbolKind.Class, c.Line, EstimateEndLine(c),
+                c.Name, SymbolKind.Class, c.Line, EstimateEndLine(c, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: c.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: c.Members.Select(m => DeclarationToOutlineEntry(m, sourceLines)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
 
             StructDeclaration s => new OutlineEntry(
-                s.Name, SymbolKind.Struct, s.Line, EstimateEndLine(s),
+                s.Name, SymbolKind.Struct, s.Line, EstimateEndLine(s, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: s.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: s.Members.Select(m => DeclarationToOutlineEntry(m, sourceLines)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
 
             RecordDeclaration r => new OutlineEntry(
-                r.Name, SymbolKind.Record, r.Line, EstimateEndLine(r),
+                r.Name, SymbolKind.Record, r.Line, EstimateEndLine(r, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: r.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: r.Members.Select(m => DeclarationToOutlineEntry(m, sourceLines)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
 
             InterfaceDeclaration i => new OutlineEntry(
-                i.Name, SymbolKind.Interface, i.Line, EstimateEndLine(i),
+                i.Name, SymbolKind.Interface, i.Line, EstimateEndLine(i, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: i.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+                Children: i.Members.Select(m => DeclarationToOutlineEntry(m, sourceLines)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
 
             EnumDeclaration e => new OutlineEntry(
-                e.Name, SymbolKind.Enum, e.Line, e.Line,
+                e.Name, SymbolKind.Enum, e.Line, EstimateEndLine(e, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: null),
+                Children: e.Members.Select(m => new OutlineEntry(
+                    m.Name, SymbolKind.EnumMember, m.Line, m.Line,
+                    ReturnType: null,
+                    TypeName: null,
+                    Children: null)).ToArray()),
 
             UnionDeclaration u => new OutlineEntry(
-                u.Name, SymbolKind.Union, u.Line, u.Line,
+                u.Name, SymbolKind.Union, u.Line, EstimateEndLine(u, sourceLines),
                 ReturnType: null,
                 TypeName: null,
-                Children: null),
+                Children: u.Cases.Select(c => new OutlineEntry(
+                    c.Name, SymbolKind.EnumMember, c.Line, c.Line,
+                    ReturnType: null,
+                    TypeName: null,
+                    Children: null)).ToArray()),
 
             FieldDeclaration fd => new OutlineEntry(
                 fd.Name, SymbolKind.Property, fd.Line, fd.Line,
@@ -683,6 +666,24 @@ public class CodeIntelligenceService
                     }
                 }
             }
+
+            if (decl is EnumDeclaration enumDecl)
+            {
+                foreach (var member in enumDecl.Members)
+                {
+                    if (member.Name == name)
+                        return new DefinitionResult(name, "enumMember", file, member.Line, member.Column, name.Length);
+                }
+            }
+
+            if (decl is UnionDeclaration unionDecl)
+            {
+                foreach (var unionCase in unionDecl.Cases)
+                {
+                    if (unionCase.Name == name)
+                        return new DefinitionResult(name, "enumMember", file, unionCase.Line, unionCase.Column, name.Length);
+                }
+            }
         }
         return null;
     }
@@ -709,6 +710,28 @@ public class CodeIntelligenceService
                     }
                 }
             }
+
+            if (decl is EnumDeclaration enumDecl)
+            {
+                foreach (var member in enumDecl.Members)
+                {
+                    if (name == "*" || member.Name.Contains(name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        results.Add(new DefinitionResult(member.Name, "enumMember", file, member.Line, member.Column, member.Name.Length));
+                    }
+                }
+            }
+
+            if (decl is UnionDeclaration unionDecl)
+            {
+                foreach (var unionCase in unionDecl.Cases)
+                {
+                    if (name == "*" || unionCase.Name.Contains(name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        results.Add(new DefinitionResult(unionCase.Name, "enumMember", file, unionCase.Line, unionCase.Column, unionCase.Name.Length));
+                    }
+                }
+            }
         }
     }
 
@@ -723,6 +746,198 @@ public class CodeIntelligenceService
                 results.Add(new ReferenceResult(file, member.Line, member.Column, name.Length, context, IsDefinition: true));
             }
         }
+    }
+
+    private DefinitionResult? ResolveDefinitionAtPosition(ProjectSnapshot snapshot, string filePath,
+        CompilationUnit cu, int line, int col)
+    {
+        snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
+
+        var expr = FindExpressionAtPositionRobust(cu, line, col);
+        var memberDefinition = TryResolveMemberDefinition(snapshot, cu, semanticModel, expr);
+        if (memberDefinition != null)
+            return memberDefinition;
+
+        var sourceMemberDefinition = TryResolveMemberDefinitionFromSource(snapshot, filePath, cu, semanticModel, line, col);
+        if (sourceMemberDefinition != null)
+            return sourceMemberDefinition;
+
+        if (snapshot.Bindings?.GetBindingAt(filePath, line, col) is { } binding)
+            return BindingToDefinition(snapshot, binding);
+
+        var candidateNames = GetCandidateQueryNames(expr, snapshot, filePath, line, col);
+        foreach (var name in candidateNames)
+        {
+            if (snapshot.Bindings != null)
+            {
+                var bindingDecl = snapshot.Bindings.FindDeclarationsByName(name).FirstOrDefault();
+                if (bindingDecl != null)
+                    return BindingToDefinition(snapshot, bindingDecl);
+            }
+
+            foreach (var (defFile, defCu) in snapshot.CompilationUnits)
+            {
+                var result = FindDeclarationInUnit(defCu, name, GetRelativePath(snapshot.ProjectRoot, defFile));
+                if (result != null)
+                    return result;
+            }
+        }
+
+        return null;
+    }
+
+    private DefinitionResult? TryResolveMemberDefinition(ProjectSnapshot snapshot, CompilationUnit currentUnit,
+        SemanticModel? semanticModel, Expression? expr)
+    {
+        return expr switch
+        {
+            MemberAccessExpression memberAccess => ResolveMemberDefinitionFromAccess(snapshot, currentUnit, semanticModel, memberAccess),
+            CallExpression call => TryResolveMemberDefinition(snapshot, currentUnit, semanticModel, call.Callee),
+            _ => null
+        };
+    }
+
+    private DefinitionResult? ResolveMemberDefinitionFromAccess(ProjectSnapshot snapshot, CompilationUnit currentUnit,
+        SemanticModel? semanticModel, MemberAccessExpression memberAccess)
+    {
+        var receiverType = ResolveTypeInfoFromExpression(memberAccess.Object, semanticModel, snapshot, currentUnit);
+        if (receiverType == null)
+            return null;
+
+        return FindMemberDefinitionForType(snapshot, receiverType, memberAccess.MemberName);
+    }
+
+    private DefinitionResult? TryResolveMemberDefinitionFromSource(ProjectSnapshot snapshot, string filePath,
+        CompilationUnit currentUnit, SemanticModel? semanticModel, int line, int col)
+    {
+        var memberAccess = ExtractMemberAccessAtPosition(snapshot, filePath, line, col);
+        if (memberAccess == null)
+            return null;
+
+        var receiverType = ResolveTypeInfoByName(memberAccess.Value.Receiver, semanticModel, snapshot, currentUnit);
+        if (receiverType == null)
+            return null;
+
+        return FindMemberDefinitionForType(snapshot, receiverType, memberAccess.Value.Member);
+    }
+
+    private DefinitionResult? FindMemberDefinitionForType(ProjectSnapshot snapshot, TypeInfo typeInfo, string memberName)
+    {
+        return typeInfo switch
+        {
+            ClassTypeInfo classType => FindMemberDefinitionInDeclarations(snapshot, classType.Declaration, classType.Declaration.Members, memberName),
+            StructTypeInfo structType => FindMemberDefinitionInDeclarations(snapshot, structType.Declaration, structType.Declaration.Members, memberName),
+            RecordTypeInfo recordType => FindMemberDefinitionInDeclarations(snapshot, recordType.Declaration, recordType.Declaration.Members, memberName),
+            InterfaceTypeInfo interfaceType => FindMemberDefinitionInDeclarations(snapshot, interfaceType.Declaration, interfaceType.Declaration.Members, memberName),
+            EnumTypeInfo enumType => FindEnumMemberDefinition(snapshot, enumType.Declaration, memberName),
+            UnionTypeInfo unionType => FindUnionCaseDefinition(snapshot, unionType.Declaration, memberName),
+            GenericTypeInfo genericType => FindNamedTypeInfo(snapshot, genericType.Name) is { } namedType
+                ? FindMemberDefinitionForType(snapshot, namedType, memberName)
+                : null,
+            NullableTypeInfo nullableType => FindMemberDefinitionForType(snapshot, nullableType.InnerType, memberName),
+            _ => null
+        };
+    }
+
+    private DefinitionResult? FindMemberDefinitionInDeclarations(ProjectSnapshot snapshot, Declaration owner,
+        List<Declaration> members, string memberName)
+    {
+        var member = members.FirstOrDefault(m => GetDeclarationName(m) == memberName);
+        if (member == null)
+            return null;
+
+        return CreateDefinitionForDeclaration(snapshot, member, memberName, GetDeclarationKind(member));
+    }
+
+    private DefinitionResult? FindEnumMemberDefinition(ProjectSnapshot snapshot, EnumDeclaration enumDecl, string memberName)
+    {
+        var member = enumDecl.Members.FirstOrDefault(m => m.Name == memberName);
+        if (member == null)
+            return null;
+
+        var relativeFile = TryFindDeclarationFile(snapshot, enumDecl);
+        if (relativeFile == null)
+            return null;
+
+        return new DefinitionResult(member.Name, "enumMember", relativeFile, member.Line, member.Column, member.Name.Length);
+    }
+
+    private DefinitionResult? FindUnionCaseDefinition(ProjectSnapshot snapshot, UnionDeclaration unionDecl, string memberName)
+    {
+        var unionCase = unionDecl.Cases.FirstOrDefault(c => c.Name == memberName);
+        if (unionCase == null)
+            return null;
+
+        var relativeFile = TryFindDeclarationFile(snapshot, unionDecl);
+        if (relativeFile == null)
+            return null;
+
+        return new DefinitionResult(unionCase.Name, "enumMember", relativeFile, unionCase.Line, unionCase.Column, unionCase.Name.Length);
+    }
+
+    private DefinitionResult? CreateDefinitionForDeclaration(ProjectSnapshot snapshot, Declaration decl, string name, string kind)
+    {
+        var relativeFile = TryFindDeclarationFile(snapshot, decl);
+        if (relativeFile == null)
+            return null;
+
+        return new DefinitionResult(name, kind, relativeFile, decl.Line, decl.Column, name.Length);
+    }
+
+    private string? TryFindDeclarationFile(ProjectSnapshot snapshot, Declaration target)
+    {
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            if (ContainsDeclaration(cu.Declarations, target))
+                return GetRelativePath(snapshot.ProjectRoot, filePath);
+        }
+
+        return null;
+    }
+
+    private static bool ContainsDeclaration(IEnumerable<Declaration> declarations, Declaration target)
+    {
+        foreach (var decl in declarations)
+        {
+            if (DeclarationMatches(decl, target))
+                return true;
+
+            if (ContainsDeclaration(GetDeclarationMembers(decl) ?? Enumerable.Empty<Declaration>(), target))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool DeclarationMatches(Declaration candidate, Declaration target)
+    {
+        if (ReferenceEquals(candidate, target))
+            return true;
+
+        return candidate.GetType() == target.GetType() &&
+               candidate.Line == target.Line &&
+               candidate.Column == target.Column &&
+               string.Equals(GetDeclarationName(candidate), GetDeclarationName(target), StringComparison.Ordinal);
+    }
+
+    private static List<ReferenceResult> MergeReferenceResults(List<ReferenceResult>? primary, List<ReferenceResult> secondary)
+    {
+        return (primary ?? new List<ReferenceResult>())
+            .Concat(secondary)
+            .GroupBy(r => (r.File, r.Line, r.Column))
+            .Select(g => g.OrderByDescending(r => r.IsDefinition).First())
+            .OrderBy(r => r.File)
+            .ThenBy(r => r.Line)
+            .ThenBy(r => r.Column)
+            .ToList();
+    }
+
+    private static DefinitionResult BindingToDefinition(ProjectSnapshot snapshot, SymbolDeclaration declaration)
+    {
+        var file = declaration.File == null
+            ? "unknown"
+            : GetRelativePath(snapshot.ProjectRoot, declaration.File);
+        return new DefinitionResult(declaration.Name, declaration.Kind, file, declaration.Line, declaration.Column, declaration.Name.Length);
     }
 
     private void FindIdentifierUsagesInSource(string source, string name, string file, string[] lines, List<ReferenceResult> results)
@@ -759,6 +974,7 @@ public class CodeIntelligenceService
         // Simple heuristic: check if we're inside a string or comment
         var inString = false;
         var stringChar = '\0';
+        var interpolationDepth = 0;
 
         for (int i = 0; i < index && i < line.Length; i++)
         {
@@ -774,12 +990,24 @@ public class CodeIntelligenceService
             }
             else
             {
-                if (line[i] == stringChar && (i == 0 || line[i - 1] != '\\'))
+                if (stringChar == '"' && line[i] == '{' && (i == 0 || line[i - 1] != '\\'))
+                {
+                    interpolationDepth++;
+                    continue;
+                }
+
+                if (stringChar == '"' && line[i] == '}' && interpolationDepth > 0)
+                {
+                    interpolationDepth--;
+                    continue;
+                }
+
+                if (interpolationDepth == 0 && line[i] == stringChar && (i == 0 || line[i - 1] != '\\'))
                     inString = false;
             }
         }
 
-        return inString;
+        return inString && interpolationDepth == 0;
     }
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
@@ -824,7 +1052,7 @@ public class CodeIntelligenceService
         InterfaceDeclaration => "interface",
         EnumDeclaration => "enum",
         UnionDeclaration => "union",
-        FieldDeclaration => "field",
+        FieldDeclaration => "property",
         PropertyDeclaration => "property",
         ConstructorDeclaration => "constructor",
         TypeAliasDeclaration => "typeAlias",
@@ -841,21 +1069,81 @@ public class CodeIntelligenceService
         _ => null
     };
 
-    private static int EstimateEndLine(Declaration decl)
+    private static int EstimateEndLine(Declaration decl, string[] sourceLines)
     {
-        // Estimate end line based on member/body positions
+        var blockEnd = FindBlockEndLine(sourceLines, decl.Line, decl.Column);
+        if (blockEnd != null)
+            return blockEnd.Value;
+
         var members = GetDeclarationMembers(decl);
         if (members is { Count: > 0 })
         {
-            return members.Max(m => m.Line) + 1;
+            return members.Max(m => EstimateEndLine(m, sourceLines)) + 1;
         }
 
-        if (decl is FunctionDeclaration f && f.Body?.Statements.Count > 0)
+        return decl switch
         {
-            return f.Body.Statements.Max(s => s.Line) + 1;
+            EnumDeclaration e when e.Members.Count > 0 => e.Members.Max(m => m.Line) + 1,
+            UnionDeclaration u when u.Cases.Count > 0 => u.Cases.Max(c => c.Line) + 1,
+            FunctionDeclaration f when f.ExpressionBody != null => f.ExpressionBody.Line,
+            FunctionDeclaration f when f.Body?.Statements.Count > 0 => f.Body.Statements.Max(s => s.Line) + 1,
+            _ => decl.Line
+        };
+    }
+
+    private static int? FindBlockEndLine(string[] sourceLines, int startLine, int startColumn)
+    {
+        if (startLine <= 0 || startLine > sourceLines.Length)
+            return null;
+
+        var depth = 0;
+        var sawOpeningBrace = false;
+
+        for (var lineIndex = startLine - 1; lineIndex < sourceLines.Length; lineIndex++)
+        {
+            var line = sourceLines[lineIndex];
+            var charIndex = lineIndex == startLine - 1 ? Math.Max(0, startColumn - 1) : 0;
+            var inString = false;
+            var stringDelimiter = '\0';
+
+            for (var i = charIndex; i < line.Length; i++)
+            {
+                var ch = line[i];
+
+                if (!inString)
+                {
+                    if (ch == '/' && i + 1 < line.Length && line[i + 1] == '/')
+                        break;
+
+                    if (ch == '"' || ch == '\'')
+                    {
+                        inString = true;
+                        stringDelimiter = ch;
+                        continue;
+                    }
+
+                    if (ch == '{')
+                    {
+                        depth++;
+                        sawOpeningBrace = true;
+                        continue;
+                    }
+
+                    if (ch == '}' && sawOpeningBrace)
+                    {
+                        depth--;
+                        if (depth == 0)
+                            return lineIndex + 1;
+                    }
+                }
+                else if (ch == stringDelimiter && (i == 0 || line[i - 1] != '\\'))
+                {
+                    inString = false;
+                }
+            }
         }
 
-        return decl.Line;
+        return null;
     }
 
     private static Expression? FindExpressionAtPositionRobust(CompilationUnit cu, int line, int col)
@@ -894,7 +1182,7 @@ public class CodeIntelligenceService
 
         AddCandidateName(names, GetExpressionQueryName(expr));
         AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, col));
-        AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, Math.Max(0, col - 1)));
+        AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, Math.Max(1, col - 1)));
         AddCandidateName(names, ExtractWordAtPosition(snapshot, filePath, line, col + 1));
         AddCandidateName(names, ExtractVariableDeclarationNameAtPosition(snapshot, filePath, line));
 
@@ -1290,7 +1578,7 @@ public class CodeIntelligenceService
             foreach (var member in enumDecl.Members)
             {
                 if (member.Name == name)
-                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), enumDecl.Line, enumDecl.Column);
+                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), member.Line, member.Column);
             }
         }
 
@@ -1299,7 +1587,7 @@ public class CodeIntelligenceService
             foreach (var unionCase in unionDecl.Cases)
             {
                 if (unionCase.Name == name)
-                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), unionDecl.Line, unionDecl.Column);
+                    return new LocationResult(GetRelativePath(snapshot.ProjectRoot, filePath), unionCase.Line, unionCase.Column);
             }
         }
 
@@ -1315,18 +1603,85 @@ public class CodeIntelligenceService
             if (line <= 0 || line > lines.Length) return null;
 
             var lineText = lines[line - 1];
-            if (col < 0 || col >= lineText.Length) return null;
+            if (lineText.Length == 0 || col <= 0) return null;
 
-            // Find word boundaries
-            var start = col;
-            while (start > 0 && (char.IsLetterOrDigit(lineText[start - 1]) || lineText[start - 1] == '_'))
+            var index = Math.Min(col - 1, lineText.Length - 1);
+            if (!IsIdentifierChar(lineText[index]) && index > 0 && IsIdentifierChar(lineText[index - 1]))
+            {
+                index--;
+            }
+
+            if (!IsIdentifierChar(lineText[index]))
+                return null;
+
+            var start = index;
+            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
                 start--;
 
-            var end = col;
-            while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
+            var end = index + 1;
+            while (end < lineText.Length && IsIdentifierChar(lineText[end]))
                 end++;
 
-            return start < end ? lineText.Substring(start, end - start) : null;
+            return start < end ? lineText[start..end] : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static (string Receiver, string Member)? ExtractMemberAccessAtPosition(ProjectSnapshot snapshot,
+        string filePath, int line, int col)
+    {
+        try
+        {
+            var source = File.ReadAllText(filePath);
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            if (lineText.Length == 0 || col <= 0)
+                return null;
+
+            var index = Math.Min(col - 1, lineText.Length - 1);
+            if (!IsIdentifierChar(lineText[index]) && index > 0 && IsIdentifierChar(lineText[index - 1]))
+                index--;
+
+            if (!IsIdentifierChar(lineText[index]))
+                return null;
+
+            var memberStart = index;
+            while (memberStart > 0 && IsIdentifierChar(lineText[memberStart - 1]))
+                memberStart--;
+
+            var memberEnd = index + 1;
+            while (memberEnd < lineText.Length && IsIdentifierChar(lineText[memberEnd]))
+                memberEnd++;
+
+            var dotIndex = memberStart - 1;
+            while (dotIndex >= 0 && char.IsWhiteSpace(lineText[dotIndex]))
+                dotIndex--;
+
+            if (dotIndex < 0 || lineText[dotIndex] != '.')
+                return null;
+
+            var receiverEnd = dotIndex - 1;
+            while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                receiverEnd--;
+
+            if (receiverEnd < 0 || !IsIdentifierChar(lineText[receiverEnd]))
+                return null;
+
+            var receiverStart = receiverEnd;
+            while (receiverStart > 0 && IsIdentifierChar(lineText[receiverStart - 1]))
+                receiverStart--;
+
+            var receiver = lineText[receiverStart..(receiverEnd + 1)];
+            var member = lineText[memberStart..memberEnd];
+            return (receiver, member);
         }
         catch
         {

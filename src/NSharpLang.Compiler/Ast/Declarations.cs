@@ -139,7 +139,9 @@ public record UnionDeclaration(
 
 public record UnionCase(
     string Name,
-    List<UnionCaseProperty>? Properties);
+    List<UnionCaseProperty>? Properties,
+    int Line = 0,
+    int Column = 0);
 
 public record UnionCaseProperty(
     string Name,
@@ -157,7 +159,9 @@ public record EnumDeclaration(
 
 public record EnumMember(
     string Name,
-    Expression? Value);
+    Expression? Value,
+    int Line = 0,
+    int Column = 0);
 
 public enum EnumType
 {

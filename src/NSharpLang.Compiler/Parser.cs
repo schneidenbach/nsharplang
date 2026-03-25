@@ -803,6 +803,8 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var caseLine = Current.Line;
+            var caseColumn = Current.Column;
             var caseName = ConsumeIdentifier("Expected union case name");
             List<UnionCaseProperty>? properties = null;
 
@@ -825,7 +827,7 @@ public class Parser
                 Consume(TokenType.RightBrace, "Expected '}'");
             }
 
-            cases.Add(new UnionCase(caseName, properties));
+            cases.Add(new UnionCase(caseName, properties, caseLine, caseColumn));
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -849,6 +851,8 @@ public class Parser
         {
             do
             {
+                var memberLine = Current.Line;
+                var memberColumn = Current.Column;
                 var memberName = ConsumeIdentifier("Expected enum member name");
                 Expression? value = null;
 
@@ -864,7 +868,7 @@ public class Parser
                     }
                 }
 
-                members.Add(new EnumMember(memberName, value));
+                members.Add(new EnumMember(memberName, value, memberLine, memberColumn));
 
                 if (Check(TokenType.Comma))
                     Advance();

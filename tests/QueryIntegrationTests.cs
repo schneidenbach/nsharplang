@@ -148,6 +148,22 @@ public class QueryIntegrationTests : IDisposable
         Assert.Contains(symbols, s => s.Name == "Main" && s.Kind == SymbolKind.Function);
     }
 
+    [Fact]
+    public void Symbols_Dogfood_EnumAndUnionMembersHaveSourceLocations()
+    {
+        var symbols = _service.GetSymbols(Dogfood);
+
+        var priority = symbols.First(s => s.Name == "Priority" && s.Kind == SymbolKind.Enum);
+        var low = Assert.Single(priority.Members!, m => m.Name == "Low");
+        Assert.Equal(8, low.Line);
+        Assert.Equal(5, low.Column);
+
+        var taskResult = symbols.First(s => s.Name == "TaskResult" && s.Kind == SymbolKind.Union);
+        var success = Assert.Single(taskResult.Members!, m => m.Name == "Success");
+        Assert.Equal(44, success.Line);
+        Assert.Equal(5, success.Column);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  OUTLINE — does file structure look right?
     // ═══════════════════════════════════════════════════════════════════
@@ -179,6 +195,21 @@ public class QueryIntegrationTests : IDisposable
         Assert.Contains("System", singleFileOutline.Imports);
         Assert.Contains(singleFileOutline.Outline, o => o.Name == "Main");
         Assert.Contains(singleFileOutline.Outline, o => o.Name == "hi");
+    }
+
+    [Fact]
+    public void Outline_Dogfood_UsesBraceMatchedEndLines()
+    {
+        var outline = _service.GetOutline(Dogfood, "Services/TaskService.nl");
+
+        var taskService = Assert.Single(outline.Outline, o => o.Name == "TaskService");
+        Assert.Equal(102, taskService.EndLine);
+
+        var getStats = Assert.Single(taskService.Children!, c => c.Name == "GetStats");
+        Assert.Equal(101, getStats.EndLine);
+
+        var taskStats = Assert.Single(outline.Outline, o => o.Name == "TaskStats");
+        Assert.Equal(118, taskStats.EndLine);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -589,6 +620,40 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal(2, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
         Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 85);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_MethodCall_ResolvesFromUseSite()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 85, 22);
+
+        Assert.NotNull(result);
+        Assert.Equal("GetStats", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(93, result.Line);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_RecordProperty_ResolvesFromUseSite()
+    {
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 39);
+
+        Assert.NotNull(result);
+        Assert.Equal("Total", result!.Name);
+        Assert.Equal("property", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(106, result.Line);
+    }
+
+    [Fact]
+    public void References_Dogfood_LocalVariable_UsesSemanticBindings()
+    {
+        var refs = _service.FindReferences(Dogfood, "Program.nl", 85, 6);
+
+        Assert.Equal(7, refs.Count);
+        Assert.Single(refs.Where(r => r.IsDefinition));
+        Assert.All(refs, r => Assert.Contains("stats", r.Context ?? string.Empty, StringComparison.Ordinal));
     }
 
     // ═══════════════════════════════════════════════════════════════════

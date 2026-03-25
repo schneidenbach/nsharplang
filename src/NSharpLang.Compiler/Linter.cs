@@ -176,6 +176,7 @@ internal class LintVisitor
     private readonly HashSet<string> _usedVariables = new();
     private readonly Stack<Dictionary<string, (int Line, int Column, bool Used)>> _scopeStack = new();
     private readonly List<string> _importedNamespaces = new();
+    private readonly HashSet<string> _importedFileSymbols = new();
     private bool _hasAwaitInFunction = false;
     private bool _inAsyncFunction = false;
     private readonly HashSet<Expression> _visitingStack = new(ReferenceEqualityComparer.Instance);
@@ -196,6 +197,13 @@ internal class LintVisitor
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
+        }
+
+        foreach (var fileImport in unit.FileImports.OfType<FileImport>())
+        {
+            var importedSymbol = ExtractImportedFileSymbolName(fileImport);
+            if (!string.IsNullOrWhiteSpace(importedSymbol))
+                _importedFileSymbols.Add(importedSymbol);
         }
 
         // Push global scope
@@ -881,6 +889,9 @@ internal class LintVisitor
 
         if (commonTypesMap.TryGetValue(ident.Name, out var requiredNamespace))
         {
+            if (_importedFileSymbols.Contains(ident.Name))
+                return;
+
             // Check if the namespace is already imported
             if (!_importedNamespaces.Contains(requiredNamespace))
             {
@@ -930,6 +941,9 @@ internal class LintVisitor
 
             if (commonTypesMap.TryGetValue(typeName, out var requiredNamespace))
             {
+                if (_importedFileSymbols.Contains(typeName))
+                    return;
+
                 if (!_importedNamespaces.Contains(requiredNamespace))
                 {
                     AddDiagnostic(
@@ -953,6 +967,15 @@ internal class LintVisitor
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
             _ => null
         };
+    }
+
+    private static string? ExtractImportedFileSymbolName(FileImport fileImport)
+    {
+        if (!string.IsNullOrWhiteSpace(fileImport.Alias))
+            return fileImport.Alias;
+
+        var fileName = Path.GetFileNameWithoutExtension(fileImport.Path);
+        return string.IsNullOrWhiteSpace(fileName) ? null : fileName;
     }
 
     private void HandleStringInterpolation(string value)

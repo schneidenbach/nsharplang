@@ -27,6 +27,12 @@ public static class FixCommand
 
     public static int Execute(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h"))
+        {
+            ShowHelp();
+            return 0;
+        }
+
         var dryRun = args.Contains("--dry-run");
         var useText = args.Contains("--text");
         var fileArg = GetOption(args, "--file");
@@ -193,5 +199,19 @@ public static class FixCommand
                 return args[i + 1];
         }
         return null;
+    }
+
+    private static void ShowHelp()
+    {
+        Console.WriteLine("Usage: nlc fix [--project <dir>] [--file <path>] [--dry-run] [--text]");
+        Console.WriteLine();
+        Console.WriteLine("Auto-apply fixable diagnostics for an N# project or file.");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --project <dir>   Project root directory (default: current directory)");
+        Console.WriteLine("  --file <path>     Restrict fixes to a single file");
+        Console.WriteLine("  --dry-run         Show proposed fixes without modifying files");
+        Console.WriteLine("  --text            Human-readable output");
+        Console.WriteLine("  --help, -h        Show this help");
     }
 }
