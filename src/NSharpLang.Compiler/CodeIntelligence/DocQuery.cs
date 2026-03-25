@@ -367,21 +367,21 @@ public class DocQuery
     {
         if (paramName == null) return null;
         var element = GetDocElement(method.DeclaringType?.Assembly, GetMethodDocId(method));
-        return element?.Elements("param")
+        return FormatDocText(element?.Elements("param")
             .FirstOrDefault(p => p.Attribute("name")?.Value == paramName)
-            ?.Value.Trim();
+        );
     }
 
     private string? GetReturnsSummary(MethodInfo method)
     {
         var element = GetDocElement(method.DeclaringType?.Assembly, GetMethodDocId(method));
-        return element?.Element("returns")?.Value.Trim();
+        return FormatDocText(element?.Element("returns"));
     }
 
     private string? GetDocSummary(Assembly? assembly, string docId)
     {
         var element = GetDocElement(assembly, docId);
-        return element?.Element("summary")?.Value.Trim();
+        return FormatDocText(element?.Element("summary"));
     }
 
     private XElement? GetDocElement(Assembly? assembly, string docId)
@@ -993,5 +993,77 @@ public class DocQuery
         }
 
         return sb.ToString();
+    }
+
+    private static string? FormatDocText(XElement? element)
+    {
+        if (element == null) return null;
+
+        var raw = string.Concat(element.Nodes().Select(FormatDocNode));
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        return string.Join(" ", raw
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string FormatDocNode(XNode node)
+    {
+        return node switch
+        {
+            XText text => text.Value,
+            XElement element => element.Name.LocalName switch
+            {
+                "see" or "seealso" => FormatSeeElement(element),
+                "paramref" or "typeparamref" => element.Attribute("name")?.Value ?? "",
+                "c" or "code" => element.Value,
+                "para" => $"{string.Concat(element.Nodes().Select(FormatDocNode))} ",
+                _ => string.Concat(element.Nodes().Select(FormatDocNode))
+            },
+            _ => ""
+        };
+    }
+
+    private static string FormatSeeElement(XElement element)
+    {
+        if (!string.IsNullOrWhiteSpace(element.Value))
+        {
+            return element.Value;
+        }
+
+        var langword = element.Attribute("langword")?.Value;
+        if (!string.IsNullOrWhiteSpace(langword))
+        {
+            return langword;
+        }
+
+        var href = element.Attribute("href")?.Value;
+        if (!string.IsNullOrWhiteSpace(href))
+        {
+            return href;
+        }
+
+        var cref = element.Attribute("cref")?.Value;
+        if (string.IsNullOrWhiteSpace(cref))
+        {
+            return "";
+        }
+
+        var value = cref;
+        var prefixIndex = value.IndexOf(':');
+        if (prefixIndex >= 0)
+        {
+            value = value[(prefixIndex + 1)..];
+        }
+
+        value = value.Replace('+', '.');
+
+        var parameterIndex = value.IndexOf('(');
+        if (parameterIndex >= 0)
+        {
+            value = value[..parameterIndex];
+        }
+
+        var lastSegment = value.Split('.').LastOrDefault() ?? value;
+        return StripGenericArity(lastSegment);
     }
 }

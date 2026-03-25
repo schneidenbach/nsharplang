@@ -36,6 +36,8 @@ public class DocQueryTests
         var item = Assert.Single(result.Parameters!, p => p.Name == "item");
         Assert.Equal("T", item.Type);
         Assert.False(string.IsNullOrWhiteSpace(item.Summary));
+        Assert.DoesNotContain(" end of the .", result.Summary!, StringComparison.Ordinal);
+        Assert.DoesNotContain(" can be  ", item.Summary!, StringComparison.Ordinal);
     }
 
     [Fact]

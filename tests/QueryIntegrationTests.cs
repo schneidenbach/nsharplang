@@ -31,6 +31,7 @@ public class QueryIntegrationTests : IDisposable
     private ProjectSnapshot? _classesAndRecordsSnapshot;
     private ProjectSnapshot? _multiFileSnapshot;
     private ProjectSnapshot? _unionsSnapshot;
+    private ProjectSnapshot? _dogfoodSnapshot;
 
     public QueryIntegrationTests()
     {
@@ -50,6 +51,9 @@ public class QueryIntegrationTests : IDisposable
 
     private ProjectSnapshot Unions => _unionsSnapshot ??=
         _service.LoadProject(Path.Combine(_examplesDir, "05-unions"));
+
+    private ProjectSnapshot Dogfood => _dogfoodSnapshot ??=
+        _service.LoadProject(Path.Combine(_examplesDir, "15-dogfood-project"));
 
     // ═══════════════════════════════════════════════════════════════════
     //  SYMBOLS — does it actually find the right stuff?
@@ -534,6 +538,57 @@ public class QueryIntegrationTests : IDisposable
         Assert.True(personDecls.Count > 0,
             $"Expected Person declaration in BindingMap. All declarations ({allDecls.Count}): [{string.Join(", ", allDecls.Take(20).Select(d => $"{d.Kind}:{d.Name}"))}]");
         Assert.Contains(personDecls, d => d.Kind == "record");
+    }
+
+    [Fact]
+    public void Type_Dogfood_LocalVariableFromNewExpression_Resolves()
+    {
+        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 38, 5);
+        Assert.NotNull(result);
+        Assert.Equal("service", result!.Name);
+        Assert.Equal("TaskService", result.ResolvedType);
+        Assert.Equal("class", result.Kind);
+    }
+
+    [Fact]
+    public void Type_Dogfood_ImportedMethodCall_ResolvesToReturnType()
+    {
+        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 42, 19);
+        Assert.NotNull(result);
+        Assert.Equal("CreateTask", result!.Name);
+        Assert.Equal("TaskResult", result.ResolvedType);
+        Assert.Equal("union", result.Kind);
+    }
+
+    [Fact]
+    public void Type_Dogfood_LocalVariableFromImportedMethodCall_Resolves()
+    {
+        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 85, 5);
+        var programSemanticModel = Dogfood.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
+        var variables = string.Join(", ", programSemanticModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
+        Assert.True(result != null, $"Expected stats type. Program variables: [{variables}]");
+        Assert.Equal("stats", result!.Name);
+        Assert.Equal("TaskStats", result.ResolvedType);
+    }
+
+    [Fact]
+    public void Type_Dogfood_RecordPropertyUse_Resolves()
+    {
+        var result = _service.GetTypeAtPosition(Dogfood, "Services/TaskService.nl", 106, 5);
+        Assert.NotNull(result);
+        Assert.Equal("Total", result!.Name);
+        Assert.Equal("int", result.ResolvedType);
+        Assert.Equal("primitive", result.Kind);
+    }
+
+    [Fact]
+    public void References_Dogfood_MethodDeclaration_IsNotDuplicatedAsUsage()
+    {
+        var refs = _service.FindReferences(Dogfood, "Services/TaskService.nl", 93, 10);
+
+        Assert.Equal(2, refs.Count);
+        Assert.Single(refs.Where(r => r.IsDefinition));
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 85);
     }
 
     // ═══════════════════════════════════════════════════════════════════
