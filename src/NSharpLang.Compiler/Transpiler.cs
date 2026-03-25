@@ -18,8 +18,6 @@ public class Transpiler
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
-    // Maps "UnionName.CaseName" to list of property names for converting initializers to ctor args
-    private readonly Dictionary<string, List<UnionCaseProperty>> _unionCaseProperties = new();
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null)
     {
@@ -427,7 +425,7 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!cls.Modifiers.HasFlag(Modifiers.Public) &&
             !cls.Modifiers.HasFlag(Modifiers.Private) && !cls.Modifiers.HasFlag(Modifiers.Protected) &&
-            !cls.Modifiers.HasFlag(Modifiers.Internal) && !cls.Modifiers.HasFlag(Modifiers.File))
+            !cls.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(cls.Name[0]))
             {
@@ -490,7 +488,7 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!str.Modifiers.HasFlag(Modifiers.Public) &&
             !str.Modifiers.HasFlag(Modifiers.Private) && !str.Modifiers.HasFlag(Modifiers.Protected) &&
-            !str.Modifiers.HasFlag(Modifiers.Internal) && !str.Modifiers.HasFlag(Modifiers.File))
+            !str.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(str.Name[0]))
             {
@@ -549,7 +547,7 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!rec.Modifiers.HasFlag(Modifiers.Public) &&
             !rec.Modifiers.HasFlag(Modifiers.Private) && !rec.Modifiers.HasFlag(Modifiers.Protected) &&
-            !rec.Modifiers.HasFlag(Modifiers.Internal) && !rec.Modifiers.HasFlag(Modifiers.File))
+            !rec.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(rec.Name[0]))
             {
@@ -610,18 +608,6 @@ public class Transpiler
         TranspileAttributes(iface.Attributes);
 
         var modifiers = GetModifierString(iface.Modifiers);
-
-        // Infer visibility based on naming convention (PascalCase = public)
-        if (!iface.Modifiers.HasFlag(Modifiers.Public) &&
-            !iface.Modifiers.HasFlag(Modifiers.Private) && !iface.Modifiers.HasFlag(Modifiers.Protected) &&
-            !iface.Modifiers.HasFlag(Modifiers.Internal) && !iface.Modifiers.HasFlag(Modifiers.File))
-        {
-            if (char.IsUpper(iface.Name[0]))
-            {
-                modifiers = "public " + modifiers;
-            }
-        }
-
         var typeParams = iface.TypeParameters != null && iface.TypeParameters.Count > 0
             ? $"<{string.Join(", ", iface.TypeParameters.Select(tp => tp.Name))}>"
             : "";
@@ -658,7 +644,7 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!enm.Modifiers.HasFlag(Modifiers.Public) &&
             !enm.Modifiers.HasFlag(Modifiers.Private) && !enm.Modifiers.HasFlag(Modifiers.Protected) &&
-            !enm.Modifiers.HasFlag(Modifiers.Internal) && !enm.Modifiers.HasFlag(Modifiers.File))
+            !enm.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(enm.Name[0]))
             {
@@ -726,7 +712,7 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!union.Modifiers.HasFlag(Modifiers.Public) &&
             !union.Modifiers.HasFlag(Modifiers.Private) && !union.Modifiers.HasFlag(Modifiers.Protected) &&
-            !union.Modifiers.HasFlag(Modifiers.Internal) && !union.Modifiers.HasFlag(Modifiers.File))
+            !union.Modifiers.HasFlag(Modifiers.Internal))
         {
             if (char.IsUpper(union.Name[0]))
             {
@@ -742,14 +728,13 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
-        // Generate case classes and register their properties
+        // Generate case classes
         foreach (var unionCase in union.Cases)
         {
             if (unionCase.Properties != null && unionCase.Properties.Count > 0)
             {
                 var props = string.Join(", ", unionCase.Properties.Select(p => $"{TranspileTypeReference(p.Type)} {p.Name}"));
                 WriteLine($"public record {unionCase.Name}({props}) : {union.Name};");
-                _unionCaseProperties[$"{union.Name}.{unionCase.Name}"] = unionCase.Properties;
             }
             else
             {
@@ -1798,41 +1783,20 @@ public class Transpiler
 
         if (newExpr.Initializer != null)
         {
-            // Check if this is a union case — if so, convert initializer to constructor args
-            // because C# records with positional parameters require constructor arguments
-            var typeName = newExpr.Type != null ? TranspileTypeReference(newExpr.Type) : null;
-            if (typeName != null && _unionCaseProperties.TryGetValue(typeName, out var caseProps))
+            var props = string.Join(", ", newExpr.Initializer.Properties.Select(p =>
             {
-                // Build constructor arguments from initializer in the order the case defines them
-                var initProps = newExpr.Initializer.Properties.ToDictionary(p => p.Name!, p => p.Value);
-                var ctorArgs = new List<string>();
-                foreach (var caseProp in caseProps)
+                if (p.IsIndexerInitializer && p.IndexExpression != null)
                 {
-                    if (initProps.TryGetValue(caseProp.Name, out var value))
-                    {
-                        ctorArgs.Add($"{caseProp.Name}: {TranspileExpression(value)}");
-                    }
+                    // Indexer initializer: ["key"] = value
+                    return $"[{TranspileExpression(p.IndexExpression)}] = {TranspileExpression(p.Value)}";
                 }
-                // Replace the empty parens with actual constructor args
-                result = $"new {typeName}({string.Join(", ", ctorArgs)})";
-            }
-            else
-            {
-                var props = string.Join(", ", newExpr.Initializer.Properties.Select(p =>
+                else
                 {
-                    if (p.IsIndexerInitializer && p.IndexExpression != null)
-                    {
-                        // Indexer initializer: ["key"] = value
-                        return $"[{TranspileExpression(p.IndexExpression)}] = {TranspileExpression(p.Value)}";
-                    }
-                    else
-                    {
-                        // Property initializer: Name = value
-                        return $"{p.Name} = {TranspileExpression(p.Value)}";
-                    }
-                }));
-                result += $" {{ {props} }}";
-            }
+                    // Property initializer: Name = value
+                    return $"{p.Name} = {TranspileExpression(p.Value)}";
+                }
+            }));
+            result += $" {{ {props} }}";
         }
 
         return result;
@@ -2145,10 +2109,7 @@ public class Transpiler
         foreach (var attr in attributes)
         {
             var args = attr.Arguments.Count > 0
-                ? $"({string.Join(", ", attr.Arguments.Select(a =>
-                    a.Name != null
-                        ? $"{a.Name} = {TranspileExpression(a.Value)}"
-                        : TranspileExpression(a.Value)))})"
+                ? $"({string.Join(", ", attr.Arguments.Select(a => TranspileExpression(a.Value)))})"
                 : "";
             WriteLine($"[{attr.Name}{args}]");
         }

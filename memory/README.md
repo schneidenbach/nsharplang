@@ -1,7 +1,7 @@
 # N# Compiler and Toolset Documentation
 
-**Status:** Feature-complete compiler for the N# language
-**Tests:** 876 total, 873 passing, 3 skipped
+**Status:** Feature-complete compiler + LLM-first CLI toolchain for the N# language
+**Tests:** 944+ total, 0 failures, 3 skipped
 
 Welcome to the N# compiler documentation. This folder contains technical documentation organized for fast lookup and minimal context usage.
 
@@ -80,13 +80,19 @@ C# code generation from AST.
 - Special cases (async iterators, error handling)
 
 ### [components/cli.md](components/cli.md)
-Command-line interface (build, run, transpile).
+Command-line interface (build, run, transpile). *Legacy doc — see cli-toolchain.md for the full picture.*
+
+### [components/cli-toolchain.md](components/cli-toolchain.md)
+**The complete N# CLI toolchain reference.** Covers every `nlc` command including the LLM-first code intelligence toolchain.
 
 **Key details:**
-- Multi-file compilation
-- Error formatting
-- Project configuration
-- Global tool installation
+- `nlc check` — fast type-check (like `cargo check`)
+- `nlc fix` — auto-apply suggestions (like `cargo clippy --fix`)
+- `nlc query` — code intelligence (symbols, outline, diagnostics, type, definition, references, completions)
+- `nlc daemon` — background analysis server (Unix socket)
+- JSON schema discipline, Elm-level error output
+- Architecture: CodeIntelligenceService, CompletionEngine, BindingMap, OutputFormatter
+- Comparison with Go and Rust toolchains
 
 ### [components/error-reporting.md](components/error-reporting.md)
 Professional error messages with codes and suggestions.
@@ -223,7 +229,8 @@ Current limitations and workarounds.
 | Parser | [components/parser.md](components/parser.md) | ~5KB | AST, precedence, patterns |
 | Analyzer | [components/analyzer.md](components/analyzer.md) | ~6KB | Types, scopes, checking |
 | Transpiler | [components/transpiler.md](components/transpiler.md) | ~5KB | C# generation, strategies |
-| CLI | [components/cli.md](components/cli.md) | ~3KB | Commands, projects, tools |
+| CLI (legacy) | [components/cli.md](components/cli.md) | ~3KB | Build, run, transpile basics |
+| CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | ~8KB | **Full reference:** check, fix, query, daemon, completions |
 | Errors | [components/error-reporting.md](components/error-reporting.md) | ~3KB | Codes, formatting, suggestions |
 
 ### By Feature
@@ -277,8 +284,10 @@ These documentation files are optimized for AI context windows:
 8. ✅ How do I write tests?
 9. ✅ What are the current limitations?
 10. ✅ How does [tricky feature] work internally?
+11. ✅ What CLI commands exist? → [components/cli-toolchain.md](components/cli-toolchain.md)
+12. ✅ How does the LLM code intelligence toolchain work?
+13. ✅ How does N# compare to Go/Rust for LLM development?
 
 ---
 
-*Last Updated: 2025-11-08*
-*Documentation split from single 133KB file into focused files for better AI context usage*
+*Last Updated: 2026-03-25*

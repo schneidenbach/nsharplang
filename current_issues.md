@@ -1,29 +1,39 @@
-# Current Issues & IDE Tooling Roadmap
+# Current Issues & Roadmap
 
-Updated: 2026-03-24 after major IDE tooling session.
+Updated: 2026-03-25
 
-## What Was Done This Session (10 commits)
+## What Exists Today
 
-### Commits (oldest to newest)
-1. **LSP improvements: rename, completions, diagnostics** — RenameHandler (F2), parameter tracking for go-to-def, squiggly width fix, array/nullable type resolution, semantic model variables in completions
-2. **Fix squiggly width for linter diagnostics, detect undeclared vars in interpolation** — Linter squiggly uses actual symbol length; analyzer catches `$"Hello, {me}!"` when `me` is undeclared (NL301)
-3. **Fix linter squiggly position by finding symbol in source line** — Searches source text for actual identifier position instead of trusting linter's column offset
-4. **AST-based member completion with static/instance filtering and N# type support** — Rewrote CompletionHandler to use AstNodeFinder + ExpressionTypeResolver (like HoverHandler); handles .NET types via reflection AND N# types via SymbolsInfo; adds MemberAccessMode enum
-5. **Remove temporary debug logging**
-6. **Add namespace completion (System. -> Console, Math, Collections, etc.)** — GetTypesInNamespace, GetSubNamespaces, IsKnownNamespace with WellKnownNamespaces hashset
-7. **Add mandatory IDE verification and Codex review requirements to CLAUDE.md**
-8. **Fix completion race condition: use trigger character instead of text scanning** — `request.Context?.TriggerCharacter == "."` as primary signal; fallback handles missing dot in buffer
-9. **Fix namespace completion: dedup generics, use well-known namespace list** — Dedup on cleaned name (Action`1 -> Action before seen.Add); WellKnownNamespaces for fast namespace detection
-10. **Fix Codex review issues: symbol priority, namespace gating, type caching** — Moved namespace after symbol resolution; gated with IsKnownNamespace; added GetOrCacheExportedTypes; added DocumentSelector for completion registration
+### CLI Toolchain (LLM-first)
+- `nlc check` — fast type-check without codegen (like `cargo check`)
+- `nlc fix` — auto-apply compiler suggestions (like `cargo clippy --fix`)
+- `nlc query symbols` — list all symbols in project/file
+- `nlc query outline` — file structure with imports and declarations
+- `nlc query diagnostics` — Elm-level rich errors (JSON + text)
+- `nlc query type` — type info at position
+- `nlc query definition` — go-to-def (position-based + name search)
+- `nlc query references` — find all references (semantic via BindingMap + text fallback)
+- `nlc query completions` — LLM-optimized completions (member access + identifier)
+- `nlc daemon` — background analysis server (Unix socket, auto-start, 30min idle timeout)
+- `nlc format` — code formatter
+- `nlc lint` — static analysis
+- All query commands output versioned JSON (schemaVersion: 1) by default
 
-### Key Architecture Decisions
-- **Trigger character over text scanning**: The dot trigger character (`request.Context?.TriggerCharacter`) is the reliable signal for member completion. Document text may not have the dot yet due to race condition between `didChange` and `completion` requests.
-- **DocumentSelector required**: `CompletionRegistrationOptions` MUST set `DocumentSelector = new TextDocumentSelector(new TextDocumentFilter { Language = "nsharp" })` or VS Code won't forward completion requests. Other handlers (hover, definition, etc.) should also set this — currently they don't but work via fallback behavior.
-- **AST-based completion (primary) + text fallback**: Primary path uses AstNodeFinder + ExpressionTypeResolver like HoverHandler. Falls back to text-based identifier extraction when AST is broken.
-- **Symbol priority > namespace**: Real symbols in scope (variables, types) checked before namespace completion. Codex review identified this as a correctness issue.
+### IDE Tooling (VS Code)
+- CompletionHandler — AST-based member completion, namespace completion, trigger character
+- HoverHandler — type info on hover
+- DefinitionHandler — go-to-definition (F12)
+- RenameHandler — rename symbol (F2) with interpolation awareness
+- SignatureHelpHandler — parameter info for .NET types
+- CodeActionHandler — quick fixes (add import, remove unused var)
+- TextDocumentHandler — diagnostics with correct squiggly width/position
 
-### Skills Created
-- **`~/.claude/skills/computer-use/`** — macOS GUI automation via screencapture + osascript. Includes VS Code shortcuts reference. Used for mandatory IDE verification.
+### Compiler Infrastructure
+- BindingMap — semantic symbol resolution (declaration → usages)
+- CodeFixService — 3 providers (NL002 missing import, NL001 unused var, NL003 null check stub)
+- CodeIntelligenceService — shared engine for CLI and (eventually) LSP
+- CompletionEngine — LLM-optimized completions with AST field resolution
+- OutputFormatter — JSON (versioned envelope) + Elm-style text
 
 ## Remaining IDE Tooling Tasks
 
@@ -31,70 +41,49 @@ Updated: 2026-03-24 after major IDE tooling session.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Auto-import on completion | pending | Select `Console` without `import System` -> auto-add import. Needs `additionalTextEdits` on CompletionItem |
-| 11 | Find All References | pending | Implement ReferencesHandler. Reuse FindAllReferences from DocumentManager, extend across open documents. Shift+F12 |
-| 12 | Cross-file go-to-definition | pending | F12 on type defined in another file should jump there. Need to track symbols across all open documents |
+| 10 | Auto-import on completion | pending | Select `Console` without `import System` → auto-add import via `additionalTextEdits` on CompletionItem |
+| 11 | Find All References (LSP) | **partially done** | BindingMap exists for semantic resolution. Need ReferencesHandler in LSP to expose via Shift+F12 |
+| 12 | Cross-file go-to-definition (LSP) | **partially done** | CLI `nlc query def` works cross-file. LSP DefinitionHandler needs to use CodeIntelligenceService for cross-file |
 | 13 | Workspace-wide diagnostics | pending | Analyze all .nl files on workspace open, not just open files |
 
 ### Tier 2 — Important
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 14 | N# function signature help | pending | SignatureHelpHandler only works for .NET types. Should show hints for user-defined functions from SymbolsInfo |
-| 15 | Quick fix: add missing import | pending | Lightbulb on undeclared identifier -> "Add import System" |
-| 16 | Document symbols / Outline | pending | Implement DocumentSymbolHandler to populate Outline panel and breadcrumbs. Walk AST. Easy win |
+| 14 | N# function signature help | pending | SignatureHelpHandler only works for .NET types. Should show hints for user-defined N# functions |
+| 15 | Quick fix: add missing import | **done (CLI)** | `nlc fix` handles NL002. LSP CodeActionHandler already wired. |
+| 16 | Document symbols / Outline (LSP) | **done (CLI)** | `nlc query outline` works. Need DocumentSymbolHandler in LSP for Outline panel |
 | 17 | Inlay hints for type inference | pending | Show `: string` as ghost text after `:=`. Killer feature for inference language |
-| 18 | Snippet completions | pending | `func` -> template, `if` -> if block, `match` -> match expression |
+| 18 | Snippet completions | pending | `func` → template, `if` → if block, `match` → match expression |
 
-### Bonus (not yet tracked)
-- Add DocumentSelector to ALL handler registration options (hover, definition, rename, etc.) — currently only CompletionHandler has it
-- Fix duplicate comment block in CompletionHandler.cs line 57-62 (two comment blocks about trigger character)
-- Consider caching namespace completion results (currently regenerated each request)
+### Tier 3 — LLM Toolchain Polish
 
-## Known Bugs
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 19 | `nlc query doc` | pending | API documentation from CLI. `nlc query doc Console.WriteLine` → signature + XML doc. XmlDocReader exists in LSP |
+| 20 | Audit `nlc format` | pending | Ensure fully opinionated, zero config. N# should have ONE canonical style like Go |
+| 21 | SemanticModel field/property recording | pending | Analyzer doesn't call RecordField/RecordProperty — completions use AST fallback. Fix would improve type queries too |
+| 22 | BindingMap for cross-file type references | pending | Import resolution path doesn't record bindings. References falls back to text search for cross-file |
 
-### 1. Completion works inconsistently in VS Code
-**Root cause**: Mostly resolved. Was caused by:
-- Restricted Mode blocking extension activation (fixed: disabled workspace trust globally)
-- Race condition between didChange and completion (fixed: use trigger character)
-- Missing DocumentSelector in CompletionRegistrationOptions (fixed: added Language="nsharp")
-- Cursor positioning issues with osascript automation (not a real bug, just testing artifact)
+### Bonus
+- Add DocumentSelector to ALL LSP handler registration options (hover, definition, rename, etc.)
+- Daemon: file watching for automatic cache invalidation
+- `nlc fix` additional providers: add missing function return type, fix type mismatches, etc.
 
-**Still may occur if**: workspace is opened as single file (not folder), or extension hasn't fully initialized yet.
+## Known Limitations
 
-### 2. Namespace completion fallback shows wrong items
-**Root cause**: Fixed. Was caused by `IsKnownNamespace` only checking `_exportedTypesCache` which didn't include CoreLib. Added WellKnownNamespaces hashset for instant lookup.
+### Semantic Resolution
+- **FindReferences** uses BindingMap for local references but falls back to text search for cross-file type references (imports don't record bindings)
+- **SemanticModel** is flat and not position-aware — can't distinguish shadowed variables. Fields/properties not recorded
+- **Definition** at a position extracts the name then does a name search across all files — not true semantic resolution for overloads/shadowing
+- **Type queries** on member access (`person.Name`) ignore the receiver type — look up `Name` globally
 
-### 3. Generic type duplicates in namespace completion
-**Root cause**: Fixed. `Action`1`, `Action`2` etc. were deduplicated by raw name (with backtick) instead of cleaned name. Now deduplicates AFTER stripping backtick+arity.
-
-## Codex Review Findings (Addressed)
-
-All three warnings from Codex adversarial code review were fixed:
-1. **Symbol priority over namespace** — namespace completion moved after semantic model/type resolution
-2. **Namespace probing gated** — AST path checks `IsKnownNamespace()` before `GetTypesInNamespace()`
-3. **Exported types cached** — `GetOrCacheExportedTypes()` stores results in `_exportedTypesCache`
-
-## Files Modified This Session
-
-### Language Server
-- `src/NSharpLang.LanguageServer/Handlers/CompletionHandler.cs` — Major rewrite: AST-based member completion, namespace completion, trigger character fix, DocumentSelector
-- `src/NSharpLang.LanguageServer/Handlers/TextDocumentHandler.cs` — Squiggly width fix (token length), linter position fix (source search)
-- `src/NSharpLang.LanguageServer/Handlers/RenameHandler.cs` — **New file**: F2 rename with interpolation-aware FindAllReferences
-- `src/NSharpLang.LanguageServer/Services/DocumentManager.cs` — FindAllReferences, IsInsideStringOrComment (interpolation), parameter/catch var tracking
-- `src/NSharpLang.LanguageServer/Services/TypeResolver.cs` — Array/nullable type resolution, MemberAccessMode, GetTypesInNamespace, IsKnownNamespace, GetOrCacheExportedTypes
-- `src/NSharpLang.LanguageServer/Program.cs` — Registered RenameHandler
-
-### Compiler
-- `src/NSharpLang.Compiler/Analyzer.cs` — Undeclared identifier detection in string interpolation expressions
-
-### Tests
-- `tests/LanguageServerTests.cs` — FindAllReferences tests (interpolation, regular strings), member completion tests (string, Console, N# class), namespace completion test
-
-### Config
-- `CLAUDE.md` — Added Codex review requirements, IDE verification requirements
-- `~/.claude/skills/computer-use/SKILL.md` — Computer use skill for GUI automation
+### Completions
+- Member access works for .NET types (via reflection) and N# type fields (via AST fallback)
+- Doesn't resolve local variable types from `:=` inference — only fields with explicit type annotations
+- No extension method completions (LINQ methods on collections)
 
 ## Test Status
-- **882 tests passing, 0 failures, 3 skipped**
-- Tests cover: lexer, parser, analyzer, transpiler, integration, LSP handlers, FindAllReferences, member completion, namespace completion
+- **944+ tests passing, 0 failures, 3 skipped**
+- Integration tests use real example projects (01-hello-world, 06-classes-and-records, 12-multi-file-projects, 05-unions)
+- Tests cover: lexer, parser, analyzer, transpiler, integration, LSP handlers, CodeIntelligence (symbols, outline, diagnostics, definition, references, completions, BindingMap), OutputFormatter, CodeFix
