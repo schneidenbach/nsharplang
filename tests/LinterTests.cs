@@ -259,6 +259,24 @@ func main() {
         Assert.Contains(missingImports, d => d.Message.Contains("List"));
     }
 
+    [Fact]
+    public void NL002_NoWarningForTypeImportedFromFile()
+    {
+        var source = @"
+import ""../Models/Task""
+
+class TaskService {
+    tasks: List<Task>
+}";
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d =>
+            d.Code == "NL002" &&
+            d.Message.Contains("Task") &&
+            d.Suggestion != null &&
+            d.Suggestion.Contains("System.Threading.Tasks"));
+    }
+
     #endregion
 
     #region NL003: Unnecessary Null Check Tests
