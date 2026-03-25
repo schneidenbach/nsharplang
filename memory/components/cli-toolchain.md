@@ -35,6 +35,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
 | `nlc query type --file F --pos L:C` | Type info at position | `nlc query type --file Program.nl --pos 5:4` |
 | `nlc query inspect --file F --pos L:C` | One-shot symbol/type/definition/refs/completions bundle | `nlc query inspect --file Program.nl --pos 5:4` |
+| `nlc query inspect --summary --file F --pos L:C` | Compact envelope for tooling that only needs the high-level inspection summary | `nlc query inspect --summary --file Program.nl --pos 85:22` |
 | `nlc query def --file F --pos L:C` | Definition at position (semantic) | `nlc query def --file Program.nl --pos 5:12` |
 | `nlc query def --name N` | Definition by name (search) | `nlc query def --name Person` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
@@ -180,9 +181,46 @@ $ nlc query inspect --file Program.nl --pos 85:22
   "result": {
     "symbol": { "name": "GetStats", "kind": "function", "definition": { "file": "Services/TaskService.nl", "line": 93, "column": 5 } },
     "type": { "resolvedType": "TaskStats", "kind": "record" },
-    "definition": { "name": "GetStats", "kind": "function", "file": "Services/TaskService.nl", "line": 93, "column": 5 },
+    "definition": { "file": "Services/TaskService.nl", "line": 93, "column": 5 },
     "references": { "count": 2, "definitionCount": 1, "results": [...] },
     "completions": { "context": "memberaccess", "receiver": "service", "receiverType": "TaskService", "completions": { ... } }
+  }
+}
+```
+
+### `nlc query inspect --summary` — Compact, Stable Envelope
+
+`--summary` keeps the same `schemaVersion`, `command`, `ok`, `file`, and `position` envelope, but replaces the full `result` tree with a compact `summary` object. That makes the output easier to diff, cache, and consume from automation.
+
+```bash
+$ nlc query inspect --summary --file Program.nl --pos 85:22
+{
+  "schemaVersion": 1,
+  "command": "inspect",
+  "ok": true,
+  "file": "Program.nl",
+  "position": { "line": 85, "column": 22 },
+  "summary": {
+    "symbol": { "name": "GetStats", "kind": "function" },
+    "type": { "name": "GetStats", "resolvedType": "TaskStats", "kind": "record" },
+    "definition": { "name": "GetStats", "kind": "function", "file": "Services/TaskService.nl", "line": 93, "column": 5 },
+    "references": {
+      "count": 2,
+      "definitionCount": 1,
+      "files": ["Program.nl", "Services/TaskService.nl"],
+      "sample": [ ... ]
+    },
+    "completions": {
+      "context": "memberaccess",
+      "receiver": "service",
+      "receiverType": "TaskService",
+      "totalCount": 6,
+      "groupCounts": { "functions": 2, "properties": 4 },
+      "groups": {
+        "functions": ["GetStats", "CreateTask"],
+        "properties": ["Total", "Todo", "InProgress", "Done"]
+      }
+    }
   }
 }
 ```
@@ -279,6 +317,16 @@ All `nlc check` and `nlc fix` commands output JSON with a versioned envelope:
 - `result.definition`
 - `result.references`
 - `result.completions`
+
+`inspect --summary` envelope:
+- `command`
+- `file`
+- `position`
+- `summary`
+- `summary.references.count` / `summary.references.definitionCount`
+- `summary.completions.totalCount`
+- `summary.completions.groupCounts`
+- `summary.completions.groups`
 
 ## Local Install
 

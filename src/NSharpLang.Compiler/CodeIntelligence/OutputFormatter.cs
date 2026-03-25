@@ -18,6 +18,8 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 public static class OutputFormatter
 {
     private const int SchemaVersion = 1;
+    private const int InspectSummaryReferenceSampleSize = 5;
+    private const int InspectSummaryCompletionSampleSize = 8;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -96,6 +98,26 @@ public static class OutputFormatter
         {
             Symbol = result.Symbol != null ? Normalize(result.Symbol) : null,
             Type = result.Type != null ? Normalize(result.Type) : null,
+            Definition = result.Definition != null ? Normalize(result.Definition) : null,
+            References = Normalize(result.References)
+        };
+
+    private static InspectReferenceSummaryResult Normalize(InspectReferenceSummaryResult result) =>
+        result with
+        {
+            File = NormalizePath(result.File) ?? result.File
+        };
+
+    private static InspectSummaryReferencesResult Normalize(InspectSummaryReferencesResult result) =>
+        result with
+        {
+            Files = result.Files.Select(file => NormalizePath(file) ?? file).ToArray(),
+            Sample = result.Sample.Select(Normalize).ToArray()
+        };
+
+    private static InspectSummaryResult Normalize(InspectSummaryResult result) =>
+        result with
+        {
             Definition = result.Definition != null ? Normalize(result.Definition) : null,
             References = Normalize(result.References)
         };
@@ -256,6 +278,21 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string InspectSummaryToJson(InspectResult result, string file, int line, int col)
+    {
+        var summary = Normalize(ToInspectSummary(result));
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "inspect",
+            ok = true,
+            file = NormalizePath(file),
+            position = new { line, column = col },
+            summary
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string CompletionsToText(CompletionResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
@@ -375,6 +412,67 @@ public static class OutputFormatter
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static InspectSummaryResult ToInspectSummary(InspectResult result)
+    {
+        var groups = result.Completions.Completions
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        var groupCounts = groups.ToDictionary(
+            group => group.Key,
+            group => group.Value.Count,
+            StringComparer.Ordinal);
+
+        var sampledGroups = groups.ToDictionary(
+            group => group.Key,
+            group => group.Value
+                .Select(item => item.Name)
+                .Distinct(StringComparer.Ordinal)
+                .Take(InspectSummaryCompletionSampleSize)
+                .ToArray(),
+            StringComparer.Ordinal);
+
+        var definition = result.Definition != null
+            ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
+            : result.Symbol?.Definition;
+
+        var referenceFiles = result.References.Results
+            .Select(reference => NormalizePath(reference.File) ?? reference.File)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(file => file, StringComparer.Ordinal)
+            .ToArray();
+
+        var referenceSample = result.References.Results
+            .Take(InspectSummaryReferenceSampleSize)
+            .Select(reference => new InspectReferenceSummaryResult(
+                reference.File,
+                reference.Line,
+                reference.Column,
+                reference.IsDefinition))
+            .ToArray();
+
+        return new InspectSummaryResult(
+            result.Symbol != null
+                ? new InspectSummarySymbolResult(result.Symbol.Name, result.Symbol.Kind)
+                : null,
+            result.Type != null
+                ? new InspectSummaryTypeResult(result.Type.Name, result.Type.ResolvedType, result.Type.Kind)
+                : null,
+            definition,
+            new InspectSummaryReferencesResult(
+                result.References.Count,
+                result.References.DefinitionCount,
+                referenceFiles,
+                referenceSample),
+            new InspectSummaryCompletionsResult(
+                result.Completions.Context.ToString().ToLowerInvariant(),
+                result.Completions.Receiver,
+                result.Completions.ReceiverType,
+                result.Completions.Completions.Sum(group => group.Value.Count),
+                groupCounts,
+                sampledGroups));
     }
 
     // ── Elm-Style Text Output ──────────────────────────────────────────

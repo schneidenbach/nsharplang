@@ -77,6 +77,14 @@
     "position",
     "result"
   ],
+  "inspectSummary": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "position",
+    "summary"
+  ],
   "check": [
     "schemaVersion",
     "command",

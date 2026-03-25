@@ -206,6 +206,48 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void InspectSummaryToJson_ProducesCompactSummaryPayload()
+    {
+        var inspect = new InspectResult(
+            new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
+            new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+            new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
+            new InspectReferencesResult(2, 1, new[]
+            {
+                new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+            }),
+            new CompletionResult(
+                CompletionContext.MemberAccess,
+                "service",
+                "TaskService",
+                new Dictionary<string, List<CompletionItem>>
+                {
+                    ["functions"] = new()
+                    {
+                        new CompletionItem("GetStats", "function", "TaskStats", "()", null, false),
+                        new CompletionItem("CreateTask", "function", "TaskResult", "(string title)", null, false)
+                    },
+                    ["properties"] = new()
+                    {
+                        new CompletionItem("Total", "property", "int", null, null, false)
+                    }
+                }));
+
+        var json = OutputFormatter.InspectSummaryToJson(inspect, "Program.nl", 85, 22);
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Equal("inspect", doc.RootElement.GetProperty("command").GetString());
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
+        Assert.False(doc.RootElement.TryGetProperty("result", out _));
+        Assert.Equal(2, summary.GetProperty("references").GetProperty("count").GetInt32());
+        Assert.Equal(3, summary.GetProperty("completions").GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, summary.GetProperty("completions").GetProperty("groupCounts").GetProperty("functions").GetInt32());
+        Assert.Equal("GetStats", summary.GetProperty("completions").GetProperty("groups").GetProperty("functions")[0].GetString());
+    }
+
+    [Fact]
     public void CheckToJson_HasStableEnvelope()
     {
         var diagnostics = new List<DiagnosticResult>
@@ -393,6 +435,39 @@ public class CodeIntelligenceOutputTests
                 "/project",
                 3),
             expected);
+    }
+
+    [Fact]
+    public void Json_InspectSummary_HasStableEnvelope()
+    {
+        var expected = LoadJsonContractRootKeys();
+
+        var json = OutputFormatter.InspectSummaryToJson(
+            new InspectResult(
+                new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
+                new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
+                new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
+                new InspectReferencesResult(2, 1, new[]
+                {
+                    new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
+                    new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                }),
+                new CompletionResult(
+                    CompletionContext.MemberAccess,
+                    "service",
+                    "TaskService",
+                    new Dictionary<string, List<CompletionItem>>
+                    {
+                        ["functions"] = new()
+                        {
+                            new CompletionItem("GetStats", "function", "TaskStats", "()", null, false)
+                        }
+                    })),
+            "Program.nl",
+            85,
+            22);
+
+        AssertJsonContract("inspectSummary", json, expected);
     }
 
     // ── OutputFormatter Text Tests ──────────────────────────────────────
