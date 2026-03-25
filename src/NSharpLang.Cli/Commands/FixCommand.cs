@@ -27,15 +27,17 @@ public static class FixCommand
 
     public static int Execute(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+            return ShowHelp();
+
         var dryRun = args.Contains("--dry-run");
         var useText = args.Contains("--text");
         var fileArg = GetOption(args, "--file");
-        var projectDir = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
+        var projectDir = GetProjectDir(args);
 
         if (!Directory.Exists(projectDir))
         {
-            Console.Error.WriteLine($"Directory not found: {projectDir}");
-            return 1;
+            return EmitError(useText, $"Directory not found: {projectDir}");
         }
 
         try
@@ -54,7 +56,7 @@ public static class FixCommand
             }
             else
             {
-                var config = ProjectFileParser.ParseFromDirectory(projectDir);
+                var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
                 files = config.GetSourceFiles(projectDir, includeTests: false)
                     .Select(f => Path.GetFullPath(f))
                     .ToList();
@@ -65,7 +67,7 @@ public static class FixCommand
                 if (useText)
                     Console.Error.WriteLine("No .nl files found.");
                 else
-                    Console.Write(EmptyResultJson());
+                    Console.Write(ResultJson(projectDir, dryRun, Array.Empty<AppliedFix>(), 0));
                 return 0;
             }
 
@@ -111,42 +113,38 @@ public static class FixCommand
             }
             else
             {
-                OutputJson(allAppliedFixes, filesModified, dryRun);
+                Console.Write(ResultJson(projectDir, dryRun, allAppliedFixes, filesModified));
             }
 
             return 0;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Fix failed: {ex.Message}");
-            return 1;
+            return EmitError(useText, $"Fix failed: {ex.Message}");
         }
     }
 
-    private static void OutputJson(List<AppliedFix> fixes, int filesModified, bool dryRun)
+    public static int ShowHelp()
     {
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "fix",
-            dryRun,
-            filesModified,
-            fixesApplied = fixes.Select(f => new
-            {
-                file = f.File,
-                diagnostic = f.DiagnosticCode,
-                title = f.Title,
-                edits = f.Edits.Select(e => new
-                {
-                    startLine = e.StartLine,
-                    startColumn = e.StartColumn,
-                    endLine = e.EndLine,
-                    endColumn = e.EndColumn,
-                    newText = e.NewText
-                })
-            })
-        };
-        Console.Write(JsonSerializer.Serialize(envelope, JsonOptions));
+        Console.WriteLine(@"N# Auto-Fix
+
+Usage: nlc fix [options] [project-dir]
+
+Options:
+  --json        Output as JSON (default)
+  --text        Output as human-readable summary
+  --project     Project root directory (default: current directory)
+  --file        Fix a single file
+  --dry-run     Preview fixes without writing files
+  --help, -h    Show this help text
+
+Examples:
+  nlc fix
+  nlc fix --dry-run --text
+  nlc fix --file Program.nl
+  nlc fix --project examples/15-dogfood-project");
+
+        return 0;
     }
 
     private static void OutputText(List<AppliedFix> fixes, int filesModified, bool dryRun)
@@ -172,17 +170,42 @@ public static class FixCommand
         }
     }
 
-    private static string EmptyResultJson()
+    private static string ResultJson(string projectDir, bool dryRun, IReadOnlyCollection<AppliedFix> fixes, int filesModified)
     {
         var envelope = new
         {
             schemaVersion = 1,
             command = "fix",
-            dryRun = false,
-            filesModified = 0,
-            fixesApplied = Array.Empty<object>()
+            projectRoot = projectDir,
+            dryRun,
+            ok = true,
+            filesModified,
+            fixesApplied = fixes.Select(f => new
+            {
+                file = f.File,
+                diagnostic = f.DiagnosticCode,
+                title = f.Title,
+                edits = f.Edits.Select(e => new
+                {
+                    startLine = e.StartLine,
+                    startColumn = e.StartColumn,
+                    endLine = e.EndLine,
+                    endColumn = e.EndColumn,
+                    newText = e.NewText
+                })
+            })
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static string GetProjectDir(string[] args)
+    {
+        var projectOption = GetOption(args, "--project");
+        if (!string.IsNullOrWhiteSpace(projectOption))
+            return projectOption;
+
+        var positional = GetFirstPositionalArg(args, "--project", "--file");
+        return positional ?? Directory.GetCurrentDirectory();
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -193,5 +216,36 @@ public static class FixCommand
                 return args[i + 1];
         }
         return null;
+    }
+
+    private static string? GetFirstPositionalArg(string[] args, params string[] optionsWithValues)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))
+            {
+                i++;
+                continue;
+            }
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
+    }
+
+    private static int EmitError(bool useText, string message)
+    {
+        if (useText)
+        {
+            Console.Error.WriteLine(message);
+        }
+        else
+        {
+            Console.Write(OutputFormatter.ErrorToJson("fix", message));
+        }
+
+        return 1;
     }
 }

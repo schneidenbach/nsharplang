@@ -153,7 +153,8 @@ public static class FixApplicator
             return new List<CodeAction>();
 
         // Lint to get diagnostics
-        var linter = new Linter();
+        var fileDir = System.IO.Path.GetDirectoryName(filePath) ?? System.IO.Directory.GetCurrentDirectory();
+        var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
         var diagnostics = linter.Lint(parseResult.CompilationUnit, filePath);
 
         // Get fixes from CodeFixService

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Linq
 import TaskTracker.Models
+import System.Text
 import "../Models/Task"
 
 // Service for managing tasks
@@ -108,6 +109,17 @@ record TaskStats {
     InProgress: int
     Done: int
     Overdue: int
+
+    func FormatSummary(): string {
+        summary := new StringBuilder()
+        summary.AppendLine($"Total: {Total}")
+        summary.AppendLine($"Todo: {Todo}")
+        summary.AppendLine($"In Progress: {InProgress}")
+        summary.AppendLine($"Done: {Done}")
+        summary.AppendLine($"Overdue: {Overdue}")
+        summary.Append($"Completion Rate: {GetCompletionRate()}%")
+        return summary.ToString()
+    }
 
     func GetCompletionRate(): double {
         if Total == 0 {

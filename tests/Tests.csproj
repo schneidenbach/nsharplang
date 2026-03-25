@@ -27,6 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\src\NSharpLang.Cli\Cli.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
     <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
   </ItemGroup>
