@@ -21,6 +21,8 @@ This is a product being built for millions of users. Treat every feature, every 
 
 The memory/README.md is the table of contents for your documentation - if you need to look something up, start in the memory/README.md and then find the file that could answer your question.
 
+**CLI Toolchain Reference:** `memory/components/cli-toolchain.md` — complete reference for all `nlc` commands (`check`, `fix`, `query`, `daemon`, `format`, `lint`, etc.), JSON schemas, architecture, and comparison with Go/Rust.
+
 ## IMPORTANT!!!!!
 
 The source code for Roslyn is on this computer and available for you to peruse. Use those patterns for research and then implement your shit. /Users/claude/repos/roslyn
