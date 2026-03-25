@@ -275,16 +275,21 @@ Most limitations have workarounds:
 **High Priority:**
 - Method overload resolution by type
 - Extension methods on literals
-- LSP Phase 3 features
+- SemanticModel field/property recording (completions use AST fallback currently)
+- BindingMap for cross-file type references (import path doesn't record bindings)
 
 **Medium Priority:**
 - Generic type inference
 - Exhaustiveness with guards
 - Circular import detection
-- Incremental compilation
+- Position-aware SemanticModel (for shadowing, scope-correct lookups)
 
 **Low Priority:**
 - REPL
-- Code formatter
 - Nested union matching
-- API doc generator
+
+**Done (previously listed):**
+- ✅ Code formatter (`nlc format`)
+- ✅ LSP Phase 3 features (completion, hover, definition, rename, code actions)
+- ✅ API doc generator (partial — `nlc query` provides structured symbol/type info)
+- ✅ Incremental compilation (daemon mode caches analysis)

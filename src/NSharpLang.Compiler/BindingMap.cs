@@ -35,7 +35,6 @@ public class BindingMap
 {
     // Forward map: usage location → the declaration it binds to
     private readonly Dictionary<(string? File, int Line, int Col), SymbolDeclaration> _bindings = new();
-    private readonly Dictionary<(string? File, int Line, int Col), int> _bindingLengths = new();
 
     // Reverse map: declaration location → all usages
     private readonly Dictionary<(string? File, int Line, int Col), List<SymbolUsage>> _references = new();
@@ -51,7 +50,6 @@ public class BindingMap
     {
         var usageKey = (usageFile, usageLine, usageCol);
         _bindings[usageKey] = declaration;
-        _bindingLengths[usageKey] = usageLength;
 
         // Record the declaration itself
         var declKey = (declaration.File, declaration.Line, declaration.Column);
@@ -105,30 +103,9 @@ public class BindingMap
         if (_declarations.TryGetValue((file, line, col), out var decl))
             return decl;
 
-        foreach (var declaration in _declarations.Values)
-        {
-            if (declaration.File == file &&
-                declaration.Line == line &&
-                PositionTouches(col, declaration.Column, declaration.Name.Length))
-            {
-                return declaration;
-            }
-        }
-
         // Then check if there's a binding at this position
         if (_bindings.TryGetValue((file, line, col), out var binding))
             return binding;
-
-        foreach (var (usageKey, candidate) in _bindings)
-        {
-            if (usageKey.File == file &&
-                usageKey.Line == line &&
-                _bindingLengths.TryGetValue(usageKey, out var length) &&
-                PositionTouches(col, usageKey.Col, length))
-            {
-                return candidate;
-            }
-        }
 
         return null;
     }
@@ -194,11 +171,6 @@ public class BindingMap
             _bindings[key] = binding;
         }
 
-        foreach (var (key, length) in other._bindingLengths)
-        {
-            _bindingLengths[key] = length;
-        }
-
         foreach (var (key, usages) in other._references)
         {
             if (!_references.TryGetValue(key, out var existing))
@@ -208,11 +180,5 @@ public class BindingMap
             }
             existing.AddRange(usages);
         }
-    }
-
-    private static bool PositionTouches(int queryCol, int startCol, int length)
-    {
-        var safeLength = length <= 0 ? 1 : length;
-        return queryCol >= startCol && queryCol < startCol + safeLength;
     }
 }

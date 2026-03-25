@@ -1210,17 +1210,7 @@ class Program
     /// </summary>
     static int CheckCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h"))
-        {
-            Console.WriteLine("Usage: nlc check [project-dir]");
-            Console.WriteLine();
-            Console.WriteLine("Fast type-check without generating assemblies.");
-            Console.WriteLine("Parses and analyzes the current project (or the given directory) and");
-            Console.WriteLine("prints diagnostics in Elm-style text when problems are found.");
-            return 0;
-        }
-
-        var projectDir = args.FirstOrDefault(a => !a.StartsWith("-")) ?? Directory.GetCurrentDirectory();
+        var projectDir = args.Length > 0 ? args[0] : Directory.GetCurrentDirectory();
 
         if (!Directory.Exists(projectDir))
         {

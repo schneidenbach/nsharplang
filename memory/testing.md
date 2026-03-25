@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** 876 total, 873 passing, 3 skipped
+**Total Tests:** 944+ total, 0 failures, 3 skipped
 
 ## Test Organization
 
@@ -16,10 +16,19 @@
 ### Test Files
 ```
 tests/
-├── LexerTests.cs      - Tokenization tests
-├── ParserTests.cs     - Parsing tests
-├── AnalyzerTests.cs   - Type checking tests
-└── TranspilerTests.cs - Code generation tests
+├── LexerTests.cs                - Tokenization tests
+├── ParserTests.cs               - Parsing tests
+├── AnalyzerTests.cs             - Type checking tests
+├── AnalyzerSemanticModelTests.cs - Semantic model tests
+├── TranspilerTests.cs           - Code generation tests
+├── IntegrationTests.cs          - End-to-end pipeline tests
+├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
+├── ILCompilerTests.cs           - IL compilation tests
+├── LinterTests.cs               - Linter diagnostic tests
+├── ErrorReportingTests.cs       - Error formatting tests
+├── CodeFixTests.cs              - Code fix provider tests
+├── CodeIntelligenceTests.cs     - OutputFormatter unit tests
+└── QueryIntegrationTests.cs     - CLI toolchain integration tests (uses real example projects)
 ```
 
 ## Testing Strategy
@@ -107,6 +116,26 @@ public void TestFullCompilation()
 - Special cases (unions, duck interfaces, etc.)
 - Indentation correctness
 - C# syntax validity
+
+### Language Server Tests
+- Completion (member access, namespace, N# types)
+- Hover (type info display)
+- Go-to-definition
+- Rename (with interpolation awareness)
+- FindAllReferences
+
+### Code Intelligence Tests (CLI Toolchain)
+- **QueryIntegrationTests** — runs against REAL example projects:
+  - `examples/01-hello-world` — single file, functions, variables
+  - `examples/06-classes-and-records` — records, members, methods
+  - `examples/12-multi-file-projects/MultiFileProject` — cross-file imports, namespaces
+  - `examples/05-unions` — unions, error handling
+- Tests: symbols, outline, diagnostics, definition (by name + line assertions), references (cross-file), completions (member access + identifier), BindingMap, JSON schema, unhappy paths
+- **CodeIntelligenceTests** — OutputFormatter unit tests (JSON envelope, Elm-style text)
+- **CodeFixTests** — CodeFixProviders (auto-import, unused variable removal)
+
+### Known Testing Limitation
+`dotnet test --filter` hangs when used with this project (xUnit deadlock from assembly loading — see task 034). Run the full suite with `dotnet test` instead.
 
 ## Running Tests
 
@@ -240,6 +269,22 @@ Run with:
 ```bash
 nlc test
 ```
+
+## Full Validation (MANDATORY before committing)
+
+```bash
+./scripts/test-all.sh
+```
+
+This script:
+1. Runs all unit tests (`dotnet test`)
+2. Rebuilds the compiler and SDK
+3. Installs the latest SDK to local NuGet feed
+4. Tests `dotnet new` template creation
+5. Builds ALL example projects with `dotnet build`
+6. Validates everything works end-to-end
+
+**Never commit without test-all.sh passing.**
 
 ## Continuous Testing
 
