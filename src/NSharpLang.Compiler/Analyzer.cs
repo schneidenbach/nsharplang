@@ -31,6 +31,7 @@ public class Analyzer
     private readonly List<Assembly> _referencedAssemblies = new(); // External assemblies for type resolution
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
+    private BindingMap _bindingMap = new(); // Binding map for semantic references
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -47,6 +48,7 @@ public class Analyzer
         _importedSymbolsByAlias.Clear();
         _extensionMethods.Clear();
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
+        _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _currentReturnType = null;
         _inLoop = false;
         _inConstructor = false;
@@ -121,7 +123,7 @@ public class Analyzer
 
         PopScope();
 
-        return new AnalysisResult(_errors, _semanticModel);
+        return new AnalysisResult(_errors, _semanticModel, _bindingMap);
     }
 
     private void AnalyzeDeclaration(Declaration decl)
@@ -2666,7 +2668,15 @@ public class Analyzer
         foreach (var scope in _scopes)
         {
             if (scope.Symbols.TryGetValue(name, out var type))
+            {
+                // Record binding: this usage → its declaration
+                var declLocation = scope.GetDeclarationLocation(name);
+                if (declLocation != null)
+                {
+                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
+                }
                 return type;
+            }
         }
 
         // Try to resolve as external type (for static class access like Console)
@@ -2677,7 +2687,19 @@ public class Analyzer
         // Check if it's a type name
         var typeInfo = LookupType(name);
         if (typeInfo != null)
+        {
+            // Record binding for type references
+            foreach (var scope in _scopes)
+            {
+                var declLocation = scope.GetDeclarationLocation(name);
+                if (declLocation != null)
+                {
+                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
+                    break;
+                }
+            }
             return typeInfo;
+        }
 
         // Check if it's an instance member of the current class or base class
         var currentType = GetCurrentTypeScope();
@@ -3067,6 +3089,13 @@ public class Analyzer
         else
         {
             currentScope.Symbols[name] = type;
+
+            // Record declaration in binding map for semantic references
+            var kind = TypeInfoToDeclarationKind(type);
+            var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
+            _bindingMap.RecordDeclaration(decl);
+            // Also record the declaration location in the scope for later lookup
+            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, column, kind);
         }
     }
 
@@ -3080,8 +3109,26 @@ public class Analyzer
         else
         {
             currentScope.Types[name] = type;
+
+            // Record type declaration in binding map
+            var kind = TypeInfoToDeclarationKind(type);
+            var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
+            _bindingMap.RecordDeclaration(decl);
+            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, column, kind);
         }
     }
+
+    private static string TypeInfoToDeclarationKind(TypeInfo type) => type switch
+    {
+        ClassTypeInfo => "class",
+        StructTypeInfo => "struct",
+        RecordTypeInfo => "record",
+        InterfaceTypeInfo => "interface",
+        EnumTypeInfo => "enum",
+        UnionTypeInfo => "union",
+        FunctionTypeInfo => "function",
+        _ => "variable"
+    };
 
     // Operator overload validation
     private void ValidateParamsParameters(List<Parameter> parameters, int line, int column)
@@ -4027,9 +4074,28 @@ public class Scope
     public Dictionary<string, TypeInfo> Symbols { get; } = new();
     public Dictionary<string, TypeInfo> Types { get; } = new();
 
+    // Declaration locations for binding map (name → declaration info)
+    private readonly Dictionary<string, SymbolDeclaration> _declarationLocations = new();
+
     public Scope(ScopeKind kind)
     {
         Kind = kind;
+    }
+
+    /// <summary>
+    /// Record where a symbol was declared in this scope (for binding map lookups).
+    /// </summary>
+    public void RecordDeclarationLocation(string name, string? file, int line, int column, string kind)
+    {
+        _declarationLocations[name] = new SymbolDeclaration(name, file, line, column, kind);
+    }
+
+    /// <summary>
+    /// Get the declaration location for a symbol in this scope.
+    /// </summary>
+    public SymbolDeclaration? GetDeclarationLocation(string name)
+    {
+        return _declarationLocations.TryGetValue(name, out var decl) ? decl : null;
     }
 }
 
