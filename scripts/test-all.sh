@@ -192,8 +192,18 @@ fi
 
 section "Step 9: Build Legacy Examples (CLI-based)"
 
-# Find examples with .nl files but no project.yml
-LEGACY_EXAMPLES=$(find examples -maxdepth 2 -name "*.nl" -type f | grep -v "project.yml" | sort)
+# Known-failure examples (intentionally broken for error-demonstration purposes)
+KNOWN_FAILURES="TestErrors"
+
+# Find standalone .nl files in example dirs that don't have a project.yml
+# (project-based examples are already handled in Step 8)
+LEGACY_EXAMPLES=""
+for nl_file in $(find examples -maxdepth 2 -name "*.nl" -type f | sort); do
+    dir=$(dirname "$nl_file")
+    if [ ! -f "$dir/project.yml" ]; then
+        LEGACY_EXAMPLES="$LEGACY_EXAMPLES $nl_file"
+    fi
+done
 
 if [ -z "$LEGACY_EXAMPLES" ]; then
     echo "No legacy examples found"
@@ -206,12 +216,18 @@ else
         echo "Compiling legacy example: $example_name"
         echo "  Location: $nl_file"
 
-        # Try to compile with CLI
+        # Check if this is a known-failure (intentional error demo)
+        if echo "$KNOWN_FAILURES" | grep -qw "$example_name"; then
+            echo -e "${YELLOW}  Skipped (known intentional failure)${NC}"
+            continue
+        fi
+
+        # Compile with CLI — failures are real failures
         if dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build "$nl_file" > /dev/null 2>&1; then
             handle_success "Legacy example: $example_name"
         else
-            # Some examples might be meant to fail or have special requirements
-            echo -e "${YELLOW}  Skipped (may require special setup)${NC}"
+            handle_error "Legacy example: $example_name"
+            echo "  Run manually: dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build $nl_file"
         fi
     done
 fi
