@@ -299,8 +299,9 @@ public static class QueryCommand
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
+        var includeKeywords = args.Contains("--include-keywords");
         var engine = new CompletionEngine();
-        var result = engine.GetCompletions(snapshot, file, line, col);
+        var result = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
 
         if (options.UseText)
         {

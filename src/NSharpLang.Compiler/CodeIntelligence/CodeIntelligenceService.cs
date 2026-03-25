@@ -302,7 +302,10 @@ public class CodeIntelligenceService
         if (snapshot.Bindings != null)
         {
             var semanticResults = FindReferencesViaBindingMap(snapshot, filePath, line, col);
-            if (semanticResults != null && semanticResults.Count > 0)
+            // Only use semantic results if we found actual usages (not just the declaration itself).
+            // If the BindingMap only returns the declaration, fall through to text-based search
+            // which can find cross-file references that the import resolution path didn't record.
+            if (semanticResults != null && semanticResults.Count > 1)
                 return semanticResults;
         }
 
