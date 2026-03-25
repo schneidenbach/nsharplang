@@ -1,3 +1,5 @@
+import System.Linq
+
 func ProcessData(items: int[]): int[] {
     func IsValid(value: int): bool {
         return value > 0 && value < 100

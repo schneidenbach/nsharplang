@@ -27,8 +27,9 @@ file record Config {
     Version: string
 }
 
-// Public class that uses file-scoped types internally
-class Application {
+// File-scoped class that uses other file-scoped types internally
+// (C# requires that file-local types only appear in file-local type signatures)
+file class Application {
     logger: Logger = new Logger()
     config: Config
 

@@ -1911,7 +1911,13 @@ public class Parser
             TokenType.Increment or
             TokenType.Decrement or
             TokenType.Await or
-            TokenType.Throw;
+            TokenType.Throw or
+            // Keywords that are also expressions
+            TokenType.Checked or
+            TokenType.Unchecked or
+            TokenType.Typeof or
+            TokenType.Nameof or
+            TokenType.Sizeof;
 
     private YieldStatement ParseYieldStatement()
     {

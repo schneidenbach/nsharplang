@@ -83,25 +83,23 @@ func Main() {
     counter := new Counter()
 
     // Simulate concurrent increments
-    tasks := [
-        Task.Run(() => {
-            for i := 0; i < 1000; i++ {
-                counter.Increment()
-            }
-        }),
-        Task.Run(() => {
-            for i := 0; i < 1000; i++ {
-                counter.Increment()
-            }
-        }),
-        Task.Run(() => {
-            for i := 0; i < 500; i++ {
-                counter.Decrement()
-            }
-        })
-    ]
+    t1 := Task.Run(() => {
+        for i := 0; i < 1000; i++ {
+            counter.Increment()
+        }
+    })
+    t2 := Task.Run(() => {
+        for i := 0; i < 1000; i++ {
+            counter.Increment()
+        }
+    })
+    t3 := Task.Run(() => {
+        for i := 0; i < 500; i++ {
+            counter.Decrement()
+        }
+    })
 
-    Task.WaitAll(tasks)
+    Task.WaitAll(t1, t2, t3)
     print $"Final counter value: {counter.GetValue()}"
     print $"Expected: {1000 + 1000 - 500}"
     print ""

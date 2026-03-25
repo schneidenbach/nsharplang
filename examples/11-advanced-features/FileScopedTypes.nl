@@ -1,5 +1,6 @@
 // File-scoped types (C# 11 feature)
 // Types marked with 'file' are only visible within this file
+import System.Collections.Generic
 
 // File-scoped class - only visible in this file
 file class InternalCache {
@@ -10,9 +11,10 @@ file class InternalCache {
     }
 
     func Get(key: string): string? {
-        let temp: string
-        success := _data.TryGetValue(key, out temp)
-        return success ? temp : null
+        if _data.ContainsKey(key) {
+            return _data[key]
+        }
+        return null
     }
 }
 
@@ -42,8 +44,8 @@ file record CacheEntry {
     Timestamp: DateTime
 }
 
-// Public class that uses file-scoped types internally
-class UserService {
+// File-scoped class that uses other file-scoped types internally
+file class UserService {
     cache: InternalCache = new InternalCache()
     validator: IValidator
 
@@ -86,32 +88,34 @@ file class UsernameValidator : IValidator {
     }
 }
 
-// Main program - demonstrates file-scoped types
-print "=== File-Scoped Types Demo ==="
-print ""
+func Main() {
+    print "=== File-Scoped Types Demo ==="
+    print ""
 
-// Create service with file-scoped validator
-service := new UserService(new UsernameValidator())
+    // Create service with file-scoped validator
+    service := new UserService(new UsernameValidator())
 
-// Test valid username
-print "Testing valid username:"
-service.StoreUser("alice_cooper", "alice@example.com")
-email := service.GetUserEmail("alice_cooper")
-print $"Retrieved email: {email ?? \"not found\"}"
-print ""
+    // Test valid username
+    print "Testing valid username:"
+    service.StoreUser("alice_cooper", "alice@example.com")
+    email := service.GetUserEmail("alice_cooper")
+    fallback := "not found"
+    print $"Retrieved email: {email ?? fallback}"
+    print ""
 
-// Test invalid username (too short)
-print "Testing invalid username (too short):"
-service.StoreUser("ab", "invalid@example.com")
-print ""
+    // Test invalid username (too short)
+    print "Testing invalid username (too short):"
+    service.StoreUser("ab", "invalid@example.com")
+    print ""
 
-// Test invalid username (too long)
-print "Testing invalid username (too long):"
-service.StoreUser("this_username_is_way_too_long_to_be_valid", "invalid@example.com")
-print ""
+    // Test invalid username (too long)
+    print "Testing invalid username (too long):"
+    service.StoreUser("this_username_is_way_too_long_to_be_valid", "invalid@example.com")
+    print ""
 
-print "=== Demo Complete ==="
-print ""
-print "NOTE: File-scoped types (InternalCache, ValidationResult, IValidator, etc.)"
-print "are only visible within this file and cannot be used from other files."
-print "This is perfect for implementation details that shouldn't be exposed!"
+    print "=== Demo Complete ==="
+    print ""
+    print "NOTE: File-scoped types (InternalCache, ValidationResult, IValidator, etc.)"
+    print "are only visible within this file and cannot be used from other files."
+    print "This is perfect for implementation details that shouldn't be exposed!"
+}

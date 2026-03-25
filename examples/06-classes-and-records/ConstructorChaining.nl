@@ -100,16 +100,15 @@ class MemoryCache : ICache {
     }
 }
 
-// Example usage (uncomment to test with program entry point):
-// func Main() {
-//     print "=== Constructor Chaining Example ==="
-//     p1 := new Person("Alice", 30, "alice@example.com")
-//     p2 := new Person("Bob", "bob@example.com")
-//     p3 := new Person("Charlie")
-//     e1 := new Employee("Diana", 28, "diana@company.com", "EMP001", "Engineering")
-//     e2 := new Employee("Eve", "EMP002", "Sales")
-//     e3 := new Employee("Frank", "EMP003")
-//     print e1.GetEmployeeInfo()
-//     print e2.GetEmployeeInfo()
-//     print e3.GetEmployeeInfo()
-// }
+func Main() {
+    print "=== Constructor Chaining Example ==="
+    p1 := new Person("Alice", 30, "alice@example.com")
+    p2 := new Person("Bob", "bob@example.com")
+    p3 := new Person("Charlie")
+    e1 := new Employee("Diana", 28, "diana@company.com", "EMP001", "Engineering")
+    e2 := new Employee("Eve", "EMP002", "Sales")
+    e3 := new Employee("Frank", "EMP003")
+    print e1.GetEmployeeInfo()
+    print e2.GetEmployeeInfo()
+    print e3.GetEmployeeInfo()
+}
