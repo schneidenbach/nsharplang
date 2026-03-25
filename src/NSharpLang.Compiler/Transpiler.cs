@@ -708,6 +708,22 @@ public class Transpiler
         TranspileAttributes(union.Attributes);
 
         var modifiers = GetModifierString(union.Modifiers);
+
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!union.Modifiers.HasFlag(Modifiers.Public) &&
+            !union.Modifiers.HasFlag(Modifiers.Private) && !union.Modifiers.HasFlag(Modifiers.Protected) &&
+            !union.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (char.IsUpper(union.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+            else if (_currentTypeName != null)
+            {
+                modifiers = "private " + modifiers;
+            }
+        }
+
         WriteLine($"{modifiers}abstract record {union.Name}");
         WriteLine("{");
         _indentLevel++;
