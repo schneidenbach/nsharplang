@@ -33,6 +33,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query outline <file>` | File structure (imports, declarations) | `nlc query outline Program.nl` |
 | `nlc query diagnostics` | Errors/warnings with Elm-level context | `nlc query diagnostics` |
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
+| `nlc query batch --requests requests.json` | Execute multiple semantic queries in one JSON response | `nlc query batch --requests requests.json` |
 | `nlc query type --file F --pos L:C` | Type info at position | `nlc query type --file Program.nl --pos 5:4` |
 | `nlc query inspect --file F --pos L:C` | One-shot symbol/type/definition/refs/completions bundle | `nlc query inspect --file Program.nl --pos 5:4` |
 | `nlc query inspect --summary --file F --pos L:C` | Compact envelope for tooling that only needs the high-level inspection summary | `nlc query inspect --summary --file Program.nl --pos 85:22` |
@@ -225,6 +226,56 @@ $ nlc query inspect --summary --file Program.nl --pos 85:22
 }
 ```
 
+### `nlc query batch` — One Project Load, Many Queries
+
+`batch` is the LLM-facing orchestration surface. It takes a JSON array or `{ "requests": [...] }` file, runs each request against the same project snapshot, and returns one stable envelope with per-item responses nested under `results[].response`. Each request can also carry an optional `id`, which is echoed back at `results[].id` for correlation.
+
+```json
+[
+  { "command": "inspect", "file": "Program.nl", "pos": "86:39", "summary": true },
+  { "command": "doc", "query": "Console.WriteLine" },
+  { "command": "type", "file": "Program.nl", "pos": "83:1" }
+]
+```
+
+```bash
+$ nlc query batch --requests requests.json
+{
+  "schemaVersion": 1,
+  "command": "batch",
+  "ok": false,
+  "projectRoot": "/repo/examples/15-dogfood-project",
+  "requestCount": 3,
+  "successCount": 2,
+  "failureCount": 1,
+  "results": [
+    {
+      "index": 0,
+      "request": { "command": "inspect", "file": "Program.nl", "pos": "86:39", "summary": true },
+      "ok": true,
+      "response": { "...": "full inspect --summary envelope" }
+    },
+    {
+      "index": 2,
+      "request": { "command": "type", "file": "Program.nl", "pos": "83:1" },
+      "ok": false,
+      "response": { "...": "full structured noSymbol error envelope" }
+    }
+  ]
+}
+```
+
+Supported request commands:
+- `symbols`
+- `outline`
+- `diagnostics`
+- `type`
+- `inspect`
+- `definition` / `def`
+- `references` / `refs`
+- `completions`
+- `doc`
+
 ### `nlc query diagnostics` — Elm-Level Error Output
 
 The richest error output of any .NET language. Every diagnostic includes source snippets, explanations, suggestions, type info, and documentation URLs.
@@ -327,6 +378,17 @@ All `nlc check` and `nlc fix` commands output JSON with a versioned envelope:
 - `summary.completions.totalCount`
 - `summary.completions.groupCounts`
 - `summary.completions.groups`
+
+`batch` envelope:
+- `command`
+- `projectRoot`
+- `requestCount`
+- `successCount`
+- `failureCount`
+- `results`
+- `results[].request`
+- `results[].ok`
+- `results[].response`
 
 ## Local Install
 

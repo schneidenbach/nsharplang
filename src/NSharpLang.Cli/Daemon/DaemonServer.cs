@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using NSharpLang.Cli;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Daemon;
@@ -181,6 +182,28 @@ public class DaemonServer
                 return Error(request.Id, -1, "Failed to load project");
             }
 
+            if (request.Method == DaemonConstants.MethodBatch)
+            {
+                var requests = GetParam<List<BatchQueryRequest>>(request.Params, "requests");
+                if (requests == null || requests.Count == 0)
+                {
+                    return Ok(request.Id, OutputFormatter.ErrorToJson(
+                        "batch",
+                        "Batch request payload did not contain any requests.",
+                        _projectRoot,
+                        "emptyBatch"));
+                }
+
+                var execution = BatchQueryRunner.Execute(
+                    requests,
+                    _projectRoot,
+                    () => _snapshot!,
+                    _service,
+                    _completionEngine);
+
+                return Ok(request.Id, execution.Json);
+            }
+
             // Extract params
             var file = GetParam<string>(request.Params, "file");
             var posStr = GetParam<string>(request.Params, "pos");
@@ -204,6 +227,7 @@ public class DaemonServer
             // Query methods
             string result = request.Method switch
             {
+                DaemonConstants.MethodBatch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
                 DaemonConstants.MethodSymbols => HandleSymbols(file, kind),
                 DaemonConstants.MethodOutline => HandleOutline(file),
                 DaemonConstants.MethodDiagnostics => HandleDiagnostics(file, severity),

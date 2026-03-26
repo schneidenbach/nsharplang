@@ -6,6 +6,16 @@
     "projectRoot",
     "results"
   ],
+  "batch": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "requestCount",
+    "successCount",
+    "failureCount",
+    "results"
+  ],
   "outline": [
     "schemaVersion",
     "command",

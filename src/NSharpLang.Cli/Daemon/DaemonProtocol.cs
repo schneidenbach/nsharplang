@@ -93,6 +93,7 @@ public static class DaemonConstants
     public const string MethodShutdown = "daemon/shutdown";
     public const string MethodStatus = "daemon/status";
     public const string MethodSymbols = "query/symbols";
+    public const string MethodBatch = "query/batch";
     public const string MethodOutline = "query/outline";
     public const string MethodDiagnostics = "query/diagnostics";
     public const string MethodType = "query/type";

@@ -159,6 +159,101 @@ public class CliCommandTests
     }
 
     [Fact]
+    public void BatchCommand_UsesStableEnvelopeAndPerItemResponses()
+    {
+        var examplesDir = FindExamplesDir();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  {
+    "command": "inspect",
+    "file": "Program.nl",
+    "pos": "86:39",
+    "summary": true
+  },
+  {
+    "command": "doc",
+    "query": "Console.WriteLine"
+  },
+  {
+    "command": "type",
+    "file": "Program.nl",
+    "pos": "83:1"
+  }
+]
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            AssertJsonContract("batch", stdout);
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("batch", doc.RootElement.GetProperty("command").GetString());
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(3, doc.RootElement.GetProperty("requestCount").GetInt32());
+            Assert.Equal(2, doc.RootElement.GetProperty("successCount").GetInt32());
+            Assert.Equal(1, doc.RootElement.GetProperty("failureCount").GetInt32());
+
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Equal("inspect", results[0].GetProperty("request").GetProperty("command").GetString());
+            Assert.True(results[0].GetProperty("ok").GetBoolean());
+            Assert.True(results[0].GetProperty("response").TryGetProperty("summary", out _));
+
+            Assert.Equal("doc", results[1].GetProperty("request").GetProperty("command").GetString());
+            Assert.True(results[1].GetProperty("ok").GetBoolean());
+            Assert.Equal("doc", results[1].GetProperty("response").GetProperty("command").GetString());
+
+            Assert.Equal("type", results[2].GetProperty("request").GetProperty("command").GetString());
+            Assert.False(results[2].GetProperty("ok").GetBoolean());
+            Assert.Equal("noSymbol", results[2].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BatchCommand_TextMode_IsRejected()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, "[]");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--text",
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("Batch queries only support JSON output.", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_ReportsMissingImportDiagnostics()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-check-{Guid.NewGuid():N}");
