@@ -5,8 +5,8 @@ import System
 
 func Main() {
     person := new Person("Alice", 30)
-    Console.WriteLine(person.GetInfo())
+    print person.GetInfo()
 
     status := Status.Active
-    Console.WriteLine($"Status: {status}")
+    print $"Status: {status}"
 }

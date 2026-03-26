@@ -93,6 +93,20 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestInterpolatedString_WithNestedStringLiteralInInterpolation()
+    {
+        var source = """
+            $"  Tags: {String.Join(", ", tags)}"
+            """;
+
+        var tokens = Tokenize(source);
+
+        var strings = tokens.Where(t => t.Type == TokenType.StringLiteral).ToList();
+        Assert.Single(strings);
+        Assert.Equal("$\"  Tags: {String.Join(\", \", tags)}\"", strings[0].Value);
+    }
+
+    [Fact]
     public void TestTripleQuoteString()
     {
         var source = "\"\"\"This is\na multi-line\nstring\"\"\"";

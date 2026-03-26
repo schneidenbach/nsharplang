@@ -62,6 +62,31 @@ public class RenameHandler : RenameHandlerBase
                 return Task.FromResult<WorkspaceEdit?>(null);
             }
 
+            var projectReferences = _documentManager.FindProjectReferences(uri, request.Position.Line, request.Position.Character);
+            if (projectReferences != null)
+            {
+                var projectRoot = _documentManager.GetProjectRootForUri(uri);
+                var changes = projectReferences
+                    .GroupBy(reference => reference.File)
+                    .ToDictionary(
+                        group => DocumentUri.From(new Uri(_documentManager.ResolveProjectFilePath(projectRoot, group.Key)).AbsoluteUri),
+                        group => (IEnumerable<TextEdit>)group
+                            .OrderByDescending(reference => reference.Line)
+                            .ThenByDescending(reference => reference.Column)
+                            .Select(reference => new TextEdit
+                            {
+                                Range = new LspRange(
+                                    reference.Line - 1,
+                                    reference.Column - 1,
+                                    reference.Line - 1,
+                                    reference.Column - 1 + reference.Length),
+                                NewText = newName
+                            })
+                            .ToList());
+
+                return Task.FromResult<WorkspaceEdit?>(new WorkspaceEdit { Changes = changes });
+            }
+
             // Find all references to this symbol in the document
             var references = _documentManager.FindAllReferences(uri, oldName);
             if (references.Count == 0)
@@ -113,9 +138,8 @@ public class RenameHandler : RenameHandlerBase
 
         var lineText = lines[line];
         if (lineText.Length == 0) return string.Empty;
-
-        character = Math.Min(character, lineText.Length);
-        if (character == lineText.Length) character = Math.Max(0, character - 1);
+        if (character < 0 || character >= lineText.Length) return string.Empty;
+        if (!IsIdentifierChar(lineText[character])) return string.Empty;
 
         int start = character;
         while (start > 0 && IsIdentifierChar(lineText[start - 1]))

@@ -569,6 +569,8 @@ public class Lexer
     private Token ReadString(int startLine, int startColumn, bool isInterpolated = false)
     {
         var sb = new StringBuilder();
+        var interpolationDepth = 0;
+        var nestedStringDepth = 0;
 
         // Add $ prefix for interpolated strings
         if (isInterpolated)
@@ -577,12 +579,72 @@ public class Lexer
         sb.Append('"');
         Advance(); // consume opening quote
 
-        while (!IsAtEnd() && Peek() != '"')
+        while (!IsAtEnd())
         {
             // Non-raw strings can't span lines; treat newline as an unterminated string and recover.
             if (Peek() == '\n')
             {
                 return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
+            if (isInterpolated)
+            {
+                if (nestedStringDepth > 0)
+                {
+                    if (Peek() == '\\')
+                    {
+                        sb.Append('\\');
+                        Advance();
+                        if (IsAtEnd())
+                            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+
+                        sb.Append(Peek());
+                        Advance();
+                        continue;
+                    }
+
+                    if (Peek() == '"')
+                    {
+                        nestedStringDepth--;
+                    }
+
+                    sb.Append(Peek());
+                    Advance();
+                    continue;
+                }
+
+                if (Peek() == '{')
+                {
+                    interpolationDepth++;
+                    sb.Append(Peek());
+                    Advance();
+                    continue;
+                }
+
+                if (Peek() == '}' && interpolationDepth > 0)
+                {
+                    interpolationDepth--;
+                    sb.Append(Peek());
+                    Advance();
+                    continue;
+                }
+
+                if (Peek() == '"' && interpolationDepth > 0)
+                {
+                    nestedStringDepth++;
+                    sb.Append(Peek());
+                    Advance();
+                    continue;
+                }
+
+                if (Peek() == '"' && interpolationDepth == 0)
+                {
+                    break;
+                }
+            }
+            else if (Peek() == '"')
+            {
+                break;
             }
 
             if (Peek() == '\\')

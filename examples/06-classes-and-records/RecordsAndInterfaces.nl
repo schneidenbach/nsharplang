@@ -58,60 +58,60 @@ class Square {
     }
 
     func PrintInfo() {
-        Console.WriteLine($"Shape: {Name}")
-        Console.WriteLine($"Side: {Side}")
-        Console.WriteLine($"Created: {CreatedAt}")
+        print $"Shape: {Name}"
+        print $"Side: {Side}"
+        print $"Created: {CreatedAt}"
     }
 }
 
 // Main program
 class Program {
     static func Main() {
-        Console.WriteLine("=== Records and With Expressions ===")
+        print "=== Records and With Expressions ==="
 
         // Create record instances
         p1 := new Point { X: 10, Y: 20 }
-        Console.WriteLine($"Point 1: ({p1.X}, {p1.Y})")
+        print $"Point 1: ({p1.X}, {p1.Y})"
 
         // Use with expression for non-destructive mutation
         p2 := p1 with { X: 30 }
-        Console.WriteLine($"Point 2: ({p2.X}, {p2.Y})")
+        print $"Point 2: ({p2.X}, {p2.Y})"
 
         // Value equality
         p3 := new Point { X: 10, Y: 20 }
-        Console.WriteLine($"p1 == p3: {p1.Equals(p3)}")
+        print $"p1 == p3: {p1.Equals(p3)}"
 
-        Console.WriteLine()
-        Console.WriteLine("=== Interfaces ===")
+        print ""
+        print "=== Interfaces ==="
 
         // Interface implementation
         circle := new Circle(5.0)
-        Console.WriteLine($"Circle area: {circle.GetArea()}")
+        print $"Circle area: {circle.GetArea()}"
 
         // Default interface implementation (must call through interface in C#)
         shape := circle as IShape
-        Console.WriteLine(shape.Describe())
+        print shape.Describe()
 
-        Console.WriteLine()
-        Console.WriteLine("=== Structs ===")
+        print ""
+        print "=== Structs ==="
 
         // Struct value type
         rect := new Rectangle { Width: 10.0, Height: 5.0 }
-        Console.WriteLine($"Rectangle area: {rect.GetArea()}")
+        print $"Rectangle area: {rect.GetArea()}"
 
-        Console.WriteLine()
-        Console.WriteLine("=== Classes with Readonly Fields ===")
+        print ""
+        print "=== Classes with Readonly Fields ==="
 
         // Classes can have readonly fields set in constructor
         square := new Square(4.0, "Square")
         square.PrintInfo()
-        Console.WriteLine($"Perimeter: {square.CalculatePerimeter()}")
+        print $"Perimeter: {square.CalculatePerimeter()}"
 
         // Readonly fields can be read but not modified outside constructor
-        Console.WriteLine($"Pi value (readonly): {circle.Pi}")
-        Console.WriteLine($"CreatedAt (readonly): {square.CreatedAt}")
+        print $"Pi value (readonly): {circle.Pi}"
+        print $"CreatedAt (readonly): {square.CreatedAt}"
 
-        Console.WriteLine()
-        Console.WriteLine("=== Demo Complete ===")
+        print ""
+        print "=== Demo Complete ==="
     }
 }

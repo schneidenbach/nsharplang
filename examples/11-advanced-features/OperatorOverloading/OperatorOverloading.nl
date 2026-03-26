@@ -57,10 +57,10 @@ struct Complex {
 
 class Program {
     static func Main() {
-        Console.WriteLine("=== Operator Overloading Syntax Demo ===")
-        Console.WriteLine("This example demonstrates operator overload declarations.")
-        Console.WriteLine("The generated C# code includes proper operator methods.")
-        Console.WriteLine("")
-        Console.WriteLine("Check the transpiled C# output to see the generated operators!")
+        print "=== Operator Overloading Syntax Demo ==="
+        print "This example demonstrates operator overload declarations."
+        print "The generated C# code includes proper operator methods."
+        print ""
+        print "Check the transpiled C# output to see the generated operators!"
     }
 }

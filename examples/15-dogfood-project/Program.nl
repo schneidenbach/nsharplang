@@ -8,9 +8,9 @@ import "Models/Task"
 import "Services/TaskService"
 
 func PrintTask(task: Task) {
-    Console.WriteLine(task.GetInfo())
+    print task.GetInfo()
     if task.Tags.Count > 0 {
-        Console.WriteLine($"  Tags: {String.Join(", ", task.Tags)}")
+        print $"  Tags: {String.Join(", ", task.Tags)}"
     }
 }
 
@@ -31,14 +31,14 @@ func DescribeResult(result: TaskResult): string {
 }
 
 func PrintResult(result: TaskResult) {
-    Console.WriteLine(DescribeResult(result))
+    print DescribeResult(result)
 }
 
 func Main() {
     service := new TaskService()
 
     // Create some tasks
-    Console.WriteLine("=== Creating Tasks ===")
+    print "=== Creating Tasks ==="
     r1 := service.CreateTask("Build CLI toolchain", "Add nlc query commands", Priority.Critical, "Spencer")
     r2 := service.CreateTask("Write tests", "Add integration tests for query commands", Priority.High, "Spencer")
     r3 := service.CreateTask("Update docs", "Fix stale documentation", Priority.Medium, "Claude")
@@ -52,7 +52,7 @@ func Main() {
     PrintResult(r5)
 
     // Update some statuses
-    Console.WriteLine("\n=== Updating Status ===")
+    print "\n=== Updating Status ==="
     service.UpdateStatus(1, Status.Done)
     service.UpdateStatus(2, Status.InProgress)
 
@@ -62,33 +62,33 @@ func Main() {
     service.AddTag(2, "testing")
 
     // Try to find a non-existent task
-    Console.WriteLine("\n=== Looking Up Tasks ===")
+    print "\n=== Looking Up Tasks ==="
     PrintResult(service.GetTask(1))
     PrintResult(service.GetTask(999))
 
     // Show urgent tasks
-    Console.WriteLine("\n=== Urgent Tasks ===")
+    print "\n=== Urgent Tasks ==="
     urgent := service.GetUrgentTasks()
     for task in urgent {
         PrintTask(task)
     }
 
     // Show tasks by assignee
-    Console.WriteLine("\n=== Spencer's Tasks ===")
+    print "\n=== Spencer's Tasks ==="
     spencerTasks := service.GetTasksByAssignee("Spencer")
     for task in spencerTasks {
         PrintTask(task)
     }
 
     // Show stats
-    Console.WriteLine("\n=== Statistics ===")
+    print "\n=== Statistics ==="
     stats := service.GetStats()
-    Console.WriteLine($"Total: {stats.Total}")
-    Console.WriteLine($"Todo: {stats.Todo}")
-    Console.WriteLine($"In Progress: {stats.InProgress}")
-    Console.WriteLine($"Done: {stats.Done}")
-    Console.WriteLine($"Overdue: {stats.Overdue}")
-    Console.WriteLine($"Completion Rate: {stats.GetCompletionRate()}%")
-    Console.WriteLine("\nSummary")
-    Console.WriteLine(stats.FormatSummary())
+    print $"Total: {stats.Total}"
+    print $"Todo: {stats.Todo}"
+    print $"In Progress: {stats.InProgress}"
+    print $"Done: {stats.Done}"
+    print $"Overdue: {stats.Overdue}"
+    print $"Completion Rate: {stats.GetCompletionRate()}%"
+    print "\nSummary"
+    print stats.FormatSummary()
 }

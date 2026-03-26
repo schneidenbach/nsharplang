@@ -1227,6 +1227,20 @@ func main() {
     }
 
     [Fact]
+    public void TestPrintStatementTranspilation_WithNestedStringLiteralInInterpolation()
+    {
+        var source = @"
+func main(tags: string[]) {
+    print $""  Tags: {String.Join("", "", tags)}""
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("Console.WriteLine($\"  Tags: {String.Join(\", \", tags)}\");", result);
+    }
+
+    [Fact]
     public void TestNameofTranspilation()
     {
         var source = @"
@@ -2456,6 +2470,8 @@ file class InternalHelper {
 
         // Verify file modifier emitted in C#
         Assert.Contains("file class InternalHelper", result);
+        Assert.DoesNotContain("public file class InternalHelper", result);
+        Assert.DoesNotContain("file public class InternalHelper", result);
     }
 
     [Fact]
@@ -2472,6 +2488,8 @@ file struct Point {
 
         // Verify file modifier emitted in C#
         Assert.Contains("file struct Point", result);
+        Assert.DoesNotContain("public file struct Point", result);
+        Assert.DoesNotContain("file public struct Point", result);
     }
 
     [Fact]
@@ -2488,6 +2506,8 @@ file record Person {
 
         // Verify file modifier emitted in C#
         Assert.Contains("file record Person", result);
+        Assert.DoesNotContain("public file record Person", result);
+        Assert.DoesNotContain("file public record Person", result);
     }
 
     [Fact]
@@ -2503,6 +2523,42 @@ file interface IHelper {
 
         // Verify file modifier emitted in C#
         Assert.Contains("file interface IHelper", result);
+        Assert.DoesNotContain("public file interface IHelper", result);
+        Assert.DoesNotContain("file public interface IHelper", result);
+    }
+
+    [Fact]
+    public void TestFileEnumTranspilation()
+    {
+        var source = @"
+file enum Status {
+    Active,
+    Inactive
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("file enum Status", result);
+        Assert.DoesNotContain("public file enum Status", result);
+        Assert.DoesNotContain("file public enum Status", result);
+    }
+
+    [Fact]
+    public void TestFileUnionTranspilation()
+    {
+        var source = @"
+file union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("file abstract record Result", result);
+        Assert.DoesNotContain("public file abstract record Result", result);
+        Assert.DoesNotContain("file public abstract record Result", result);
     }
 
     [Fact]

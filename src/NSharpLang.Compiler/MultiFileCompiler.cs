@@ -142,7 +142,7 @@ public class MultiFileCompiler
             try
             {
                 // Use the shared analyzer (assemblies already loaded in constructor)
-                var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot);
+                var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, File.ReadAllText(sourceFile));
 
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
