@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -28,6 +29,7 @@ public static class QueryCommand
 
         return subcommand switch
         {
+            "batch" => BatchCommand(positionalArgs, options),
             "symbols" => SymbolsCommand(positionalArgs, options),
             "outline" => OutlineCommand(positionalArgs, options),
             "diagnostics" => DiagnosticsCommand(positionalArgs, options),
@@ -73,6 +75,69 @@ public static class QueryCommand
         }
 
         return 0;
+    }
+
+    private static int BatchCommand(string[] args, QueryOptions options)
+    {
+        if (options.UseText)
+        {
+            return QueryError("Batch queries only support JSON output.");
+        }
+
+        var requestsPath = GetOption(args, "--requests")
+            ?? (args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal) ? args[0] : null);
+
+        if (string.IsNullOrWhiteSpace(requestsPath))
+        {
+            return QueryError("Usage: nlc query batch --requests <path-to-json>");
+        }
+
+        List<BatchQueryRequest> requests;
+        try
+        {
+            requests = BatchQueryRunner.LoadRequests(requestsPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Write(OutputFormatter.ErrorToJson(
+                "batch",
+                ex.Message,
+                GetProjectRoot(options),
+                "invalidRequestsFile",
+                new { requests = NormalizePath(requestsPath) }));
+            return 1;
+        }
+
+        if (requests.Count == 0)
+        {
+            Console.Write(OutputFormatter.ErrorToJson(
+                "batch",
+                "Batch request file did not contain any requests.",
+                GetProjectRoot(options),
+                "emptyBatch",
+                new { requests = NormalizePath(requestsPath) }));
+            return 1;
+        }
+
+        if (TryExecuteViaDaemon(
+                options,
+                DaemonConstants.MethodBatch,
+                new Dictionary<string, object?> { ["requests"] = requests },
+                out var daemonExitCode))
+        {
+            return daemonExitCode;
+        }
+
+        ProjectSnapshot? snapshot = null;
+        var execution = BatchQueryRunner.Execute(
+            requests,
+            GetProjectRoot(options),
+            () => snapshot ??= LoadProjectOrThrow(options),
+            Service,
+            new CompletionEngine());
+
+        Console.Write(execution.Json);
+        return execution.Ok ? 0 : 1;
     }
 
     private static int OutlineCommand(string[] args, QueryOptions options)
@@ -616,6 +681,18 @@ public static class QueryCommand
         }
     }
 
+    private static ProjectSnapshot LoadProjectOrThrow(QueryOptions options)
+    {
+        var projectDir = GetProjectRoot(options);
+
+        if (!Directory.Exists(projectDir))
+        {
+            throw new DirectoryNotFoundException($"Project directory not found: {projectDir}");
+        }
+
+        return Service.LoadProject(projectDir);
+    }
+
     private static string GetRelativePath(string basePath, string filePath)
     {
         try { return Path.GetRelativePath(basePath, filePath); }
@@ -708,6 +785,7 @@ public static class QueryCommand
 Usage: nlc query <command> [options]
 
 Commands:
+  batch         Execute multiple query requests from one JSON file
   symbols       List all symbols in a file or project
   outline       Structural outline of a file
   diagnostics   Errors and warnings with rich context
@@ -728,6 +806,7 @@ Global Options:
 
 Examples:
   nlc query symbols                          # All symbols in project
+  nlc query batch --requests requests.json   # Mixed semantic queries in one call
   nlc query symbols --file Program.nl        # Symbols in one file
   nlc query symbols --kind function          # Only functions
   nlc query outline Program.nl               # File structure
