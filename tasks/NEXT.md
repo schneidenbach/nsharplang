@@ -1,179 +1,253 @@
 # What's Next for N#
 
 **Last updated:** 2026-03-26
-**Test count:** 944+ tests, 0 failures, 0 warnings
+**Goal:** Go- and Rust-grade tooling for humans in VS Code and for LLMs driving the CLI.
 
-This document consolidates all open task files, known limitations, and gaps into a single prioritized roadmap. It replaces the individual task files (`031`–`036`) which have been archived or removed.
-
----
-
-## Completed (Archived)
-
-These tasks are done and no longer tracked here:
-
-| Task | What | Status |
-|------|------|--------|
-| 031 | Linter false-positive: `PushScope`/`PopScope` copied parent variables, causing "unused variable" on foreach targets | **Fixed** — scopes now only track own declarations |
-| 034 | Full test suite hang during xUnit discovery | **Resolved** — `dotnet test` completes normally as of 2026-03-26; `test-all.sh` no longer uses category filters |
-| 035 | Production-readiness: lazy test fixtures, 50+ error-handling tests, zero build warnings | **Done** |
-| 036 | Zero warnings across Compiler, LanguageServer, CLI, Tests | **Done** |
+This is the single source of truth for active work. It replaces `tasks/current_issues.md`, `tasks/codex_session_1.md`, and `tasks/codex_session_2.md`.
 
 ---
 
-## Open Work — Prioritized
+## Product Bar
 
-### P0: Semantic Correctness (blocks LLM toolchain accuracy)
+N# should feel like:
+- `go` and `cargo` on the command line: stable, boring, predictable, scriptable
+- `gopls` and `rust-analyzer` in the editor: semantic, fast, and trustworthy
+- an LLM-first toolchain: one command should return exactly the right semantic answer, in stable JSON, with no guesswork
 
-These are the foundation. `nlc query` returns wrong answers without them.
-
-#### 1. Type-based overload resolution
-- **Current:** Method overloads resolved by argument *count* only, not by type. `Analyzer.cs:2127-2130` picks the first method matching parameter count. `ExpressionTypeResolver.cs:62` returns the first overload unconditionally.
-- **Impact:** Any .NET API with same-arity overloads (most of BCL) resolves to the wrong method. `Console.WriteLine(int)` vs `Console.WriteLine(string)` — wrong hover, wrong completions.
-- **Files:** `Analyzer.cs` (method resolution ~line 2124), `ExpressionTypeResolver.cs` (~line 56-63)
-- **Reference:** Roslyn `OverloadResolution.cs`
-
-#### 2. Generic type inference
-- **Current:** Generic type parameters must always be explicit: `Identity<int>(42)`.
-- **Impact:** LINQ is nearly unusable without this — every `Select`, `Where`, `GroupBy` requires explicit type args.
-- **Files:** `Analyzer.cs`, `ExpressionTypeResolver.cs`
-- **Reference:** Roslyn `MethodTypeInference.cs`, C# Spec §7.5.2
-
-#### 3. Lambda parameter type inference from context
-- **Current:** Lambda params typed as `Unknown` without explicit annotations. `items.Where(x => x > 5)` has `x` as `Unknown`. Confirmed: `Analyzer.cs` has ~20 fallback sites returning `BuiltInTypes.Unknown`.
-- **Impact:** LINQ, callbacks, event handlers — anything taking a lambda — has broken type info.
-- **Files:** `Analyzer.cs` (call-site analysis), `ExpressionTypeResolver.cs`
-- **Depends on:** #2 for the general case (generic method signatures). However, a **useful subset can ship independently**: inferring types from non-generic delegate parameters (`Action<int>`, `Func<string, bool>` with known type args). Note this in implementation.
-
-### P1: LLM Experience (wrong/missing info shown to LLM consumers)
-
-#### 4. LINQ hover shows element type instead of collection type (was Task 033)
-- **Current:** Hovering over `.Select()` shows `int` instead of `IEnumerable<int>`. `.ToList()` shows `int` instead of `List<int>`.
-- **Root cause:** `ExpressionTypeResolver.ResolveCallType()` at ~line 120 returns `method.ReturnType` which is the unbound generic return type. Need to detect `IsGenericMethodDefinition`, infer type args from receiver's `IEnumerable<T>`, and call `MakeGenericMethod()`.
-- **Implementation sketch:** Add `TryConstructGenericMethod()` that extracts element type via `TryGetEnumerableElementType()` (check `IsArray` → `GetElementType()`, then `IEnumerable<>` interface). For `Select` with 2 type params, infer `TResult` from lambda or default to element type.
-- **Files:** `ExpressionTypeResolver.cs`
-- **Depends on:** Partially blocked by #2, but a simplified heuristic for common LINQ methods (Select, Where, ToList, ToArray, OrderBy, First, FirstOrDefault, Count) can ship independently.
-- **Test cases:** Hover tests for Select → `IEnumerable<int>`, ToList → `List<int>`, Where → `IEnumerable<int>`, ToArray → `int[]`.
-
-#### 5. BindingMap coverage expansion
-- **Current:** BindingMap exists and works for basic identifier resolution (`BindingMap.cs`, wired into `Analyzer`, `MultiFileCompiler`, `CodeIntelligenceService`, `DocumentManager`). Cross-file merge is implemented. Integration tests pass (`BindingMap_MultiFile_HasCrossFileBindings`). CLI `nlc query refs` uses it for semantic references.
-- **Gap:** BindingMap doesn't cover all expression paths (string interpolation, complex member access chains). LSP `FindAllReferences` still uses text search because of these gaps. Imported types from other files may not be fully recorded.
-- **Work remaining:** Expand Analyzer binding recording to cover interpolation expressions, member access chains, type references in declarations, and imported symbol usages. Then switch LSP FindAllReferences from text search to BindingMap.
-- **Files:** `Analyzer.cs` (binding recording sites), `BindingMap.cs`, `DocumentManager.cs:219-228`
-
-#### 6. Completions fall back to AST instead of SemanticModel
-- **Current:** SemanticModel doesn't record fields/properties. CompletionEngine uses AST fallback.
-- **Impact:** Completions are syntactic, not semantic — wrong results after shadowing, scoping, type narrowing.
-- **Related:** Position-aware SemanticModel (for scope-correct lookups) is also needed.
-- **Files:** `Analyzer.cs` (SemanticModel recording), `CompletionEngine.cs`
-
-#### 7. Circular import detection
-- **Current:** No detection. `A imports B, B imports A` causes silent failure or infinite loop.
-- **Impact:** Multi-file projects can break silently.
-- **Files:** `MultiFileCompiler.cs`
-
-#### 8. Pattern exhaustiveness with guards
-- **Current:** Exhaustiveness checking is skipped entirely when guards are present. A match expression with only guarded arms and no wildcard produces no warning.
-- **Impact:** `nlc query diagnostics` and `nlc check` emit false negatives — silent correctness bugs in user code.
-- **Files:** `Analyzer.cs` (pattern exhaustiveness checking)
-
-### P2: IDE & Developer Experience
-
-#### 9. String interpolation syntax highlighting (was Task 032)
-- **Current:** Variables inside `$"Hello, {name}!"` are highlighted as string, not as variables.
-- **Fix:** Add nested `meta.interpolation.nsharp` pattern to the TextMate grammar. Structure: `begin: "\\{"`, `end: "\\}"`, with `beginCaptures`/`endCaptures` as `punctuation.definition.interpolation.{begin,end}.nsharp`, and `patterns: [{ "include": "#expressions" }]` inside. Also add escape sequence pattern `\\\\[\\\\\"'nrt]` as sibling.
-- **Files:** `editors/vscode/syntaxes/nsharp.tmLanguage.json`
-- **Reference:** C# TextMate grammar nested interpolation patterns.
-- **Test checklist:** Variables inside `{...}` highlighted as variables; method calls highlighted; string parts remain string-colored; escaped braces `{{` not treated as interpolation.
-- **Testing:** Must verify in VS Code visually (not just unit tests).
-
-#### 10. Error recovery — multiple errors per file
-- **Current:** Parser stops at first error in some cases.
-- **Impact:** For LLMs consuming `nlc query diagnostics`, getting only the first error means multiple round-trips to discover all issues. This is a significant workflow penalty for automated coding loops.
-- **Reference:** Roslyn's error recovery and synchronization points.
-
-#### 11. Source maps for N# debugging
-- **Current:** Debugging uses generated C#, not N# source.
-- **Impact:** Developers can't set breakpoints in `.nl` files.
-
-### P3: Language Gaps
-
-#### 12. Extension methods on literals
-- **Current:** `5.Times(...)` doesn't work. Must assign to variable first.
-- **Files:** `Analyzer.cs` (member access resolution for literal expressions)
-
-#### 13. Implicit symbol resolution from namespace
-- **Current:** Requires explicit file imports (`import "Models/Person"`). No auto-discovery from project namespace.
-- **Impact:** Boilerplate for multi-file projects. Go auto-discovers from package; Rust uses `mod`.
-- **Files:** `MultiFileCompiler.cs`
-
-#### 14. Parameter attributes
-- **Current:** `func Create([FromBody] dto: TaskDto)` not supported.
-- **Workaround:** ASP.NET Core infers `[FromBody]` for complex types.
-- **Priority:** Low — workaround covers most cases.
-
-#### 15. Null-forgiving operator (`!`)
-- **Current:** `name!.Length` not supported. Parser doesn't recognize `!` as postfix operator.
-- **Workaround:** `(name ?? "").Length` or explicit null check.
-- **Priority:** Low.
-
-#### 16. Nested union pattern matching
-- **Current:** Deep matching on `Result<T>` containing `Error` union cases is limited.
-
-### P4: Ecosystem
-
-#### 17. REPL (`nlc repl`)
-- **Current:** No interactive shell.
-
-#### 18. API documentation generator
-- **Current:** `nlc query` provides structured symbol info, but no standalone doc generator.
+The highest risk is not missing features. It is **wrong answers**:
+- wrong overload selected
+- wrong type inferred
+- wrong reference set
+- wrong completion set
+- stale docs claiming features are done when they are not
 
 ---
 
-## Dependency Graph
+## P0: Semantic Correctness
 
-```
-#2 Generic type inference
-  ← #3 Lambda context inference (needs generic signatures for full version;
-       subset for non-generic delegates can ship independently)
-  ← #4 LINQ hover (needs constructed generic methods;
-       heuristic for common methods can ship independently)
-  ← #6 Semantic completions (needs full type info)
+These block both VS Code and LLM reliability.
 
-#5 BindingMap coverage expansion
-  ← LSP FindAllReferences upgrade (from text search to semantic)
-  ← LSP Rename accuracy
+### 1. Type-based overload resolution
+- Current: overloads are still effectively chosen by arity in key paths.
+- Impact: wrong .NET method, wrong hover, wrong completion details, wrong docs.
+- Priority: highest. This is the floor for BCL interop.
 
-#1 Type-based overload resolution
-  ← Correct .NET API calls (independent of #2)
+### 2. Generic type inference
+- Current: generic calls still need too many explicit type arguments.
+- Impact: LINQ and normal .NET APIs stay clumsy or semantically wrong.
+- Priority: highest. This unblocks most “real code” usability.
 
-#8 Pattern exhaustiveness with guards
-  ← (independent — can ship anytime)
+### 3. Lambda contextual typing
+- Current: lambda parameters still degrade to `Unknown` too often.
+- Impact: breaks LINQ, delegates, event handlers, callback-heavy code.
+- Priority: highest. Ship non-generic delegate inference early if needed.
 
-#10 Error recovery
-  ← (independent — can ship anytime, high LLM workflow impact)
-```
+### 4. LINQ return-type construction
+- Current: common LINQ methods can still surface element types or unbound generics instead of the constructed return type.
+- Impact: hover, type queries, signature help, and completions are misleading.
+- Priority: high, but downstream of generic inference unless a targeted heuristic lands first.
+
+### 5. Pattern exhaustiveness with guards
+- Current: guarded match arms can suppress exhaustiveness checking.
+- Impact: false negatives in `nlc check` and `nlc query diagnostics`.
+- Priority: high correctness fix, independent.
+
+### 6. Error recovery / multi-error reporting
+- Current: parser recovery still misses chances to report multiple useful errors in one pass.
+- Impact: bad LLM loops and worse human iteration.
+- Priority: high. This is a workflow multiplier.
+
+---
+
+## P1: Shared Semantic Substrate
+
+These are the engine issues that decide whether CLI and LSP can be truly semantic.
+
+### 7. BindingMap coverage expansion
+- Current: BindingMap works for many cases, but not enough to trust it everywhere.
+- Missing coverage: interpolation, more member-access chains, imported-symbol usages, declaration/type-reference paths.
+- Impact: references/rename/definition still need fallback paths or stay partially semantic.
+
+### 8. SemanticModel completeness
+- Current: completions and some queries still fall back to AST or incomplete semantic recording.
+- Missing: fields, properties, better local-variable typing, shadowing-aware lookup, position-aware scope.
+- Impact: completions are not yet “editor-trustworthy.”
+
+### 9. Cross-file semantic navigation in LSP
+- Current: CLI has moved further than the LSP on true semantic navigation.
+- Needed: Definition/References handlers should consume the same semantic engine and stop depending on text-search-style behavior.
+
+### 10. Circular import detection
+- Current: circular imports still fail badly or opaquely.
+- Impact: multi-file projects can become brittle and confusing.
+
+---
+
+## P2: VS Code Product Gaps
+
+These are the biggest remaining gaps between “CLI is strong” and “editor is first-class.”
+
+### 11. Auto-import on completion
+- Current: completion can surface a symbol without making it easy to accept and import it.
+- Needed: `additionalTextEdits` on completion items, like good TS/C#/Rust tooling.
+
+### 12. Workspace-wide diagnostics
+- Current: diagnostics are still too tied to open documents.
+- Needed: project/workspace analysis on open and on change, not just file-local behavior.
+
+### 13. N# signature help
+- Current: signature help is much better for .NET/reflection-backed calls than for user-defined N# functions.
+- Needed: parity for N# declarations, overloads, and generic signatures.
+
+### 14. Document symbols / outline in LSP
+- Current: CLI outline is strong; editor outline support is still lagging.
+- Needed: proper `DocumentSymbolHandler` so the VS Code outline panel works like a real language.
+
+### 15. Inlay hints
+- Current: no first-class type-inference hints.
+- Needed: ghost-text type hints after `:=`, parameter hints where useful, in a minimal style.
+
+### 16. Snippet completions
+- Current: completions are semantic-heavy but not yet polished for writing flow.
+- Needed: `func`, `if`, `match`, test patterns, etc.
+
+### 17. Interpolation syntax highlighting
+- Current: interpolation highlighting is still called out as incomplete.
+- Needed: nested interpolation grammar that highlights expressions, not just string bodies.
+- Important: must be visually verified in real VS Code, not just grammar-edited.
+
+### 18. Visual verification discipline
+- Current: there are active language-server changes in the worktree, but the mandatory reload/reinstall/real-editor verification loop is easy to drift from.
+- Rule: no LSP or VS Code work should be considered done until it is visually verified after `./scripts/reload-vscode-extension.sh`.
+
+---
+
+## P3: LLM-First CLI Polish
+
+The CLI is much stronger now, but a few high-value items remain.
+
+### 19. Keep the JSON contract authoritative
+- Current: `memory/components/cli-toolchain.md` is the intended contract doc, but other docs drift.
+- Needed: treat `cli-toolchain.md` as canonical and update it immediately with every CLI contract change.
+
+### 20. Unify docs and task truth
+- Current: docs disagree.
+  - `tasks/current_issues.md` had stale claims about CLI feature status.
+  - `docs/GAPS.md` understates real semantic/tooling gaps.
+  - some task/session files described one-off local work instead of stable roadmap items.
+- Needed: one roadmap, one CLI contract doc, less narrative drift.
+
+### 21. `nlc format` audit
+- Goal: one opinionated style, no bikeshedding, Go-grade formatting confidence.
+- Needed: explicit audit of formatter output over all examples and common code patterns.
+
+### 22. `nlc fix` growth
+- Current: useful, but still narrow.
+- Next: more fix providers, stronger text/json parity, more machine-drivable edits.
+
+### 23. CLI/install ergonomics
+- Current: much better than before, but local tool deployment and editor deployment should feel like one supported path, not a pile of ad hoc scripts.
+- Decide what to do with `scripts/deploy-local-toolset.sh`.
+
+---
+
+## P4: Language / Ecosystem Gaps
+
+These matter, but they are not above the tooling foundation.
+
+### 24. Extension methods on literals
+- `5.Times(...)` should work.
+
+### 25. Implicit symbol/module discovery
+- Reduce import boilerplate in multi-file projects.
+
+### 26. Parameter attributes
+- Nice to have; workaround exists.
+
+### 27. Null-forgiving operator
+- Low priority; workaround exists.
+
+### 28. Better nested union matching
+- Improves expressiveness, but not above tooling correctness.
+
+### 29. Source maps / debugging
+- Important long-term, but below semantic correctness and editor trust.
+
+### 30. REPL / doc generation
+- Ecosystem-level polish, not near-term blockers.
+
+---
+
+## Immediate Local Housekeeping
+
+These are real, current repository-state issues and should not get lost.
+
+### A. Commit or drop the current `print` sweep + lexer fix cleanly
+- Current local state includes:
+  - example updates to bare `print ...`
+  - lexer fix for interpolated strings with nested string literals, such as `print $"  Tags: {String.Join(", ", task.Tags)}"`
+  - regression tests
+- Status: verified with full suite passing.
+- Action: isolate and commit cleanly.
+
+### B. Resolve the example-tree reshuffle
+- Current local state includes deleted `examples/11-advanced-features/*.nl` files and untracked replacement directories.
+- Action: decide whether this is the intended new layout, then commit it as its own change.
+
+### C. Resolve unrelated dirty compiler/LSP work before mixing more features
+- Dirty compiler files:
+  - `src/NSharpLang.Compiler/Analyzer.cs`
+  - `src/NSharpLang.Compiler/MultiFileCompiler.cs`
+  - `src/NSharpLang.Compiler/Transpiler.cs`
+  - `tests/AnalyzerTests.cs`
+  - `tests/TranspilerTests.cs`
+- Dirty LSP/editor files:
+  - `src/NSharpLang.LanguageServer/Handlers/CompletionHandler.cs`
+  - `src/NSharpLang.LanguageServer/Handlers/DefinitionHandler.cs`
+  - `src/NSharpLang.LanguageServer/Handlers/RenameHandler.cs`
+  - `src/NSharpLang.LanguageServer/Services/DocumentManager.cs`
+  - `src/NSharpLang.LanguageServer/Services/TypeResolver.cs`
+  - `tests/LanguageServerTests.cs`
+  - `editors/vscode/BUILD.md`
+- Action: sort, review, and avoid letting them silently piggyback on unrelated commits.
+
+### D. Decide what to do with deployment/test scripts
+- `scripts/test-all.sh` is locally modified.
+- `scripts/deploy-local-toolset.sh` is untracked.
+- Action: either promote them intentionally or keep them out of unrelated work.
 
 ---
 
 ## Recommended Attack Order
 
-1. **#1 Type-based overload resolution** — independent, high impact, unblocks correct BCL usage
-2. **#2 Generic type inference** — unblocks #3, #4, #6
-3. **#3 Lambda context inference** — LINQ becomes usable (ship non-generic subset early)
-4. **#4 LINQ hover fix** — quick win once #2 lands (or ship heuristic first)
-5. **#10 Error recovery** — independent, high LLM workflow value
-6. **#5 BindingMap coverage** — completes semantic navigation
-7. **#8 Pattern exhaustiveness with guards** — independent correctness fix
-8. **#9 String interpolation highlighting** — quick VS Code grammar fix
-9. Everything else by priority tier
+1. Type-based overload resolution
+2. Generic type inference
+3. Lambda contextual typing
+4. BindingMap + SemanticModel coverage expansion
+5. LSP semantic references/definition parity
+6. Error recovery / multi-error reporting
+7. Auto-import completion + workspace diagnostics
+8. N# signature help + document symbols + inlay hints
+9. Interpolation highlighting + real VS Code visual verification
+10. Formatter/fix/install polish
 
 ---
 
-## Housekeeping
+## Source of Truth Rules
 
-- **`memory/limitations.md` is stale** — items 14 (LSP go-to-def/refs/rename), 18 (formatter) are listed as "not yet done" but are fully implemented. Items 3 (property type inference), and the "Done" section at bottom acknowledge some of this. Needs a cleanup pass to match current reality.
-- **`docs/GAPS.md`** — all critical gaps resolved. Only parameter attributes and null-forgiving remain, both low priority and tracked here.
+- `tasks/NEXT.md` is the only roadmap file.
+- `memory/components/cli-toolchain.md` is the canonical CLI contract document.
+- Do not create new session-note task files in `tasks/`.
+- If editor behavior changes, verify it in real VS Code before marking it done.
 
 ---
 
-*This document is the single source of truth for what to work on next. Update it as items are completed.*
+## Archived / Done Enough To Stop Tracking Here
+
+- CLI query/doc, inspect, inspect-summary, and batch command landed.
+- `nlc check` / `nlc fix` contract hardening landed.
+- daemon-backed CLI query reuse landed.
+- import validation and import-completion correctness work landed.
+- full-test-suite hang work was resolved.
+
+Only put something back above if it regresses or turns out not to be product-grade.
