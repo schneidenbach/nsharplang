@@ -45,39 +45,39 @@ func DescribeOperation(op: FileOperation): string {
 }
 
 func Main() {
-    Console.WriteLine("=== Match Expression Exhaustiveness Demo ===\n")
+    print "=== Match Expression Exhaustiveness Demo ===\n"
 
     // Test all HttpResponse cases
-    Console.WriteLine("1. Exhaustive matching on HttpResponse:")
+    print "1. Exhaustive matching on HttpResponse:"
     successResp := new HttpResponse.Success { statusCode: 200, body: "OK" }
-    Console.WriteLine(HandleResponse(successResp))
+    print HandleResponse(successResp)
 
     redirectResp := new HttpResponse.Redirect { location: "/new-page" }
-    Console.WriteLine(HandleResponse(redirectResp))
+    print HandleResponse(redirectResp)
 
     clientErr := new HttpResponse.ClientError { code: 404, message: "Not Found" }
-    Console.WriteLine(HandleResponse(clientErr))
+    print HandleResponse(clientErr)
 
     serverErr := new HttpResponse.ServerError { code: 500, details: "Internal error" }
-    Console.WriteLine(HandleResponse(serverErr))
+    print HandleResponse(serverErr)
 
     // Test wildcard pattern
-    Console.WriteLine("\n2. Wildcard pattern matching:")
-    Console.WriteLine(GetStatusCategory(successResp))
-    Console.WriteLine(GetStatusCategory(clientErr))
+    print "\n2. Wildcard pattern matching:"
+    print GetStatusCategory(successResp)
+    print GetStatusCategory(clientErr)
 
     // Test FileOperation
-    Console.WriteLine("\n3. File operation matching:")
+    print "\n3. File operation matching:"
     readOp := new FileOperation.Read { path: "/data.txt" }
-    Console.WriteLine(DescribeOperation(readOp))
+    print DescribeOperation(readOp)
 
     writeOp := new FileOperation.Write { path: "/output.txt", content: "Hello, World!" }
-    Console.WriteLine(DescribeOperation(writeOp))
+    print DescribeOperation(writeOp)
 
     deleteOp := new FileOperation.Delete { path: "/temp.log" }
-    Console.WriteLine(DescribeOperation(deleteOp))
+    print DescribeOperation(deleteOp)
 
-    Console.WriteLine("\n=== Demo Complete ===")
-    Console.WriteLine("Note: The compiler enforces exhaustiveness checking!")
-    Console.WriteLine("Missing cases or invalid union cases are caught at compile time.")
+    print "\n=== Demo Complete ==="
+    print "Note: The compiler enforces exhaustiveness checking!"
+    print "Missing cases or invalid union cases are caught at compile time."
 }

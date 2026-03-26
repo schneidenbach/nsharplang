@@ -52,6 +52,16 @@ public class CompletionHandler : CompletionHandlerBase
         var uri = request.TextDocument.Uri.ToString();
         var doc = _documentManager.GetDocument(uri);
 
+        if (doc?.Text != null)
+        {
+            var importItems = GetImportCompletionItems(doc.Text, request.Position.Line, request.Position.Character);
+            if (importItems.Count > 0)
+            {
+                _logger.LogDebug("Providing {Count} import completion items for {Uri}", importItems.Count, uri);
+                return Task.FromResult(new CompletionList(importItems));
+            }
+        }
+
         var items = new List<CompletionItem>();
 
         // Check if this is member completion (triggered by '.')
@@ -169,6 +179,34 @@ public class CompletionHandler : CompletionHandlerBase
         _logger.LogDebug("Providing {Count} completion items for {Uri}", items.Count, uri);
 
         return Task.FromResult(new CompletionList(items));
+    }
+
+    private List<CompletionItem> GetImportCompletionItems(string text, int line, int character)
+    {
+        var lines = text.Split('\n');
+        if (line >= lines.Length)
+        {
+            return new List<CompletionItem>();
+        }
+
+        var lineText = lines[line];
+        var beforeCursor = lineText.Substring(0, Math.Min(character, lineText.Length));
+        if (!TryExtractImportPrefix(beforeCursor, out var importPrefix))
+        {
+            return new List<CompletionItem>();
+        }
+
+        return _typeResolver.GetNamespaceSuggestions(importPrefix)
+            .Select(segment => new CompletionItem
+            {
+                Label = segment,
+                Kind = CompletionItemKind.Module,
+                Detail = string.IsNullOrWhiteSpace(importPrefix) || importPrefix.EndsWith(".", StringComparison.Ordinal)
+                    ? $"namespace {(string.IsNullOrWhiteSpace(importPrefix) ? segment : importPrefix + segment)}"
+                    : $"namespace {BuildCompletedImportPrefix(importPrefix, segment)}",
+                InsertText = segment
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -533,6 +571,59 @@ public class CompletionHandler : CompletionHandlerBase
     {
         var parts = text.Split(new[] { ' ', '\t', '(', ')', '[', ']', '{', '}', ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
         return parts.LastOrDefault() ?? "";
+    }
+
+    private static bool TryExtractImportPrefix(string beforeCursor, out string importPrefix)
+    {
+        importPrefix = string.Empty;
+
+        var trimmed = beforeCursor.TrimStart();
+        if (!trimmed.StartsWith("import", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var remainder = trimmed["import".Length..];
+        if (remainder.Length == 0 || !char.IsWhiteSpace(remainder[0]))
+        {
+            return false;
+        }
+
+        var importTarget = remainder.TrimStart();
+        if (importTarget.StartsWith("\"", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var aliasIndex = importTarget.IndexOf(" as ", StringComparison.Ordinal);
+        if (aliasIndex >= 0)
+        {
+            importTarget = importTarget[..aliasIndex];
+        }
+
+        importPrefix = importTarget.Trim();
+        return true;
+    }
+
+    private static string BuildCompletedImportPrefix(string importPrefix, string suggestion)
+    {
+        if (string.IsNullOrWhiteSpace(importPrefix))
+        {
+            return suggestion;
+        }
+
+        if (importPrefix.EndsWith(".", StringComparison.Ordinal))
+        {
+            return importPrefix + suggestion;
+        }
+
+        var lastDot = importPrefix.LastIndexOf('.');
+        if (lastDot < 0)
+        {
+            return suggestion;
+        }
+
+        return importPrefix[..(lastDot + 1)] + suggestion;
     }
 
     public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)

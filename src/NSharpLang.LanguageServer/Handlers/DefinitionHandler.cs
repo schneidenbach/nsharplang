@@ -50,6 +50,24 @@ public class DefinitionHandler : DefinitionHandlerBase
 
             _logger.LogDebug("Go to definition for: {Word}", word);
 
+            var projectDefinition = _documentManager.FindProjectDefinition(uri, request.Position.Line, request.Position.Character);
+            if (projectDefinition != null)
+            {
+                var projectRoot = _documentManager.GetProjectRootForUri(uri);
+                var filePath = _documentManager.ResolveProjectFilePath(projectRoot, projectDefinition.File);
+                var projectLocation = new Location
+                {
+                    Uri = DocumentUri.From(new Uri(filePath).AbsoluteUri),
+                    Range = new LspRange(
+                        projectDefinition.Line - 1,
+                        projectDefinition.Column - 1,
+                        projectDefinition.Line - 1,
+                        projectDefinition.Column - 1 + Math.Max(1, projectDefinition.Length))
+                };
+
+                return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(projectLocation));
+            }
+
             var candidates = _documentManager.FindSymbolLocations(word);
             if (candidates.Count == 0)
             {
@@ -91,10 +109,8 @@ public class DefinitionHandler : DefinitionHandlerBase
 
         var lineText = lines[line];
         if (lineText.Length == 0) return string.Empty;
-
-        // LSP positions can be at end-of-line; treat that as "after the last character".
-        character = Math.Min(character, lineText.Length);
-        if (character == lineText.Length) character = Math.Max(0, character - 1);
+        if (character < 0 || character >= lineText.Length) return string.Empty;
+        if (!IsIdentifierChar(lineText[character])) return string.Empty;
 
         // Find word boundaries
         int start = character;

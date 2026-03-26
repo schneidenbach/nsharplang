@@ -16,40 +16,40 @@ func AlwaysFails(): string {
 }
 
 func Main() {
-    Console.WriteLine("=== Error Handling Demo ===")
+    print "=== Error Handling Demo ==="
 
     // Example 1: Automatic exception capture with try-catch
-    Console.WriteLine("\n1. Safe division (success case):")
+    print "\n1. Safe division (success case):"
     {
         result, err := Divide(10, 2)
         if err == null {
-            Console.WriteLine($"Success: 10 / 2 = {result}")
+            print $"Success: 10 / 2 = {result}"
         } else {
-            Console.WriteLine($"Error: {err.Message}")
+            print $"Error: {err.Message}"
         }
     }
 
     // Example 2: Safe division (error case)
-    Console.WriteLine("\n2. Safe division (error case):")
+    print "\n2. Safe division (error case):"
     {
         result, err := Divide(10, 0)
         if err == null {
-            Console.WriteLine($"Success: 10 / 0 = {result}")
+            print $"Success: 10 / 0 = {result}"
         } else {
-            Console.WriteLine($"Error caught: {err.Message}")
+            print $"Error caught: {err.Message}"
         }
     }
 
     // Example 3: String result with error handling
-    Console.WriteLine("\n3. Function that always fails:")
+    print "\n3. Function that always fails:"
     {
         result, err := AlwaysFails()
         if err == null {
-            Console.WriteLine($"Success: {result}")
+            print $"Success: {result}"
         } else {
-            Console.WriteLine($"Error caught: {err.Message}")
+            print $"Error caught: {err.Message}"
         }
     }
 
-    Console.WriteLine("\n=== Demo Complete ===")
+    print "\n=== Demo Complete ==="
 }

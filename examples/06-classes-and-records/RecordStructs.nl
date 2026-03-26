@@ -74,75 +74,75 @@ record struct Duration(seconds: int) {
 }
 
 func Main() {
-    Console.WriteLine("=== Record Structs (C# 10) ===")
-    Console.WriteLine()
+    print "=== Record Structs (C# 10) ==="
+    print ""
 
     // Basic record struct usage
-    Console.WriteLine("1. Basic Record Struct:")
+    print "1. Basic Record Struct:"
     p1 := new Point { X: 3.0, Y: 4.0 }
     p2 := new Point { X: 3.0, Y: 4.0 }
-    Console.WriteLine($"Point 1: ({p1.X}, {p1.Y})")
-    Console.WriteLine($"Point 2: ({p2.X}, {p2.Y})")
-    Console.WriteLine($"p1 == p2: {p1 == p2}")  // Value equality!
-    Console.WriteLine()
+    print $"Point 1: ({p1.X}, {p1.Y})"
+    print $"Point 2: ({p2.X}, {p2.Y})"
+    print $"p1 == p2: {p1 == p2}"  // Value equality!
+    print ""
 
     // Primary constructor
-    Console.WriteLine("2. Primary Constructor:")
+    print "2. Primary Constructor:"
     v1 := new Vector2D(3.0, 4.0)
-    Console.WriteLine($"Vector: ({v1.x}, {v1.y})")
-    Console.WriteLine($"Length: {v1.Length}")
+    print $"Vector: ({v1.x}, {v1.y})"
+    print $"Length: {v1.Length}"
 
     normalized := v1.Normalize()
-    Console.WriteLine($"Normalized: ({normalized.x:F2}, {normalized.y:F2})")
-    Console.WriteLine()
+    print $"Normalized: ({normalized.x:F2}, {normalized.y:F2})"
+    print ""
 
     // Dot product
     v2 := new Vector2D(1.0, 0.0)
-    Console.WriteLine($"Dot product: {v1.Dot(v2)}")
-    Console.WriteLine()
+    print $"Dot product: {v1.Dot(v2)}"
+    print ""
 
     // Color record struct
-    Console.WriteLine("3. Color Record Struct:")
+    print "3. Color Record Struct:"
     red := Color.Red
     custom := new Color(128, 64, 255)
-    Console.WriteLine($"Red: {red.ToHex()}")
-    Console.WriteLine($"Custom: {custom.ToHex()}")
-    Console.WriteLine()
+    print $"Red: {red.ToHex()}"
+    print $"Custom: {custom.ToHex()}"
+    print ""
 
     // Methods and computed properties
-    Console.WriteLine("4. Methods and Computed Properties:")
+    print "4. Methods and Computed Properties:"
     dim := new Dimensions(10.0, 5.0)
-    Console.WriteLine($"Original: {dim.width} x {dim.height}, Area: {dim.Area}")
+    print $"Original: {dim.width} x {dim.height}, Area: {dim.Area}"
 
     scaled := dim.Scale(2.0)
-    Console.WriteLine($"Scaled 2x: {scaled.width} x {scaled.height}, Area: {scaled.Area}")
-    Console.WriteLine()
+    print $"Scaled 2x: {scaled.width} x {scaled.height}, Area: {scaled.Area}"
+    print ""
 
     // Duration with factory methods
-    Console.WriteLine("5. Duration with Factory Methods:")
+    print "5. Duration with Factory Methods:"
     d1 := Duration.FromMinutes(90)
     d2 := Duration.FromHours(2)
-    Console.WriteLine($"90 minutes: {d1.Format()}")
-    Console.WriteLine($"2 hours: {d2.Format()}")
-    Console.WriteLine()
+    print $"90 minutes: {d1.Format()}"
+    print $"2 hours: {d2.Format()}"
+    print ""
 
     // With expressions (non-destructive mutation)
-    Console.WriteLine("6. With Expressions:")
+    print "6. With Expressions:"
     color1 := new Color(255, 0, 0)
     color2 := color1 with { g: 128 }  // Change only green component
-    Console.WriteLine($"Original: {color1.ToHex()}")
-    Console.WriteLine($"Modified: {color2.ToHex()}")
-    Console.WriteLine()
+    print $"Original: {color1.ToHex()}"
+    print $"Modified: {color2.ToHex()}"
+    print ""
 
     // Performance comparison notes
-    Console.WriteLine("7. Record Struct Benefits:")
-    Console.WriteLine("- Value semantics: Stored on stack (faster allocation)")
-    Console.WriteLine("- No GC pressure: No heap allocations for small data")
-    Console.WriteLine("- Value equality: Built-in comparison by value")
-    Console.WriteLine("- Immutability: Thread-safe by default")
-    Console.WriteLine("- Perfect for: Points, colors, coordinates, dimensions")
-    Console.WriteLine()
+    print "7. Record Struct Benefits:"
+    print "- Value semantics: Stored on stack (faster allocation)"
+    print "- No GC pressure: No heap allocations for small data"
+    print "- Value equality: Built-in comparison by value"
+    print "- Immutability: Thread-safe by default"
+    print "- Perfect for: Points, colors, coordinates, dimensions"
+    print ""
 
-    Console.WriteLine("Use 'record struct' for small immutable data!")
-    Console.WriteLine("Use 'record' (class) for larger objects or when reference semantics needed.")
+    print "Use 'record struct' for small immutable data!"
+    print "Use 'record' (class) for larger objects or when reference semantics needed."
 }

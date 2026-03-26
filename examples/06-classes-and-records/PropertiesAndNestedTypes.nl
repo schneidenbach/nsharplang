@@ -61,7 +61,7 @@ class BankAccount {
             throw new Exception("Account is not active")
         }
         Balance = Balance + amount
-        Console.WriteLine($"Deposited {amount}. New balance: {Balance}")
+        print $"Deposited {amount}. New balance: {Balance}"
     }
 
     func Withdraw(amount: double) {
@@ -72,12 +72,12 @@ class BankAccount {
             throw new Exception("Insufficient funds")
         }
         Balance = Balance - amount
-        Console.WriteLine($"Withdrew {amount}. New balance: {Balance}")
+        print $"Withdrew {amount}. New balance: {Balance}"
     }
 
     func Freeze() {
         CurrentStatus = BankAccount.Status.Frozen
-        Console.WriteLine("Account frozen")
+        print "Account frozen"
     }
 
     func Close() {
@@ -85,32 +85,32 @@ class BankAccount {
             throw new Exception("Cannot close account with positive balance")
         }
         CurrentStatus = BankAccount.Status.Closed
-        Console.WriteLine("Account closed")
+        print "Account closed"
     }
 }
 
 // Example usage
 func Main() {
-    Console.WriteLine("=== Bank Account Example ===")
+    print "=== Bank Account Example ==="
 
     account := new BankAccount("ACC-12345", 1000.0)
 
-    Console.WriteLine($"Account Number: {account.AccountNumber}")
-    Console.WriteLine($"Initial Balance: {account.Balance}")
-    Console.WriteLine($"Status: {account.CurrentStatus}")
+    print $"Account Number: {account.AccountNumber}"
+    print $"Initial Balance: {account.Balance}"
+    print $"Status: {account.CurrentStatus}"
 
     account.Deposit(500.0)
     account.Withdraw(200.0)
 
-    Console.WriteLine($"Transaction Count: {account.TransactionCount}")
+    print $"Transaction Count: {account.TransactionCount}"
 
     account.Freeze()
 
     // This will throw an exception because account is frozen
     _, err := account.Deposit(100.0)
     if err != null {
-        Console.WriteLine($"Error: {err.Message}")
+        print $"Error: {err.Message}"
     }
 
-    Console.WriteLine("\nExample completed successfully!")
+    print "\nExample completed successfully!"
 }

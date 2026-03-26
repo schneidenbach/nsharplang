@@ -1,0 +1,5 @@
+name: PreprocessorDirectives
+version: 1.0.0
+targetFramework: net9.0
+outputType: exe
+entry: PreprocessorDirectives.nl

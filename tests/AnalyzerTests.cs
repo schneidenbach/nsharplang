@@ -1832,6 +1832,17 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void AssemblyResolution_TypeImportRejected()
+    {
+        AssertHasError(@"
+            import System.Console
+
+            func Main() {
+            }
+        ", "Cannot import type 'System.Console'");
+    }
+
+    [Fact]
     public void AssemblyResolution_SystemLinq_Resolved()
     {
         AssertNoErrors(@"

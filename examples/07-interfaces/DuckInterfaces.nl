@@ -71,7 +71,7 @@ class NetworkStream {
 // Function that accepts any IReader
 func ProcessReader(reader: IReader) {
     content := reader.Read()
-    Console.WriteLine($"Read: {content}")
+    print $"Read: {content}"
 }
 
 // Function that accepts any IWriter
@@ -83,46 +83,46 @@ func ProcessWriter(writer: IWriter) {
 func ProcessReadWriter(rw: IReadWriter) {
     rw.Write("Test data")
     result := rw.Read()
-    Console.WriteLine($"Read/Write result: {result}")
+    print $"Read/Write result: {result}"
 }
 
 // Main function demonstrating duck interface usage
 func Main() {
-    Console.WriteLine("=== Duck Interface Demo ===")
-    Console.WriteLine()
+    print "=== Duck Interface Demo ==="
+    print ""
 
     // FileReader only implements Read, so it works with IReader
-    Console.WriteLine("1. FileReader as IReader:")
+    print "1. FileReader as IReader:"
     fileReader := new FileReader("/path/to/file.txt")
     ProcessReader(fileReader)
-    Console.WriteLine()
+    print ""
 
     // MemoryStore implements both Read and Write
-    Console.WriteLine("2. MemoryStore as IReader:")
+    print "2. MemoryStore as IReader:"
     memStore := new MemoryStore()
     ProcessReader(memStore)
-    Console.WriteLine()
+    print ""
 
-    Console.WriteLine("3. MemoryStore as IWriter:")
+    print "3. MemoryStore as IWriter:"
     ProcessWriter(memStore)
-    Console.WriteLine()
+    print ""
 
-    Console.WriteLine("4. MemoryStore as IReadWriter:")
+    print "4. MemoryStore as IReadWriter:"
     ProcessReadWriter(memStore)
-    Console.WriteLine()
+    print ""
 
     // NetworkStream also implements both
-    Console.WriteLine("5. NetworkStream as IReadWriter:")
+    print "5. NetworkStream as IReadWriter:"
     stream := new NetworkStream("https://example.com")
     ProcessReadWriter(stream)
-    Console.WriteLine()
+    print ""
 
     // Can assign to duck interface variables
-    Console.WriteLine("6. Variable assignment with duck interfaces:")
+    print "6. Variable assignment with duck interfaces:"
     let reader: IReader = new FileReader("/another/file.txt")
     content := reader.Read()
-    Console.WriteLine(content)
-    Console.WriteLine()
+    print content
+    print ""
 
-    Console.WriteLine("=== Demo Complete ===")
+    print "=== Demo Complete ==="
 }

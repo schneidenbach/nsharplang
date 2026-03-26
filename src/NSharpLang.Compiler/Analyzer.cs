@@ -29,7 +29,10 @@ public class Analyzer
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string[]? _sourceLines;  // Source code lines for error snippets
     private readonly List<Assembly> _referencedAssemblies = new(); // External assemblies for type resolution
+    private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
+    private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
+    private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
 
@@ -55,21 +58,12 @@ public class Analyzer
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
         _sourceLines = sourceCode?.Split('\n');
+        _externalNamespaceCache.Clear();
 
         // Process import directives
         foreach (var importDirective in unit.Imports)
         {
-            if (importDirective.Alias != null)
-            {
-                _usingAliases[importDirective.Alias] = importDirective.Namespace;
-            }
-            else
-            {
-                _usingNamespaces.Add(importDirective.Namespace);
-            }
-
-            // Load assemblies for type resolution
-            ProcessImportForAssemblyLoading(importDirective);
+            RegisterNamespaceImport(importDirective.Namespace, importDirective.Alias, importDirective.Line, importDirective.Column);
         }
 
         // Validate package declaration if present
@@ -3553,14 +3547,259 @@ public class Analyzer
 
     private void ProcessNamespaceImport(NamespaceImport import)
     {
-        // Namespace imports work like using statements
-        if (import.Alias != null)
+        RegisterNamespaceImport(import.Namespace, import.Alias, import.Line, import.Column);
+    }
+
+    private void RegisterNamespaceImport(string namespaceName, string? alias, int line, int column)
+    {
+        var importDirective = new ImportDirective(namespaceName, alias, line, column);
+
+        // Load referenced assemblies before validating the namespace so imports
+        // from project dependencies can be recognized.
+        ProcessImportForAssemblyLoading(importDirective);
+
+        if (!ValidateNamespaceImport(namespaceName, line, column))
         {
-            _usingAliases[import.Alias] = import.Namespace;
+            return;
         }
-        else
+
+        if (alias != null)
         {
-            _usingNamespaces.Add(import.Namespace);
+            _usingAliases[alias] = namespaceName;
+        }
+        else if (!_usingNamespaces.Contains(namespaceName))
+        {
+            _usingNamespaces.Add(namespaceName);
+        }
+    }
+
+    private bool ValidateNamespaceImport(string namespaceName, int line, int column)
+    {
+        var diagnosticColumn = FindNamespaceImportColumn(namespaceName, line, column);
+
+        var importedType = TryResolveExactExternalType(namespaceName);
+        if (importedType != null)
+        {
+            var suggestion = !string.IsNullOrWhiteSpace(importedType.Namespace)
+                ? $"Import '{importedType.Namespace}' instead."
+                : "Import a namespace instead of a type name.";
+
+            Error(
+                ErrorCode.NamespaceNotFound,
+                $"Cannot import type '{namespaceName}'; imports must target namespaces",
+                line,
+                diagnosticColumn,
+                suggestion,
+                namespaceName.Length);
+            return false;
+        }
+
+        if (NamespaceExists(namespaceName))
+        {
+            return true;
+        }
+
+        if (NamespaceMatchesReferencedPackage(namespaceName))
+        {
+            return true;
+        }
+
+        Error(
+            ErrorCode.NamespaceNotFound,
+            $"Namespace '{namespaceName}' not found",
+            line,
+            diagnosticColumn,
+            "Check the namespace spelling and project references.",
+            namespaceName.Length);
+        return false;
+    }
+
+    private int FindNamespaceImportColumn(string namespaceName, int line, int fallbackColumn)
+    {
+        string? sourceLine = null;
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
+        {
+            sourceLine = _sourceLines[line - 1];
+        }
+        else if (!string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
+        {
+            sourceLine = File.ReadLines(_currentFilePath).Skip(line - 1).FirstOrDefault();
+        }
+
+        if (string.IsNullOrEmpty(sourceLine))
+        {
+            return fallbackColumn;
+        }
+
+        var importIndex = sourceLine.IndexOf("import", StringComparison.Ordinal);
+        var searchStart = importIndex >= 0 ? importIndex + "import".Length : 0;
+        var namespaceIndex = sourceLine.IndexOf(namespaceName, searchStart, StringComparison.Ordinal);
+        return namespaceIndex >= 0 ? namespaceIndex + 1 : fallbackColumn;
+    }
+
+    private Type? TryResolveExactExternalType(string fullName)
+    {
+        if (_externalTypeCache.TryGetValue(fullName, out var cachedType))
+        {
+            return cachedType;
+        }
+
+        var type = Type.GetType(fullName);
+        if (type != null)
+        {
+            _externalTypeCache[fullName] = type;
+            return type;
+        }
+
+        foreach (var assembly in GetExternalSearchAssemblies())
+        {
+            try
+            {
+                type = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (type != null)
+            {
+                _externalTypeCache[fullName] = type;
+                return type;
+            }
+        }
+
+        return null;
+    }
+
+    private bool NamespaceExists(string namespaceName)
+    {
+        if (ProjectNamespaceExists(namespaceName))
+        {
+            _externalNamespaceCache[namespaceName] = true;
+            return true;
+        }
+
+        if (_externalNamespaceCache.TryGetValue(namespaceName, out var exists))
+        {
+            return exists;
+        }
+
+        foreach (var assembly in GetExternalSearchAssemblies())
+        {
+            IEnumerable<Type> exportedTypes;
+            try
+            {
+                exportedTypes = assembly.GetExportedTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                exportedTypes = ex.Types.Where(t => t != null).Cast<Type>();
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (exportedTypes.Any(t => string.Equals(t.Namespace, namespaceName, StringComparison.Ordinal)))
+            {
+                _externalNamespaceCache[namespaceName] = true;
+                return true;
+            }
+        }
+
+        _externalNamespaceCache[namespaceName] = false;
+        return false;
+    }
+
+    private bool NamespaceMatchesReferencedPackage(string namespaceName)
+    {
+        if (namespaceName.Count(c => c == '.') < 1)
+        {
+            return false;
+        }
+
+        return _referencedPackageNames.Any(packageName =>
+            string.Equals(packageName, namespaceName, StringComparison.Ordinal) ||
+            packageName.StartsWith(namespaceName + ".", StringComparison.Ordinal));
+    }
+
+    private bool ProjectNamespaceExists(string namespaceName)
+    {
+        if (string.IsNullOrWhiteSpace(_projectRoot) || !Directory.Exists(_projectRoot))
+        {
+            return false;
+        }
+
+        var projectNamespaces = GetProjectNamespaces(_projectRoot);
+        return projectNamespaces.Contains(namespaceName);
+    }
+
+    private HashSet<string> GetProjectNamespaces(string projectRoot)
+    {
+        if (_projectNamespaceCache.TryGetValue(projectRoot, out var cachedNamespaces))
+        {
+            return cachedNamespaces;
+        }
+
+        var namespaces = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var filePath in Directory.EnumerateFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
+        {
+            if (IsBuildArtifactPath(filePath))
+            {
+                continue;
+            }
+
+            try
+            {
+                var source = File.ReadAllText(filePath);
+                var lexer = new Lexer(source, filePath);
+                var parser = new Parser(lexer.Tokenize(), filePath, source);
+                var parseResult = parser.ParseCompilationUnit();
+                var declaredNamespace = parseResult.CompilationUnit?.Namespace?.Name;
+                if (!string.IsNullOrWhiteSpace(declaredNamespace))
+                {
+                    namespaces.Add(declaredNamespace);
+                }
+            }
+            catch
+            {
+                // Namespace validation is best-effort; syntax issues will be reported elsewhere.
+            }
+        }
+
+        _projectNamespaceCache[projectRoot] = namespaces;
+        return namespaces;
+    }
+
+    private static bool IsBuildArtifactPath(string filePath)
+    {
+        return filePath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+               filePath.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+    }
+
+    private IEnumerable<Assembly> GetExternalSearchAssemblies()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var assemblyName = assembly.FullName ?? assembly.GetName().Name;
+            if (!string.IsNullOrEmpty(assemblyName) && seen.Add(assemblyName))
+            {
+                yield return assembly;
+            }
+        }
+
+        foreach (var assembly in _referencedAssemblies)
+        {
+            var assemblyName = assembly.FullName ?? assembly.GetName().Name;
+            if (!string.IsNullOrEmpty(assemblyName) && seen.Add(assemblyName))
+            {
+                yield return assembly;
+            }
         }
     }
 
@@ -3778,6 +4017,11 @@ public class Analyzer
         {
             foreach (var reference in config.Dependencies)
             {
+                if (!string.IsNullOrWhiteSpace(reference.Nuget))
+                {
+                    _referencedPackageNames.Add(reference.Nuget);
+                }
+
                 try
                 {
                     LoadProjectReference(reference, projectDirectory, config.TargetFramework);
@@ -3794,6 +4038,11 @@ public class Analyzer
         {
             foreach (var dependency in config.TestDependencies.Where(r => r.Type == ReferenceType.NuGet))
             {
+                if (!string.IsNullOrWhiteSpace(dependency.Nuget))
+                {
+                    _referencedPackageNames.Add(dependency.Nuget);
+                }
+
                 if (dependency.Nuget != null)
                     LoadReferencedAssemblyByName(dependency.Nuget);
             }

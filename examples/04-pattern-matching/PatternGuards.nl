@@ -69,63 +69,63 @@ func FizzBuzz(n: int): string {
 }
 
 func Main() {
-    Console.WriteLine("=== Pattern Matching with Guards ===")
-    Console.WriteLine()
+    print "=== Pattern Matching with Guards ==="
+    print ""
 
     // Number classification
-    Console.WriteLine("Number Classification:")
-    Console.WriteLine($"ClassifyNumber(150) = {ClassifyNumber(150)}")
-    Console.WriteLine($"ClassifyNumber(75) = {ClassifyNumber(75)}")
-    Console.WriteLine($"ClassifyNumber(25) = {ClassifyNumber(25)}")
-    Console.WriteLine($"ClassifyNumber(5) = {ClassifyNumber(5)}")
-    Console.WriteLine($"ClassifyNumber(0) = {ClassifyNumber(0)}")
-    Console.WriteLine($"ClassifyNumber(-5) = {ClassifyNumber(-5)}")
-    Console.WriteLine($"ClassifyNumber(-50) = {ClassifyNumber(-50)}")
-    Console.WriteLine()
+    print "Number Classification:"
+    print $"ClassifyNumber(150) = {ClassifyNumber(150)}"
+    print $"ClassifyNumber(75) = {ClassifyNumber(75)}"
+    print $"ClassifyNumber(25) = {ClassifyNumber(25)}"
+    print $"ClassifyNumber(5) = {ClassifyNumber(5)}"
+    print $"ClassifyNumber(0) = {ClassifyNumber(0)}"
+    print $"ClassifyNumber(-5) = {ClassifyNumber(-5)}"
+    print $"ClassifyNumber(-50) = {ClassifyNumber(-50)}"
+    print ""
 
     // HTTP response processing
-    Console.WriteLine("HTTP Response Processing:")
+    print "HTTP Response Processing:"
     ok200 := new HttpResponse.Ok { statusCode: 200, body: "Data loaded" }
-    Console.WriteLine(ProcessResponse(ok200))
+    print ProcessResponse(ok200)
 
     ok201 := new HttpResponse.Ok { statusCode: 201, body: "Resource created" }
-    Console.WriteLine(ProcessResponse(ok201))
+    print ProcessResponse(ok201)
 
     redirect := new HttpResponse.Redirect { location: "/new-url", permanent: true }
-    Console.WriteLine(ProcessResponse(redirect))
+    print ProcessResponse(redirect)
 
     notFound := new HttpResponse.ClientError { statusCode: 404, message: "Page not found" }
-    Console.WriteLine(ProcessResponse(notFound))
+    print ProcessResponse(notFound)
 
     serverError := new HttpResponse.ServerError { statusCode: 500, details: "Internal error" }
-    Console.WriteLine(ProcessResponse(serverError))
-    Console.WriteLine()
+    print ProcessResponse(serverError)
+    print ""
 
     // Age validation
-    Console.WriteLine("Age Validation:")
+    print "Age Validation:"
     validAge := new IntOption.Some { value: 25 }
-    Console.WriteLine(ValidateAge(validAge))
+    print ValidateAge(validAge)
 
     minorAge := new IntOption.Some { value: 16 }
-    Console.WriteLine(ValidateAge(minorAge))
+    print ValidateAge(minorAge)
 
     negativeAge := new IntOption.Some { value: -5 }
-    Console.WriteLine(ValidateAge(negativeAge))
+    print ValidateAge(negativeAge)
 
     unrealisticAge := new IntOption.Some { value: 200 }
-    Console.WriteLine(ValidateAge(unrealisticAge))
+    print ValidateAge(unrealisticAge)
 
     noAge := new IntOption.None { }
-    Console.WriteLine(ValidateAge(noAge))
-    Console.WriteLine()
+    print ValidateAge(noAge)
+    print ""
 
     // FizzBuzz
-    Console.WriteLine("FizzBuzz (1-20):")
+    print "FizzBuzz (1-20):"
     for i := 1; i <= 20; i++ {
         Console.Write($"{FizzBuzz(i)} ")
     }
-    Console.WriteLine()
-    Console.WriteLine()
+    print ""
+    print ""
 
-    Console.WriteLine("Pattern guards allow complex matching logic!")
+    print "Pattern guards allow complex matching logic!"
 }

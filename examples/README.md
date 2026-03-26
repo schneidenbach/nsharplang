@@ -42,7 +42,7 @@ Collection expressions, iterators, ranges, and indexes.
 Attributes, ref/out parameters, and calling C# code.
 
 ### [11. Advanced Features](./11-advanced-features/)
-Operator overloading, conversions, locks, preprocessor directives, and more.
+Standalone projects for operator overloading, conversions, locks, file-scoped types, preprocessor directives, and more.
 
 ### [12. Multi-File Projects](./12-multi-file-projects/)
 Complete projects demonstrating how to structure larger N# applications.

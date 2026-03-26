@@ -48,32 +48,32 @@ func GetStatusMessage(status: string): string {
 }
 
 func Main() {
-    Console.WriteLine("=== Unions and Match Demo ===")
+    print "=== Unions and Match Demo ==="
 
     // Test success case
-    Console.WriteLine("\n1. Success case:")
+    print "\n1. Success case:"
     successResult := new Result.Success(42)
-    Console.WriteLine(ProcessResult(successResult))
+    print ProcessResult(successResult)
 
     // Test failure case
-    Console.WriteLine("\n2. Failure case:")
+    print "\n2. Failure case:"
     failureResult := new Result.Failure("File not found", 404)
-    Console.WriteLine(ProcessResult(failureResult))
+    print ProcessResult(failureResult)
 
     // Test string values (enum simulation)
-    Console.WriteLine("\n3. String values:")
+    print "\n3. String values:"
     currentStatus := "active"
-    Console.WriteLine($"Status: {currentStatus} - {GetStatusMessage(currentStatus)}")
+    print $"Status: {currentStatus} - {GetStatusMessage(currentStatus)}"
 
     // Test int enum
-    Console.WriteLine("\n4. Int enum:")
+    print "\n4. Int enum:"
     priority := Priority.High
-    Console.WriteLine($"Priority: {priority} ({(int)priority})")
+    print $"Priority: {priority} ({(int)priority})"
 
     // Test type alias (just use int for now since aliases are comments)
-    Console.WriteLine("\n5. Type alias:")
+    print "\n5. Type alias:"
     userId := 12345
-    Console.WriteLine($"User ID: {userId}")
+    print $"User ID: {userId}"
 
-    Console.WriteLine("\n=== Demo Complete ===")
+    print "\n=== Demo Complete ==="
 }

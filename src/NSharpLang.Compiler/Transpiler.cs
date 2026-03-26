@@ -358,7 +358,9 @@ public class Transpiler
             else if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
                 !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal))
             {
-                modifiers = char.IsUpper(func.Name[0]) ? "public " + modifiers : "private " + modifiers;
+                modifiers = char.IsUpper(func.Name[0])
+                    ? "public " + modifiers
+                    : "private " + modifiers;
             }
         }
 
@@ -427,7 +429,11 @@ public class Transpiler
             !cls.Modifiers.HasFlag(Modifiers.Private) && !cls.Modifiers.HasFlag(Modifiers.Protected) &&
             !cls.Modifiers.HasFlag(Modifiers.Internal))
         {
-            if (char.IsUpper(cls.Name[0]))
+            if (cls.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(cls.Name[0]))
             {
                 modifiers = "public " + modifiers;
             }
@@ -490,7 +496,11 @@ public class Transpiler
             !str.Modifiers.HasFlag(Modifiers.Private) && !str.Modifiers.HasFlag(Modifiers.Protected) &&
             !str.Modifiers.HasFlag(Modifiers.Internal))
         {
-            if (char.IsUpper(str.Name[0]))
+            if (str.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(str.Name[0]))
             {
                 modifiers = "public " + modifiers;
             }
@@ -549,7 +559,11 @@ public class Transpiler
             !rec.Modifiers.HasFlag(Modifiers.Private) && !rec.Modifiers.HasFlag(Modifiers.Protected) &&
             !rec.Modifiers.HasFlag(Modifiers.Internal))
         {
-            if (char.IsUpper(rec.Name[0]))
+            if (rec.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(rec.Name[0]))
             {
                 modifiers = "public " + modifiers;
             }
@@ -646,7 +660,11 @@ public class Transpiler
             !enm.Modifiers.HasFlag(Modifiers.Private) && !enm.Modifiers.HasFlag(Modifiers.Protected) &&
             !enm.Modifiers.HasFlag(Modifiers.Internal))
         {
-            if (char.IsUpper(enm.Name[0]))
+            if (enm.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(enm.Name[0]))
             {
                 modifiers = "public " + modifiers;
             }
@@ -714,7 +732,11 @@ public class Transpiler
             !union.Modifiers.HasFlag(Modifiers.Private) && !union.Modifiers.HasFlag(Modifiers.Protected) &&
             !union.Modifiers.HasFlag(Modifiers.Internal))
         {
-            if (char.IsUpper(union.Name[0]))
+            if (union.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(union.Name[0]))
             {
                 modifiers = "public " + modifiers;
             }

@@ -4,8 +4,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.LanguageServer.Models;
+using SymbolKind = NSharpLang.LanguageServer.Models.SymbolKind;
 using Microsoft.Extensions.Logging;
 
 namespace NSharpLang.LanguageServer.Services;
@@ -21,8 +23,11 @@ public class DocumentManager
     private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ILogger<DocumentManager> _logger;
     private readonly Analyzer _sharedAnalyzer;
+    private readonly CodeIntelligenceService _codeIntelligenceService = new();
     private readonly HashSet<string> _loadedProjectDirs = new();
     private readonly object _analyzerLock = new();
+    private readonly object _projectSnapshotLock = new();
+    private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
 
     public DocumentManager(ILogger<DocumentManager> logger)
     {
@@ -55,12 +60,15 @@ public class DocumentManager
             _logger.LogInformation("Updating document: {Uri} (version {Version})", uri, version);
 
             var state = new DocumentState(uri, text, version);
+            var filePath = UriToFilePath(uri);
+            InvalidateProjectSnapshot(filePath);
 
-            // Parse the document
-            var lexer = new Lexer(text, uri);
+            // Parse the document using the real filesystem path so downstream
+            // import resolution never sees a file:/// URI as the current file.
+            var lexer = new Lexer(text, filePath);
             state.Tokens = lexer.Tokenize();
 
-            var parser = new Parser(state.Tokens, uri, text);  // Pass source code for error snippets
+            var parser = new Parser(state.Tokens, filePath, text);  // Pass source code for error snippets
             var parseResult = parser.ParseCompilationUnit();
             state.CompilationUnit = parseResult.CompilationUnit;
 
@@ -68,7 +76,6 @@ public class DocumentManager
             var diagnostics = new List<CompilerError>(parseResult.Errors);
 
             // Try to find and load project configuration
-            var filePath = UriToFilePath(uri);
             var projectDir = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
 
@@ -88,7 +95,7 @@ public class DocumentManager
             if (state.CompilationUnit != null)
             {
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
-                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, uri, projectDir);
+                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, projectDir, text);
                 diagnostics.AddRange(analysisResult.Errors);
 
                 // Store semantic model and binding map for IDE features
@@ -147,9 +154,46 @@ public class DocumentManager
 
     public void CloseDocument(string uri)
     {
+        InvalidateProjectSnapshot(UriToFilePath(uri));
         _documents.TryRemove(uri, out _);
         _lastAccessTimes.TryRemove(uri, out _);
         _logger.LogInformation("Document closed: {Uri}", uri);
+    }
+
+    public DefinitionResult? FindProjectDefinition(string uri, int line0, int character0)
+    {
+        if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out var filePath, out var snapshot))
+        {
+            return null;
+        }
+
+        return _codeIntelligenceService.FindDefinition(snapshot, filePath, line0 + 1, character0 + 1);
+    }
+
+    public List<ReferenceResult>? FindProjectReferences(string uri, int line0, int character0)
+    {
+        if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out var filePath, out var snapshot))
+        {
+            return null;
+        }
+
+        var results = _codeIntelligenceService.FindReferences(snapshot, filePath, line0 + 1, character0 + 1);
+        return results.Count > 0 ? results : null;
+    }
+
+    public string GetProjectRootForUri(string uri)
+    {
+        return FindProjectRoot(UriToFilePath(uri));
+    }
+
+    public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)
+    {
+        if (Path.IsPathRooted(relativeOrAbsolutePath))
+        {
+            return relativeOrAbsolutePath;
+        }
+
+        return Path.GetFullPath(Path.Combine(projectRoot, relativeOrAbsolutePath));
     }
 
     public IReadOnlyList<SymbolLocation> FindSymbolLocations(string name)
@@ -257,6 +301,130 @@ public class DocumentManager
         // If we're in a string but inside an interpolation expression, it's code
         if (inString && isInterpolated && interpolationDepth > 0) return false;
         return inString;
+    }
+
+    private bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
+    {
+        filePath = UriToFilePath(uri);
+        projectRoot = FindProjectRoot(filePath);
+        snapshot = null!;
+
+        if (!IsProjectSynchronizedWithDisk(projectRoot))
+        {
+            _logger.LogDebug("Skipping compiler project snapshot for {ProjectRoot}: open buffers differ from disk", projectRoot);
+            return false;
+        }
+
+        var stamp = ComputeProjectSnapshotStamp(projectRoot);
+
+        lock (_projectSnapshotLock)
+        {
+            if (_projectSnapshots.TryGetValue(projectRoot, out var cached) && cached.StampUtcTicks == stamp)
+            {
+                snapshot = cached.Snapshot;
+                return true;
+            }
+
+            try
+            {
+                snapshot = _codeIntelligenceService.LoadProject(projectRoot);
+                _projectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, snapshot);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load compiler project snapshot for {ProjectRoot}", projectRoot);
+                return false;
+            }
+        }
+    }
+
+    private void InvalidateProjectSnapshot(string filePath)
+    {
+        var projectRoot = FindProjectRoot(filePath);
+        _projectSnapshots.TryRemove(projectRoot, out _);
+    }
+
+    private bool IsProjectSynchronizedWithDisk(string projectRoot)
+    {
+        foreach (var document in _documents.Values)
+        {
+            var documentPath = UriToFilePath(document.Uri);
+            if (!IsPathUnderProject(documentPath, projectRoot))
+            {
+                continue;
+            }
+
+            if (!File.Exists(documentPath))
+            {
+                return false;
+            }
+
+            string diskText;
+            try
+            {
+                diskText = File.ReadAllText(documentPath);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (!string.Equals(document.Text, diskText, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string FindProjectRoot(string filePath)
+    {
+        var directory = Directory.Exists(filePath)
+            ? filePath
+            : Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
+
+        var current = new DirectoryInfo(directory);
+        while (current != null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "project.yml")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return Path.GetFullPath(directory);
+    }
+
+    private static bool IsPathUnderProject(string filePath, string projectRoot)
+    {
+        var fullFilePath = Path.GetFullPath(filePath);
+        var fullProjectRoot = Path.GetFullPath(projectRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        return fullFilePath.StartsWith(fullProjectRoot, StringComparison.Ordinal);
+    }
+
+    private static long ComputeProjectSnapshotStamp(string projectRoot)
+    {
+        long latest = 0;
+
+        foreach (var file in Directory.EnumerateFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
+        {
+            latest = Math.Max(latest, File.GetLastWriteTimeUtc(file).Ticks);
+        }
+
+        var projectFile = Path.Combine(projectRoot, "project.yml");
+        if (File.Exists(projectFile))
+        {
+            latest = Math.Max(latest, File.GetLastWriteTimeUtc(projectFile).Ticks);
+        }
+
+        return latest;
     }
 
     private Dictionary<string, TypeInfo> ExtractSymbols(CompilationUnit compilationUnit)
@@ -804,4 +972,6 @@ public class DocumentManager
 
         return uri;
     }
+
+    private sealed record CachedProjectSnapshot(long StampUtcTicks, ProjectSnapshot Snapshot);
 }

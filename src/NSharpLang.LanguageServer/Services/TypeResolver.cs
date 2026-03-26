@@ -16,6 +16,7 @@ public class TypeResolver
     private readonly Dictionary<string, Type> _typeCache = new();
     private readonly List<Assembly> _loadedAssemblies = new();
     private readonly Dictionary<Assembly, Type[]> _exportedTypesCache = new();
+    private HashSet<string>? _namespaceCache;
     private bool _assembliesLoaded = false;
     private readonly object _loadLock = new();
 
@@ -325,6 +326,50 @@ public class TypeResolver
         return results;
     }
 
+    public List<string> GetNamespaceSuggestions(string prefix)
+    {
+        var namespaces = GetKnownNamespaces();
+        var results = new HashSet<string>(StringComparer.Ordinal);
+        var normalizedPrefix = prefix.Trim();
+        var wantsChildren = normalizedPrefix.EndsWith(".", StringComparison.Ordinal);
+        var basePrefix = wantsChildren ? normalizedPrefix[..^1] : normalizedPrefix;
+
+        string parentNamespace;
+        string segmentPrefix;
+
+        if (string.IsNullOrEmpty(basePrefix))
+        {
+            parentNamespace = string.Empty;
+            segmentPrefix = string.Empty;
+        }
+        else if (wantsChildren)
+        {
+            parentNamespace = basePrefix;
+            segmentPrefix = string.Empty;
+        }
+        else
+        {
+            var lastDot = basePrefix.LastIndexOf('.');
+            parentNamespace = lastDot >= 0 ? basePrefix[..lastDot] : string.Empty;
+            segmentPrefix = lastDot >= 0 ? basePrefix[(lastDot + 1)..] : basePrefix;
+        }
+
+        foreach (var ns in namespaces)
+        {
+            if (!TryGetNextNamespaceSegment(ns, parentNamespace, out var nextSegment))
+            {
+                continue;
+            }
+
+            if (nextSegment.StartsWith(segmentPrefix, StringComparison.Ordinal))
+            {
+                results.Add(nextSegment);
+            }
+        }
+
+        return results.OrderBy(x => x, StringComparer.Ordinal).ToList();
+    }
+
     /// <summary>
     /// Check if a name matches a known namespace
     /// </summary>
@@ -347,15 +392,64 @@ public class TypeResolver
         if (WellKnownNamespaces.Contains(name))
             return true;
 
+        return GetKnownNamespaces().Contains(name);
+    }
+
+    private HashSet<string> GetKnownNamespaces()
+    {
+        if (_namespaceCache != null)
+        {
+            return _namespaceCache;
+        }
+
         EnsureAssembliesLoaded();
+
+        var namespaces = new HashSet<string>(WellKnownNamespaces, StringComparer.Ordinal);
 
         foreach (var assembly in _loadedAssemblies)
         {
             var types = GetOrCacheExportedTypes(assembly);
-            if (types != null && types.Any(t => t.Namespace == name))
-                return true;
+            if (types == null)
+            {
+                continue;
+            }
+
+            foreach (var ns in types.Select(t => t.Namespace).Where(ns => !string.IsNullOrWhiteSpace(ns)))
+            {
+                namespaces.Add(ns!);
+            }
         }
-        return false;
+
+        _namespaceCache = namespaces;
+        return namespaces;
+    }
+
+    private static bool TryGetNextNamespaceSegment(string candidateNamespace, string parentNamespace, out string nextSegment)
+    {
+        nextSegment = string.Empty;
+
+        if (string.IsNullOrEmpty(parentNamespace))
+        {
+            var firstDot = candidateNamespace.IndexOf('.');
+            nextSegment = firstDot >= 0 ? candidateNamespace[..firstDot] : candidateNamespace;
+            return nextSegment.Length > 0;
+        }
+
+        var prefix = parentNamespace + ".";
+        if (!candidateNamespace.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var remainder = candidateNamespace[prefix.Length..];
+        if (remainder.Length == 0)
+        {
+            return false;
+        }
+
+        var nextDot = remainder.IndexOf('.');
+        nextSegment = nextDot >= 0 ? remainder[..nextDot] : remainder;
+        return nextSegment.Length > 0;
     }
 
     /// <summary>

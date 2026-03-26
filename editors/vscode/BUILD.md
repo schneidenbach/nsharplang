@@ -1,5 +1,16 @@
 # Building the VS Code Extension
 
+## Full Local Toolset Deploy
+
+To rebuild and redeploy the full local N# toolset in one step, run:
+
+```bash
+./scripts/deploy-local-toolset.sh
+```
+
+That script refreshes the local NuGet feed, reinstalls the `nlc` and `nsharp-lsp`
+dotnet tools from local packages, then packages and installs the VS Code extension.
+
 ## Prerequisites
 
 - Node.js 16+ and npm
