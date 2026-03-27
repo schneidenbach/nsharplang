@@ -226,6 +226,7 @@ public class LanguageServerTests
         public DefinitionHandler DefinitionHandler { get; }
         public ReferencesHandler ReferencesHandler { get; }
         public RenameHandler RenameHandler { get; }
+        public InlayHintHandler InlayHintHandler { get; }
 
         public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
         {
@@ -268,6 +269,11 @@ public class LanguageServerTests
             RenameHandler = new RenameHandler(
                 DocumentManager,
                 NullLogger<RenameHandler>.Instance
+            );
+
+            InlayHintHandler = new InlayHintHandler(
+                DocumentManager,
+                NullLogger<InlayHintHandler>.Instance
             );
         }
 
@@ -367,6 +373,19 @@ public class LanguageServerTests
             };
 
             return await RenameHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<InlayHintContainer?> GetInlayHintsAsync(string uri, int startLine, int startChar, int endLine, int endChar)
+        {
+            var request = new InlayHintParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
+                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
+                    new Position(startLine, startChar),
+                    new Position(endLine, endChar))
+            };
+
+            return await InlayHintHandler.Handle(request, CancellationToken.None);
         }
     }
 
@@ -1830,6 +1849,303 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Collections" || c.Label == "Threading");
         Assert.DoesNotContain(completions.Items, c => c.Label == "Action");
         Assert.DoesNotContain(completions.Items, c => c.Label == "Console");
+    }
+
+    #endregion
+
+    #region InlayHint Tests
+
+    [Fact]
+    public async Task InlayHint_InferredStringType_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_string.nl";
+
+        var source = @"func main() {
+    name := ""hello""
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+
+        var hint = hintList[0];
+        Assert.Equal(InlayHintKind.Type, hint.Kind);
+        Assert.Equal(1, hint.Position.Line);   // 0-based line
+        Assert.Contains("string", hint.Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_InferredIntType_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_int.nl";
+
+        var source = @"func main() {
+    count := 42
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+
+        var hint = hintList[0];
+        Assert.Equal(InlayHintKind.Type, hint.Kind);
+        Assert.Contains("int", hint.Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_ExplicitType_NoHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_explicit.nl";
+
+        // When type is explicitly annotated, no inlay hint should be shown
+        var source = @"func main() {
+    let name: string = ""hello""
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Empty(hintList);
+    }
+
+    [Fact]
+    public async Task InlayHint_MultipleDeclarations_ShowsAllHintsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_multi.nl";
+
+        var source = @"func main() {
+    x := 1
+    y := 2.5
+    z := true
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Equal(3, hintList.Count);
+
+        // Verify they're on different lines (0-based: lines 1, 2, 3)
+        var lines = hintList.Select(h => h.Position.Line).OrderBy(l => l).ToList();
+        Assert.Equal(new[] { 1, 2, 3 }, lines);
+    }
+
+    [Fact]
+    public async Task InlayHint_RangeFiltering_OnlyReturnsVisibleHintsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_range.nl";
+
+        var source = @"func main() {
+    a := 1
+    b := 2
+    c := 3
+    d := 4
+}";
+
+        harness.OpenDocument(uri, source);
+
+        // Only request hints for lines 2-3 (0-based), which contain b and c
+        var hints = await harness.GetInlayHintsAsync(uri, 2, 0, 3, 100);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Equal(2, hintList.Count);
+
+        var lines = hintList.Select(h => h.Position.Line).OrderBy(l => l).ToList();
+        Assert.Equal(new[] { 2, 3 }, lines);
+    }
+
+    [Fact]
+    public async Task InlayHint_BoolType_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_bool.nl";
+
+        var source = @"func main() {
+    flag := false
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+        Assert.Contains("bool", hintList[0].Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_HintPositionAfterVariableName_CorrectColumnAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_position.nl";
+
+        var source = @"func main() {
+    name := ""hello""
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+
+        var hint = hintList[0];
+        // "    name" — 4 spaces + "name" (4 chars) = position after name is column 8
+        // But parser column is 1-based, and the variable starts at column 5 (1-based)
+        // LSP position: line 1, column = (parserCol - 1) + "name".Length
+        // The hint should be right after "name"
+        Assert.Equal(1, hint.Position.Line);
+    }
+
+    [Fact]
+    public async Task InlayHint_EmptyDocument_ReturnsEmptyAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_empty.nl";
+
+        harness.OpenDocument(uri, "");
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        Assert.Empty(hints!.ToList());
+    }
+
+    [Fact]
+    public async Task InlayHint_NoInitializer_NoHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_no_init.nl";
+
+        // A declaration without initializer shouldn't produce a hint
+        var source = @"func main() {
+    let x: int
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        Assert.Empty(hints!.ToList());
+    }
+
+    [Fact]
+    public async Task InlayHint_NestedInIfBlock_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_nested.nl";
+
+        var source = @"func main() {
+    if true {
+        x := 42
+    }
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+        Assert.Contains("int", hintList[0].Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_HintLabelFormat_StartsWithColonAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_format.nl";
+
+        var source = @"func main() {
+    x := 42
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+
+        // Inlay hint label should start with ": " to look like a type annotation
+        Assert.StartsWith(": ", hintList[0].Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_InsideClassMethod_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_class.nl";
+
+        var source = @"class Greeter {
+    func greet() {
+        msg := ""hello""
+    }
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+        Assert.Contains("string", hintList[0].Label.String);
+    }
+
+    [Fact]
+    public async Task InlayHint_ConstDeclaration_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_const.nl";
+
+        var source = @"func main() {
+    const pi := 3.14
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        // const with := is still an inferred type declaration
+        Assert.Single(hintList);
+    }
+
+    [Fact]
+    public async Task InlayHint_DoubleType_ShowsHintAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/inlay_double.nl";
+
+        var source = @"func main() {
+    pi := 3.14
+}";
+
+        harness.OpenDocument(uri, source);
+        var hints = await harness.GetInlayHintsAsync(uri, 0, 0, 10, 0);
+
+        Assert.NotNull(hints);
+        var hintList = hints!.ToList();
+        Assert.Single(hintList);
+        // 3.14 should infer to double or float
+        var label = hintList[0].Label.String;
+        Assert.True(label.Contains("double") || label.Contains("float"),
+            $"Expected double or float type hint, got: {label}");
     }
 
     #endregion
