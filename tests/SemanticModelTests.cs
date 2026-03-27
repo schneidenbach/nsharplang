@@ -108,4 +108,16 @@ public class SemanticModelTests
         var result = model.LookupIdentifier("x");
         Assert.Equal("string", result?.ToString());
     }
+
+    [Fact]
+    public void SemanticModel_RecordExpressionType_CanLookupByPosition()
+    {
+        var model = new SemanticModel();
+
+        model.RecordExpressionType(4, 12, BuiltInTypes.Bool);
+
+        var result = model.LookupTypeAtPosition(4, 12);
+        Assert.NotNull(result);
+        Assert.Equal("bool", result!.ToString());
+    }
 }

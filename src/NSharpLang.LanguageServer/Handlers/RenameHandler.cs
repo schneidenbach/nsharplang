@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Services;
+using NSharpLang.LanguageServer.Models;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -85,6 +86,11 @@ public class RenameHandler : RenameHandlerBase
                             .ToList());
 
                 return Task.FromResult<WorkspaceEdit?>(new WorkspaceEdit { Changes = changes });
+            }
+
+            if (_documentManager.HasSynchronizedProjectSnapshot(uri))
+            {
+                return Task.FromResult<WorkspaceEdit?>(null);
             }
 
             // Find all references to this symbol in the document

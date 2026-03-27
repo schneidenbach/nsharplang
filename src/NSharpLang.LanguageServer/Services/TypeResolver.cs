@@ -234,6 +234,34 @@ public class TypeResolver
         return null;
     }
 
+    /// <summary>
+    /// Get the namespace that should be imported for a resolved type.
+    /// Returns null for primitive aliases or unresolved type names.
+    /// </summary>
+    public string? GetImportNamespace(string typeName)
+    {
+        var type = ResolveType(typeName);
+        return type != null ? GetImportNamespace(type) : null;
+    }
+
+    /// <summary>
+    /// Get the namespace that should be imported for a resolved CLR type.
+    /// </summary>
+    public string? GetImportNamespace(Type type)
+    {
+        if (type.IsArray)
+        {
+            type = type.GetElementType() ?? type;
+        }
+
+        if (type.IsGenericType)
+        {
+            type = type.GetGenericTypeDefinition();
+        }
+
+        return type.Namespace;
+    }
+
     private Type? ResolveTypeByFullName(string fullName)
     {
         foreach (var assembly in _loadedAssemblies)

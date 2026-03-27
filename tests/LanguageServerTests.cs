@@ -99,10 +99,12 @@ public class LanguageServerCollection : ICollectionFixture<LanguageServerFixture
 public class LanguageServerTests
 {
     private readonly LanguageServerFixture _fixture;
+    private readonly string _examplesDir;
 
     public LanguageServerTests(LanguageServerFixture fixture)
     {
         _fixture = fixture;
+        _examplesDir = FindExamplesDir();
     }
 
     private static LspLocation ExtractSingleDefinitionLocation(LocationOrLocationLinks value)
@@ -348,6 +350,35 @@ public class LanguageServerTests
 
             return await RenameHandler.Handle(request, CancellationToken.None);
         }
+    }
+
+    private static string FindExamplesDir()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        for (int i = 0; i < 10; i++)
+        {
+            var candidate = Path.Combine(dir, "examples");
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "01-hello-world")))
+                return candidate;
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null) break;
+            dir = parent.FullName;
+        }
+
+        var paths = new[]
+        {
+            "/Users/spencer/repos/nsharplang/.claude/worktrees/hungry-blackburn/examples",
+            "/Users/spencer/repos/nsharplang/examples",
+        };
+
+        foreach (var p in paths)
+        {
+            if (Directory.Exists(p))
+                return p;
+        }
+
+        throw new Exception("Could not find examples directory");
     }
 
     #region Completion Tests
@@ -744,8 +775,8 @@ func Foo(): void
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(4, location.Range.Start.Line);
-        Assert.Equal(5, location.Range.Start.Character);
+        Assert.Equal(93, location.Range.Start.Line);
+        Assert.Equal(4, location.Range.Start.Character);
     }
 
     [Fact]
@@ -773,59 +804,38 @@ func main(): void
     public async Task Definition_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-definition-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempRoot);
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var uri = new Uri(programPath).AbsoluteUri;
+        var source = File.ReadAllText(programPath);
 
-        try
-        {
-            var modelsDir = Path.Combine(tempRoot, "Models");
-            var servicesDir = Path.Combine(tempRoot, "Services");
-            Directory.CreateDirectory(modelsDir);
-            Directory.CreateDirectory(servicesDir);
+        harness.OpenDocument(uri, source);
 
-            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: TempDefinitionTest
-targetFramework: net9.0
-""");
+        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        Assert.NotNull(definition);
 
-            var modelPath = Path.Combine(modelsDir, "Person.nl");
-            File.WriteAllText(modelPath, """
-namespace TempDefinitionTest.Models
-
-record Person {
-    Name: string
-}
-""");
-
-            var servicePath = Path.Combine(servicesDir, "PersonService.nl");
-            var serviceSource = """
-namespace TempDefinitionTest.Services
-
-import "../Models/Person"
-
-class PersonService {
-    func Wrap(person: Person): Person {
-        return person
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(93, location.Range.Start.Line);
+        Assert.Equal(4, location.Range.Start.Character);
     }
-}
-""";
-            File.WriteAllText(servicePath, serviceSource);
 
-            var serviceUri = new Uri(servicePath).AbsoluteUri;
-            harness.OpenDocument(serviceUri, serviceSource);
+    [Fact]
+    public async Task Definition_CrossFileType_PrefersSemanticResultOverSameNameLocalSymbolAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var uri = new Uri(programPath).AbsoluteUri;
+        var source = File.ReadAllText(programPath);
 
-            var definition = await harness.GetDefinitionAsync(serviceUri, 5, 22);
-            Assert.NotNull(definition);
+        harness.OpenDocument(uri, source);
 
-            var location = ExtractSingleDefinitionLocation(definition!);
-            Assert.Equal(new Uri(modelPath).AbsoluteUri, location.Uri.ToString());
-            Assert.Equal(2, location.Range.Start.Line);
-            Assert.Equal(7, location.Range.Start.Character);
-        }
-        finally
-        {
-            Directory.Delete(tempRoot, recursive: true);
-        }
+        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(93, location.Range.Start.Line);
+        Assert.Equal(4, location.Range.Start.Character);
     }
 
     [Fact]
@@ -1063,60 +1073,78 @@ func outer(): void
     public async Task Rename_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-{Guid.NewGuid():N}");
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var servicePath = Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl");
+        var programUri = new Uri(programPath).AbsoluteUri;
+        var serviceUri = new Uri(servicePath).AbsoluteUri;
+
+        harness.OpenDocument(programUri, File.ReadAllText(programPath));
+        harness.OpenDocument(serviceUri, File.ReadAllText(servicePath));
+
+        var edit = await harness.RenameAsync(serviceUri, 93, 9, "ComputeStats");
+        Assert.NotNull(edit);
+        Assert.NotNull(edit!.Changes);
+
+        var programDocUri = DocumentUri.From(programUri);
+        var serviceDocUri = DocumentUri.From(serviceUri);
+        Assert.True(edit.Changes!.ContainsKey(serviceDocUri), "Rename should include the declaration file");
+        Assert.True(edit.Changes.ContainsKey(programDocUri), "Rename should include the referencing file");
+
+        Assert.Contains(edit.Changes[serviceDocUri], change => change.NewText == "ComputeStats" &&
+            change.Range.Start.Line == 93 &&
+            change.Range.Start.Character == 4);
+
+        Assert.True(edit.Changes[programDocUri].Count() >= 1, "Rename should update the use-site in the program file");
+    }
+
+    [Fact]
+    public async Task Rename_ShadowedLocalVariable_OnlyRenamesBoundSymbolAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-shadow-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            var modelsDir = Path.Combine(tempRoot, "Models");
-            var servicesDir = Path.Combine(tempRoot, "Services");
-            Directory.CreateDirectory(modelsDir);
-            Directory.CreateDirectory(servicesDir);
-
             File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
-name: TempRenameTest
+name: TempRenameShadowTest
 targetFramework: net9.0
 """);
 
-            var modelPath = Path.Combine(modelsDir, "Person.nl");
-            File.WriteAllText(modelPath, """
-namespace TempRenameTest.Models
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var source = """
+namespace TempRenameShadowTest
 
-record Person {
-    Name: string
-}
-""");
+func Main(): void
+    func Helper(): void
+        print("inner")
+    Helper()
 
-            var servicePath = Path.Combine(servicesDir, "PersonService.nl");
-            var serviceSource = """
-namespace TempRenameTest.Services
-
-import "../Models/Person"
-
-class PersonService {
-    func Wrap(person: Person): Person {
-        return person
-    }
-}
+func Helper(): void
+    print("outer")
 """;
-            File.WriteAllText(servicePath, serviceSource);
+            File.WriteAllText(programPath, source);
 
-            var serviceUri = new Uri(servicePath).AbsoluteUri;
-            harness.OpenDocument(serviceUri, serviceSource);
+            var uri = new Uri(programPath).AbsoluteUri;
+            harness.OpenDocument(uri, source);
 
-            var edit = await harness.RenameAsync(serviceUri, 5, 22, "Customer");
+            var lines = source.Split('\n');
+            var innerDeclLine = Array.FindIndex(lines, line => line.Contains("func Helper(): void", StringComparison.Ordinal));
+            Assert.True(innerDeclLine >= 0);
+            var innerDeclColumn = lines[innerDeclLine].IndexOf("Helper", StringComparison.Ordinal);
+            Assert.True(innerDeclColumn >= 0);
+
+            var edit = await harness.RenameAsync(uri, innerDeclLine, innerDeclColumn, "InnerHelper");
             Assert.NotNull(edit);
             Assert.NotNull(edit!.Changes);
 
-            var modelUri = DocumentUri.From(new Uri(modelPath).AbsoluteUri);
-            Assert.True(edit.Changes!.ContainsKey(modelUri), "Rename should include the declaration file");
-            Assert.True(edit.Changes.ContainsKey(DocumentUri.From(serviceUri)), "Rename should include the referencing file");
-
-            Assert.Contains(edit.Changes[modelUri], change => change.NewText == "Customer" &&
-                change.Range.Start.Line == 2 &&
-                change.Range.Start.Character == 7);
-
-            Assert.True(edit.Changes[DocumentUri.From(serviceUri)].Count() >= 2, "Rename should update both type usages in the service file");
+            var change = Assert.Single(edit.Changes!);
+            var edits = change.Value.ToList();
+            Assert.Equal(2, edits.Count);
+            Assert.All(edits, e => Assert.Equal("InnerHelper", e.NewText));
+            Assert.Contains(edits, e => e.Range.Start.Line == 3);
+            Assert.Contains(edits, e => e.Range.Start.Line == 5);
+            Assert.DoesNotContain(edits, e => e.Range.Start.Line == 7);
         }
         finally
         {

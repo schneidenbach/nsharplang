@@ -1,3 +1,4 @@
+using System;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
@@ -18,6 +19,22 @@ public class AnalyzerSemanticModelTests
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();
         return analyzer.Analyze(parseResult.CompilationUnit, "test.nl", null, source);
+    }
+
+    private static int FindColumn(string source, int lineNumber, string needle, int occurrence = 1)
+    {
+        var line = source.Split('\n')[lineNumber - 1];
+        var startIndex = 0;
+        var index = -1;
+
+        for (var i = 0; i < occurrence; i++)
+        {
+            index = line.IndexOf(needle, startIndex, StringComparison.Ordinal);
+            Assert.True(index >= 0, $"Could not find '{needle}' on line {lineNumber}: {line}");
+            startIndex = index + needle.Length;
+        }
+
+        return index + 1;
     }
 
     [Fact]
@@ -174,27 +191,59 @@ func test() {
         Assert.NotNull(xType);
     }
 
-    // TODO: Implement proper generic type inference for LINQ methods
-    // [Fact]
-    // public void Analyzer_LINQMethodChain_InfersCorrectType()
-    // {
-    //     var source = @"
-    // import System
-    // import System.Linq
-    //
-    // func test() {
-    //     numbers: int[] = [1, 2, 3, 4, 5]
-    //     doubled := numbers.Select(x => x * 2).ToList()
-    // }";
-    //
-    //     var result = Analyze(source);
-    //
-    //     Assert.NotNull(result.SemanticModel);
-    //     var doubledType = result.SemanticModel.LookupIdentifier("doubled");
-    //     Assert.NotNull(doubledType);
-    //     // Should infer as List<int>, not Unknown
-    //     Assert.NotEqual("Unknown", doubledType.ToString());
-    //     // The type should be something like "List<int>"
-    //     Assert.Contains("List", doubledType.ToString());
-    // }
+    [Fact]
+    public void Analyzer_LINQMethodChain_InfersConstructedListType()
+    {
+        var source = @"
+import System.Linq
+
+func test() {
+    numbers: int[] = [1, 2, 3, 4, 5]
+    doubled := numbers.Where(x => x > 2).Select(x => x * 2).ToList()
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var doubledType = result.SemanticModel.LookupIdentifier("doubled");
+        Assert.NotNull(doubledType);
+        Assert.Equal("List<int>", doubledType.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_LINQIndexedSelect_InfersConstructedListType()
+    {
+        var source = @"
+import System.Linq
+
+func test() {
+    numbers: int[] = [1, 2, 3]
+    indexed := numbers.Select((item, index) => item + index).ToList()
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var indexedType = result.SemanticModel.LookupIdentifier("indexed");
+        Assert.NotNull(indexedType);
+        Assert.Equal("List<int>", indexedType.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_ExpressionType_IsQueryableBySourcePosition()
+    {
+        var source = @"
+func test() {
+    x := 41
+    y := x + 1
+}";
+
+        var result = Analyze(source);
+
+        var xUseColumn = FindColumn(source, 4, "x");
+        var xUseType = result.SemanticModel.LookupTypeAtPosition(4, xUseColumn);
+
+        Assert.NotNull(xUseType);
+        Assert.Equal("int", xUseType!.ToString());
+    }
 }

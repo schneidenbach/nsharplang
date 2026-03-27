@@ -1,5 +1,6 @@
 using Xunit;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -136,6 +137,29 @@ func test() {
 
         // All should have proper error codes
         Assert.All(result.Errors, e => Assert.Equal(ErrorCode.ExpectedToken, e.Code));
+    }
+
+    [Fact]
+    public void Parser_ReportsMultipleErrors_FromSingleMalformedSource()
+    {
+        var source = @"
+func test() {
+    match value {
+        @@ => 1,
+        other => 2
+    }
+
+    new Person {
+        @@
+    }
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.CompilationUnit);
+        Assert.True(result.Errors.Count >= 2, $"Expected at least 2 errors, got {result.Errors.Count}");
+        Assert.True(result.Errors.Select(e => e.Line).Distinct().Count() >= 2, "Expected errors on multiple lines");
     }
 
     #endregion

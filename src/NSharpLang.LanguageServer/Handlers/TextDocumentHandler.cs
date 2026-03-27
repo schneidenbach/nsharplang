@@ -119,31 +119,24 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
 
     private void PublishDiagnostics(string uri)
     {
-        var doc = _documentManager.GetDocument(uri);
-        if (doc == null) return;
-
-        _currentDiagnosticUri = uri;
-        var allDiagnostics = new List<LspDiagnostic>();
-
-        // Add compiler diagnostics
-        if (doc.Diagnostics != null)
+        var publications = _documentManager.GetDiagnosticsToPublish(uri);
+        foreach (var publication in publications)
         {
-            allDiagnostics.AddRange(doc.Diagnostics.Select(ConvertCompilerErrorToDiagnostic));
+            _currentDiagnosticUri = publication.Uri;
+
+            var allDiagnostics = new List<LspDiagnostic>();
+
+            allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(ConvertCompilerErrorToDiagnostic));
+            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+
+            _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+            {
+                Uri = DocumentUri.From(publication.Uri),
+                Diagnostics = new Container<LspDiagnostic>(allDiagnostics)
+            });
+
+            _logger.LogInformation("Published {Count} diagnostics for {Uri}", allDiagnostics.Count, publication.Uri);
         }
-
-        // Add linter diagnostics
-        if (doc.LinterDiagnostics != null)
-        {
-            allDiagnostics.AddRange(doc.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
-        }
-
-        _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
-        {
-            Uri = DocumentUri.From(uri),
-            Diagnostics = new Container<LspDiagnostic>(allDiagnostics)
-        });
-
-        _logger.LogInformation("Published {Count} diagnostics for {Uri}", allDiagnostics.Count, uri);
     }
 
     private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
