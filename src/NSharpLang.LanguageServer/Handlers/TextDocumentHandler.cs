@@ -52,6 +52,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
 
         _logger.LogInformation("Document opened: {Uri}", uri);
 
+        _documentManager.MarkEditorOpen(uri);
         _documentManager.UpdateDocument(uri, text, version);
         PublishDiagnostics(uri);
 
@@ -95,14 +96,22 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var uri = request.TextDocument.Uri.ToString();
         _logger.LogInformation("Document closed: {Uri}", uri);
 
-        _documentManager.CloseDocument(uri);
+        var reloadedUri = _documentManager.HandleEditorClose(uri);
 
-        // Clear diagnostics for closed document
-        _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+        if (reloadedUri != null)
         {
-            Uri = request.TextDocument.Uri,
-            Diagnostics = new Container<LspDiagnostic>()
-        });
+            // File was reloaded from disk — republish workspace diagnostics
+            PublishDiagnostics(reloadedUri);
+        }
+        else
+        {
+            // File was fully removed — clear diagnostics
+            _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+            {
+                Uri = request.TextDocument.Uri,
+                Diagnostics = new Container<LspDiagnostic>()
+            });
+        }
 
         return Unit.Task;
     }

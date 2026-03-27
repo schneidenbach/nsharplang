@@ -29,6 +29,8 @@ public class DocumentManager
     private readonly object _projectSnapshotLock = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _diskProjectSnapshots = new();
+    private readonly ConcurrentDictionary<string, byte> _editorOpenUris = new();
+    private readonly ConcurrentDictionary<string, byte> _workspaceRoots = new();
 
     public DocumentManager(ILogger<DocumentManager> logger)
     {
@@ -40,6 +42,182 @@ public class DocumentManager
 
         _logger.LogInformation("DocumentManager initialized with shared Analyzer (system assemblies loaded)");
     }
+
+    /// <summary>
+    /// Scans a workspace directory for all .nl files, loads them into the document manager,
+    /// and returns the URIs of all loaded files so diagnostics can be published.
+    /// </summary>
+    public IReadOnlyList<string> ScanWorkspaceDirectory(string rootPath)
+    {
+        var loadedUris = new List<string>();
+
+        rootPath = Path.GetFullPath(rootPath);
+        _workspaceRoots.TryAdd(rootPath, 0);
+
+        if (!Directory.Exists(rootPath))
+        {
+            _logger.LogWarning("Workspace root does not exist: {RootPath}", rootPath);
+            return loadedUris;
+        }
+
+        IEnumerable<string> nlFiles;
+        try
+        {
+            nlFiles = Directory.EnumerateFiles(rootPath, "*.nl", SearchOption.AllDirectories);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate .nl files in {RootPath}", rootPath);
+            return loadedUris;
+        }
+
+        foreach (var filePath in nlFiles)
+        {
+            var uri = FilePathToUri(filePath);
+
+            // Skip files already open in the editor — editor content takes precedence
+            if (_editorOpenUris.ContainsKey(uri))
+            {
+                continue;
+            }
+
+            try
+            {
+                var text = File.ReadAllText(filePath);
+                UpdateDocument(uri, text, 0);
+                loadedUris.Add(uri);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load workspace file: {FilePath}", filePath);
+            }
+        }
+
+        _logger.LogInformation("Workspace scan loaded {Count} .nl files from {RootPath}", loadedUris.Count, rootPath);
+        return loadedUris;
+    }
+
+    /// <summary>
+    /// Marks a document as opened in the editor. Editor-opened documents are not
+    /// replaced by workspace scans and are reverted to disk content on close
+    /// (instead of being removed) if the file belongs to a workspace.
+    /// </summary>
+    public void MarkEditorOpen(string uri)
+    {
+        _editorOpenUris.TryAdd(uri, 0);
+    }
+
+    /// <summary>
+    /// Handles an editor-close event. If the file belongs to a scanned workspace,
+    /// reloads it from disk so workspace diagnostics remain active. Otherwise,
+    /// removes the document entirely.
+    /// Returns the URI if the document was reloaded from disk (caller should republish
+    /// diagnostics), or null if the document was fully removed.
+    /// </summary>
+    public string? HandleEditorClose(string uri)
+    {
+        _editorOpenUris.TryRemove(uri, out _);
+
+        var filePath = UriToFilePath(uri);
+        var isInWorkspace = _workspaceRoots.Keys.Any(root => IsPathUnderProject(filePath, root));
+
+        if (isInWorkspace && File.Exists(filePath))
+        {
+            // Reload from disk so workspace diagnostics stay alive
+            try
+            {
+                var text = File.ReadAllText(filePath);
+                UpdateDocument(uri, text, 0);
+                return uri;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to reload workspace file on close: {FilePath}", filePath);
+            }
+        }
+
+        CloseDocument(uri);
+        return null;
+    }
+
+    /// <summary>
+    /// Handles a file change on disk. Re-reads the file and updates the document
+    /// if it is not currently open in the editor.
+    /// Returns the URI if the document was updated (caller should republish), or null.
+    /// </summary>
+    public string? HandleFileChangedOnDisk(string filePath)
+    {
+        filePath = Path.GetFullPath(filePath);
+        var uri = FilePathToUri(filePath);
+
+        // Don't overwrite editor content
+        if (_editorOpenUris.ContainsKey(uri))
+        {
+            return null;
+        }
+
+        if (!File.Exists(filePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var text = File.ReadAllText(filePath);
+            UpdateDocument(uri, text, 0);
+            return uri;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to reload changed file: {FilePath}", filePath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Handles a file creation on disk. Loads the new file if it's under a workspace root.
+    /// Returns the URI if the document was loaded (caller should publish), or null.
+    /// </summary>
+    public string? HandleFileCreatedOnDisk(string filePath)
+    {
+        filePath = Path.GetFullPath(filePath);
+
+        if (!_workspaceRoots.Keys.Any(root => IsPathUnderProject(filePath, root)))
+        {
+            return null;
+        }
+
+        return HandleFileChangedOnDisk(filePath);
+    }
+
+    /// <summary>
+    /// Handles a file deletion on disk. Removes the document if it's not open in the editor.
+    /// Returns the URI if the document was removed (caller should clear diagnostics), or null.
+    /// </summary>
+    public string? HandleFileDeletedOnDisk(string filePath)
+    {
+        filePath = Path.GetFullPath(filePath);
+        var uri = FilePathToUri(filePath);
+
+        // If still open in editor, leave it alone
+        if (_editorOpenUris.ContainsKey(uri))
+        {
+            return null;
+        }
+
+        if (_documents.ContainsKey(uri))
+        {
+            CloseDocument(uri);
+            return uri;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns whether a URI is currently tracked by the document manager.
+    /// </summary>
+    public bool HasDocument(string uri) => _documents.ContainsKey(uri);
 
     public void UpdateDocument(string uri, string text, int version)
     {
@@ -1129,6 +1307,12 @@ public class DocumentManager
         }
 
         return uri;
+    }
+
+    private static string FilePathToUri(string filePath)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        return new Uri(fullPath).ToString();
     }
 
     private sealed record CachedProjectSnapshot(long StampUtcTicks, ProjectSnapshot Snapshot);
