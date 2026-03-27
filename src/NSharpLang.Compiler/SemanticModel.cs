@@ -10,6 +10,12 @@ namespace NSharpLang.Compiler;
 public class SemanticModel
 {
     /// <summary>
+    /// Maps expression positions to their resolved types.
+    /// Key: (line, column), Value: resolved TypeInfo
+    /// </summary>
+    public Dictionary<(int Line, int Column), TypeInfo> ExpressionTypes { get; } = new();
+
+    /// <summary>
     /// Maps variable/parameter names to their resolved types.
     /// Key: variable name, Value: resolved TypeInfo
     /// </summary>
@@ -80,6 +86,14 @@ public class SemanticModel
     }
 
     /// <summary>
+    /// Record the resolved type for an expression at a specific source position.
+    /// </summary>
+    public void RecordExpressionType(int line, int column, TypeInfo type)
+    {
+        ExpressionTypes[(line, column)] = type;
+    }
+
+    /// <summary>
     /// Try to find the type of an identifier (variable, parameter, property, field, or function)
     /// </summary>
     public TypeInfo? LookupIdentifier(string name)
@@ -105,5 +119,13 @@ public class SemanticModel
             return type;
 
         return null;
+    }
+
+    /// <summary>
+    /// Try to find the resolved type recorded for an expression at a source position.
+    /// </summary>
+    public TypeInfo? LookupTypeAtPosition(int line, int column)
+    {
+        return ExpressionTypes.TryGetValue((line, column), out var type) ? type : null;
     }
 }

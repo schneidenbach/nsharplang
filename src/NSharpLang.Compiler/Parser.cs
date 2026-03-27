@@ -803,6 +803,7 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             var caseLine = Current.Line;
             var caseColumn = Current.Column;
             var caseName = ConsumeIdentifier("Expected union case name");
@@ -813,8 +814,9 @@ public class Parser
                 Advance();
                 properties = new List<UnionCaseProperty>();
 
-                while (!Check(TokenType.RightBrace))
+                while (!Check(TokenType.RightBrace) && !IsAtEnd())
                 {
+                    var propertyStartPosition = _position;
                     var propName = ConsumeIdentifier("Expected property name");
                     Consume(TokenType.Colon, "Expected ':'");
                     var propType = ParseTypeReference();
@@ -822,12 +824,19 @@ public class Parser
 
                     if (!Check(TokenType.RightBrace))
                         Match(TokenType.Comma);
+
+                    EnsureProgress(propertyStartPosition);
                 }
 
                 Consume(TokenType.RightBrace, "Expected '}'");
             }
 
             cases.Add(new UnionCase(caseName, properties, caseLine, caseColumn));
+
+            if (EnsureProgress(startPosition))
+            {
+                continue;
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -849,8 +858,9 @@ public class Parser
 
         if (!Check(TokenType.RightBrace))
         {
-            do
+            while (!Check(TokenType.RightBrace) && !IsAtEnd())
             {
+                var startPosition = _position;
                 var memberLine = Current.Line;
                 var memberColumn = Current.Column;
                 var memberName = ConsumeIdentifier("Expected enum member name");
@@ -874,7 +884,12 @@ public class Parser
                     Advance();
                 else
                     break;
-            } while (!Check(TokenType.RightBrace) && !IsAtEnd());
+
+                if (EnsureProgress(startPosition))
+                {
+                    continue;
+                }
+            }
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -1068,7 +1083,7 @@ public class Parser
         BlockStatement? getBody = null;
         BlockStatement? setBody = null;
 
-        while (!Check(TokenType.RightBrace))
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             var accessor = ConsumeIdentifier("Expected 'get' or 'set'");
 
@@ -2404,8 +2419,9 @@ public class Parser
         Consume(TokenType.LeftBrace, "Expected '{'");
         var props = new List<PropertyPattern>();
 
-        while (!Check(TokenType.RightBrace))
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             var propName = ConsumeIdentifier("Expected property name");
 
             // Check for colon to distinguish pattern vs simple binding
@@ -2428,6 +2444,8 @@ public class Parser
 
             if (!Check(TokenType.RightBrace))
                 Match(TokenType.Comma);
+
+            EnsureProgress(startPosition);
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -3123,8 +3141,9 @@ public class Parser
                 Consume(TokenType.LeftBrace, "Expected '{'");
                 var props = new List<PropertyInitializer>();
 
-                while (!Check(TokenType.RightBrace))
+                while (!Check(TokenType.RightBrace) && !IsAtEnd())
                 {
+                    var startPosition = _position;
                     var propName = ConsumeIdentifier("Expected property name");
                     Consume(TokenType.Colon, "Expected ':'");
                     var propValue = ParseExpression();
@@ -3132,6 +3151,8 @@ public class Parser
 
                     if (!Check(TokenType.RightBrace))
                         Match(TokenType.Comma);
+
+                    EnsureProgress(startPosition);
                 }
 
                 Consume(TokenType.RightBrace, "Expected '}'");
@@ -3435,8 +3456,9 @@ public class Parser
             Advance();
             var props = new List<PropertyInitializer>();
 
-            while (!Check(TokenType.RightBrace))
+            while (!Check(TokenType.RightBrace) && !IsAtEnd())
             {
+                var startPosition = _position;
                 // Check if this is an indexer initializer (starts with '[')
                 if (Check(TokenType.LeftBracket))
                 {
@@ -3458,6 +3480,8 @@ public class Parser
 
                 if (!Check(TokenType.RightBrace))
                     Match(TokenType.Comma);
+
+                EnsureProgress(startPosition);
             }
 
             Consume(TokenType.RightBrace, "Expected '}'");
@@ -3480,6 +3504,7 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var startPosition = _position;
             var pattern = ParsePattern();
 
             // Check for guard clause (when expression)
@@ -3496,6 +3521,8 @@ public class Parser
             // Require comma between cases (except before closing brace)
             if (!Check(TokenType.RightBrace))
                 Consume(TokenType.Comma, "Expected ',' between match cases");
+
+            EnsureProgress(startPosition);
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
@@ -3904,6 +3931,17 @@ public class Parser
             TokenType.Semicolon => "Statements can end with a semicolon, though it's optional in N#.",
             _ => null
         };
+    }
+
+    private bool EnsureProgress(int startPosition)
+    {
+        if (_position == startPosition && !IsAtEnd())
+        {
+            Advance();
+            return true;
+        }
+
+        return false;
     }
 
     private string ConsumeIdentifier(string message)

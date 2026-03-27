@@ -68,6 +68,11 @@ public class DefinitionHandler : DefinitionHandlerBase
                 return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(projectLocation));
             }
 
+            if (_documentManager.HasSynchronizedProjectSnapshot(uri))
+            {
+                return Task.FromResult<LocationOrLocationLinks?>(null);
+            }
+
             var candidates = _documentManager.FindSymbolLocations(word);
             if (candidates.Count == 0)
             {
@@ -199,4 +204,5 @@ public class DefinitionHandler : DefinitionHandlerBase
             .ThenBy(c => Math.Abs(c.Column - position.Character))
             .FirstOrDefault();
     }
+
 }

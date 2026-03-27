@@ -1,6 +1,7 @@
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using System.Linq;
 
 namespace NSharpLang.Tests;
 
@@ -394,6 +395,30 @@ func test() {
 }";
         var unit = Parse(code);
         Assert.NotNull(unit);
+    }
+
+    [Fact]
+    public void Parser_RecoversFromMalformedUnionAndParsesFollowingDeclaration()
+    {
+        var code = @"
+union Result {
+    Success {
+        value: int
+    }
+    @@
+    Failure {
+        error: string
+    }
+}
+
+func after() {
+    print(""ok"")
+}";
+
+        var unit = Parse(code);
+
+        Assert.NotNull(unit);
+        Assert.Contains(unit.Declarations.OfType<FunctionDeclaration>(), decl => decl.Name == "after");
     }
 
     #endregion

@@ -10,6 +10,8 @@ using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+using LspTextEdit = OmniSharp.Extensions.LanguageServer.Protocol.Models.TextEdit;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -156,25 +158,22 @@ public class CompletionHandler : CompletionHandlerBase
         // Add common .NET types
         var commonTypes = new[]
         {
-            ("Console", "System.Console"),
-            ("List", "System.Collections.Generic.List<T>"),
-            ("Dictionary", "System.Collections.Generic.Dictionary<TKey, TValue>"),
-            ("Task", "System.Threading.Tasks.Task"),
-            ("Exception", "System.Exception"),
-            ("DateTime", "System.DateTime"),
-            ("Guid", "System.Guid"),
-            ("Math", "System.Math"),
-            ("String", "System.String"),
-            ("Linq", "System.Linq")
+            ("Console", "System.Console", "System"),
+            ("List", "System.Collections.Generic.List<T>", "System.Collections.Generic"),
+            ("Dictionary", "System.Collections.Generic.Dictionary<TKey, TValue>", "System.Collections.Generic"),
+            ("Task", "System.Threading.Tasks.Task", "System.Threading.Tasks"),
+            ("Exception", "System.Exception", "System"),
+            ("DateTime", "System.DateTime", "System"),
+            ("Guid", "System.Guid", "System"),
+            ("Math", "System.Math", "System"),
+            ("String", "System.String", "System"),
+            ("Linq", "System.Linq", "System.Linq")
         };
 
-        items.AddRange(commonTypes.Select(t => new CompletionItem
+        foreach (var (label, detail, importNamespace) in commonTypes)
         {
-            Label = t.Item1,
-            Kind = CompletionItemKind.Class,
-            Detail = t.Item2,
-            InsertText = t.Item1
-        }));
+            items.Add(CreateImportableTypeCompletionItem(doc, label, detail, importNamespace));
+        }
 
         _logger.LogDebug("Providing {Count} completion items for {Uri}", items.Count, uri);
 
@@ -565,6 +564,87 @@ public class CompletionHandler : CompletionHandlerBase
             Detail = t.FullName,
             InsertText = t.Name
         }).ToList();
+    }
+
+    private CompletionItem CreateImportableTypeCompletionItem(
+        Models.DocumentState? doc,
+        string label,
+        string detail,
+        string importNamespace)
+    {
+        var additionalTextEdits = BuildAutoImportEdits(doc, importNamespace);
+
+        return new CompletionItem
+        {
+            Label = label,
+            Kind = CompletionItemKind.Class,
+            Detail = detail,
+            InsertText = label,
+            AdditionalTextEdits = additionalTextEdits
+        };
+    }
+
+    private static TextEditContainer? BuildAutoImportEdits(Models.DocumentState? doc, string importNamespace)
+    {
+        if (doc?.CompilationUnit == null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(importNamespace))
+        {
+            return null;
+        }
+
+        if (IsNamespaceAlreadyImported(doc.CompilationUnit, importNamespace))
+        {
+            return null;
+        }
+
+        var insertLine = GetNamespaceImportInsertionLine(doc.CompilationUnit);
+        var edit = new LspTextEdit
+        {
+            Range = new LspRange(insertLine - 1, 0, insertLine - 1, 0),
+            NewText = $"import {importNamespace}\n"
+        };
+
+        return new TextEditContainer(new[] { edit });
+    }
+
+    private static bool IsNamespaceAlreadyImported(CompilationUnit compilationUnit, string importNamespace)
+    {
+        return compilationUnit.Imports.Any(import =>
+            string.Equals(import.Namespace, importNamespace, StringComparison.Ordinal));
+    }
+
+    private static int GetNamespaceImportInsertionLine(CompilationUnit compilationUnit)
+    {
+        var insertLine = 1;
+
+        if (compilationUnit.Package != null)
+        {
+            insertLine = Math.Max(insertLine, compilationUnit.Package.Line + 1);
+        }
+
+        if (compilationUnit.Namespace != null)
+        {
+            insertLine = Math.Max(insertLine, compilationUnit.Namespace.Line + 1);
+        }
+
+        if (compilationUnit.Imports.Count > 0)
+        {
+            insertLine = Math.Max(insertLine, compilationUnit.Imports[^1].Line + 1);
+        }
+        else if (compilationUnit.FileImports.Count > 0)
+        {
+            insertLine = Math.Max(insertLine, compilationUnit.FileImports
+                .OfType<FileImport>()
+                .Select(fileImport => fileImport.Line)
+                .DefaultIfEmpty(insertLine)
+                .Min());
+        }
+
+        return insertLine;
     }
 
     private static string ExtractIdentifier(string text)

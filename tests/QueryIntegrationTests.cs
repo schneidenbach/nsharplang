@@ -40,6 +40,22 @@ public class QueryIntegrationTests : IDisposable
 
     public void Dispose() { }
 
+    private static int FindColumnInFile(string filePath, int lineNumber, string needle, int occurrence = 1)
+    {
+        var line = File.ReadLines(filePath).Skip(lineNumber - 1).First();
+        var startIndex = 0;
+        var index = -1;
+
+        for (var i = 0; i < occurrence; i++)
+        {
+            index = line.IndexOf(needle, startIndex, StringComparison.Ordinal);
+            Assert.True(index >= 0, $"Could not find '{needle}' on line {lineNumber}: {line}");
+            startIndex = index + needle.Length;
+        }
+
+        return index + 1;
+    }
+
     private ProjectSnapshot HelloWorld => _helloWorldSnapshot ??=
         _service.LoadProject(Path.Combine(_examplesDir, "01-hello-world"));
 
@@ -541,6 +557,22 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
+    public void BindingMap_MultiFile_ImportedMemberUsage_ResolvesToSourceDeclaration()
+    {
+        var bindings = MultiFile.Bindings!;
+        var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
+
+        var memberColumn = FindColumnInFile(programPath, 42, "GetPeople");
+        var declaration = bindings.GetBindingAt(programPath, 42, memberColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("GetPeople", declaration!.Name);
+        Assert.Equal("function", declaration.Kind);
+        Assert.EndsWith(Path.Combine("Services", "PersonService.nl"), declaration.File, StringComparison.Ordinal);
+        Assert.Equal(19, declaration.Line);
+    }
+
+    [Fact]
     public void Type_Dogfood_LocalVariableFromNewExpression_Resolves()
     {
         var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 38, 5);
@@ -614,6 +646,38 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal("function", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
         Assert.Equal(94, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void Definition_MultiFile_ImportedMemberUseSite_Resolves()
+    {
+        var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
+        var memberColumn = FindColumnInFile(programPath, 42, "GetPeople");
+
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 42, memberColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("GetPeople", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.Equal("Services/PersonService.nl", result.File);
+        Assert.Equal(19, result.Line);
+        Assert.Equal(5, result.Column);
+    }
+
+    [Fact]
+    public void Definition_Dogfood_RecordPropertyUseSite_Resolves()
+    {
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var totalColumn = FindColumnInFile(programPath, 86, "Total");
+
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, totalColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("Total", result!.Name);
+        Assert.Equal("field", result.Kind);
+        Assert.Equal("Services/TaskService.nl", result.File);
+        Assert.Equal(107, result.Line);
         Assert.Equal(5, result.Column);
     }
 

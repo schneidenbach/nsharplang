@@ -181,6 +181,11 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
+    public bool HasSynchronizedProjectSnapshot(string uri)
+    {
+        return TryGetSynchronizedProjectSnapshot(uri, out _, out _, out _);
+    }
+
     public string GetProjectRootForUri(string uri)
     {
         return FindProjectRoot(UriToFilePath(uri));
@@ -209,6 +214,52 @@ public class DocumentManager
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Returns the diagnostics that should be published for the current project scope.
+    /// When the project snapshot can be synchronized with disk, this returns one entry
+    /// per open document in the project so related files can be refreshed together.
+    /// Otherwise, it falls back to the current document only.
+    /// </summary>
+    public IReadOnlyList<DocumentDiagnosticsPublication> GetDiagnosticsToPublish(string uri)
+    {
+        var doc = GetDocument(uri);
+        if (doc == null)
+        {
+            return Array.Empty<DocumentDiagnosticsPublication>();
+        }
+
+        if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out _, out var snapshot))
+        {
+            return new[]
+            {
+                BuildPublicationFromDocument(doc)
+            };
+        }
+
+        var openDocsInProject = _documents.Values
+            .Where(d => IsPathUnderProject(UriToFilePath(d.Uri), projectRoot))
+            .OrderBy(d => d.Uri, StringComparer.Ordinal)
+            .ToList();
+
+        var publications = new List<DocumentDiagnosticsPublication>(openDocsInProject.Count);
+        foreach (var openDoc in openDocsInProject)
+        {
+            var openDocPath = UriToFilePath(openDoc.Uri);
+            var compilerDiagnostics = GetCompilerDiagnosticsForFile(snapshot, openDocPath);
+            publications.Add(new DocumentDiagnosticsPublication(
+                openDoc.Uri,
+                compilerDiagnostics,
+                openDoc.LinterDiagnostics ?? new List<Diagnostic>()));
+        }
+
+        if (publications.Count == 0)
+        {
+            publications.Add(BuildPublicationFromDocument(doc));
+        }
+
+        return publications;
     }
 
     /// <summary>
@@ -409,6 +460,25 @@ public class DocumentManager
         return fullFilePath.StartsWith(fullProjectRoot, StringComparison.Ordinal);
     }
 
+    private static bool PathsMatch(string left, string right)
+    {
+        try
+        {
+            var normalizedLeft = NormalizePath(Path.GetFullPath(left));
+            var normalizedRight = NormalizePath(Path.GetFullPath(right));
+            return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(NormalizePath(left), NormalizePath(right), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string NormalizePath(string path)
+    {
+        return path.Replace('\\', '/');
+    }
+
     private static long ComputeProjectSnapshotStamp(string projectRoot)
     {
         long latest = 0;
@@ -425,6 +495,35 @@ public class DocumentManager
         }
 
         return latest;
+    }
+
+    private IReadOnlyList<CompilerError> GetCompilerDiagnosticsForFile(ProjectSnapshot snapshot, string filePath)
+    {
+        var results = new List<CompilerError>();
+
+        foreach (var error in snapshot.AllErrors)
+        {
+            if (string.IsNullOrWhiteSpace(error.FileName))
+            {
+                continue;
+            }
+
+            var errorFilePath = ResolveProjectFilePath(snapshot.ProjectRoot, error.FileName);
+            if (PathsMatch(errorFilePath, filePath))
+            {
+                results.Add(error);
+            }
+        }
+
+        return results;
+    }
+
+    private static DocumentDiagnosticsPublication BuildPublicationFromDocument(DocumentState doc)
+    {
+        return new DocumentDiagnosticsPublication(
+            doc.Uri,
+            doc.Diagnostics ?? new List<CompilerError>(),
+            doc.LinterDiagnostics ?? new List<Diagnostic>());
     }
 
     private Dictionary<string, TypeInfo> ExtractSymbols(CompilationUnit compilationUnit)
@@ -975,3 +1074,11 @@ public class DocumentManager
 
     private sealed record CachedProjectSnapshot(long StampUtcTicks, ProjectSnapshot Snapshot);
 }
+
+/// <summary>
+/// Diagnostics payload returned by DocumentManager for publication.
+/// </summary>
+public sealed record DocumentDiagnosticsPublication(
+    string Uri,
+    IReadOnlyList<CompilerError> CompilerDiagnostics,
+    IReadOnlyList<Diagnostic> LinterDiagnostics);

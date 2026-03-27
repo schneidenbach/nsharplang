@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -19,6 +20,7 @@ public class Analyzer
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
     private readonly Dictionary<string, List<string>> _importedSymbols = new(); // symbol -> [source paths]
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
+    private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
@@ -33,6 +35,7 @@ public class Analyzer
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
     private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces
+    private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
 
@@ -49,6 +52,7 @@ public class Analyzer
         _usingAliases.Clear();
         _importedSymbols.Clear();
         _importedSymbolsByAlias.Clear();
+        _importedDeclarationsByAlias.Clear();
         _extensionMethods.Clear();
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
@@ -59,6 +63,7 @@ public class Analyzer
         _projectRoot = projectRoot;
         _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
+        _typeDeclarationFiles.Clear();
 
         // Process import directives
         foreach (var importDirective in unit.Imports)
@@ -104,7 +109,7 @@ public class Analyzer
             else if (decl is FunctionDeclaration func)
             {
                 // Add function signatures to enable forward references
-                var funcTypeInfo = new FunctionTypeInfo(func);
+                var funcTypeInfo = CreateFunctionTypeInfo(func);
                 DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
             }
         }
@@ -185,7 +190,7 @@ public class Analyzer
         }
 
         // Declare function in current scope (if not already declared in first pass)
-        var funcType = new FunctionTypeInfo(func);
+        var funcType = CreateFunctionTypeInfo(func);
         var existingSymbol = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
         if (existingSymbol == null)
         {
@@ -340,7 +345,7 @@ public class Analyzer
             if (member is FunctionDeclaration func)
             {
                 // Add function to scope so it can be referenced by other members
-                var funcTypeInfo = new FunctionTypeInfo(func);
+                var funcTypeInfo = CreateFunctionTypeInfo(func);
                 // Only declare if not already declared (avoid duplicates)
                 var existingType = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
                 if (existingType == null)
@@ -776,7 +781,7 @@ public class Analyzer
 
         // Register the local function in the current scope
         // This allows it to be called later in the same scope (forward references work in C#)
-        var funcType = new FunctionTypeInfo(func);
+        var funcType = CreateFunctionTypeInfo(func);
         DeclareSymbol(func.Name, funcType, localFunc.Line, localFunc.Column);
 
         // Analyze the local function body in a new scope
@@ -1518,7 +1523,7 @@ public class Analyzer
 
     private TypeInfo AnalyzeExpression(Expression expr)
     {
-        return expr switch
+        var type = expr switch
         {
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression => BuiltInTypes.Double,
@@ -1550,6 +1555,9 @@ public class Analyzer
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
             _ => BuiltInTypes.Unknown
         };
+
+        _semanticModel.RecordExpressionType(expr.Line, expr.Column, type);
+        return type;
     }
 
     private TypeInfo AnalyzeRangeExpression(RangeExpression range)
@@ -1637,16 +1645,9 @@ public class Analyzer
                             ident.All(c => char.IsLetterOrDigit(c) || c == '_');
                         if (isBareIdentifier && !IsKeyword(ident))
                         {
-                            bool found = false;
-                            foreach (var scope in _scopes)
+                            var col = strExpr.Column + start;
+                            if (!TryResolveIdentifierBindingTarget(ident, strExpr.Line, col, out _))
                             {
-                                if (scope.Symbols.ContainsKey(ident)) { found = true; break; }
-                            }
-                            if (!found && TryResolveExternalType(ident) != null) found = true;
-                            if (!found && LookupType(ident) != null) found = true;
-                            if (!found)
-                            {
-                                var col = strExpr.Column + (start - 0);
                                 _errors.Add(CompilerError.Create(
                                     ErrorCode.UndefinedVariable,
                                     $"Undeclared identifier '{ident}' in string interpolation",
@@ -1763,6 +1764,11 @@ public class Analyzer
             {
                 if (symbols.TryGetValue(member.MemberName, out var symbolType))
                 {
+                    if (_importedDeclarationsByAlias.TryGetValue(aliasName, out var declarations)
+                        && declarations.TryGetValue(member.MemberName, out var declaration))
+                    {
+                        RecordMemberBinding(member, declaration);
+                    }
                     return symbolType;
                 }
                 // Symbol not found in alias
@@ -1774,10 +1780,170 @@ public class Analyzer
         }
 
         var objectType = AnalyzeExpression(member.Object);
+        TryRecordMemberBinding(objectType, member);
 
         // Resolve member on type
         return ResolveMember(objectType, member.MemberName);
     }
+
+    private void TryRecordMemberBinding(TypeInfo objectType, MemberAccessExpression member)
+    {
+        if (TryFindMemberDeclaration(objectType, member.MemberName, out var declaration))
+        {
+            RecordMemberBinding(member, declaration);
+        }
+    }
+
+    private void RecordMemberBinding(MemberAccessExpression member, SymbolDeclaration declaration)
+    {
+        var memberColumn = GetMemberNameColumn(member);
+        _bindingMap.RecordBinding(_currentFilePath, member.Line, memberColumn, member.MemberName.Length, declaration);
+    }
+
+    private int GetMemberNameColumn(MemberAccessExpression member)
+    {
+        var fallbackColumn = member.Column + (member.IsNullConditional ? 2 : 1);
+        if (_sourceLines == null || member.Line <= 0 || member.Line > _sourceLines.Length)
+            return fallbackColumn;
+
+        var lineText = _sourceLines[member.Line - 1];
+        var searchStart = Math.Max(0, member.Column - 1);
+        var index = lineText.IndexOf(member.MemberName, searchStart, StringComparison.Ordinal);
+        return index >= 0 ? index + 1 : fallbackColumn;
+    }
+
+    private bool TryFindMemberDeclaration(TypeInfo objectType, string memberName, out SymbolDeclaration declaration)
+    {
+        declaration = null!;
+
+        switch (objectType)
+        {
+            case ClassTypeInfo classType:
+                if (TryFindDeclarationMember(classType.Declaration.Members, memberName, GetDeclarationFileForType(classType), out declaration))
+                    return true;
+                if (classType.Declaration.BaseClass != null)
+                    return TryFindMemberDeclaration(ResolveType(classType.Declaration.BaseClass), memberName, out declaration);
+                return false;
+
+            case StructTypeInfo structType:
+                return TryFindDeclarationMember(structType.Declaration.Members, memberName, GetDeclarationFileForType(structType), out declaration);
+
+            case RecordTypeInfo recordType:
+                return TryFindDeclarationMember(recordType.Declaration.Members, memberName, GetDeclarationFileForType(recordType), out declaration);
+
+            case InterfaceTypeInfo interfaceType:
+                return TryFindDeclarationMember(interfaceType.Declaration.Members, memberName, GetDeclarationFileForType(interfaceType), out declaration);
+
+            case EnumTypeInfo enumType:
+                var enumMember = enumType.Declaration.Members.FirstOrDefault(member => member.Name == memberName);
+                if (enumMember != null)
+                {
+                    declaration = new SymbolDeclaration(memberName, GetDeclarationFileForType(enumType), enumMember.Line, enumMember.Column, "enumMember");
+                    return true;
+                }
+                return false;
+
+            case UnionTypeInfo unionType:
+                var unionCase = unionType.Declaration.Cases.FirstOrDefault(unionCase => unionCase.Name == memberName);
+                if (unionCase != null)
+                {
+                    declaration = new SymbolDeclaration(memberName, GetDeclarationFileForType(unionType), unionCase.Line, unionCase.Column, "unionCase");
+                    return true;
+                }
+                return false;
+
+            case AliasTypeInfo aliasType:
+                return TryFindMemberDeclaration(ResolveType(aliasType.AliasedType), memberName, out declaration);
+
+            case NullableTypeInfo nullableType:
+                return TryFindMemberDeclaration(nullableType.InnerType, memberName, out declaration);
+
+            default:
+                var extension = _extensionMethods.FirstOrDefault(ext =>
+                    ext.Name == memberName
+                    && ext.Parameters.Count > 0
+                    && IsAssignable(ResolveType(ext.Parameters[0].Type), objectType));
+                if (extension != null)
+                {
+                    declaration = new SymbolDeclaration(extension.Name, _currentFilePath, extension.Line, extension.Column, "function");
+                    return true;
+                }
+                return false;
+        }
+    }
+
+    private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
+    {
+        ClassTypeInfo classType => GetDeclarationFilePath(classType.Declaration.Name),
+        StructTypeInfo structType => GetDeclarationFilePath(structType.Declaration.Name),
+        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name),
+        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name),
+        EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
+        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
+        _ => _currentFilePath
+    };
+
+    private string? GetDeclarationFilePath(string typeName)
+    {
+        return _typeDeclarationFiles.TryGetValue(typeName, out var filePath)
+            ? filePath
+            : _currentFilePath;
+    }
+
+    private bool TryFindDeclarationMember(IEnumerable<Declaration> members, string memberName, string? filePath, out SymbolDeclaration declaration)
+    {
+        foreach (var member in members)
+        {
+            if (GetDeclarationName(member) != memberName)
+                continue;
+
+            declaration = CreateSymbolDeclaration(member, filePath);
+            return true;
+        }
+
+        declaration = null!;
+        return false;
+    }
+
+    private SymbolDeclaration CreateSymbolDeclaration(Declaration declaration, string? filePath)
+    {
+        return new SymbolDeclaration(
+            GetDeclarationName(declaration) ?? string.Empty,
+            filePath,
+            declaration.Line,
+            declaration.Column,
+            GetDeclarationKind(declaration));
+    }
+
+    private static string? GetDeclarationName(Declaration declaration) => declaration switch
+    {
+        FunctionDeclaration function => function.Name,
+        FieldDeclaration field => field.Name,
+        PropertyDeclaration property => property.Name,
+        ClassDeclaration classDecl => classDecl.Name,
+        StructDeclaration structDecl => structDecl.Name,
+        RecordDeclaration recordDecl => recordDecl.Name,
+        InterfaceDeclaration interfaceDecl => interfaceDecl.Name,
+        EnumDeclaration enumDecl => enumDecl.Name,
+        UnionDeclaration unionDecl => unionDecl.Name,
+        TypeAliasDeclaration aliasDecl => aliasDecl.Name,
+        _ => null
+    };
+
+    private static string GetDeclarationKind(Declaration declaration) => declaration switch
+    {
+        FunctionDeclaration => "function",
+        FieldDeclaration => "field",
+        PropertyDeclaration => "property",
+        ClassDeclaration => "class",
+        StructDeclaration => "struct",
+        RecordDeclaration => "record",
+        InterfaceDeclaration => "interface",
+        EnumDeclaration => "enum",
+        UnionDeclaration => "union",
+        TypeAliasDeclaration => "typeAlias",
+        _ => "variable"
+    };
 
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName)
     {
@@ -1816,12 +1982,15 @@ public class Analyzer
         {
             var member = classType.Declaration.Members.FirstOrDefault(m =>
                 (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is PropertyDeclaration pd && pd.Name == memberName) ||
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
                 return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
+            if (member is PropertyDeclaration property)
+                return ResolveType(property.Type);
             if (member is FunctionDeclaration func)
-                return new FunctionTypeInfo(func);
+                return CreateFunctionTypeInfo(func);
 
             // If member not found, check base class
             if (classType.Declaration.BaseClass != null)
@@ -1837,24 +2006,52 @@ public class Analyzer
         {
             var member = structType.Declaration.Members.FirstOrDefault(m =>
                 (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is PropertyDeclaration pd && pd.Name == memberName) ||
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
                 return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
+            if (member is PropertyDeclaration property)
+                return ResolveType(property.Type);
             if (member is FunctionDeclaration func)
-                return new FunctionTypeInfo(func);
+                return CreateFunctionTypeInfo(func);
         }
 
         if (objectType is RecordTypeInfo recordType)
         {
             var member = recordType.Declaration.Members.FirstOrDefault(m =>
                 (m is FieldDeclaration fd && fd.Name == memberName) ||
+                (m is PropertyDeclaration pd && pd.Name == memberName) ||
                 (m is FunctionDeclaration func && func.Name == memberName));
 
             if (member is FieldDeclaration field)
                 return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
+            if (member is PropertyDeclaration property)
+                return ResolveType(property.Type);
             if (member is FunctionDeclaration func)
-                return new FunctionTypeInfo(func);
+                return CreateFunctionTypeInfo(func);
+        }
+
+        if (objectType is InterfaceTypeInfo interfaceType)
+        {
+            var member = interfaceType.Declaration.Members.FirstOrDefault(m =>
+                (m is PropertyDeclaration pd && pd.Name == memberName) ||
+                (m is FunctionDeclaration func && func.Name == memberName));
+
+            if (member is PropertyDeclaration property)
+                return ResolveType(property.Type);
+            if (member is FunctionDeclaration func)
+                return CreateFunctionTypeInfo(func);
+        }
+
+        if (objectType is EnumTypeInfo)
+        {
+            return objectType;
+        }
+
+        if (objectType is UnionTypeInfo)
+        {
+            return objectType;
         }
 
         // Handle array types
@@ -1876,7 +2073,16 @@ public class Analyzer
             .ToList();
 
         if (matchingExtensions.Count == 0)
+        {
+            var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
+            if (externalExtensions.Count == 1)
+                return new ReflectionMethodInfo(externalExtensions[0]);
+
+            if (externalExtensions.Count > 1)
+                return new ReflectionMethodGroupInfo(externalExtensions.ToArray());
+
             return BuiltInTypes.Unknown;
+        }
 
         // Filter by matching this parameter type
         var applicableExtensions = new List<FunctionDeclaration>();
@@ -1895,16 +2101,128 @@ public class Analyzer
         }
 
         if (applicableExtensions.Count == 0)
+        {
+            var externalExtensions = FindExternalExtensionMethods(targetType, methodName);
+            if (externalExtensions.Count == 1)
+                return new ReflectionMethodInfo(externalExtensions[0]);
+
+            if (externalExtensions.Count > 1)
+                return new ReflectionMethodGroupInfo(externalExtensions.ToArray());
+
             return BuiltInTypes.Unknown;
+        }
 
         // If only one match, return it
         if (applicableExtensions.Count == 1)
-            return new FunctionTypeInfo(applicableExtensions[0]);
+            return CreateFunctionTypeInfo(applicableExtensions[0]);
 
         // Multiple matches - return method group (for overload resolution)
         // For now, just return the first one
         // TODO: Implement proper method group resolution
-        return new FunctionTypeInfo(applicableExtensions[0]);
+        return CreateFunctionTypeInfo(applicableExtensions[0]);
+    }
+
+    private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
+    {
+        var targetClrType = TryConvertTypeInfoToClrType(targetType);
+        if (targetClrType == null)
+            return new List<MethodInfo>();
+
+        var methods = new List<MethodInfo>();
+        var assemblies = _referencedAssemblies
+            .Concat(AppDomain.CurrentDomain.GetAssemblies())
+            .Distinct()
+            .ToList();
+
+        foreach (var assembly in assemblies)
+        {
+            foreach (var type in GetLoadableTypes(assembly))
+            {
+                if (type.Namespace == null || !_usingNamespaces.Contains(type.Namespace))
+                    continue;
+
+                if (!(type.IsSealed && type.IsAbstract))
+                    continue;
+
+                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (method.Name != methodName || !method.IsDefined(typeof(ExtensionAttribute), false))
+                        continue;
+
+                    var parameters = method.GetParameters();
+                    if (parameters.Length == 0)
+                        continue;
+
+                    if (IsExtensionParameterCompatible(parameters[0].ParameterType, targetClrType))
+                        methods.Add(method);
+                }
+            }
+        }
+
+        return methods;
+    }
+
+    private static IEnumerable<Type> GetLoadableTypes(Assembly assembly)
+    {
+        try
+        {
+            return assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            return ex.Types.Where(type => type != null)!;
+        }
+        catch
+        {
+            return Array.Empty<Type>();
+        }
+    }
+
+    private bool IsExtensionParameterCompatible(Type parameterType, Type targetClrType)
+    {
+        if (!parameterType.ContainsGenericParameters)
+            return parameterType.IsAssignableFrom(targetClrType);
+
+        return TryFindCompatibleGenericType(parameterType, targetClrType, out _);
+    }
+
+    private bool TryFindCompatibleGenericType(Type parameterType, Type actualType, out Type? compatibleType)
+    {
+        compatibleType = null;
+
+        if (!parameterType.IsGenericType)
+            return false;
+
+        var genericDefinition = parameterType.GetGenericTypeDefinition();
+
+        if (actualType.IsGenericType && actualType.GetGenericTypeDefinition() == genericDefinition)
+        {
+            compatibleType = actualType;
+            return true;
+        }
+
+        foreach (var iface in actualType.GetInterfaces())
+        {
+            if (iface.IsGenericType && iface.GetGenericTypeDefinition() == genericDefinition)
+            {
+                compatibleType = iface;
+                return true;
+            }
+        }
+
+        var currentBase = actualType.BaseType;
+        while (currentBase != null)
+        {
+            if (currentBase.IsGenericType && currentBase.GetGenericTypeDefinition() == genericDefinition)
+            {
+                compatibleType = currentBase;
+                return true;
+            }
+
+            currentBase = currentBase.BaseType;
+        }
+
+        return false;
     }
 
     private TypeInfo ConvertReflectionType(Type type)
@@ -1938,15 +2256,195 @@ public class Analyzer
         return new ReflectionTypeInfo(type);
     }
 
+    private static bool IsDelegateType(Type type)
+    {
+        return typeof(Delegate).IsAssignableFrom(type) && type != typeof(Delegate) && type != typeof(MulticastDelegate);
+    }
+
+    private FunctionTypeInfo CreateFunctionTypeInfoFromDelegate(Type delegateType)
+    {
+        if (delegateType.IsGenericType)
+        {
+            var genericDefinition = delegateType.GetGenericTypeDefinition();
+            var typeArguments = delegateType.GetGenericArguments()
+                .Select(ConvertReflectionType)
+                .ToList();
+
+            if (genericDefinition == typeof(Action<>)
+                || genericDefinition == typeof(Action<,>)
+                || genericDefinition == typeof(Action<,,>)
+                || genericDefinition == typeof(Action<,,,>))
+            {
+                return new FunctionTypeInfo(null)
+                {
+                    ParameterTypes = typeArguments,
+                    ReturnType = BuiltInTypes.Void
+                };
+            }
+
+            if (genericDefinition == typeof(Func<>)
+                || genericDefinition == typeof(Func<,>)
+                || genericDefinition == typeof(Func<,,>)
+                || genericDefinition == typeof(Func<,,,>)
+                || genericDefinition == typeof(Func<,,,,>))
+            {
+                return new FunctionTypeInfo(null)
+                {
+                    ParameterTypes = typeArguments.Take(typeArguments.Count - 1).ToList(),
+                    ReturnType = typeArguments[^1]
+                };
+            }
+        }
+
+        var invokeMethod = delegateType.GetMethod("Invoke");
+        if (invokeMethod == null)
+            return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
+
+        return new FunctionTypeInfo(null)
+        {
+            ParameterTypes = invokeMethod.GetParameters()
+                .Select(parameter => ConvertReflectionType(parameter.ParameterType))
+                .ToList(),
+            ReturnType = ConvertReflectionType(invokeMethod.ReturnType)
+        };
+    }
+
+    private FunctionTypeInfo CreateFunctionTypeInfo(FunctionDeclaration func)
+    {
+        return new FunctionTypeInfo(func)
+        {
+            ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
+            ReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void
+        };
+    }
+
+    private Type? TryConvertTypeInfoToClrType(TypeInfo typeInfo)
+    {
+        var resolvedType = ResolveTypeAlias(typeInfo);
+
+        return resolvedType switch
+        {
+            SimpleTypeInfo simple when simple == BuiltInTypes.Int => typeof(int),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Long => typeof(long),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Float => typeof(float),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Double => typeof(double),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => typeof(bool),
+            SimpleTypeInfo simple when simple == BuiltInTypes.String => typeof(string),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Void => typeof(void),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Object => typeof(object),
+            ReflectionTypeInfo reflection => reflection.Type,
+            ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
+            NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
+            GenericTypeInfo generic => TryConstructKnownGenericType(generic),
+            FunctionTypeInfo function => TryConstructDelegateType(function),
+            _ => null
+        };
+    }
+
+    private Type? TryConvertNullableType(TypeInfo innerType)
+    {
+        var clrInnerType = TryConvertTypeInfoToClrType(innerType);
+        if (clrInnerType == null)
+            return null;
+
+        return clrInnerType.IsValueType ? typeof(Nullable<>).MakeGenericType(clrInnerType) : clrInnerType;
+    }
+
+    private Type? TryConstructKnownGenericType(GenericTypeInfo genericType)
+    {
+        var typeDefinition = genericType.Name switch
+        {
+            "List" when genericType.TypeArguments.Count == 1 => typeof(List<>),
+            "IEnumerable" when genericType.TypeArguments.Count == 1 => typeof(IEnumerable<>),
+            "ICollection" when genericType.TypeArguments.Count == 1 => typeof(ICollection<>),
+            "IList" when genericType.TypeArguments.Count == 1 => typeof(IList<>),
+            "Dictionary" when genericType.TypeArguments.Count == 2 => typeof(Dictionary<,>),
+            "IDictionary" when genericType.TypeArguments.Count == 2 => typeof(IDictionary<,>),
+            "Task" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.Task<>),
+            "ValueTask" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.ValueTask<>),
+            _ => null
+        };
+
+        if (typeDefinition == null)
+            return null;
+
+        var typeArguments = new List<Type>();
+        foreach (var typeArgument in genericType.TypeArguments)
+        {
+            var clrTypeArgument = TryConvertTypeInfoToClrType(typeArgument);
+            if (clrTypeArgument == null)
+                return null;
+
+            typeArguments.Add(clrTypeArgument);
+        }
+
+        return typeDefinition.MakeGenericType(typeArguments.ToArray());
+    }
+
+    private Type? TryConstructDelegateType(FunctionTypeInfo functionType)
+    {
+        if (functionType.ParameterTypes == null || functionType.ReturnType == null)
+            return null;
+
+        var clrParameterTypes = new List<Type>();
+        foreach (var parameterType in functionType.ParameterTypes)
+        {
+            var clrParameterType = TryConvertTypeInfoToClrType(parameterType);
+            if (clrParameterType == null)
+                return null;
+
+            clrParameterTypes.Add(clrParameterType);
+        }
+
+        var clrReturnType = TryConvertTypeInfoToClrType(functionType.ReturnType);
+        if (clrReturnType == null)
+            return null;
+
+        if (clrReturnType == typeof(void))
+        {
+            return clrParameterTypes.Count switch
+            {
+                0 => typeof(Action),
+                1 => typeof(Action<>).MakeGenericType(clrParameterTypes.ToArray()),
+                2 => typeof(Action<,>).MakeGenericType(clrParameterTypes.ToArray()),
+                3 => typeof(Action<,,>).MakeGenericType(clrParameterTypes.ToArray()),
+                4 => typeof(Action<,,,>).MakeGenericType(clrParameterTypes.ToArray()),
+                _ => null
+            };
+        }
+
+        var funcTypes = clrParameterTypes.Concat(new[] { clrReturnType }).ToArray();
+        return clrParameterTypes.Count switch
+        {
+            0 => typeof(Func<>).MakeGenericType(funcTypes),
+            1 => typeof(Func<,>).MakeGenericType(funcTypes),
+            2 => typeof(Func<,,>).MakeGenericType(funcTypes),
+            3 => typeof(Func<,,,>).MakeGenericType(funcTypes),
+            4 => typeof(Func<,,,,>).MakeGenericType(funcTypes),
+            _ => null
+        };
+    }
+
     private TypeInfo AnalyzeCall(CallExpression call)
     {
         var calleeType = AnalyzeExpression(call.Callee);
 
         // Analyze arguments
         var argTypes = new List<TypeInfo>();
-        foreach (var arg in call.Arguments)
+        if (calleeType is FunctionTypeInfo functionType && functionType.ParameterTypes != null)
         {
-            argTypes.Add(AnalyzeExpression(arg.Value));
+            for (int i = 0; i < call.Arguments.Count; i++)
+            {
+                var expectedType = i < functionType.ParameterTypes.Count ? functionType.ParameterTypes[i] : null;
+                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
+            }
+        }
+        else
+        {
+            foreach (var arg in call.Arguments)
+            {
+                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null));
+            }
         }
 
         // Resolve return type from function type
@@ -2118,31 +2616,414 @@ public class Analyzer
         // Handle reflection method calls
         if (calleeType is ReflectionMethodInfo methodInfo)
         {
+            var boundCall = BindSingleReflectionMethod(methodInfo.Method, call);
+            if (boundCall?.ReturnType != null)
+                return boundCall.ReturnType;
+
             return ConvertReflectionType(methodInfo.Method.ReturnType);
         }
 
         // Handle method group (overloaded methods)
         if (calleeType is ReflectionMethodGroupInfo methodGroup)
         {
-            // Try to resolve overload based on argument count
-            // For now, just pick the first compatible method
+            var boundCall = BindReflectionCall(methodGroup, call);
+            if (boundCall?.ReturnType != null)
+                return boundCall.ReturnType;
+
             var compatibleMethods = methodGroup.Methods
-                .Where(m => m.GetParameters().Length == argTypes.Count)
+                .Where(m => GetCallParameterCount(m, call) == call.Arguments.Count)
                 .ToArray();
 
             if (compatibleMethods.Length > 0)
-            {
                 return ConvertReflectionType(compatibleMethods[0].ReturnType);
-            }
 
-            // If no exact match, just return the first method's return type
             if (methodGroup.Methods.Length > 0)
-            {
                 return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
-            }
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeExpressionWithExpectedType(Expression expression, TypeInfo? expectedType)
+    {
+        if (expression is LambdaExpression lambda)
+            return AnalyzeLambda(lambda, expectedType);
+
+        var previousExpectedType = _currentExpectedType;
+        if (expectedType != null)
+            _currentExpectedType = expectedType;
+
+        try
+        {
+            return AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _currentExpectedType = previousExpectedType;
+        }
+    }
+
+    private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
+    {
+        var receiverClrType = call.Callee is MemberAccessExpression memberAccess
+            ? TryConvertTypeInfoToClrType(AnalyzeExpression(memberAccess.Object))
+            : null;
+
+        var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            if (call.Arguments[i].Value is LambdaExpression)
+                continue;
+
+            analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
+        }
+
+        (MethodInfo Method, Dictionary<Type, Type> Bindings, int Score)? selected = null;
+
+        foreach (var method in methodGroup.Methods)
+        {
+            var candidate = PreBindReflectionMethod(method, call, receiverClrType, analyzedNonLambdaArguments);
+            if (candidate == null)
+                continue;
+
+            if (selected == null || candidate.Value.Score > selected.Value.Score)
+                selected = candidate;
+        }
+
+        if (selected == null)
+            return null;
+
+        return FinalizeBoundReflectionCall(selected.Value.Method, call, selected.Value.Bindings);
+    }
+
+    private FunctionTypeInfo? BindSingleReflectionMethod(MethodInfo method, CallExpression call)
+    {
+        var receiverClrType = call.Callee is MemberAccessExpression memberAccess
+            ? TryConvertTypeInfoToClrType(AnalyzeExpression(memberAccess.Object))
+            : null;
+
+        var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            if (call.Arguments[i].Value is LambdaExpression)
+                continue;
+
+            analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
+        }
+
+        var preBound = PreBindReflectionMethod(method, call, receiverClrType, analyzedNonLambdaArguments);
+        if (preBound == null)
+            return null;
+
+        return FinalizeBoundReflectionCall(preBound.Value.Method, call, preBound.Value.Bindings);
+    }
+
+    private (MethodInfo Method, Dictionary<Type, Type> Bindings, int Score)? PreBindReflectionMethod(
+        MethodInfo method,
+        CallExpression call,
+        Type? receiverClrType,
+        TypeInfo?[] analyzedNonLambdaArguments)
+    {
+        var bindings = new Dictionary<Type, Type>();
+        var openMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
+        var parameterOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
+        var parameters = openMethod.GetParameters();
+
+        if (parameterOffset == 1)
+        {
+            if (receiverClrType == null || !TryMatchReflectionParameter(parameters[0].ParameterType, receiverClrType, bindings))
+                return null;
+        }
+
+        if (call.TypeArguments != null && call.TypeArguments.Count > 0)
+        {
+            if (!openMethod.IsGenericMethodDefinition)
+                return null;
+
+            var genericParameters = openMethod.GetGenericArguments();
+            if (genericParameters.Length != call.TypeArguments.Count)
+                return null;
+
+            for (int i = 0; i < genericParameters.Length; i++)
+            {
+                var typeArgument = TryConvertTypeInfoToClrType(ResolveType(call.TypeArguments[i]));
+                if (typeArgument == null)
+                    return null;
+
+                bindings[genericParameters[i]] = typeArgument;
+            }
+        }
+
+        if (!HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count))
+            return null;
+
+        var score = parameterOffset == 1 ? 4 : 0;
+
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
+            if (parameter == null)
+                return null;
+
+            var parameterType = parameter.ParameterType;
+            if (call.Arguments[i].Value is LambdaExpression lambda)
+            {
+                var delegateType = ApplyReflectionBindings(parameterType, bindings);
+                var signature = IsDelegateType(delegateType)
+                    ? CreateFunctionTypeInfoFromDelegate(delegateType)
+                    : null;
+
+                if (signature?.ParameterTypes == null || signature.ParameterTypes.Count != lambda.Parameters.Count)
+                    return null;
+
+                score += 2 + signature.ParameterTypes.Count;
+                continue;
+            }
+
+            var argumentType = analyzedNonLambdaArguments[i];
+            if (argumentType == null)
+                return null;
+
+            var argumentClrType = TryConvertTypeInfoToClrType(argumentType);
+            if (argumentClrType != null)
+            {
+                if (!TryMatchReflectionParameter(parameterType, argumentClrType, bindings))
+                    return null;
+
+                score += GetReflectionMatchScore(ApplyReflectionBindings(parameterType, bindings), argumentClrType);
+                continue;
+            }
+
+            var expectedType = ConvertReflectionType(ApplyReflectionBindings(parameterType, bindings));
+            if (!IsAssignable(expectedType, argumentType))
+                return null;
+
+            score += 1;
+        }
+
+        return (openMethod, bindings, score);
+    }
+
+    private FunctionTypeInfo? FinalizeBoundReflectionCall(MethodInfo method, CallExpression call, Dictionary<Type, Type> bindings)
+    {
+        var workingBindings = new Dictionary<Type, Type>(bindings);
+        var parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
+        var parameters = method.GetParameters();
+
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            if (call.Arguments[i].Value is not LambdaExpression lambda)
+                continue;
+
+            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
+            if (parameter == null)
+                return null;
+
+            var delegateType = ApplyReflectionBindings(parameter.ParameterType, workingBindings);
+            if (!IsDelegateType(delegateType))
+                return null;
+
+            var expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
+            var lambdaType = AnalyzeLambda(lambda, expectedSignature);
+            var lambdaDelegateType = TryConstructDelegateType(lambdaType);
+            if (lambdaDelegateType != null)
+                TryMatchReflectionParameter(parameter.ParameterType, lambdaDelegateType, workingBindings);
+
+            var lambdaReturnClrType = lambdaType.ReturnType != null
+                ? TryConvertTypeInfoToClrType(lambdaType.ReturnType)
+                : null;
+            if (lambdaReturnClrType != null && method.IsGenericMethodDefinition)
+            {
+                var remainingGenericArguments = method.GetGenericArguments()
+                    .Where(argument => !workingBindings.ContainsKey(argument))
+                    .ToList();
+
+                if (remainingGenericArguments.Count == 1)
+                    workingBindings[remainingGenericArguments[0]] = lambdaReturnClrType;
+            }
+        }
+
+        if (method.IsGenericMethodDefinition)
+        {
+            var genericArguments = method.GetGenericArguments();
+            if (genericArguments.Any(argument => !workingBindings.ContainsKey(argument)))
+                return null;
+
+            method = method.MakeGenericMethod(genericArguments.Select(argument => workingBindings[argument]).ToArray());
+            parameters = method.GetParameters();
+            parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
+        }
+
+        var parameterTypes = new List<TypeInfo>();
+        var validatedArgumentTypes = new List<TypeInfo>();
+
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
+            if (parameter == null)
+                return null;
+
+            var rawParameterType = parameter.ParameterType.IsArray && IsParamsParameter(parameter) && i >= parameters.Length - parameterOffset - 1
+                ? parameter.ParameterType.GetElementType()!
+                : parameter.ParameterType;
+
+            if (call.Arguments[i].Value is LambdaExpression lambda && IsDelegateType(rawParameterType))
+            {
+                var expectedSignature = CreateFunctionTypeInfoFromDelegate(rawParameterType);
+                parameterTypes.Add(expectedSignature);
+
+                var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
+                validatedArgumentTypes.Add(lambdaArgumentType);
+                continue;
+            }
+
+            var expectedType = ConvertReflectionType(rawParameterType);
+            parameterTypes.Add(expectedType);
+
+            var argumentType = AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType);
+            validatedArgumentTypes.Add(argumentType);
+
+            if (!IsAssignable(expectedType, argumentType))
+                return null;
+        }
+
+        return new FunctionTypeInfo(null)
+        {
+            ParameterTypes = parameterTypes,
+            ReturnType = ConvertReflectionType(method.ReturnType)
+        };
+    }
+
+    private static bool HasCompatibleReflectionArity(ParameterInfo[] parameters, int parameterOffset, int argumentCount)
+    {
+        var effectiveParameters = parameters.Skip(parameterOffset).ToArray();
+        var hasParams = effectiveParameters.Length > 0 && IsParamsParameter(effectiveParameters[^1]);
+
+        var requiredParameters = effectiveParameters.Count(parameter => !parameter.IsOptional && !IsParamsParameter(parameter));
+        if (argumentCount < requiredParameters)
+            return false;
+
+        if (!hasParams && argumentCount > effectiveParameters.Length)
+            return false;
+
+        return true;
+    }
+
+    private static ParameterInfo? GetReflectionParameterForArgument(ParameterInfo[] parameters, int parameterOffset, int argumentIndex)
+    {
+        var effectiveParameters = parameters.Skip(parameterOffset).ToArray();
+        if (effectiveParameters.Length == 0)
+            return null;
+
+        if (argumentIndex < effectiveParameters.Length)
+            return effectiveParameters[argumentIndex];
+
+        return IsParamsParameter(effectiveParameters[^1]) ? effectiveParameters[^1] : null;
+    }
+
+    private static bool IsParamsParameter(ParameterInfo parameter)
+    {
+        return parameter.GetCustomAttributes(typeof(ParamArrayAttribute), false).Length > 0;
+    }
+
+    private static bool IsExtensionMethodCall(MethodInfo method, CallExpression call)
+    {
+        return call.Callee is MemberAccessExpression && method.IsDefined(typeof(ExtensionAttribute), false);
+    }
+
+    private static int GetCallParameterCount(MethodInfo method, CallExpression call)
+    {
+        return Math.Max(0, method.GetParameters().Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
+    }
+
+    private static int GetReflectionMatchScore(Type parameterType, Type argumentType)
+    {
+        if (parameterType == argumentType)
+            return 8;
+
+        if (parameterType.IsAssignableFrom(argumentType))
+            return 4;
+
+        return 2;
+    }
+
+    private Type ApplyReflectionBindings(Type type, Dictionary<Type, Type> bindings)
+    {
+        if (type.IsGenericParameter && bindings.TryGetValue(type, out var boundType))
+            return boundType;
+
+        if (type.IsByRef)
+        {
+            var elementType = ApplyReflectionBindings(type.GetElementType()!, bindings);
+            return elementType.MakeByRefType();
+        }
+
+        if (type.IsArray)
+        {
+            var elementType = ApplyReflectionBindings(type.GetElementType()!, bindings);
+            return elementType == type.GetElementType()! ? type : elementType.MakeArrayType();
+        }
+
+        if (!type.IsGenericType)
+            return type;
+
+        var typeArguments = type.GetGenericArguments();
+        var appliedArguments = typeArguments.Select(argument => ApplyReflectionBindings(argument, bindings)).ToArray();
+        if (appliedArguments.SequenceEqual(typeArguments))
+            return type;
+
+        return type.GetGenericTypeDefinition().MakeGenericType(appliedArguments);
+    }
+
+    private bool TryMatchReflectionParameter(Type parameterType, Type argumentType, Dictionary<Type, Type> bindings)
+    {
+        if (parameterType.IsByRef)
+            parameterType = parameterType.GetElementType()!;
+
+        if (parameterType.IsGenericParameter)
+        {
+            if (bindings.TryGetValue(parameterType, out var existingBinding))
+                return existingBinding == argumentType;
+
+            bindings[parameterType] = argumentType;
+            return true;
+        }
+
+        if (!parameterType.ContainsGenericParameters)
+            return parameterType.IsAssignableFrom(argumentType);
+
+        if (parameterType.IsArray)
+        {
+            return argumentType.IsArray &&
+                TryMatchReflectionParameter(parameterType.GetElementType()!, argumentType.GetElementType()!, bindings);
+        }
+
+        if (!parameterType.IsGenericType)
+            return true;
+
+        var comparisonType = argumentType;
+        if (!TryFindCompatibleGenericType(parameterType, argumentType, out var compatibleType))
+        {
+            if (!argumentType.IsGenericType || argumentType.GetGenericTypeDefinition() != parameterType.GetGenericTypeDefinition())
+                return false;
+        }
+        else if (compatibleType != null)
+        {
+            comparisonType = compatibleType;
+        }
+
+        var parameterArguments = parameterType.GetGenericArguments();
+        var comparisonArguments = comparisonType.GetGenericArguments();
+        if (parameterArguments.Length != comparisonArguments.Length)
+            return false;
+
+        for (int i = 0; i < parameterArguments.Length; i++)
+        {
+            if (!TryMatchReflectionParameter(parameterArguments[i], comparisonArguments[i], bindings))
+                return false;
+        }
+
+        return true;
     }
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
@@ -2212,27 +3093,41 @@ public class Analyzer
         }
     }
 
-    private TypeInfo AnalyzeLambda(LambdaExpression lambda)
+    private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null)
     {
+        var expectedSignature = GetFunctionSignature(expectedType);
         PushScope(new Scope(ScopeKind.Function));
+        var parameterTypes = new List<TypeInfo>();
 
         foreach (var param in lambda.Parameters)
         {
-            // If the parameter has an explicit type, use it
-            // Otherwise, use Unknown for now (will be inferred from context in full implementation)
-            var paramType = param.Type != null ? ResolveType(param.Type) : BuiltInTypes.Unknown;
+            // Parser uses `var` as the placeholder type for untyped lambda parameters,
+            // so only treat the parameter as explicit when it is something other than `var`.
+            var paramIndex = parameterTypes.Count;
+            var hasExplicitType = param.Type is not null
+                && param.Type is not SimpleTypeReference { Name: "var" };
+
+            var paramType = hasExplicitType
+                ? ResolveType(param.Type)
+                : expectedSignature?.ParameterTypes != null && paramIndex < expectedSignature.ParameterTypes.Count
+                    ? expectedSignature.ParameterTypes[paramIndex]
+                    : BuiltInTypes.Unknown;
             DeclareSymbol(param.Name, paramType, lambda.Line, lambda.Column);
+            parameterTypes.Add(paramType);
         }
 
         TypeInfo returnType;
         if (lambda.ExpressionBody != null)
         {
-            returnType = AnalyzeExpression(lambda.ExpressionBody);
+            returnType = AnalyzeExpressionWithExpectedType(lambda.ExpressionBody, expectedSignature?.ReturnType);
         }
         else if (lambda.BlockBody != null)
         {
+            var previousReturnType = _currentReturnType;
+            _currentReturnType = expectedSignature?.ReturnType;
             AnalyzeStatement(lambda.BlockBody);
-            returnType = BuiltInTypes.Void; // TODO: Infer from return statements
+            _currentReturnType = previousReturnType;
+            returnType = expectedSignature?.ReturnType ?? BuiltInTypes.Void;
         }
         else
         {
@@ -2241,7 +3136,27 @@ public class Analyzer
 
         PopScope();
 
-        return new FunctionTypeInfo(null) { ReturnType = returnType };
+        return new FunctionTypeInfo(null)
+        {
+            ParameterTypes = parameterTypes,
+            ReturnType = returnType
+        };
+    }
+
+    private FunctionTypeInfo? GetFunctionSignature(TypeInfo? expectedType)
+    {
+        if (expectedType == null)
+            return null;
+
+        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+
+        if (resolvedExpectedType is FunctionTypeInfo functionType)
+            return functionType;
+
+        if (resolvedExpectedType is ReflectionTypeInfo reflectionType && IsDelegateType(reflectionType.Type))
+            return CreateFunctionTypeInfoFromDelegate(reflectionType.Type);
+
+        return null;
     }
 
     private TypeInfo AnalyzeTernary(TernaryExpression ternary)
@@ -2502,6 +3417,11 @@ public class Analyzer
             NullableTypeReference nullable => new NullableTypeInfo(ResolveType(nullable.InnerType)),
             TupleTypeReference tuple => new TupleTypeInfo(
                 tuple.Elements.Select(e => (e.Name, ResolveType(e.Type))).ToList()),
+            FunctionTypeReference function => new FunctionTypeInfo(null)
+            {
+                ParameterTypes = function.ParameterTypes.Select(ResolveType).ToList(),
+                ReturnType = ResolveType(function.ReturnType)
+            },
             _ => BuiltInTypes.Unknown
         };
     }
@@ -2660,53 +3580,62 @@ public class Analyzer
         return null;
     }
 
-    private TypeInfo ResolveIdentifier(string name, int line, int column)
+    private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
     {
         // Check local symbols first
         foreach (var scope in _scopes)
         {
-            if (scope.Symbols.TryGetValue(name, out var type))
+            if (scope.Symbols.TryGetValue(name, out type!))
             {
-                // Record binding: this usage → its declaration
                 var declLocation = scope.GetDeclarationLocation(name);
                 if (declLocation != null)
                 {
                     _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
                 }
-                return type;
+                return true;
             }
         }
 
         // Try to resolve as external type (for static class access like Console)
         var externalType = TryResolveExternalType(name);
         if (externalType != null)
-            return externalType;
-
-        // Check if it's a type name
-        var typeInfo = LookupType(name);
-        if (typeInfo != null)
         {
-            // Record binding for type references
-            foreach (var scope in _scopes)
+            type = externalType;
+            return true;
+        }
+
+        foreach (var scope in _scopes)
+        {
+            if (scope.Types.TryGetValue(name, out type!))
             {
                 var declLocation = scope.GetDeclarationLocation(name);
                 if (declLocation != null)
                 {
                     _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
-                    break;
                 }
+                return true;
             }
-            return typeInfo;
         }
 
-        // Check if it's an instance member of the current class or base class
         var currentType = GetCurrentTypeScope();
         if (currentType != null)
         {
             var memberType = ResolveMember(currentType, name);
             if (memberType != BuiltInTypes.Unknown)
-                return memberType;
+            {
+                type = memberType;
+                return true;
+            }
         }
+
+        type = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private TypeInfo ResolveIdentifier(string name, int line, int column)
+    {
+        if (TryResolveIdentifierBindingTarget(name, line, column, out var type))
+            return type;
 
         // Use ErrorMessageBuilder for better error message with suggestions
         var similarNames = FindSimilarVariableNames(name);
@@ -3107,6 +4036,10 @@ public class Analyzer
         else
         {
             currentScope.Types[name] = type;
+            if (!string.IsNullOrEmpty(_currentFilePath))
+            {
+                _typeDeclarationFiles[name] = _currentFilePath;
+            }
 
             // Record type declaration in binding map
             var kind = TypeInfoToDeclarationKind(type);
@@ -3510,7 +4443,7 @@ public class Analyzer
         }
 
         // Extract public symbols from the imported file
-        var symbols = ExtractPublicSymbols(importedUnit);
+        var symbols = ExtractPublicSymbols(importedUnit, resolvedPath);
 
         // Add symbols to scope
         if (import.Alias != null)
@@ -3520,27 +4453,55 @@ public class Analyzer
             {
                 _importedSymbolsByAlias[import.Alias] = new Dictionary<string, TypeInfo>();
             }
-
-            foreach (var (name, type) in symbols)
+            if (!_importedDeclarationsByAlias.ContainsKey(import.Alias))
             {
-                _importedSymbolsByAlias[import.Alias][name] = type;
+                _importedDeclarationsByAlias[import.Alias] = new Dictionary<string, SymbolDeclaration>();
+            }
+
+            foreach (var symbol in symbols)
+            {
+                _importedSymbolsByAlias[import.Alias][symbol.Name] = symbol.Type;
+                _importedDeclarationsByAlias[import.Alias][symbol.Name] = symbol.Declaration;
+                if (IsTypeDeclarationKind(symbol.Declaration.Kind))
+                {
+                    _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
+                }
             }
         }
         else
         {
             // Without alias: symbols directly available
-            foreach (var (name, type) in symbols)
+            foreach (var symbol in symbols)
             {
                 // Track collision detection
-                if (!_importedSymbols.ContainsKey(name))
+                if (!_importedSymbols.ContainsKey(symbol.Name))
                 {
-                    _importedSymbols[name] = new List<string>();
+                    _importedSymbols[symbol.Name] = new List<string>();
                 }
-                _importedSymbols[name].Add(resolvedPath);
+                _importedSymbols[symbol.Name].Add(resolvedPath);
 
                 // Add to global scope
                 var globalScope = _scopes.Last(); // Global scope is at the bottom of stack
-                globalScope.Types[name] = type;
+                if (symbol.Declaration.Kind == "function")
+                {
+                    globalScope.Symbols[symbol.Name] = symbol.Type;
+                }
+                else
+                {
+                    globalScope.Types[symbol.Name] = symbol.Type;
+                    if (IsTypeDeclarationKind(symbol.Declaration.Kind))
+                    {
+                        _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;
+                    }
+                }
+
+                globalScope.RecordDeclarationLocation(
+                    symbol.Name,
+                    symbol.Declaration.File,
+                    symbol.Declaration.Line,
+                    symbol.Declaration.Column,
+                    symbol.Declaration.Kind);
+                _bindingMap.RecordDeclaration(symbol.Declaration);
             }
         }
     }
@@ -3803,9 +4764,9 @@ public class Analyzer
         }
     }
 
-    private Dictionary<string, TypeInfo> ExtractPublicSymbols(CompilationUnit unit)
+    private List<ImportedSymbolInfo> ExtractPublicSymbols(CompilationUnit unit, string filePath)
     {
-        var symbols = new Dictionary<string, TypeInfo>();
+        var symbols = new List<ImportedSymbolInfo>();
 
         foreach (var decl in unit.Declarations)
         {
@@ -3834,19 +4795,25 @@ public class Analyzer
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => new EnumTypeInfo(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
-                    FunctionDeclaration f => new FunctionTypeInfo(f),
+                    FunctionDeclaration f => CreateFunctionTypeInfo(f),
                     _ => null
                 };
 
                 if (typeInfo != null)
                 {
-                    symbols[name] = typeInfo;
+                    symbols.Add(new ImportedSymbolInfo(
+                        name,
+                        typeInfo,
+                        new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl))));
                 }
             }
         }
 
         return symbols;
     }
+
+    private static bool IsTypeDeclarationKind(string kind) =>
+        kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias";
 
     private void CheckImportCollisions()
     {
@@ -4363,6 +5330,8 @@ public enum ScopeKind
     Block
 }
 
+internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
+
 // Type system
 public abstract record TypeInfo
 {
@@ -4393,6 +5362,7 @@ public record TupleTypeInfo(List<(string? Name, TypeInfo Type)> Elements) : Type
 
 public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
 {
+    public List<TypeInfo>? ParameterTypes { get; set; }
     public TypeInfo? ReturnType { get; set; }
 }
 
