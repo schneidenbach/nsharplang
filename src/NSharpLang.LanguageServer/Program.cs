@@ -50,6 +50,7 @@ class Program
                     .WithHandler<RenameHandler>()
                     .WithHandler<ReferencesHandler>()
                     .WithHandler<InlayHintHandler>()
+                    .WithHandler<DocumentSymbolHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();

@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
+using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
 namespace NSharpLang.Tests;
 
@@ -227,6 +228,7 @@ public class LanguageServerTests
         public ReferencesHandler ReferencesHandler { get; }
         public RenameHandler RenameHandler { get; }
         public InlayHintHandler InlayHintHandler { get; }
+        public DocumentSymbolHandler DocumentSymbolHandler { get; }
 
         public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
         {
@@ -274,6 +276,11 @@ public class LanguageServerTests
             InlayHintHandler = new InlayHintHandler(
                 DocumentManager,
                 NullLogger<InlayHintHandler>.Instance
+            );
+
+            DocumentSymbolHandler = new DocumentSymbolHandler(
+                DocumentManager,
+                NullLogger<DocumentSymbolHandler>.Instance
             );
         }
 
@@ -361,6 +368,16 @@ public class LanguageServerTests
             };
 
             return await ReferencesHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<SymbolInformationOrDocumentSymbolContainer?> GetDocumentSymbolsAsync(string uri)
+        {
+            var request = new DocumentSymbolParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri))
+            };
+
+            return await DocumentSymbolHandler.Handle(request, CancellationToken.None);
         }
 
         public async Task<WorkspaceEdit?> RenameAsync(string uri, int line, int character, string newName)
@@ -2146,6 +2163,262 @@ func main(): void
         var label = hintList[0].Label.String;
         Assert.True(label.Contains("double") || label.Contains("float"),
             $"Expected double or float type hint, got: {label}");
+    }
+
+    #endregion
+
+    #region Document Symbol Tests
+
+    [Fact]
+    public async Task DocumentSymbol_FunctionsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"func greet(name: string): string
+    return ""Hello, "" + name
+
+func main(): void
+    greet(""world"")
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Equal(2, symbols.Count);
+
+        Assert.Equal("greet", symbols[0].Name);
+        Assert.Equal(LspSymbolKind.Function, symbols[0].Kind);
+        Assert.Equal("string", symbols[0].Detail);
+
+        Assert.Equal("main", symbols[1].Name);
+        Assert.Equal(LspSymbolKind.Function, symbols[1].Kind);
+        Assert.Equal("void", symbols[1].Detail);
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_ClassWithMembersAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"class Person {
+    name: string
+    age: int
+
+    func greet(): string
+        return ""Hello, "" + name
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        var personSymbol = symbols[0];
+        Assert.Equal("Person", personSymbol.Name);
+        Assert.Equal(LspSymbolKind.Class, personSymbol.Kind);
+        Assert.NotNull(personSymbol.Children);
+
+        var children = personSymbol.Children!.ToList();
+        Assert.Contains(children, c => c.Name == "name" && c.Kind == LspSymbolKind.Field);
+        Assert.Contains(children, c => c.Name == "age" && c.Kind == LspSymbolKind.Field);
+        Assert.Contains(children, c => c.Name == "greet" && c.Kind == LspSymbolKind.Function);
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_StructAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"struct Point {
+    x: int
+    y: int
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        Assert.Equal("Point", symbols[0].Name);
+        Assert.Equal(LspSymbolKind.Struct, symbols[0].Kind);
+        Assert.NotNull(symbols[0].Children);
+        Assert.Equal(2, symbols[0].Children!.Count());
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_InterfaceAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"interface Greeter {
+    func greet(): string
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        Assert.Equal("Greeter", symbols[0].Name);
+        Assert.Equal(LspSymbolKind.Interface, symbols[0].Kind);
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_EnumAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"enum Color {
+    Red,
+    Green,
+    Blue
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        Assert.Equal("Color", symbols[0].Name);
+        Assert.Equal(LspSymbolKind.Enum, symbols[0].Kind);
+        Assert.NotNull(symbols[0].Children);
+
+        var members = symbols[0].Children!.ToList();
+        Assert.Equal(3, members.Count);
+        Assert.All(members, m => Assert.Equal(LspSymbolKind.EnumMember, m.Kind));
+        Assert.Contains(members, m => m.Name == "Red");
+        Assert.Contains(members, m => m.Name == "Green");
+        Assert.Contains(members, m => m.Name == "Blue");
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_EmptyDocument_ReturnsNullAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///empty.nl";
+
+        // Document not opened - should return null
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_MixedDeclarationsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"enum Status {
+    Active,
+    Inactive
+}
+
+class User {
+    name: string
+    status: Status
+}
+
+func createUser(name: string): User
+    return User()
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Equal(3, symbols.Count);
+
+        Assert.Equal("Status", symbols[0].Name);
+        Assert.Equal(LspSymbolKind.Enum, symbols[0].Kind);
+
+        Assert.Equal("User", symbols[1].Name);
+        Assert.Equal(LspSymbolKind.Class, symbols[1].Kind);
+
+        Assert.Equal("createUser", symbols[2].Name);
+        Assert.Equal(LspSymbolKind.Function, symbols[2].Kind);
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_ZeroBasedLineNumbersAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"func hello(): void
+    return
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        // LSP lines are 0-based; the function starts at line 1 in source (1-based) = line 0 in LSP
+        Assert.Equal(0, symbols[0].Range.Start.Line);
+        Assert.Equal(0, symbols[0].SelectionRange.Start.Line);
+
+        // LSP invariant: selectionRange must be contained within range
+        Assert.True(symbols[0].Range.End.Character > 0 || symbols[0].Range.End.Line > symbols[0].Range.Start.Line,
+            "Range must not be zero-width when SelectionRange has content");
+    }
+
+    [Fact]
+    public async Task DocumentSymbol_SelectionRangeContainedInRangeAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"class Foo {
+    bar: int
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        var fooSymbol = symbols[0];
+
+        // Verify Range contains SelectionRange for the class
+        Assert.True(fooSymbol.Range.End.Line >= fooSymbol.SelectionRange.End.Line);
+        Assert.True(fooSymbol.Range.End.Character >= fooSymbol.SelectionRange.End.Character
+                    || fooSymbol.Range.End.Line > fooSymbol.SelectionRange.End.Line);
+
+        // Verify Range contains SelectionRange for the field child
+        var barSymbol = fooSymbol.Children!.First(c => c.Name == "bar");
+        Assert.True(barSymbol.Range.End.Character >= barSymbol.SelectionRange.End.Character
+                    || barSymbol.Range.End.Line > barSymbol.SelectionRange.End.Line);
     }
 
     #endregion
