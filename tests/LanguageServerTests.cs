@@ -859,6 +859,49 @@ func Foo(): void {
         Assert.Null(definition);
     }
 
+    [Fact]
+    public async Task Definition_CrossFile_WithUnsavedChanges_UsesDiskFallbackAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var uri = new Uri(programPath).AbsoluteUri;
+        var source = File.ReadAllText(programPath);
+
+        // Append a comment so the open buffer differs from disk,
+        // causing IsProjectSynchronizedWithDisk to return false.
+        // The disk-based fallback should still resolve cross-file definitions.
+        harness.OpenDocument(uri, source + "\n// unsaved edit");
+
+        // F12 on GetStats() at line 85 col 21 (0-indexed: 84, 21)
+        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        var expectedUri = new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri;
+        Assert.Equal(expectedUri, location.Uri.ToString());
+    }
+
+    [Fact]
+    public async Task Definition_CrossFile_DiskFallback_DifferentSymbolAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var uri = new Uri(programPath).AbsoluteUri;
+        var source = File.ReadAllText(programPath);
+
+        // Make the buffer differ from disk to force disk fallback
+        harness.OpenDocument(uri, source + "\n// modified");
+
+        // F12 on GetUrgentTasks() at line 71 col 22 (0-indexed: 70, 22)
+        // GetUrgentTasks is defined in Services/TaskService.nl
+        var definition = await harness.GetDefinitionAsync(uri, 70, 22);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        var expectedUri = new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri;
+        Assert.Equal(expectedUri, location.Uri.ToString());
+    }
+
     #endregion
 
     #region Diagnostics Tests

@@ -28,6 +28,7 @@ public class DocumentManager
     private readonly object _analyzerLock = new();
     private readonly object _projectSnapshotLock = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
+    private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _diskProjectSnapshots = new();
 
     public DocumentManager(ILogger<DocumentManager> logger)
     {
@@ -184,6 +185,21 @@ public class DocumentManager
     public bool HasSynchronizedProjectSnapshot(string uri)
     {
         return TryGetSynchronizedProjectSnapshot(uri, out _, out _, out _);
+    }
+
+    /// <summary>
+    /// Finds definition using the disk-based project snapshot, bypassing the sync check.
+    /// Used as a fallback when open buffers differ from disk but cross-file semantic
+    /// definition resolution is still desired.
+    /// </summary>
+    public DefinitionResult? FindProjectDefinitionFromDisk(string uri, int line0, int character0)
+    {
+        if (!TryGetProjectSnapshotFromDisk(uri, out var projectRoot, out var filePath, out var snapshot))
+        {
+            return null;
+        }
+
+        return _codeIntelligenceService.FindDefinition(snapshot, filePath, line0 + 1, character0 + 1);
     }
 
     public string GetProjectRootForUri(string uri)
@@ -385,6 +401,49 @@ public class DocumentManager
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to load compiler project snapshot for {ProjectRoot}", projectRoot);
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads a project snapshot from disk without requiring open buffers to match disk.
+    /// Uses a separate cache that is not invalidated by editor keystrokes.
+    /// </summary>
+    private bool TryGetProjectSnapshotFromDisk(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
+    {
+        filePath = UriToFilePath(uri);
+        projectRoot = FindProjectRoot(filePath);
+        snapshot = null!;
+
+        if (!File.Exists(filePath))
+        {
+            return false;
+        }
+
+        var stamp = ComputeProjectSnapshotStamp(projectRoot);
+        if (stamp == 0)
+        {
+            return false;
+        }
+
+        lock (_projectSnapshotLock)
+        {
+            if (_diskProjectSnapshots.TryGetValue(projectRoot, out var cached) && cached.StampUtcTicks == stamp)
+            {
+                snapshot = cached.Snapshot;
+                return true;
+            }
+
+            try
+            {
+                snapshot = _codeIntelligenceService.LoadProject(projectRoot);
+                _diskProjectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, snapshot);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load disk-based project snapshot for {ProjectRoot}", projectRoot);
                 return false;
             }
         }
