@@ -4,6 +4,9 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -13,7 +16,8 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 namespace NSharpLang.LanguageServer.Handlers;
 
 /// <summary>
-/// Handles signature help (parameter info when typing method calls)
+/// Handles signature help (parameter info when typing method calls).
+/// Supports both .NET types (via reflection) and user-defined N# functions (via AST).
 /// </summary>
 public class SignatureHelpHandler : SignatureHelpHandlerBase
 {
@@ -51,67 +55,57 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             _logger.LogDebug("Signature help for: {Text}", beforeCursor);
 
-            // Find the method call
-            var methodInfo = ExtractMethodCall(beforeCursor);
-            if (methodInfo == null)
+            var callInfo = ExtractMethodCall(beforeCursor);
+            if (callInfo == null)
             {
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            _logger.LogDebug("Method call: {Type}.{Method}", methodInfo.Value.TypeName, methodInfo.Value.MethodName);
+            var activeParameter = CountCommas(beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1));
 
-            // Try to resolve the type
-            var type = _typeResolver.ResolveType(methodInfo.Value.TypeName);
-            if (type == null)
+            // Bare function call (no dot) — try N# function lookup first
+            if (callInfo.Value.TypeName == null)
             {
-                _logger.LogDebug("Could not resolve type: {Type}", methodInfo.Value.TypeName);
-                return Task.FromResult<SignatureHelp?>(null);
-            }
-
-            // Get method overloads
-            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-                .Where(m => m.Name == methodInfo.Value.MethodName && !m.IsSpecialName)
-                .ToList();
-
-            if (!methods.Any())
-            {
-                _logger.LogDebug("No methods found with name: {Method}", methodInfo.Value.MethodName);
-                return Task.FromResult<SignatureHelp?>(null);
-            }
-
-            // Convert to signature information
-            var signatures = new List<SignatureInformation>();
-            foreach (var method in methods)
-            {
-                var parameters = method.GetParameters();
-                var paramInfos = new List<ParameterInformation>();
-
-                foreach (var param in parameters)
+                var nsharpSignatures = BuildNSharpFunctionSignatures(doc, callInfo.Value.MethodName);
+                if (nsharpSignatures.Count > 0)
                 {
-                    var paramType = FormatTypeName(param.ParameterType);
-                    var paramLabel = $"{param.Name}: {paramType}";
+                    _logger.LogDebug("Found N# function: {Name} with {Count} signature(s)",
+                        callInfo.Value.MethodName, nsharpSignatures.Count);
 
-                    paramInfos.Add(new ParameterInformation
+                    return Task.FromResult<SignatureHelp?>(new SignatureHelp
                     {
-                        Label = paramLabel,
-                        Documentation = null // Will be populated from XML docs later
+                        Signatures = new Container<SignatureInformation>(nsharpSignatures),
+                        ActiveSignature = 0,
+                        ActiveParameter = activeParameter
                     });
                 }
 
-                var returnType = FormatTypeName(method.ReturnType);
-                var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
-                var label = $"{method.Name}({paramList}): {returnType}";
+                return Task.FromResult<SignatureHelp?>(null);
+            }
 
-                signatures.Add(new SignatureInformation
+            // Dot-qualified call — try N# type members first, then fall back to .NET reflection
+            var typeName = callInfo.Value.TypeName;
+            var methodName = callInfo.Value.MethodName;
+
+            _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);
+
+            var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, typeName, methodName);
+            if (nsharpMemberSignatures.Count > 0)
+            {
+                return Task.FromResult<SignatureHelp?>(new SignatureHelp
                 {
-                    Label = label,
-                    Documentation = null, // Will be populated from XML docs later
-                    Parameters = new Container<ParameterInformation>(paramInfos)
+                    Signatures = new Container<SignatureInformation>(nsharpMemberSignatures),
+                    ActiveSignature = 0,
+                    ActiveParameter = activeParameter
                 });
             }
 
-            // Determine active parameter based on comma count
-            var activeParameter = CountCommas(beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1));
+            // Fall back to .NET type resolution via reflection
+            var signatures = BuildReflectionSignatures(typeName, methodName);
+            if (signatures == null || signatures.Count == 0)
+            {
+                return Task.FromResult<SignatureHelp?>(null);
+            }
 
             return Task.FromResult<SignatureHelp?>(new SignatureHelp
             {
@@ -138,9 +132,205 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Extract method call information from text before cursor
+    /// Build signatures for a user-defined N# function.
+    /// Checks the AST for top-level functions, then falls back to SymbolsInfo
+    /// (which includes local functions extracted by DocumentManager).
     /// </summary>
-    private (string TypeName, string MethodName)? ExtractMethodCall(string text)
+    private List<SignatureInformation> BuildNSharpFunctionSignatures(DocumentState doc, string functionName)
+    {
+        var signatures = new List<SignatureInformation>();
+
+        // First, check top-level function declarations in the AST
+        if (doc.CompilationUnit != null)
+        {
+            foreach (var funcDecl in FindTopLevelFunctions(doc.CompilationUnit, functionName))
+            {
+                signatures.Add(BuildSignatureFromDeclaration(funcDecl));
+            }
+        }
+
+        // Fall back to SymbolsInfo which also includes local functions
+        if (signatures.Count == 0 && doc.SymbolsInfo != null)
+        {
+            if (doc.SymbolsInfo.TryGetValue(functionName, out var symbolInfo) &&
+                symbolInfo.Kind == Models.SymbolKind.Function)
+            {
+                signatures.Add(BuildSignatureFromSymbolInfo(symbolInfo));
+            }
+        }
+
+        return signatures;
+    }
+
+    /// <summary>
+    /// Build signatures for a method on a user-defined N# type.
+    /// </summary>
+    private List<SignatureInformation> BuildNSharpMemberSignatures(DocumentState doc, string typeName, string methodName)
+    {
+        var signatures = new List<SignatureInformation>();
+
+        if (doc.SymbolsInfo == null)
+        {
+            return signatures;
+        }
+
+        if (!doc.SymbolsInfo.TryGetValue(typeName, out var typeSymbol))
+        {
+            return signatures;
+        }
+
+        // Only look at type symbols that have members
+        if (typeSymbol.Kind is not (Models.SymbolKind.Class or Models.SymbolKind.Struct
+            or Models.SymbolKind.Record or Models.SymbolKind.Interface))
+        {
+            return signatures;
+        }
+
+        foreach (var member in typeSymbol.Members)
+        {
+            if (member.Name == methodName &&
+                member.Kind is Models.SymbolKind.Method or Models.SymbolKind.Function or Models.SymbolKind.Constructor)
+            {
+                signatures.Add(BuildSignatureFromSymbolInfo(member));
+            }
+        }
+
+        return signatures;
+    }
+
+    /// <summary>
+    /// Build signatures for .NET types via reflection (existing behavior).
+    /// </summary>
+    private List<SignatureInformation>? BuildReflectionSignatures(string typeName, string methodName)
+    {
+        var type = _typeResolver.ResolveType(typeName);
+        if (type == null)
+        {
+            _logger.LogDebug("Could not resolve type: {Type}", typeName);
+            return null;
+        }
+
+        var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+            .Where(m => m.Name == methodName && !m.IsSpecialName)
+            .ToList();
+
+        if (!methods.Any())
+        {
+            _logger.LogDebug("No methods found with name: {Method}", methodName);
+            return null;
+        }
+
+        var signatures = new List<SignatureInformation>();
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            var paramInfos = new List<ParameterInformation>();
+
+            foreach (var param in parameters)
+            {
+                var paramType = FormatTypeName(param.ParameterType);
+                var paramLabel = $"{param.Name}: {paramType}";
+
+                paramInfos.Add(new ParameterInformation
+                {
+                    Label = paramLabel,
+                    Documentation = null
+                });
+            }
+
+            var returnType = FormatTypeName(method.ReturnType);
+            var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
+            var label = $"{method.Name}({paramList}): {returnType}";
+
+            signatures.Add(new SignatureInformation
+            {
+                Label = label,
+                Documentation = null,
+                Parameters = new Container<ParameterInformation>(paramInfos)
+            });
+        }
+
+        return signatures;
+    }
+
+    /// <summary>
+    /// Build a SignatureInformation from an N# FunctionDeclaration AST node.
+    /// </summary>
+    private SignatureInformation BuildSignatureFromDeclaration(FunctionDeclaration funcDecl)
+    {
+        var paramInfos = new List<ParameterInformation>();
+
+        foreach (var param in funcDecl.Parameters)
+        {
+            var paramType = FormatTypeReference(param.Type);
+            var paramLabel = FormatParameterLabel(param.Name, paramType, param.Modifier, param.DefaultValue != null);
+
+            paramInfos.Add(new ParameterInformation
+            {
+                Label = paramLabel
+            });
+        }
+
+        var returnType = funcDecl.ReturnType != null
+            ? FormatTypeReference(funcDecl.ReturnType)
+            : "void";
+        var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
+        var label = $"{funcDecl.Name}({paramList}): {returnType}";
+
+        return new SignatureInformation
+        {
+            Label = label,
+            Parameters = new Container<ParameterInformation>(paramInfos)
+        };
+    }
+
+    /// <summary>
+    /// Build a SignatureInformation from a SymbolInfo (for N# type members).
+    /// </summary>
+    private SignatureInformation BuildSignatureFromSymbolInfo(Models.SymbolInfo symbolInfo)
+    {
+        var paramInfos = new List<ParameterInformation>();
+
+        foreach (var param in symbolInfo.Parameters)
+        {
+            var paramLabel = $"{param.Name}: {param.TypeName}";
+            paramInfos.Add(new ParameterInformation
+            {
+                Label = paramLabel
+            });
+        }
+
+        var returnType = symbolInfo.TypeName ?? "void";
+        var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
+        var label = $"{symbolInfo.Name}({paramList}): {returnType}";
+
+        return new SignatureInformation
+        {
+            Label = label,
+            Parameters = new Container<ParameterInformation>(paramInfos)
+        };
+    }
+
+    /// <summary>
+    /// Find top-level FunctionDeclaration nodes matching a given name in the compilation unit.
+    /// Does not search class/struct members (those are resolved via BuildNSharpMemberSignatures).
+    /// </summary>
+    private static IEnumerable<FunctionDeclaration> FindTopLevelFunctions(CompilationUnit unit, string name)
+    {
+        foreach (var decl in unit.Declarations)
+        {
+            if (decl is FunctionDeclaration func && func.Name == name)
+            {
+                yield return func;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extract method call information from text before cursor.
+    /// Returns (null, functionName) for bare function calls, or (typeName, methodName) for dot-qualified calls.
+    /// </summary>
+    private (string? TypeName, string MethodName)? ExtractMethodCall(string text)
     {
         // Find the opening parenthesis
         var openParenIndex = text.LastIndexOf('(');
@@ -169,12 +359,43 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             return (typeName, methodName);
         }
 
-        // Otherwise, it's just a method call (we'd need more context to know the type)
+        // Bare function call — return with null TypeName
+        if (IsValidIdentifier(lastPart))
+        {
+            return (null, lastPart);
+        }
+
         return null;
     }
 
     /// <summary>
-    /// Count commas in parameter list to determine active parameter
+    /// Check if a string is a valid N# identifier.
+    /// </summary>
+    private static bool IsValidIdentifier(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        if (!char.IsLetter(text[0]) && text[0] != '_')
+        {
+            return false;
+        }
+
+        for (var i = 1; i < text.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(text[i]) && text[i] != '_')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Count commas in parameter list to determine active parameter.
     /// </summary>
     private int CountCommas(string text)
     {
@@ -208,7 +429,31 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Format a type name for display
+    /// Format a parameter label with modifier prefix if applicable.
+    /// </summary>
+    private static string FormatParameterLabel(string name, string typeName, Compiler.Ast.ParameterModifier modifier, bool hasDefault)
+    {
+        var prefix = modifier switch
+        {
+            Compiler.Ast.ParameterModifier.Ref => "ref ",
+            Compiler.Ast.ParameterModifier.Out => "out ",
+            Compiler.Ast.ParameterModifier.Params => "params ",
+            _ => ""
+        };
+
+        return $"{prefix}{name}: {typeName}";
+    }
+
+    /// <summary>
+    /// Format an N# TypeReference for display using CodeIntelligenceService.
+    /// </summary>
+    private static string FormatTypeReference(TypeReference? typeRef)
+    {
+        return CodeIntelligenceService.FormatTypeReferencePublic(typeRef);
+    }
+
+    /// <summary>
+    /// Format a .NET System.Type for display.
     /// </summary>
     private string FormatTypeName(Type type)
     {
