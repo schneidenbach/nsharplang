@@ -48,6 +48,7 @@ class Program
                     .WithHandler<DefinitionHandler>()
                     .WithHandler<CodeActionHandler>()
                     .WithHandler<RenameHandler>()
+                    .WithHandler<ReferencesHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
