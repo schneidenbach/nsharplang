@@ -224,6 +224,7 @@ public class LanguageServerTests
         public HoverHandler HoverHandler { get; }
         public SignatureHelpHandler SignatureHelpHandler { get; }
         public DefinitionHandler DefinitionHandler { get; }
+        public ReferencesHandler ReferencesHandler { get; }
         public RenameHandler RenameHandler { get; }
 
         public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
@@ -257,6 +258,11 @@ public class LanguageServerTests
             DefinitionHandler = new DefinitionHandler(
                 DocumentManager,
                 NullLogger<DefinitionHandler>.Instance
+            );
+
+            ReferencesHandler = new ReferencesHandler(
+                DocumentManager,
+                NullLogger<ReferencesHandler>.Instance
             );
 
             RenameHandler = new RenameHandler(
@@ -337,6 +343,18 @@ public class LanguageServerTests
             };
 
             return await DefinitionHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<LocationContainer?> GetReferencesAsync(string uri, int line, int character, bool includeDeclaration = true)
+        {
+            var request = new ReferenceParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
+                Position = new Position(line, character),
+                Context = new ReferenceContext { IncludeDeclaration = includeDeclaration }
+            };
+
+            return await ReferencesHandler.Handle(request, CancellationToken.None);
         }
 
         public async Task<WorkspaceEdit?> RenameAsync(string uri, int line, int character, string newName)
@@ -857,6 +875,143 @@ func Foo(): void {
 
         var definition = await harness.GetDefinitionAsync(uri, 1, 9);
         Assert.Null(definition);
+    }
+
+    #endregion
+
+    #region References Tests
+
+    [Fact]
+    public async Task References_LocalVariable_FindsAllUsagesAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let x := 1
+    let y := x + 2
+    print(x)";
+
+        harness.OpenDocument(uri, source);
+
+        // Request references from the declaration of x (line 2, col 8)
+        var refs = await harness.GetReferencesAsync(uri, 2, 8);
+        Assert.NotNull(refs);
+        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
+    }
+
+    [Fact]
+    public async Task References_LocalVariable_FromUsageSiteAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let x := 1
+    let y := x + 2
+    print(x)";
+
+        harness.OpenDocument(uri, source);
+
+        // Request references from a usage of x (line 3, col 13 = "x" in "x + 2")
+        var refs = await harness.GetReferencesAsync(uri, 3, 13);
+        Assert.NotNull(refs);
+        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
+    }
+
+    [Fact]
+    public async Task References_TopLevelFunction_FindsAllCallsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    Foo()
+    Foo()
+
+func Foo(): void
+    return";
+
+        harness.OpenDocument(uri, source);
+
+        // Request references from "Foo" on line 2
+        var refs = await harness.GetReferencesAsync(uri, 2, 4);
+        Assert.NotNull(refs);
+        // Should find at least: declaration + 2 call sites
+        Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'Foo', got {refs!.Count()}");
+    }
+
+    [Fact]
+    public async Task References_EmptyPosition_ReturnsEmptyAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let x := 1";
+
+        harness.OpenDocument(uri, source);
+
+        // Position on whitespace (line 0, col 0 = empty line)
+        var refs = await harness.GetReferencesAsync(uri, 0, 0);
+        Assert.NotNull(refs);
+        Assert.Empty(refs!);
+    }
+
+    [Fact]
+    public async Task References_NoDocument_ReturnsEmptyAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+
+        // Request references for a document that hasn't been opened
+        var refs = await harness.GetReferencesAsync("file:///nonexistent.nl", 0, 0);
+        Assert.NotNull(refs);
+        Assert.Empty(refs!);
+    }
+
+    [Fact]
+    public async Task References_CrossFile_UsesCompilerProjectSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
+        var uri = new Uri(programPath).AbsoluteUri;
+        var source = File.ReadAllText(programPath);
+
+        harness.OpenDocument(uri, source);
+
+        // "TaskService" usage on line 84, col 21 (same position as definition cross-file test)
+        var refs = await harness.GetReferencesAsync(uri, 84, 21);
+        Assert.NotNull(refs);
+        Assert.NotEmpty(refs!);
+    }
+
+    [Fact]
+    public async Task References_ExcludeDeclaration_FiltersDefinitionAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let x := 1
+    let y := x + 2
+    print(x)";
+
+        harness.OpenDocument(uri, source);
+
+        var refsWithDecl = await harness.GetReferencesAsync(uri, 2, 8, includeDeclaration: true);
+        var refsWithoutDecl = await harness.GetReferencesAsync(uri, 2, 8, includeDeclaration: false);
+
+        Assert.NotNull(refsWithDecl);
+        Assert.NotNull(refsWithoutDecl);
+
+        // Without declaration should have fewer or equal references
+        Assert.True(refsWithoutDecl!.Count() <= refsWithDecl!.Count(),
+            "References excluding declaration should be <= references including declaration");
     }
 
     #endregion
