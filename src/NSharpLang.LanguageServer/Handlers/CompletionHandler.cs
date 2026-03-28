@@ -288,7 +288,7 @@ public class CompletionHandler : CompletionHandlerBase
                 : MemberAccessMode.InstanceOnly;
 
             _logger.LogDebug("Resolved to System.Type: {Type}, mode: {Mode}", objectType.FullName, mode);
-            return MembersToCompletionItems(_typeResolver.GetMembers(objectType, mode));
+            return MembersToCompletionItems(_typeResolver.GetMembers(objectType, mode), doc, objectType);
         }
 
         // ExpressionTypeResolver couldn't resolve — try LSP-layer fallbacks
@@ -302,7 +302,7 @@ public class CompletionHandler : CompletionHandlerBase
             if (resolvedType != null)
             {
                 _logger.LogDebug("Resolved '{Name}' as static .NET type", id.Name);
-                return MembersToCompletionItems(_typeResolver.GetMembers(resolvedType, MemberAccessMode.StaticOnly));
+                return MembersToCompletionItems(_typeResolver.GetMembers(resolvedType, MemberAccessMode.StaticOnly), doc, resolvedType);
             }
 
             // Try semantic model for variable type
@@ -315,7 +315,7 @@ public class CompletionHandler : CompletionHandlerBase
                 if (clrType != null)
                 {
                     _logger.LogDebug("Resolved variable '{Name}' type '{TypeName}' to CLR type", id.Name, typeName);
-                    return MembersToCompletionItems(_typeResolver.GetMembers(clrType, MemberAccessMode.InstanceOnly));
+                    return MembersToCompletionItems(_typeResolver.GetMembers(clrType, MemberAccessMode.InstanceOnly), doc, clrType);
                 }
 
                 // TypeInfo is a user-defined N# type — enumerate members from SymbolsInfo
@@ -414,9 +414,33 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
+    /// Convert MemberCompletionItems to LSP CompletionItems, optionally attaching auto-import edits
+    /// when the resolved type's namespace isn't already imported.
+    /// </summary>
+    private List<CompletionItem> MembersToCompletionItems(
+        List<MemberCompletionItem> members,
+        Models.DocumentState? doc,
+        Type? resolvedType)
+    {
+        TextEditContainer? autoImportEdits = null;
+        if (resolvedType != null && doc != null)
+        {
+            var ns = _typeResolver.GetImportNamespace(resolvedType);
+            if (ns != null)
+            {
+                autoImportEdits = BuildAutoImportEdits(doc, ns);
+            }
+        }
+
+        return MembersToCompletionItems(members, autoImportEdits);
+    }
+
+    /// <summary>
     /// Convert MemberCompletionItems to LSP CompletionItems
     /// </summary>
-    private static List<CompletionItem> MembersToCompletionItems(List<MemberCompletionItem> members)
+    private static List<CompletionItem> MembersToCompletionItems(
+        List<MemberCompletionItem> members,
+        TextEditContainer? autoImportEdits = null)
     {
         return members.Select(member => new CompletionItem
         {
@@ -435,7 +459,8 @@ public class CompletionHandler : CompletionHandlerBase
             InsertText = member.Name,
             Documentation = !string.IsNullOrEmpty(member.Documentation)
                 ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
-                : null
+                : null,
+            AdditionalTextEdits = autoImportEdits
         }).ToList();
     }
 
@@ -492,7 +517,7 @@ public class CompletionHandler : CompletionHandlerBase
             var mode = doc.SemanticModel?.LookupIdentifier(identifier) != null
                 ? MemberAccessMode.InstanceOnly
                 : MemberAccessMode.StaticOnly;
-            return MembersToCompletionItems(_typeResolver.GetMembers(type, mode));
+            return MembersToCompletionItems(_typeResolver.GetMembers(type, mode), doc, type);
         }
 
         return items;
@@ -586,29 +611,81 @@ public class CompletionHandler : CompletionHandlerBase
 
     private static TextEditContainer? BuildAutoImportEdits(Models.DocumentState? doc, string importNamespace)
     {
-        if (doc?.CompilationUnit == null)
+        if (doc == null || string.IsNullOrWhiteSpace(importNamespace))
         {
             return null;
         }
 
-        if (string.IsNullOrWhiteSpace(importNamespace))
+        // AST-based path: use CompilationUnit for accurate insertion
+        if (doc.CompilationUnit != null)
+        {
+            if (IsNamespaceAlreadyImported(doc.CompilationUnit, importNamespace))
+            {
+                return null;
+            }
+
+            var insertLine = GetNamespaceImportInsertionLine(doc.CompilationUnit);
+            var edit = new LspTextEdit
+            {
+                Range = new LspRange(insertLine - 1, 0, insertLine - 1, 0),
+                NewText = $"import {importNamespace}\n"
+            };
+
+            return new TextEditContainer(new[] { edit });
+        }
+
+        // Text-based fallback: when the AST is broken (e.g., incomplete expression after dot),
+        // scan the raw source to determine import insertion point
+        if (doc.Text == null)
         {
             return null;
         }
 
-        if (IsNamespaceAlreadyImported(doc.CompilationUnit, importNamespace))
+        return BuildAutoImportEditsFromText(doc.Text, importNamespace);
+    }
+
+    /// <summary>
+    /// Text-based fallback for auto-import when the CompilationUnit is null (broken AST).
+    /// Scans source lines to find existing imports and determine insertion point.
+    /// </summary>
+    private static TextEditContainer? BuildAutoImportEditsFromText(string text, string importNamespace)
+    {
+        var lines = text.Split('\n');
+        var importStatement = $"import {importNamespace}";
+
+        // Check if already imported via text matching
+        for (var i = 0; i < lines.Length; i++)
         {
-            return null;
+            // Trim both ends to handle CRLF line endings (trailing \r) and leading whitespace
+            var trimmed = lines[i].Trim();
+            // Exact match: "import System" but not "import System.Collections"
+            if (trimmed.Equals(importStatement, StringComparison.Ordinal)
+                || trimmed.StartsWith(importStatement + " ", StringComparison.Ordinal))
+            {
+                return null;
+            }
         }
 
-        var insertLine = GetNamespaceImportInsertionLine(doc.CompilationUnit);
-        var edit = new LspTextEdit
+        // Find the best insertion point: after the last import/namespace/package declaration
+        var insertLineZeroBased = 0;
+        for (var i = 0; i < lines.Length; i++)
         {
-            Range = new LspRange(insertLine - 1, 0, insertLine - 1, 0),
+            var trimmed = lines[i].Trim();
+            if (trimmed.StartsWith("import ", StringComparison.Ordinal)
+                || trimmed.StartsWith("namespace ", StringComparison.Ordinal)
+                || trimmed.StartsWith("package ", StringComparison.Ordinal))
+            {
+                insertLineZeroBased = i + 1;
+            }
+        }
+
+        var importEdit = new LspTextEdit
+        {
+            Range = new LspRange(insertLineZeroBased, 0, insertLineZeroBased, 0),
             NewText = $"import {importNamespace}\n"
         };
 
-        return new TextEditContainer(new[] { edit });
+        return new TextEditContainer(new[] { importEdit });
     }
 
     private static bool IsNamespaceAlreadyImported(CompilationUnit compilationUnit, string importNamespace)
