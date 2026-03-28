@@ -54,7 +54,7 @@
       }
     },
     {
-      "beforeText": "^\\s*(func|class|struct|interface|enum|if|else|for|foreach|while|switch|case|try|catch|finally)\\b[^{]*$",
+      "beforeText": "^\\s*(func|class|struct|interface|enum|union|record|if|else|for|foreach|while|switch|case|match|test|try|catch|finally|using|lock)\\b[^{]*$",
       "action": {
         "indent": "indent"
       }
