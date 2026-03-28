@@ -1582,6 +1582,7 @@ public class Analyzer
             RangeExpression range => AnalyzeRangeExpression(range),
             OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
+            ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             _ => BuiltInTypes.Unknown
         };
 

@@ -1,7 +1,6 @@
 // Program.nl - Uses imports to access types from Models.nl
-
-import "./Models"
 import System
+import "./Models"
 
 func Main() {
     person := new Person("Alice", 30)

@@ -15,23 +15,11 @@ func Main() {
     service := new PersonService()
 
     // Add people
-    service.AddPerson(new Person {
-        Name: "Alice",
-        Age: 30,
-        Email: "alice@example.com"
-    })
+    service.AddPerson(new Person() { Name: "Alice", Age: 30, Email: "alice@example.com" })
 
-    service.AddPerson(new Person {
-        Name: "Bob",
-        Age: 25,
-        Email: "bob@example.com"
-    })
+    service.AddPerson(new Person() { Name: "Bob", Age: 25, Email: "bob@example.com" })
 
-    service.AddPerson(new Person {
-        Name: "Charlie",
-        Age: 35,
-        Email: "charlie@example.com"
-    })
+    service.AddPerson(new Person() { Name: "Charlie", Age: 35, Email: "charlie@example.com" })
 
     print ""
     print $"Total people: {service.Count}"
@@ -40,7 +28,7 @@ func Main() {
     // Display all people
     print "All people:"
     people := service.GetPeople()
-    foreach person in people {
+    for person in people {
         print $"  - {person.GetInfo()}"
     }
 

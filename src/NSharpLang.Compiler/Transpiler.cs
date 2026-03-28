@@ -1585,6 +1585,7 @@ public class Transpiler
             TupleExpression tuple => TranspileTupleExpression(tuple),
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
             OutVariableDeclarationExpression outVar => TranspileOutVariableDeclaration(outVar),
+            ParenthesizedExpression paren => $"({TranspileExpression(paren.Inner)})",
             _ => throw new Exception($"Unsupported expression type: {expression.GetType().Name}")
         };
     }

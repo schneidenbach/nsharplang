@@ -3799,7 +3799,7 @@ public class Parser
 
         // Parenthesized expression
         Consume(TokenType.RightParen, "Expected ')'");
-        return firstExpr;
+        return new ParenthesizedExpression(firstExpr, line, column);
     }
 
     private Expression ParseMultiParameterLambda()

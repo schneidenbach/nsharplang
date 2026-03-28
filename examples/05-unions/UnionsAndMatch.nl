@@ -2,14 +2,15 @@ namespace UnionsDemo
 
 import System
 
+
 // Discriminated union example
 union Result {
-    Success { value: int }
-    Failure { error: string, code: int }
+    Success(value: int)
+    Failure(error: string, code: int)
 }
 
 // String enum example
-enum Status {
+enum Status: string {
     Pending = "pending",
     Active = "active",
     Done = "done"
@@ -27,9 +28,9 @@ type UserId = int
 type ErrorCode = int
 
 func ProcessResult(r: Result): string {
-    return match r {
-        Result.Success { value } => $"Success: {value}",
-        Result.Failure { error, code } => $"Error {code}: {error}"
+    return r match {
+        Result.Success(value: ) => $"Success: {value}"
+        Result.Failure(error: , code: ) => $"Error {code}: {error}"
     }
 }
 
@@ -38,12 +39,15 @@ func GetStatusMessage(status: string): string {
     if status == "pending" {
         return "Waiting to start"
     }
+
     if status == "active" {
         return "Currently running"
     }
+
     if status == "done" {
         return "Completed"
     }
+
     return "Unknown status"
 }
 

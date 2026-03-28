@@ -1,8 +1,8 @@
 // Example demonstrating params collections (C# 13 feature)
 // Params can now work with Span<T>, ReadOnlySpan<T>, and collection types
-
 import System
 import System.Collections.Generic
+
 
 // 1. Basic params with array (original C# behavior)
 func SumArray(params numbers: int[]): int {
@@ -10,21 +10,23 @@ func SumArray(params numbers: int[]): int {
     for num in numbers {
         total = total + num
     }
+
     return total
 }
 
 // 2. Params with ReadOnlySpan<T> - more efficient, no heap allocation
 func SumReadOnlySpan(params numbers: ReadOnlySpan<int>): int {
     total := 0
-    for i := 0; i < numbers.Length; i++ {
+    for i = 0; i < numbers.Length; i++ {
         total = total + numbers[i]
     }
+
     return total
 }
 
 // 3. Params with Span<T> - mutable span
 func ModifyValues(params values: Span<int>) {
-    for i := 0; i < values.Length; i++ {
+    for i = 0; i < values.Length; i++ {
         values[i] = values[i] * 2
     }
 }
@@ -42,6 +44,7 @@ func BuildList(params items: List<int>): List<int> {
     for item in items {
         result.Add(item)
     }
+
     return result
 }
 
@@ -52,18 +55,20 @@ func FormatItems(separator: string, params items: IReadOnlyList<string>): string
     }
 
     result := items[0]
-    for i := 1; i < items.Count; i++ {
+    for i = 1; i < items.Count; i++ {
         result = result + separator + items[i]
     }
+
     return result
 }
 
 // 7. Generic params with collection type
-func Transform<T>(transformer: Func<T, T>, params items: IEnumerable<T>): T[] {
+func Transform<T>(transformer: (T) => T, params items: IEnumerable<T>): T[] {
     result := new List<T>()
     for item in items {
         result.Add(transformer(item))
     }
+
     return result.ToArray()
 }
 

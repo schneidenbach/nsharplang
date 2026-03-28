@@ -31,27 +31,24 @@ class Person {
 }
 
 // Derived class using base constructor
-class Employee : Person {
+class Employee: Person {
     EmployeeId: string
     Department: string
 
     // Full constructor - calls base constructor
-    constructor(name: string, age: int, email: string, empId: string, dept: string):
-        base(name, age, email) {
+    constructor(name: string, age: int, email: string, empId: string, dept: string): base(name, age, email) {
         EmployeeId = empId
         Department = dept
         print $"  Employee ID: {EmployeeId}, Department: {Department}"
     }
 
     // Simplified constructor for new employees (calls this)
-    constructor(name: string, empId: string, dept: string):
-        this(name, 0, "", empId, dept) {
+    constructor(name: string, empId: string, dept: string): this(name, 0, "", empId, dept) {
         print "  (new employee with minimal info)"
     }
 
     // Constructor for transferring employees (calls base then this)
-    constructor(name: string, empId: string):
-        this(name, empId, "Unassigned") {
+    constructor(name: string, empId: string): this(name, empId, "Unassigned") {
         print "  (transferred employee - department TBD)"
     }
 
@@ -94,7 +91,7 @@ interface ICache {
     func Get(key: string): string?
 }
 
-class MemoryCache : ICache {
+class MemoryCache: ICache {
     func Get(key: string): string? {
         return null
     }
