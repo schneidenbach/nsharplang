@@ -288,6 +288,7 @@ public record CompilerError
             ErrorCode.UndefinedVariable or ErrorCode.UndefinedType or ErrorCode.UndefinedMember => "NAMING ERROR",
             ErrorCode.NonExhaustiveMatch => "INCOMPLETE PATTERN MATCH",
             ErrorCode.WrongArgumentCount or ErrorCode.NoMatchingOverload => "FUNCTION CALL ERROR",
+            ErrorCode.CircularImport => "CIRCULAR IMPORT",
             _ => "ERROR"
         });
 
@@ -590,6 +591,9 @@ public static class ErrorSuggestions
 
             ErrorCode.ImportCollision
                 => "Use 'import ... as Alias' to resolve naming conflicts",
+
+            ErrorCode.CircularImport
+                => "Reorganize imports to avoid cycles. Move shared types to a separate file that both files can import",
 
             ErrorCode.DuckInterfaceMismatch when additionalInfo != null
                 => $"Implement missing method: {additionalInfo}",
@@ -911,6 +915,33 @@ public static class ErrorMessageBuilder
             HumanExplanation = humanExplanation,
             ContextualHint = contextualHint,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL701"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style circular import error
+    /// </summary>
+    public static CompilerError CircularImport(string fileName, int line, int column, string sourceSnippet,
+        int length, string importPath)
+    {
+        var humanExplanation = $"I found a circular import on line {line}:";
+
+        var contextualHint =
+            $"The file '{importPath}' creates an import cycle back to this file.\n\n" +
+            "Circular imports are not allowed because they make it impossible to determine\n" +
+            "the correct order of symbol resolution.\n\n" +
+            "To fix this, reorganize your code so imports flow in one direction. Consider:\n" +
+            "  - Moving shared types to a separate file that both files import\n" +
+            "  - Combining the files if they are tightly coupled";
+
+        return new CompilerError(ErrorCode.CircularImport, $"Circular import: '{importPath}' creates a cycle", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL703"
         };
     }
 

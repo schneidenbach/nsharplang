@@ -6,6 +6,7 @@ func Sum(params numbers: int[]): int {
     for num in numbers {
         total = total + num
     }
+
     return total
 }
 
@@ -16,11 +17,12 @@ func JoinWithSeparator(separator: string, params items: string[]): string {
     }
 
     result := items[0]
-    let i: int = 1
+    i: int = 1
     while i < items.Length {
         result = result + separator + items[i]
         i = i + 1
     }
+
     return result
 }
 
@@ -32,6 +34,7 @@ func PrintAll<T>(prefix: string, params items: T[]) {
 }
 
 class Calculator {
+
     // Static method with params
     static func Average(params values: double[]): double {
         if values.Length == 0 {
@@ -42,6 +45,7 @@ class Calculator {
         for val in values {
             sum = sum + val
         }
+
         return sum / values.Length
     }
 }

@@ -70,7 +70,8 @@ public record Parameter(
     TypeReference Type,
     Expression? DefaultValue,
     bool IsThis, // For extension methods
-    ParameterModifier Modifier = ParameterModifier.None);
+    ParameterModifier Modifier = ParameterModifier.None,
+    List<AttributeNode>? Attributes = null);
 
 public record TypeParameter(string Name);
 
@@ -268,7 +269,7 @@ public record AttributeNode(
 // Type references
 public abstract record TypeReference;
 
-public record SimpleTypeReference(string Name) : TypeReference;
+public record SimpleTypeReference(string Name, int Line = 0, int Column = 0) : TypeReference;
 
 public record GenericTypeReference(
     string Name,

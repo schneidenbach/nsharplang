@@ -525,6 +525,8 @@ public class Parser
         {
             do
             {
+                var attributes = ParseAttributes();
+
                 var modifier = ParameterModifier.None;
                 if (Check(TokenType.Params))
                 {
@@ -560,7 +562,8 @@ public class Parser
                     defaultValue = ParseExpression();
                 }
 
-                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier));
+                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier,
+                    attributes.Count > 0 ? attributes : null));
             } while (Match(TokenType.Comma));
         }
 
@@ -1290,6 +1293,8 @@ public class Parser
         }
 
         // Simple or generic type (possibly qualified with dots like Result.Success)
+        var typeNameLine = Current.Line;
+        var typeNameColumn = Current.Column;
         var name = ConsumeIdentifier("Expected type name");
 
         // Support qualified names like Result.Success
@@ -1313,7 +1318,7 @@ public class Parser
             return new GenericTypeReference(name, typeArgs);
         }
 
-        return new SimpleTypeReference(name);
+        return new SimpleTypeReference(name, typeNameLine, typeNameColumn);
     }
 
     private TupleTypeReference ParseTupleTypeReference()
@@ -3794,7 +3799,7 @@ public class Parser
 
         // Parenthesized expression
         Consume(TokenType.RightParen, "Expected ')'");
-        return firstExpr;
+        return new ParenthesizedExpression(firstExpr, line, column);
     }
 
     private Expression ParseMultiParameterLambda()

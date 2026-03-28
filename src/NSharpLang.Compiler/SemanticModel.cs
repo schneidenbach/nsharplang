@@ -46,6 +46,12 @@ public class SemanticModel
     public Dictionary<string, TypeInfo> Types { get; } = new();
 
     /// <summary>
+    /// Maps type name → member name → resolved TypeInfo.
+    /// Stores semantically resolved member types for class/struct/record declarations.
+    /// </summary>
+    public Dictionary<string, Dictionary<string, TypeInfo>> TypeMembers { get; } = new();
+
+    /// <summary>
     /// Record a variable and its type
     /// </summary>
     public void RecordVariable(string name, TypeInfo type)
@@ -83,6 +89,27 @@ public class SemanticModel
     public void RecordType(string name, TypeInfo type)
     {
         Types[name] = type;
+    }
+
+    /// <summary>
+    /// Record a member (field or property) of a type with its resolved type.
+    /// </summary>
+    public void RecordTypeMember(string typeName, string memberName, TypeInfo memberType)
+    {
+        if (!TypeMembers.TryGetValue(typeName, out var members))
+        {
+            members = new Dictionary<string, TypeInfo>();
+            TypeMembers[typeName] = members;
+        }
+        members[memberName] = memberType;
+    }
+
+    /// <summary>
+    /// Get all recorded members for a type. Returns null if no members are recorded.
+    /// </summary>
+    public Dictionary<string, TypeInfo>? GetTypeMembers(string typeName)
+    {
+        return TypeMembers.TryGetValue(typeName, out var members) ? members : null;
     }
 
     /// <summary>

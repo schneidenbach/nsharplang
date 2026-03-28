@@ -17,6 +17,7 @@ func RecursiveExample(n: int): int {
         if num <= 1 {
             return 1
         }
+
         return num * Factorial(num - 1)
     }
 

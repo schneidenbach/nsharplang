@@ -189,11 +189,20 @@ Transpiled to static class with const string fields.
 ## Type Aliases
 
 ```
-type StringList = List<string>
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
+type Handler = Func<string, void>
 type Point = (x: double, y: double)
 ```
 
-Transpiled as comments (C# doesn't support type aliases at type level).
+Transpiled to C# file-scoped `using` alias directives with fully qualified type names for well-known .NET types:
+- `type UserId = int` → `using UserId = int;`
+- `type StringDict = Dictionary<string, string>` → `using StringDict = System.Collections.Generic.Dictionary<string, string>;`
+- `type Callback = Func<void>` → `using Callback = System.Action;`
+- `type Handler = Func<string, void>` → `using Handler = System.Action<string>;`
+
+Using aliases are emitted at the top of the generated C# file, after namespace imports but before namespace/class declarations.
 
 ## Nullable Types
 

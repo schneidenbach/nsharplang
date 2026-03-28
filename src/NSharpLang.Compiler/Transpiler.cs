@@ -18,8 +18,9 @@ public class Transpiler
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
+    private readonly string? _sourceFilePath; // Source .nl file path for #line directives
 
-    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null)
     {
         _compilationUnit = compilationUnit;
         _projectConfig = projectConfig;
@@ -27,6 +28,7 @@ public class Transpiler
         _typeResolver = semanticModel != null ? new ExpressionTypeResolver(semanticModel) : null;
         _output = new StringBuilder();
         _indentLevel = 0;
+        _sourceFilePath = sourceFilePath;
     }
 
     public string Transpile()
@@ -64,11 +66,12 @@ public class Transpiler
         // File imports are handled separately (their symbols are inlined)
         // FileImports in _compilationUnit.FileImports are not emitted as using statements
 
-        // Separate top-level functions and tests from other declarations
+        // Separate top-level functions, tests, and type aliases from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
+        var typeAliases = _compilationUnit.Declarations.OfType<TypeAliasDeclaration>().ToList();
         var otherDeclarations = _compilationUnit.Declarations
-            .Where(d => d is not FunctionDeclaration && d is not TestDeclaration)
+            .Where(d => d is not FunctionDeclaration && d is not TestDeclaration && d is not TypeAliasDeclaration)
             .ToList();
 
         // Separate main function from other top-level functions (main goes in Program class)
@@ -99,7 +102,13 @@ public class Transpiler
             }
         }
 
-        if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests || topLevelFunctions.Count > 0)
+        // Emit type aliases as file-scoped using directives
+        foreach (var alias in typeAliases)
+        {
+            TranspileTypeAlias(alias);
+        }
+
+        if (_compilationUnit.Imports.Count > 0 || _compilationUnit.FileImports.Count > 0 || hasTests || topLevelFunctions.Count > 0 || typeAliases.Count > 0)
             _output.AppendLine();
 
         // Namespace (from either 'namespace' or 'package' keyword)
@@ -134,6 +143,7 @@ public class Transpiler
                 Name = "Main",  // Capitalize for C# entry point
                 Modifiers = mainFunction.Modifiers | Modifiers.Static | Modifiers.Public
             };
+            EmitLineDirective(mainFunction.Line);
             TranspileFunctionDeclaration(modifiedMain);
             WriteLine();
 
@@ -176,6 +186,7 @@ public class Transpiler
                 var staticModifier = Modifiers.Static;
                 var visibilityModifier = _compilationUnit.Package != null ? Modifiers.Public : Modifiers.Internal;
                 var modifiedFunc = func with { Modifiers = originalModifiers | staticModifier | visibilityModifier };
+                EmitLineDirective(func.Line);
                 TranspileFunctionDeclaration(modifiedFunc);
                 WriteLine();
             }
@@ -197,12 +208,15 @@ public class Transpiler
 
             foreach (var test in testDeclarations)
             {
+                EmitLineDirective(test.Line);
                 TranspileTestDeclaration(test);
             }
 
             _indentLevel--;
             WriteLine("}");
         }
+
+        EmitLineDefault();
 
         return _output.ToString();
     }
@@ -222,6 +236,8 @@ public class Transpiler
 
     private void TranspileDeclaration(Declaration declaration)
     {
+        EmitLineDirective(declaration.Line);
+
         switch (declaration)
         {
             case TestDeclaration test:
@@ -770,9 +786,120 @@ public class Transpiler
 
     private void TranspileTypeAlias(TypeAliasDeclaration alias)
     {
-        // C# doesn't have type aliases outside of using directives at file level
-        // We'll emit a comment for documentation
-        WriteLine($"// type {alias.Name} = {TranspileTypeReference(alias.Type)}");
+        // Emit as C# file-scoped using alias with fully qualified type names
+        var fqnType = TranspileTypeReferenceForUsing(alias.Type);
+        WriteLine($"using {alias.Name} = {fqnType};");
+    }
+
+    // Well-known .NET type names mapped to their fully qualified names
+    private static readonly Dictionary<string, string> WellKnownTypeFullNames = new()
+    {
+        // System
+        { "Action", "System.Action" },
+        { "Func", "System.Func" },
+        { "Tuple", "System.Tuple" },
+        { "ValueTuple", "System.ValueTuple" },
+        { "Exception", "System.Exception" },
+        { "Console", "System.Console" },
+        { "Math", "System.Math" },
+        { "Guid", "System.Guid" },
+        { "DateTime", "System.DateTime" },
+        { "DateTimeOffset", "System.DateTimeOffset" },
+        { "TimeSpan", "System.TimeSpan" },
+        { "Uri", "System.Uri" },
+        { "Type", "System.Type" },
+        { "Nullable", "System.Nullable" },
+        { "IDisposable", "System.IDisposable" },
+        { "IAsyncDisposable", "System.IAsyncDisposable" },
+        { "IComparable", "System.IComparable" },
+        { "IEquatable", "System.IEquatable" },
+        { "EventHandler", "System.EventHandler" },
+        { "Lazy", "System.Lazy" },
+        // System.Collections.Generic
+        { "List", "System.Collections.Generic.List" },
+        { "Dictionary", "System.Collections.Generic.Dictionary" },
+        { "HashSet", "System.Collections.Generic.HashSet" },
+        { "Queue", "System.Collections.Generic.Queue" },
+        { "Stack", "System.Collections.Generic.Stack" },
+        { "LinkedList", "System.Collections.Generic.LinkedList" },
+        { "SortedDictionary", "System.Collections.Generic.SortedDictionary" },
+        { "SortedSet", "System.Collections.Generic.SortedSet" },
+        { "SortedList", "System.Collections.Generic.SortedList" },
+        { "IEnumerable", "System.Collections.Generic.IEnumerable" },
+        { "IList", "System.Collections.Generic.IList" },
+        { "IDictionary", "System.Collections.Generic.IDictionary" },
+        { "ICollection", "System.Collections.Generic.ICollection" },
+        { "IReadOnlyList", "System.Collections.Generic.IReadOnlyList" },
+        { "IReadOnlyCollection", "System.Collections.Generic.IReadOnlyCollection" },
+        { "IReadOnlyDictionary", "System.Collections.Generic.IReadOnlyDictionary" },
+        { "KeyValuePair", "System.Collections.Generic.KeyValuePair" },
+        { "ISet", "System.Collections.Generic.ISet" },
+        // System.Threading.Tasks
+        { "Task", "System.Threading.Tasks.Task" },
+        { "ValueTask", "System.Threading.Tasks.ValueTask" },
+        // System.IO
+        { "Stream", "System.IO.Stream" },
+        { "MemoryStream", "System.IO.MemoryStream" },
+        { "StreamReader", "System.IO.StreamReader" },
+        { "StreamWriter", "System.IO.StreamWriter" },
+        { "TextReader", "System.IO.TextReader" },
+        { "TextWriter", "System.IO.TextWriter" },
+    };
+
+    private static string GetFullyQualifiedName(string name)
+    {
+        return WellKnownTypeFullNames.TryGetValue(name, out var fqn) ? fqn : name;
+    }
+
+    /// <summary>
+    /// Like TranspileTypeReference but emits fully qualified names for well-known .NET types.
+    /// Used for file-scoped using alias directives.
+    /// </summary>
+    private string TranspileTypeReferenceForUsing(TypeReference typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference simple => GetFullyQualifiedName(TranspileSimpleTypeReference(simple)),
+            GenericTypeReference generic => $"{GetFullyQualifiedName(generic.Name)}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReferenceForUsing))}>",
+            ArrayTypeReference array => $"{TranspileTypeReferenceForUsing(array.ElementType)}[]",
+            NullableTypeReference nullable => $"{TranspileTypeReferenceForUsing(nullable.InnerType)}?",
+            TupleTypeReference tuple => TranspileTupleTypeForUsing(tuple),
+            FunctionTypeReference func => TranspileFunctionTypeForUsing(func),
+            _ => throw new Exception($"Unsupported type reference in using alias: {typeRef.GetType().Name}")
+        };
+    }
+
+    private string TranspileTupleTypeForUsing(TupleTypeReference tuple)
+    {
+        var elements = string.Join(", ", tuple.Elements.Select(e =>
+        {
+            var type = TranspileTypeReferenceForUsing(e.Type);
+            return e.Name != null ? $"{type} {e.Name}" : type;
+        }));
+        return $"({elements})";
+    }
+
+    private string TranspileFunctionTypeForUsing(FunctionTypeReference func)
+    {
+        // Func<void> maps to System.Action
+        if (func.ReturnType is SimpleTypeReference simple && simple.Name == "void")
+        {
+            if (func.ParameterTypes.Count == 0)
+                return "System.Action";
+
+            var paramTypes = string.Join(", ", func.ParameterTypes.Select(TranspileTypeReferenceForUsing));
+            return $"System.Action<{paramTypes}>";
+        }
+
+        // Regular Func<T>
+        if (func.ParameterTypes.Count == 0)
+        {
+            return $"System.Func<{TranspileTypeReferenceForUsing(func.ReturnType)}>";
+        }
+
+        var allTypes = string.Join(", ",
+            func.ParameterTypes.Select(TranspileTypeReferenceForUsing).Append(TranspileTypeReferenceForUsing(func.ReturnType)));
+        return $"System.Func<{allTypes}>";
     }
 
     private void TranspilePreprocessorDeclaration(PreprocessorDeclaration preprocessor)
@@ -984,13 +1111,25 @@ public class Transpiler
     {
         var result = "";
 
+        // Add parameter attributes inline (e.g., [FromBody] [Required])
+        if (param.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in param.Attributes)
+            {
+                var args = attr.Arguments.Count > 0
+                    ? $"({string.Join(", ", attr.Arguments.Select(a => TranspileExpression(a.Value)))})"
+                    : "";
+                result += $"[{attr.Name}{args}] ";
+            }
+        }
+
         // Add params/ref/out modifier
         if (param.Modifier == ParameterModifier.Params)
-            result = "params ";
+            result += "params ";
         else if (param.Modifier == ParameterModifier.Ref)
-            result = "ref ";
+            result += "ref ";
         else if (param.Modifier == ParameterModifier.Out)
-            result = "out ";
+            result += "out ";
 
         if (param.IsThis)
             result += "this ";
@@ -1021,6 +1160,11 @@ public class Transpiler
 
     private void TranspileStatement(Statement statement)
     {
+        // Don't emit #line for block statements — they are structural braces,
+        // and the individual statements inside will have their own directives.
+        if (statement is not BlockStatement)
+            EmitLineDirective(statement.Line);
+
         switch (statement)
         {
             case ExpressionStatement expr:
@@ -1559,6 +1703,7 @@ public class Transpiler
             TupleExpression tuple => TranspileTupleExpression(tuple),
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
             OutVariableDeclarationExpression outVar => TranspileOutVariableDeclaration(outVar),
+            ParenthesizedExpression paren => $"({TranspileExpression(paren.Inner)})",
             _ => throw new Exception($"Unsupported expression type: {expression.GetType().Name}")
         };
     }
@@ -2208,6 +2353,33 @@ public class Transpiler
     private string GetIndent()
     {
         return string.Concat(Enumerable.Repeat(IndentString, _indentLevel));
+    }
+
+    /// <summary>
+    /// Emits a #line directive mapping the next generated line back to the original .nl source.
+    /// Line numbers are 1-based. Only emits if source file path is set and line is valid.
+    /// </summary>
+    private void EmitLineDirective(int line)
+    {
+        if (_sourceFilePath == null || line <= 0)
+            return;
+
+        // #line directives must not be indented - they are preprocessor directives
+        // Sanitize the file path: C# #line directives don't support escape sequences,
+        // so strip characters that would break the directive (quotes, newlines)
+        var safePath = _sourceFilePath.Replace("\"", "").Replace("\n", "").Replace("\r", "");
+        _output.AppendLine($"#line {line} \"{safePath}\"");
+    }
+
+    /// <summary>
+    /// Emits #line default to restore the default source mapping.
+    /// </summary>
+    private void EmitLineDefault()
+    {
+        if (_sourceFilePath == null)
+            return;
+
+        _output.AppendLine("#line default");
     }
 
     /// <summary>

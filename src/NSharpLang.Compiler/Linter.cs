@@ -828,6 +828,10 @@ internal class LintVisitor
                 VisitExpression(uncheckedExpr.Expression);
                 break;
 
+            case ParenthesizedExpression paren:
+                VisitExpression(paren.Inner);
+                break;
+
             default:
                 // Handle any unhandled expression types (literals, etc.)
                 // Most literals don't have child expressions to visit

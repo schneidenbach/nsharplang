@@ -51,9 +51,19 @@ dotnet build
 dotnet run
 ```
 
-## Documentation Guides
+## Guides
 
-### Language Guides
+### Start Here
+
+- **[Getting Started](guide/getting-started.md)** - Install, create a project, build and run in under 5 minutes
+- **[Language Tour](guide/language-tour.md)** - Every major feature with runnable examples
+
+### Coming From Another Language
+
+- **[For C# Developers](guide/for-csharp-developers.md)** - Side-by-side syntax comparison for 20 common patterns
+- **[For Go Developers](guide/for-go-developers.md)** - How Go concepts map to N#
+
+### Language Reference
 
 - **[Basics](guide/basics.md)** - Variables, functions, control flow, and core syntax
 - **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, async, and generics
@@ -62,7 +72,7 @@ dotnet run
 
 ### Migration & Interop
 
-- **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - syntax mapping and strategies
+- **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - strategies and common patterns
 - **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
 
 ### Development & Deployment

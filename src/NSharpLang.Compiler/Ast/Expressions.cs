@@ -367,6 +367,13 @@ public record BaseExpression(int Line, int Column) : Expression(Line, Column);
 // Examples:
 //   TryParse("123", out var result)    -> type inferred
 //   TryParse("123", out int result)    -> explicit type
+// Parenthesized expression: (expr)
+// Preserves explicit parentheses from source code so the formatter can round-trip them.
+public record ParenthesizedExpression(
+    Expression Inner,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 public record OutVariableDeclarationExpression(
     TypeReference? Type,     // null for 'var' (type inference)
     string VariableName,

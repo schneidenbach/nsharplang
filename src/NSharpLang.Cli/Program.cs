@@ -802,8 +802,9 @@ class Program
             throw new Exception($"Compilation failed with {allErrors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
         }
 
-        // Transpilation
-        var transpiler = new Transpiler(parseResult.CompilationUnit!, config);
+        // Transpilation — use absolute path so #line directives resolve correctly
+        // even when the generated C# is compiled from a temp directory
+        var transpiler = new Transpiler(parseResult.CompilationUnit!, config, sourceFilePath: Path.GetFullPath(fileName));
         return transpiler.Transpile();
     }
 
@@ -1149,9 +1150,9 @@ class Program
                     var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
                     var config = FormatterConfig.FromEditorConfig(fileDir);
 
-                    // Format
+                    // Format (pass comments from lexer for preservation)
                     var formatter = new Formatter(config);
-                    var formatted = formatter.Format(parseResult.CompilationUnit!);
+                    var formatted = formatter.Format(parseResult.CompilationUnit!, lexer.Comments);
 
                     if (verifyOnly)
                     {
