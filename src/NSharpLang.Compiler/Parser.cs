@@ -525,6 +525,8 @@ public class Parser
         {
             do
             {
+                var attributes = ParseAttributes();
+
                 var modifier = ParameterModifier.None;
                 if (Check(TokenType.Params))
                 {
@@ -560,7 +562,8 @@ public class Parser
                     defaultValue = ParseExpression();
                 }
 
-                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier));
+                parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier,
+                    attributes.Count > 0 ? attributes : null));
             } while (Match(TokenType.Comma));
         }
 

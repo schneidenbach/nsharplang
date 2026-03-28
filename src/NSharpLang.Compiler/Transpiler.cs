@@ -984,13 +984,25 @@ public class Transpiler
     {
         var result = "";
 
+        // Add parameter attributes inline (e.g., [FromBody] [Required])
+        if (param.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in param.Attributes)
+            {
+                var args = attr.Arguments.Count > 0
+                    ? $"({string.Join(", ", attr.Arguments.Select(a => TranspileExpression(a.Value)))})"
+                    : "";
+                result += $"[{attr.Name}{args}] ";
+            }
+        }
+
         // Add params/ref/out modifier
         if (param.Modifier == ParameterModifier.Params)
-            result = "params ";
+            result += "params ";
         else if (param.Modifier == ParameterModifier.Ref)
-            result = "ref ";
+            result += "ref ";
         else if (param.Modifier == ParameterModifier.Out)
-            result = "out ";
+            result += "out ";
 
         if (param.IsThis)
             result += "this ";

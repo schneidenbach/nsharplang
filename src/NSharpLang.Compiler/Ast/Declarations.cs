@@ -70,7 +70,8 @@ public record Parameter(
     TypeReference Type,
     Expression? DefaultValue,
     bool IsThis, // For extension methods
-    ParameterModifier Modifier = ParameterModifier.None);
+    ParameterModifier Modifier = ParameterModifier.None,
+    List<AttributeNode>? Attributes = null);
 
 public record TypeParameter(string Name);
 
