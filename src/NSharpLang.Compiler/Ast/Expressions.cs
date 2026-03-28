@@ -12,6 +12,26 @@ public abstract record Expression(int Line, int Column) : AstNode(Line, Column);
 public record IntLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
 public record FloatLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
 public record StringLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
+
+// Interpolated string: $"Hello, {name}!"
+// Decomposed into text segments and expression holes for proper semantic analysis.
+public record InterpolatedStringExpression(
+    List<InterpolatedStringPart> Parts,
+    int Line,
+    int Column) : Expression(Line, Column);
+
+public abstract record InterpolatedStringPart(int Line, int Column) : AstNode(Line, Column);
+
+// Literal text segment in an interpolated string
+public record InterpolatedStringText(string Text, int Line, int Column) : InterpolatedStringPart(Line, Column);
+
+// Expression hole in an interpolated string: {expr} or {expr:format}
+public record InterpolatedStringHole(
+    Expression Expression,
+    string? FormatClause,
+    int Line,
+    int Column) : InterpolatedStringPart(Line, Column);
+
 public record BoolLiteralExpression(bool Value, int Line, int Column) : Expression(Line, Column);
 public record NullLiteralExpression(int Line, int Column) : Expression(Line, Column);
 

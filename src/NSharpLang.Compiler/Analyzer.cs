@@ -1528,6 +1528,7 @@ public class Analyzer
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression => BuiltInTypes.Double,
             StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
+            InterpolatedStringExpression interpolated => AnalyzeInterpolatedString(interpolated),
             BoolLiteralExpression => BuiltInTypes.Bool,
             NullLiteralExpression => BuiltInTypes.Null,
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
@@ -1660,6 +1661,18 @@ public class Analyzer
                     }
                     i = end; // skip past the interpolation
                 }
+            }
+        }
+        return BuiltInTypes.String;
+    }
+
+    private TypeInfo AnalyzeInterpolatedString(InterpolatedStringExpression expr)
+    {
+        foreach (var part in expr.Parts)
+        {
+            if (part is InterpolatedStringHole hole)
+            {
+                AnalyzeExpression(hole.Expression);
             }
         }
         return BuiltInTypes.String;

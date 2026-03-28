@@ -678,6 +678,16 @@ internal class LintVisitor
                 HandleStringInterpolation(stringLiteral.Value);
                 break;
 
+            case InterpolatedStringExpression interpolated:
+                foreach (var part in interpolated.Parts)
+                {
+                    if (part is InterpolatedStringHole hole)
+                    {
+                        VisitExpression(hole.Expression);
+                    }
+                }
+                break;
+
             case BinaryExpression binary:
                 VisitExpression(binary.Left);
                 VisitExpression(binary.Right);

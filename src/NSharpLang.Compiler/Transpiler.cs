@@ -1528,6 +1528,7 @@ public class Transpiler
             IntLiteralExpression intLit => intLit.Value,
             FloatLiteralExpression floatLit => floatLit.Value,
             StringLiteralExpression strLit => strLit.Value, // Value already includes quotes
+            InterpolatedStringExpression interpolated => TranspileInterpolatedString(interpolated),
             BoolLiteralExpression boolLit => boolLit.Value ? "true" : "false",
             NullLiteralExpression => "null",
             IdentifierExpression ident => ident.Name,
@@ -1560,6 +1561,32 @@ public class Transpiler
             OutVariableDeclarationExpression outVar => TranspileOutVariableDeclaration(outVar),
             _ => throw new Exception($"Unsupported expression type: {expression.GetType().Name}")
         };
+    }
+
+    private string TranspileInterpolatedString(InterpolatedStringExpression expr)
+    {
+        var sb = new System.Text.StringBuilder("$\"");
+        foreach (var part in expr.Parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    sb.Append(text.Text);
+                    break;
+                case InterpolatedStringHole hole:
+                    sb.Append('{');
+                    sb.Append(TranspileExpression(hole.Expression));
+                    if (hole.FormatClause != null)
+                    {
+                        sb.Append(':');
+                        sb.Append(hole.FormatClause);
+                    }
+                    sb.Append('}');
+                    break;
+            }
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     private string TranspileBinaryExpression(BinaryExpression binary)
@@ -1738,6 +1765,7 @@ public class Transpiler
             IntLiteralExpression lit => lit.Value.EndsWith("L") || lit.Value.EndsWith("l") ? "long" : "int",
             FloatLiteralExpression lit => lit.Value.EndsWith("f") || lit.Value.EndsWith("F") ? "float" : "double",
             StringLiteralExpression => "string",
+            InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
             NullLiteralExpression => "object",
 
@@ -2235,6 +2263,7 @@ public class Transpiler
             IntLiteralExpression => "int",
             FloatLiteralExpression => "double",
             StringLiteralExpression => "string",
+            InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
             NullLiteralExpression => "object", // Null literal - should be caught by analyzer
 
