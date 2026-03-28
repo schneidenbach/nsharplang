@@ -1,13 +1,13 @@
 // Comprehensive example demonstrating iterator functions (func*)
 // Iterators use yield to return values one at a time
-
 import System
 import System.Collections.Generic
 import System.Linq
 
+
 // Basic iterator - generates a sequence of numbers
 func* GetNumbers(count: int): IEnumerable<int> {
-    let i: int = 0
+    i: int = 0
     while i < count {
         yield i
         i = i + 1
@@ -18,8 +18,11 @@ func* GetNumbers(count: int): IEnumerable<int> {
 func* GetNumbersUntilNegative(numbers: int[]): IEnumerable<int> {
     for num in numbers {
         if num < 0 {
-            yield break  // Stop iteration
+            yield break
         }
+
+        // Stop iteration
+
         yield num
     }
 }
@@ -30,8 +33,8 @@ func* Fibonacci(count: int): IEnumerable<int> {
         yield break
     }
 
-    let a: int = 0
-    let b: int = 1
+    a: int = 0
+    b: int = 1
 
     yield a
     if count == 1 {
@@ -40,7 +43,7 @@ func* Fibonacci(count: int): IEnumerable<int> {
 
     yield b
 
-    let i: int = 2
+    i: int = 2
     while i < count {
         next := a + b
         yield next
@@ -70,7 +73,7 @@ func* GetEvenSquares(numbers: int[]): IEnumerable<int> {
 
 // Generic iterator
 func* Repeat<T>(value: T, count: int): IEnumerable<T> {
-    let i: int = 0
+    i: int = 0
     while i < count {
         yield value
         i = i + 1
@@ -79,10 +82,11 @@ func* Repeat<T>(value: T, count: int): IEnumerable<T> {
 
 // Iterator that yields from another iterator
 func* ChainSequences(first: IEnumerable<int>, second: IEnumerable<int>): IEnumerable<int> {
-    foreach item in first {
+    for item in first {
         yield item
     }
-    foreach item in second {
+
+    for item in second {
         yield item
     }
 }
@@ -127,9 +131,10 @@ class TreeNode {
     func* DepthFirstTraversal(): IEnumerable<int> {
         yield Value
 
-        foreach child in Children {
+        for child in Children {
+
             // Yield all values from child's traversal
-            foreach childValue in child.DepthFirstTraversal() {
+            for childValue in child.DepthFirstTraversal() {
                 yield childValue
             }
         }
@@ -142,20 +147,22 @@ func Main() {
 
     // Example 1: Basic iterator
     print "1. Basic iterator - GetNumbers(5):"
-    foreach num in GetNumbers(5) {
+    for num in GetNumbers(5) {
         print $"  {num}"
     }
+
     print ""
 
     // Example 2: Iterator with early termination
     print "2. Iterator with yield break:"
-    let numbers: int[] = [1, 2, 3, -1, 4, 5]
+    numbers: int[] = [1, 2, 3, -1, 4, 5]
     separator := ", "
     print $"  Input: [{String.Join(separator, numbers)}]"
     print "  Output (stops at -1):"
-    foreach num in GetNumbersUntilNegative(numbers) {
+    for num in GetNumbersUntilNegative(numbers) {
         print $"  {num}"
     }
+
     print ""
 
     // Example 3: Fibonacci sequence
@@ -172,22 +179,23 @@ func Main() {
 
     // Example 5: Filtering and transforming
     print "5. Even squares from [1, 2, 3, 4, 5, 6]:"
-    let input: int[] = [1, 2, 3, 4, 5, 6]
+    input: int[] = [1, 2, 3, 4, 5, 6]
     evenSquares := String.Join(separator, GetEvenSquares(input))
     print $"  {evenSquares}"
     print ""
 
     // Example 6: Generic iterator
     print "6. Repeat<string>(\"Hello\", 3):"
-    foreach item in Repeat("Hello", 3) {
+    for item in Repeat("Hello", 3) {
         print $"  {item}"
     }
+
     print ""
 
     // Example 7: Chaining sequences
     print "7. Chain two sequences:"
-    let seq1: int[] = [1, 2, 3]
-    let seq2: int[] = [4, 5, 6]
+    seq1: int[] = [1, 2, 3]
+    seq2: int[] = [4, 5, 6]
     seq1Str := String.Join(separator, seq1)
     seq2Str := String.Join(separator, seq2)
     chained := String.Join(separator, ChainSequences(seq1, seq2))
@@ -225,10 +233,8 @@ func Main() {
 
     // Example 10: Combining iterators with LINQ
     print "10. Combining iterators with LINQ:"
-    result := GetNumbers(10)
-        .Where(x => x % 2 == 0)
-        .Select(x => x * x)
-        .ToList()
+    result := GetNumbers(10).Where(x => x % 2 == 0).Select(x => x * x).ToList()
+
     resultStr := String.Join(separator, result)
     print $"  Even squares from 0-9: [{resultStr}]"
     print ""

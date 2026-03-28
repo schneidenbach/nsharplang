@@ -1150,9 +1150,9 @@ class Program
                     var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
                     var config = FormatterConfig.FromEditorConfig(fileDir);
 
-                    // Format
+                    // Format (pass comments from lexer for preservation)
                     var formatter = new Formatter(config);
-                    var formatted = formatter.Format(parseResult.CompilationUnit!);
+                    var formatted = formatter.Format(parseResult.CompilationUnit!, lexer.Comments);
 
                     if (verifyOnly)
                     {

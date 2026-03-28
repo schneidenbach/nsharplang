@@ -164,3 +164,12 @@ public record Token(
     public override string ToString() =>
         $"{Type} '{Value}' at {FileName ?? "?"}:{Line}:{Column}";
 }
+
+/// <summary>
+/// A comment extracted from source code, preserved for the formatter.
+/// </summary>
+public record CommentTrivia(
+    int Line,
+    int Column,
+    string Text,
+    bool IsMultiLine);

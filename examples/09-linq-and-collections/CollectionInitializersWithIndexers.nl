@@ -1,6 +1,5 @@
 // Collection Initializers with Indexers (C# 6 Feature)
 // Demonstrates dictionary and collection initialization using indexer syntax
-
 import System.Collections.Generic
 
 func Main() {
@@ -9,11 +8,7 @@ func Main() {
 
     // 1. Basic dictionary initialization with indexer syntax
     print "1. Basic Dictionary Initialization:"
-    scores := new Dictionary<string, int> {
-        ["Alice"] = 95,
-        ["Bob"] = 87,
-        ["Charlie"] = 92
-    }
+    scores := new Dictionary<string, int>() { 95, 87, 92 }
 
     aliceScore := scores["Alice"]
     bobScore := scores["Bob"]
@@ -22,11 +17,7 @@ func Main() {
 
     // 2. Integer keys
     print "2. Dictionary with Integer Keys:"
-    idNames := new Dictionary<int, string> {
-        [1] = "First",
-        [2] = "Second",
-        [3] = "Third"
-    }
+    idNames := new Dictionary<int, string>() { "First", "Second", "Third" }
 
     first := idNames[1]
     third := idNames[3]
@@ -35,11 +26,7 @@ func Main() {
 
     // 3. Mixed initialization with constructor and indexers
     print "3. Pre-sized Dictionary:"
-    cache := new Dictionary<string, double>(10) {
-        ["pi"] = 3.14159,
-        ["e"] = 2.71828,
-        ["phi"] = 1.61803
-    }
+    cache := new Dictionary<string, double>(10) { 3.14159, 2.71828, 1.61803 }
 
     pi := cache["pi"]
     e := cache["e"]
@@ -48,11 +35,7 @@ func Main() {
 
     // 4. Complex value types (using tuples)
     print "4. Dictionary with Tuple Values:"
-    playerScores := new Dictionary<string, (int, int)> {
-        ["Player1"] = (1500, 10),
-        ["Player2"] = (2200, 15),
-        ["Player3"] = (1800, 12)
-    }
+    playerScores := new Dictionary<string, (int, int)>() { (1500, 10), (2200, 15), (1800, 12) }
 
     p1 := playerScores["Player1"]
     print $"Player1: Score {p1.Item1}, Level {p1.Item2}"
@@ -65,11 +48,7 @@ func Main() {
     val1 := 100
     val2 := 200
 
-    dynamicDict := new Dictionary<string, int> {
-        [key1] = val1,
-        [key2] = val2,
-        ["thirdKey"] = 300
-    }
+    dynamicDict := new Dictionary<string, int>() { val1, val2, 300 }
 
     result1 := dynamicDict[key1]
     result2 := dynamicDict[key2]
@@ -78,11 +57,7 @@ func Main() {
 
     // 6. SortedDictionary example
     print "6. SortedDictionary with Indexers:"
-    sorted := new SortedDictionary<string, string> {
-        ["zebra"] = "Striped animal",
-        ["apple"] = "Red fruit",
-        ["monkey"] = "Primate"
-    }
+    sorted := new SortedDictionary<string, string>() { "Striped animal", "Red fruit", "Primate" }
 
     apple := sorted["apple"]
     print $"apple: {apple}"
@@ -90,16 +65,7 @@ func Main() {
 
     // 7. Nested dictionaries
     print "7. Nested Dictionary Structure:"
-    config := new Dictionary<string, Dictionary<string, string>> {
-        ["database"] = new Dictionary<string, string> {
-            ["host"] = "localhost",
-            ["port"] = "5432"
-        },
-        ["cache"] = new Dictionary<string, string> {
-            ["enabled"] = "true",
-            ["ttl"] = "3600"
-        }
-    }
+    config := new Dictionary<string, Dictionary<string, string>>() { new Dictionary<string, string>() { "localhost", "5432" }, new Dictionary<string, string>() { "true", "3600" } }
 
     dbHost := config["database"]["host"]
     cacheEnabled := config["cache"]["enabled"]
