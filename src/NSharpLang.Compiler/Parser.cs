@@ -3265,7 +3265,12 @@ public class Parser
             return new FloatLiteralExpression(Advance().Value, line, column);
 
         if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
-            return new StringLiteralExpression(Advance().Value, line, column);
+        {
+            var token = Advance();
+            if (token.Type == TokenType.StringLiteral && token.Value.StartsWith("$\""))
+                return ParseInterpolatedString(token, line, column);
+            return new StringLiteralExpression(token.Value, line, column);
+        }
 
         if (Check(TokenType.True))
         {
@@ -3414,6 +3419,190 @@ public class Parser
 
         // Return error placeholder
         return new IdentifierExpression("<error>", line, column);
+    }
+
+    private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column)
+    {
+        var parts = new List<InterpolatedStringPart>();
+        var value = token.Value;
+
+        // Skip $" prefix (2 chars) and " suffix (1 char)
+        int start = 2;
+        int end = value.Length - 1;
+        // Handle unterminated strings gracefully
+        if (end < start || value[end] != '"')
+            end = value.Length;
+
+        var textBuf = new System.Text.StringBuilder();
+        int textStartCol = column + start;
+        int i = start;
+
+        while (i < end)
+        {
+            if (value[i] == '\\' && i + 1 < end)
+            {
+                textBuf.Append(value[i]);
+                textBuf.Append(value[i + 1]);
+                i += 2;
+                continue;
+            }
+
+            if (value[i] == '{')
+            {
+                // Emit accumulated text
+                if (textBuf.Length > 0)
+                {
+                    parts.Add(new InterpolatedStringText(textBuf.ToString(), line, textStartCol));
+                    textBuf.Clear();
+                }
+
+                // Find matching }
+                int holeContentStart = i + 1;
+                int braceDepth = 1;
+                int j = holeContentStart;
+                bool inNestedString = false;
+
+                while (j < end && braceDepth > 0)
+                {
+                    if (inNestedString)
+                    {
+                        if (value[j] == '\\' && j + 1 < end)
+                        {
+                            j += 2;
+                            continue;
+                        }
+                        if (value[j] == '"')
+                            inNestedString = false;
+                    }
+                    else
+                    {
+                        if (value[j] == '"')
+                            inNestedString = true;
+                        else if (value[j] == '{')
+                            braceDepth++;
+                        else if (value[j] == '}')
+                        {
+                            braceDepth--;
+                            if (braceDepth == 0)
+                                break;
+                        }
+                    }
+                    j++;
+                }
+
+                var exprContent = value.Substring(holeContentStart, j - holeContentStart);
+
+                // Check for format specifier (top-level : not inside parens/brackets/strings)
+                string? formatClause = null;
+                int colonPos = FindFormatSpecifierColon(exprContent);
+                if (colonPos >= 0)
+                {
+                    formatClause = exprContent.Substring(colonPos + 1);
+                    exprContent = exprContent.Substring(0, colonPos);
+                }
+
+                // Sub-parse the expression
+                int exprStartCol = column + holeContentStart;
+                Expression expr;
+                try
+                {
+                    var subLexer = new Lexer(exprContent);
+                    var subTokens = subLexer.Tokenize();
+
+                    // Adjust token positions to match source location
+                    int colOffset = exprStartCol - 1;
+                    for (int t = 0; t < subTokens.Count; t++)
+                    {
+                        var tok = subTokens[t];
+                        subTokens[t] = new Token(tok.Type, tok.Value, line, tok.Column + colOffset, tok.FileName);
+                    }
+
+                    var subParser = new Parser(subTokens, _fileName);
+                    expr = subParser.ParseExpression();
+                }
+                catch
+                {
+                    // Fallback: treat as identifier
+                    var trimmed = exprContent.Trim();
+                    expr = new IdentifierExpression(
+                        string.IsNullOrEmpty(trimmed) ? "<error>" : trimmed,
+                        line, exprStartCol);
+                }
+
+                parts.Add(new InterpolatedStringHole(expr, formatClause, line, column + i));
+
+                i = j + 1; // Skip past }
+                textStartCol = column + i;
+            }
+            else
+            {
+                textBuf.Append(value[i]);
+                i++;
+            }
+        }
+
+        // Emit remaining text
+        if (textBuf.Length > 0)
+            parts.Add(new InterpolatedStringText(textBuf.ToString(), line, textStartCol));
+
+        return new InterpolatedStringExpression(parts, line, column);
+    }
+
+    /// <summary>
+    /// Finds the position of a format specifier colon in an interpolation expression.
+    /// Returns -1 if no format specifier found.
+    /// A format colon is one at the top level (not inside parens, brackets, braces, or strings).
+    /// </summary>
+    private static int FindFormatSpecifierColon(string expr)
+    {
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+        bool inString = false;
+
+        for (int i = 0; i < expr.Length; i++)
+        {
+            if (inString)
+            {
+                if (expr[i] == '\\' && i + 1 < expr.Length)
+                {
+                    i++;
+                    continue;
+                }
+                if (expr[i] == '"')
+                    inString = false;
+                continue;
+            }
+
+            switch (expr[i])
+            {
+                case '"':
+                    inString = true;
+                    break;
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    bracketDepth--;
+                    break;
+                case '{':
+                    braceDepth++;
+                    break;
+                case '}':
+                    braceDepth--;
+                    break;
+                case ':' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0:
+                    return i;
+            }
+        }
+
+        return -1;
     }
 
     private Expression ParseNewExpression()

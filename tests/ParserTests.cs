@@ -2073,7 +2073,12 @@ func main() {
         Assert.IsType<StringLiteralExpression>(printStmt1.Value);
 
         var printStmt2 = Assert.IsType<PrintStatement>(block.Statements[1]);
-        Assert.IsType<StringLiteralExpression>(printStmt2.Value);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt2.Value);
+        Assert.Equal(2, interpolated.Parts.Count);
+        var textPart = Assert.IsType<InterpolatedStringText>(interpolated.Parts[0]);
+        Assert.Equal("Value: ", textPart.Text);
+        var holePart = Assert.IsType<InterpolatedStringHole>(interpolated.Parts[1]);
+        Assert.IsType<IdentifierExpression>(holePart.Expression);
     }
 
     [Fact]
