@@ -85,7 +85,13 @@ public class Parser
                         Current.Column,
                         humanExplanation: "An unexpected error occurred while parsing this declaration."
                     );
+                    var exStartPos = _position;
                     SynchronizeToNextDeclaration();
+                    // If synchronization didn't advance, force-advance to prevent infinite loop
+                    if (_position == exStartPos && !IsAtEnd())
+                    {
+                        Advance();
+                    }
                     continue;
                 }
 
@@ -94,6 +100,12 @@ public class Parser
                 if (_position == startPosition && !IsAtEnd())
                 {
                     SynchronizeToNextDeclaration();
+                    // If synchronization also didn't advance (e.g., stuck on a keyword
+                    // that looks like a declaration start but fails to parse), force-advance
+                    if (_position == startPosition && !IsAtEnd())
+                    {
+                        Advance();
+                    }
                 }
             }
 
@@ -912,6 +924,12 @@ public class Parser
             if (_position == startPosition && !IsAtEnd())
             {
                 SynchronizeToNextStatement();
+                // If synchronization also didn't advance (e.g., stuck on a statement
+                // keyword like 'return' inside a member list), force-advance
+                if (_position == startPosition && !IsAtEnd())
+                {
+                    Advance();
+                }
             }
         }
 
@@ -1542,6 +1560,12 @@ public class Parser
             if (_position == startPosition && !IsAtEnd())
             {
                 SynchronizeToNextStatement();
+                // If synchronization also didn't advance (e.g., stuck on a token that
+                // matches a sync point but fails to parse), force-advance
+                if (_position == startPosition && !IsAtEnd())
+                {
+                    Advance();
+                }
             }
         }
 
