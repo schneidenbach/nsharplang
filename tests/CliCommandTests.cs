@@ -146,7 +146,7 @@ public class CliCommandTests
             "--summary",
             "--project", Path.Combine(examplesDir, "15-dogfood-project"),
             "--file", "Program.nl",
-            "--pos", "86:39"
+            "--pos", "86:27"
         }));
 
         Assert.True(string.IsNullOrWhiteSpace(stderr));
@@ -173,7 +173,7 @@ public class CliCommandTests
   {
     "command": "inspect",
     "file": "Program.nl",
-    "pos": "86:39",
+    "pos": "86:27",
     "summary": true
   },
   {
@@ -435,7 +435,7 @@ func Main() {
                 "references",
                 "--project", Path.Combine(examplesDir, "15-dogfood-project"),
                 "--file", "Program.nl",
-                "--pos", "86:39"
+                "--pos", "86:27"
             }
         };
 
@@ -459,7 +459,7 @@ func Main() {
                 "inspect",
                 "--project", Path.Combine(examplesDir, "15-dogfood-project"),
                 "--file", "Program.nl",
-                "--pos", "86:39"
+                "--pos", "86:27"
             }
         };
 
@@ -472,7 +472,7 @@ func Main() {
                 "--summary",
                 "--project", Path.Combine(examplesDir, "15-dogfood-project"),
                 "--file", "Program.nl",
-                "--pos", "86:39"
+                "--pos", "86:27"
             }
         };
     }
