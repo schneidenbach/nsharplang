@@ -248,11 +248,30 @@ public class Analyzer
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
             if (_currentReturnType != BuiltInTypes.Void && !isIterator && !StatementAlwaysReturns(func.Body))
             {
-                Error(
-                    ErrorCode.MissingReturn,
-                    $"Not all code paths return a value of type '{_currentReturnType}'",
-                    func.Line,
-                    func.Column);
+                var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
+                    ? _sourceLines[func.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.MissingReturn(
+                        _currentFilePath,
+                        func.Line,
+                        func.Column,
+                        sourceSnippet,
+                        func.Name.Length + 5, // "func " + name
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(
+                        ErrorCode.MissingReturn,
+                        $"Not all code paths return a value of type '{_currentReturnType}'",
+                        func.Line,
+                        func.Column);
+                }
             }
         }
         else if (func.ExpressionBody != null)
@@ -459,7 +478,29 @@ public class Analyzer
         {
             if (!caseNames.Add(unionCase.Name))
             {
-                Error($"Duplicate union case '{unionCase.Name}'", unionDecl.Line, unionDecl.Column);
+                var caseLine = unionCase.Line > 0 ? unionCase.Line : unionDecl.Line;
+                var caseCol = unionCase.Column > 0 ? unionCase.Column : unionDecl.Column;
+                var sourceSnippet = _sourceLines != null && caseLine > 0 && caseLine <= _sourceLines.Length
+                    ? _sourceLines[caseLine - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.DuplicateDeclaration(
+                        _currentFilePath,
+                        caseLine,
+                        caseCol,
+                        sourceSnippet,
+                        unionCase.Name.Length,
+                        unionCase.Name,
+                        "union case"
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate union case '{unionCase.Name}'", caseLine, caseCol);
+                }
             }
         }
     }
@@ -474,7 +515,29 @@ public class Analyzer
         {
             if (!memberNames.Add(member.Name))
             {
-                Error($"Duplicate enum member '{member.Name}'", enumDecl.Line, enumDecl.Column);
+                var memLine = member.Line > 0 ? member.Line : enumDecl.Line;
+                var memCol = member.Column > 0 ? member.Column : enumDecl.Column;
+                var sourceSnippet = _sourceLines != null && memLine > 0 && memLine <= _sourceLines.Length
+                    ? _sourceLines[memLine - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.DuplicateDeclaration(
+                        _currentFilePath,
+                        memLine,
+                        memCol,
+                        sourceSnippet,
+                        member.Name.Length,
+                        member.Name,
+                        "enum member"
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate enum member '{member.Name}'", memLine, memCol);
+                }
             }
 
             // Type check initializers
@@ -1177,7 +1240,26 @@ public class Analyzer
         {
             if (_currentReturnType != BuiltInTypes.Void)
             {
-                Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
+                    ? _sourceLines[returnStmt.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.MissingReturn(
+                        _currentFilePath,
+                        returnStmt.Line,
+                        returnStmt.Column,
+                        sourceSnippet,
+                        6, // "return" keyword length
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                }
             }
         }
     }
@@ -2590,8 +2672,32 @@ public class Analyzer
 
                         if (!IsAssignable(paramType, argType))
                         {
-                            Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
-                                call.Line, call.Column);
+                            var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
+                                ? _sourceLines[call.Line - 1]
+                                : null;
+
+                            if (sourceSnippet != null && _currentFilePath != null)
+                            {
+                                var spanLength = Math.Max(1, sourceSnippet.TrimEnd().Length - call.Column + 1);
+                                var error = ErrorMessageBuilder.WrongArgumentType(
+                                    _currentFilePath,
+                                    call.Line,
+                                    call.Column,
+                                    sourceSnippet,
+                                    spanLength,
+                                    funcType.Declaration.Name,
+                                    i + 1,
+                                    parameters[paramIndex].Name,
+                                    argType.ToString(),
+                                    paramType.ToString()
+                                );
+                                _errors.Add(error);
+                            }
+                            else
+                            {
+                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
+                                    call.Line, call.Column);
+                            }
                         }
                     }
 
