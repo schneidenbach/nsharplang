@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -38,6 +39,9 @@ public class Analyzer
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
+    // Static assembly resolver — registered once per process, shared across all Analyzer instances.
+    // This avoids leaking per-instance handlers on AppDomain.CurrentDomain.AssemblyResolve.
+    private static readonly AssemblyResolver s_assemblyResolver = new();
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -3550,7 +3554,14 @@ public class Analyzer
             // Try referenced assemblies (NEW)
             foreach (var assembly in _referencedAssemblies)
             {
-                type = assembly.GetType(fullName);
+                try
+                {
+                    type = assembly.GetType(fullName);
+                }
+                catch
+                {
+                    continue;
+                }
                 if (type != null)
                 {
                     _externalTypeCache[fullName] = type;
@@ -4965,6 +4976,9 @@ public class Analyzer
     /// </summary>
     public void LoadSystemAssemblies()
     {
+        // Ensure the static assembly resolver is registered (idempotent, thread-safe)
+        s_assemblyResolver.EnsureRegistered();
+
         var commonAssemblies = new[]
         {
             "System.Runtime",
@@ -4979,6 +4993,175 @@ public class Analyzer
         foreach (var assemblyName in commonAssemblies)
         {
             LoadReferencedAssemblyByName(assemblyName);
+        }
+    }
+
+    /// <summary>
+    /// Static, process-singleton assembly resolver for transitive NuGet/framework dependencies.
+    /// Registered once on AppDomain.CurrentDomain.AssemblyResolve and shared across all Analyzer instances.
+    /// Uses a lock for thread-safe resolution and caches successful results only.
+    /// </summary>
+    internal sealed class AssemblyResolver
+    {
+        private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
+        private static readonly string[] FrameworkNames = { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" };
+
+        // Successful resolutions only — misses are NOT cached so they can be retried after restore/install.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Assembly> _cache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly object _resolveLock = new();
+        private readonly HashSet<string> _resolving = new(StringComparer.OrdinalIgnoreCase); // same-thread reentrancy guard (under lock)
+        private bool _registered;
+
+        public void EnsureRegistered()
+        {
+            // Lock ensures the handler is fully attached before any caller proceeds.
+            lock (_resolveLock)
+            {
+                if (_registered) return;
+                AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+                _registered = true;
+            }
+        }
+
+        private Assembly? OnAssemblyResolve(object? sender, ResolveEventArgs args)
+        {
+            var asmName = new AssemblyName(args.Name);
+            var simpleName = asmName.Name;
+            if (simpleName == null) return null;
+
+            // Fast path: return cached successful resolution
+            if (_cache.TryGetValue(simpleName, out var cached))
+                return cached;
+
+            // Serialize resolution so concurrent threads wait rather than returning null.
+            // The lock also protects the reentrancy guard set.
+            lock (_resolveLock)
+            {
+                // Double-check after acquiring lock
+                if (_cache.TryGetValue(simpleName, out cached))
+                    return cached;
+
+                // Reentrancy guard: if this thread is already resolving this name
+                // (e.g. Assembly.LoadFrom triggered another AssemblyResolve for the same name),
+                // return null to break the cycle.
+                if (!_resolving.Add(simpleName))
+                    return null;
+
+                try
+                {
+                    var result = ResolveAssembly(simpleName);
+                    if (result != null)
+                        _cache[simpleName] = result;
+                    return result;
+                }
+                finally
+                {
+                    _resolving.Remove(simpleName);
+                }
+            }
+        }
+
+        private static Assembly? ResolveAssembly(string simpleName)
+        {
+            // Check already-loaded assemblies in the AppDomain
+            foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    if (string.Equals(loaded.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
+                        return loaded;
+                }
+                catch { /* skip assemblies that can't report their name */ }
+            }
+
+            var nugetRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget", "packages");
+
+            // Try exact NuGet package match (assembly name == package name)
+            var nugetExact = Path.Combine(nugetRoot, simpleName.ToLowerInvariant());
+            var found = TryLoadFromNuGetPackageDir(nugetExact, simpleName);
+            if (found != null) return found;
+
+            // Fallback: search NuGet packages with matching prefix
+            // (handles cases like Microsoft.CodeAnalysis in package microsoft.codeanalysis.common)
+            if (Directory.Exists(nugetRoot))
+            {
+                try
+                {
+                    var prefix = simpleName.ToLowerInvariant();
+                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
+                    {
+                        var dirName = Path.GetFileName(pkgDir);
+                        if (dirName == null || !dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var result = TryLoadFromNuGetPackageDir(pkgDir, simpleName);
+                        if (result != null) return result;
+                    }
+                }
+                catch { /* NuGet prefix search failed */ }
+            }
+
+            // Try shared framework directories
+            return TryLoadFromSharedFrameworks(simpleName);
+        }
+
+        private static Assembly? TryLoadFromNuGetPackageDir(string packageDir, string simpleName)
+        {
+            if (!Directory.Exists(packageDir)) return null;
+
+            var versionDir = Directory.GetDirectories(packageDir)
+                .OrderByDescending(d => d)
+                .FirstOrDefault();
+            if (versionDir == null) return null;
+
+            foreach (var tfm in Tfms)
+            {
+                var dllPath = Path.Combine(versionDir, "lib", tfm, $"{simpleName}.dll");
+                if (File.Exists(dllPath))
+                {
+                    try { return Assembly.LoadFrom(dllPath); }
+                    catch { /* continue searching */ }
+                }
+            }
+            return null;
+        }
+
+        private static Assembly? TryLoadFromSharedFrameworks(string simpleName)
+        {
+            try
+            {
+                var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+                var searchDir = runtimeDir;
+
+                for (int i = 0; i < 5; i++)
+                {
+                    searchDir = Path.GetDirectoryName(searchDir);
+                    if (searchDir == null) break;
+                    if (Path.GetFileName(searchDir) == "shared")
+                    {
+                        foreach (var fw in FrameworkNames)
+                        {
+                            var fwPath = Path.Combine(searchDir, fw);
+                            if (!Directory.Exists(fwPath)) continue;
+
+                            foreach (var ver in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
+                            {
+                                var dllPath = Path.Combine(ver, $"{simpleName}.dll");
+                                if (File.Exists(dllPath))
+                                {
+                                    try { return Assembly.LoadFrom(dllPath); }
+                                    catch { /* continue searching */ }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            catch { /* shared framework search failed */ }
+            return null;
         }
     }
 
