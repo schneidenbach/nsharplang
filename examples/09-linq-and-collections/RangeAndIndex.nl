@@ -1,6 +1,5 @@
 // Range and Index from End Operators Demo
 // Demonstrates C# 8+ range (..) and index from end (^) operators
-
 func Main() {
     print "=== Range and Index from End Operators ==="
     print ""

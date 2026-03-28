@@ -1,19 +1,24 @@
 import System
 
-// Test file to demonstrate improved error messages
 
+// Test file to demonstrate improved error messages
 func testTypeMismatch(): int {
-    return "string"  // Error: Type mismatch - should be int
+    return "string"
 }
+
+// Error: Type mismatch - should be int
 
 func testMissingReturn(): int {
     print "Hello"
-    // Error: Missing return statement
 }
+
+// Error: Missing return statement
 
 func testIfCondition() {
     x := 10
-    if x {  // Error: If condition must be boolean
+    if x {
+
+        // Error: If condition must be boolean
         print "Not boolean!"
     }
 }

@@ -214,8 +214,6 @@ Potential enhancements for future versions:
 - Error highlighting (requires LSP)
 - Parameter hints in function calls
 - Bracket colorization rules
-- Custom icon for `.nl` files
-- Snippets for common patterns
 
 ## Troubleshooting
 

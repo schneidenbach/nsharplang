@@ -1,8 +1,8 @@
 // Example demonstrating properties with custom get/set and nested types
-
 import System
 
 class BankAccount {
+
     // Private backing fields
     balance: double
     accountNumber: string
@@ -31,6 +31,7 @@ class BankAccount {
             if value < 0 {
                 throw new Exception("Balance cannot be negative")
             }
+
             balance = value
             transactionCount++
         }
@@ -38,12 +39,16 @@ class BankAccount {
 
     // Read-only property
     AccountNumber: string {
-        get { return accountNumber }
+        get {
+            return accountNumber
+        }
     }
 
     // Property with validation
     TransactionCount: int {
-        get { return transactionCount }
+        get {
+            return transactionCount
+        }
     }
 
     // Account status field using nested enum
@@ -60,6 +65,7 @@ class BankAccount {
         if CurrentStatus != BankAccount.Status.Active {
             throw new Exception("Account is not active")
         }
+
         Balance = Balance + amount
         print $"Deposited {amount}. New balance: {Balance}"
     }
@@ -68,9 +74,11 @@ class BankAccount {
         if CurrentStatus != BankAccount.Status.Active {
             throw new Exception("Account is not active")
         }
+
         if Balance < amount {
             throw new Exception("Insufficient funds")
         }
+
         Balance = Balance - amount
         print $"Withdrew {amount}. New balance: {Balance}"
     }
@@ -84,6 +92,7 @@ class BankAccount {
         if Balance > 0 {
             throw new Exception("Cannot close account with positive balance")
         }
+
         CurrentStatus = BankAccount.Status.Closed
         print "Account closed"
     }

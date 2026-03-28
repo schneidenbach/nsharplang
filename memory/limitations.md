@@ -69,18 +69,22 @@ func Process(x: string)  // Same count, different types ❌
 ## Pattern Matching
 
 ### 5. Exhaustiveness with Guards
-**Current:** Exhaustiveness checking skipped when guards present.
+**Current:** Guarded arms do not count toward exhaustiveness coverage. Unguarded arms
+(including wildcard `_` and plain identifier bindings like `other`) still count as full coverage.
+If all union cases have only guarded arms and no wildcard/catch-all fallback, the compiler
+reports a non-exhaustive match error.
 
 ```
+// This is now correctly flagged as non-exhaustive:
 result := value match {
-    x when x > 0 => "positive",
-    // Missing: x <= 0 case, but no warning
+    Result.Ok { v } when v > 0 => "positive",
+    Result.Ok { v } when v <= 0 => "non-positive",
+    // Missing: Result.Err case — no unguarded arm covers it
 }
 ```
 
-**Why:** Static analysis of guard conditions is complex.
-
-**Future:** Conservative exhaustiveness checking with warnings.
+**Limitation:** Guard conditions are not analyzed semantically. The compiler cannot
+determine that `when x > 0` and `when x <= 0` together cover all integers.
 
 ### 6. Nested Union Matching
 **Current:** Deep pattern matching on nested unions limited.

@@ -1,14 +1,14 @@
 // N# Open-Ended Ranges Example
 // Demonstrates C# 8+ open-ended range operators
-
 func PrintArray(arr: int[]) {
     result := "["
-    for i := 0; i < arr.Length; i++ {
+    for i = 0; i < arr.Length; i++ {
         result = result + arr[i].ToString()
         if i < arr.Length - 1 {
             result = result + ", "
         }
     }
+
     result = result + "]"
     print result
 }
@@ -63,14 +63,12 @@ func Main() {
     pageSize := 5
     totalPages := (items.Length + pageSize - 1) / pageSize
 
-    for i := 0; i < totalPages; i++ {
+    for i = 0; i < totalPages; i++ {
         start := i * pageSize
         end := start + pageSize
 
         // Use open-ended range if on last page
-        page := i == totalPages - 1
-            ? items[start..]
-            : items[start..end]
+        page := i == totalPages - 1 ? items[start..] : items[start..end]
 
         print $"Page {i + 1}:"
         PrintArray(page)

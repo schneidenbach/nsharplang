@@ -3,6 +3,7 @@ class Config {
     AppName: string = "MyApp"
     Version: string = "1.0.0"
 }
+
 #endregion
 
 #region Math Operations
@@ -15,6 +16,7 @@ class Calculator {
         return x * y
     }
 }
+
 #endregion
 
 func Main() {
@@ -23,11 +25,11 @@ func Main() {
 
     print $"App: {config.AppName} v{config.Version}"
 
-#if DEBUG
+    #if DEBUG
     print "Running in DEBUG mode"
-#else
+    #else
     print "Running in RELEASE mode"
-#endif
+    #endif
 
     sum := calc.Add(5, 3)
     print $"5 + 3 = {sum}"
@@ -35,7 +37,7 @@ func Main() {
     product := calc.Multiply(4, 7)
     print $"4 * 7 = {product}"
 
-#region Cleanup
+    #region Cleanup
     print "Done!"
-#endregion
+    #endregion
 }
