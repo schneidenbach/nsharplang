@@ -248,11 +248,30 @@ public class Analyzer
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
             if (_currentReturnType != BuiltInTypes.Void && !isIterator && !StatementAlwaysReturns(func.Body))
             {
-                Error(
-                    ErrorCode.MissingReturn,
-                    $"Not all code paths return a value of type '{_currentReturnType}'",
-                    func.Line,
-                    func.Column);
+                var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
+                    ? _sourceLines[func.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.MissingReturn(
+                        _currentFilePath,
+                        func.Line,
+                        func.Column,
+                        sourceSnippet,
+                        func.Name.Length + 5, // "func " + name
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(
+                        ErrorCode.MissingReturn,
+                        $"Not all code paths return a value of type '{_currentReturnType}'",
+                        func.Line,
+                        func.Column);
+                }
             }
         }
         else if (func.ExpressionBody != null)
@@ -459,7 +478,29 @@ public class Analyzer
         {
             if (!caseNames.Add(unionCase.Name))
             {
-                Error($"Duplicate union case '{unionCase.Name}'", unionDecl.Line, unionDecl.Column);
+                var caseLine = unionCase.Line > 0 ? unionCase.Line : unionDecl.Line;
+                var caseCol = unionCase.Column > 0 ? unionCase.Column : unionDecl.Column;
+                var sourceSnippet = _sourceLines != null && caseLine > 0 && caseLine <= _sourceLines.Length
+                    ? _sourceLines[caseLine - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.DuplicateDeclaration(
+                        _currentFilePath,
+                        caseLine,
+                        caseCol,
+                        sourceSnippet,
+                        unionCase.Name.Length,
+                        unionCase.Name,
+                        "union case"
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate union case '{unionCase.Name}'", caseLine, caseCol);
+                }
             }
         }
     }
@@ -474,7 +515,29 @@ public class Analyzer
         {
             if (!memberNames.Add(member.Name))
             {
-                Error($"Duplicate enum member '{member.Name}'", enumDecl.Line, enumDecl.Column);
+                var memLine = member.Line > 0 ? member.Line : enumDecl.Line;
+                var memCol = member.Column > 0 ? member.Column : enumDecl.Column;
+                var sourceSnippet = _sourceLines != null && memLine > 0 && memLine <= _sourceLines.Length
+                    ? _sourceLines[memLine - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.DuplicateDeclaration(
+                        _currentFilePath,
+                        memLine,
+                        memCol,
+                        sourceSnippet,
+                        member.Name.Length,
+                        member.Name,
+                        "enum member"
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate enum member '{member.Name}'", memLine, memCol);
+                }
             }
 
             // Type check initializers
@@ -1177,7 +1240,26 @@ public class Analyzer
         {
             if (_currentReturnType != BuiltInTypes.Void)
             {
-                Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
+                    ? _sourceLines[returnStmt.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.MissingReturn(
+                        _currentFilePath,
+                        returnStmt.Line,
+                        returnStmt.Column,
+                        sourceSnippet,
+                        6, // "return" keyword length
+                        _currentReturnType.ToString()
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                }
             }
         }
     }
@@ -1989,6 +2071,16 @@ public class Analyzer
 
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName)
     {
+        // Convert built-in simple types to reflection types for full CLR member resolution.
+        // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
+        if (objectType is SimpleTypeInfo && objectType != BuiltInTypes.Unknown
+            && objectType != BuiltInTypes.Null && objectType != BuiltInTypes.Never && objectType != BuiltInTypes.Void)
+        {
+            var clrType = TryConvertTypeInfoToClrType(objectType);
+            if (clrType != null)
+                objectType = new ReflectionTypeInfo(clrType);
+        }
+
         // Handle reflection-based types
         if (objectType is ReflectionTypeInfo reflectionType)
         {
@@ -2413,6 +2505,15 @@ public class Analyzer
             "IDictionary" when genericType.TypeArguments.Count == 2 => typeof(IDictionary<,>),
             "Task" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.Task<>),
             "ValueTask" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.ValueTask<>),
+            "Func" when genericType.TypeArguments.Count == 1 => typeof(Func<>),
+            "Func" when genericType.TypeArguments.Count == 2 => typeof(Func<,>),
+            "Func" when genericType.TypeArguments.Count == 3 => typeof(Func<,,>),
+            "Func" when genericType.TypeArguments.Count == 4 => typeof(Func<,,,>),
+            "Func" when genericType.TypeArguments.Count == 5 => typeof(Func<,,,,>),
+            "Action" when genericType.TypeArguments.Count == 1 => typeof(Action<>),
+            "Action" when genericType.TypeArguments.Count == 2 => typeof(Action<,>),
+            "Action" when genericType.TypeArguments.Count == 3 => typeof(Action<,,>),
+            "Action" when genericType.TypeArguments.Count == 4 => typeof(Action<,,,>),
             _ => null
         };
 
@@ -2604,8 +2705,32 @@ public class Analyzer
 
                         if (!IsAssignable(paramType, argType))
                         {
-                            Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
-                                call.Line, call.Column);
+                            var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
+                                ? _sourceLines[call.Line - 1]
+                                : null;
+
+                            if (sourceSnippet != null && _currentFilePath != null)
+                            {
+                                var spanLength = Math.Max(1, sourceSnippet.TrimEnd().Length - call.Column + 1);
+                                var error = ErrorMessageBuilder.WrongArgumentType(
+                                    _currentFilePath,
+                                    call.Line,
+                                    call.Column,
+                                    sourceSnippet,
+                                    spanLength,
+                                    funcType.Declaration.Name,
+                                    i + 1,
+                                    parameters[paramIndex].Name,
+                                    argType.ToString(),
+                                    paramType.ToString()
+                                );
+                                _errors.Add(error);
+                            }
+                            else
+                            {
+                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
+                                    call.Line, call.Column);
+                            }
                         }
                     }
 
@@ -3580,6 +3705,14 @@ public class Analyzer
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType && IsDelegateType(reflectionType.Type))
             return CreateFunctionTypeInfoFromDelegate(reflectionType.Type);
 
+        // Handle generic delegate types (Func<int, int>, Action<string>) from N# declarations
+        if (resolvedExpectedType is GenericTypeInfo)
+        {
+            var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
+            if (clrType != null && IsDelegateType(clrType))
+                return CreateFunctionTypeInfoFromDelegate(clrType);
+        }
+
         return null;
     }
 
@@ -4197,6 +4330,10 @@ public class Analyzer
 
         // Same type name
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
+
+        // Lambda function types (FunctionTypeInfo) are assignable to delegate types (Func/Action)
+        if (resolvedSource is FunctionTypeInfo && resolvedTarget is GenericTypeInfo { Name: "Func" or "Action" })
+            return true;
 
         // Duck interface structural typing
         if (resolvedTarget is InterfaceTypeInfo iface && iface.Declaration.IsDuckInterface)
