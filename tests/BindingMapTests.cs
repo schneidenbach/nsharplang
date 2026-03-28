@@ -262,6 +262,10 @@ public class BindingMapTests
         // Reverse lookup: new declaration should have the usage
         var newRefs = map.GetReferences(declNew);
         Assert.Contains(newRefs, r => r.Line == 5 && r.Column == 10);
+
+        // Old declaration should no longer reference the overwritten usage
+        var oldRefs = map.GetReferences(declOld);
+        Assert.DoesNotContain(oldRefs, r => r.Line == 5 && r.Column == 10);
     }
 
     [Fact]
