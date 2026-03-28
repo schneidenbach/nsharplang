@@ -1,7 +1,7 @@
 {
   "name": "nsharp",
   "displayName": "N# Language Support",
-  "description": "Language support for N# (.nl files) with comprehensive IntelliSense, type resolution, signature help, and diagnostics",
+  "description": "Full language support for N# — a Go-inspired language for .NET. IntelliSense, diagnostics, formatting, debugging, and more.",
   "version": "0.6.0",
   "publisher": "nsharp",
   "repository": {
@@ -16,12 +16,13 @@
     "Linters",
     "Formatters"
   ],
+  "icon": "icon.png",
   "keywords": [
     "nsharp",
     "n#",
-    ".NET",
-    "CLI",
-    "transpiler"
+    "dotnet",
+    "clr",
+    "go"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -45,7 +46,17 @@
           ".nl",
           ".tests.nl"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/nsharp-file-light.svg",
+          "dark": "./icons/nsharp-file-dark.svg"
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "nsharp",
+        "path": "./snippets/nsharp.json"
       }
     ],
     "grammars": [
