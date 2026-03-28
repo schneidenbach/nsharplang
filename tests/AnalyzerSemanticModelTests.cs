@@ -246,4 +246,161 @@ func test() {
         Assert.NotNull(xUseType);
         Assert.Equal("int", xUseType!.ToString());
     }
+
+    [Fact]
+    public void Analyzer_ClassFields_RecordedInSemanticModelTypeMembers()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Person");
+        Assert.NotNull(members);
+        Assert.Equal(2, members!.Count);
+        Assert.Equal("string", members["Name"].ToString());
+        Assert.Equal("int", members["Age"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_StructFields_RecordedInSemanticModelTypeMembers()
+    {
+        var source = @"
+struct Vector {
+    X: float
+    Y: float
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Vector");
+        Assert.NotNull(members);
+        Assert.Equal(2, members!.Count);
+        Assert.Equal("float", members["X"].ToString());
+        Assert.Equal("float", members["Y"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_RecordFields_RecordedInSemanticModelTypeMembers()
+    {
+        var source = @"
+record Point {
+    X: int
+    Y: int
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Point");
+        Assert.NotNull(members);
+        Assert.Equal(2, members!.Count);
+        Assert.Equal("int", members["X"].ToString());
+        Assert.Equal("int", members["Y"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_ClassProperties_RecordedInSemanticModelTypeMembers()
+    {
+        var source = @"
+class Config {
+    _host: string
+
+    Host: string {
+        get { return _host }
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Config");
+        Assert.NotNull(members);
+        // Both the field and the property should be recorded
+        Assert.True(members!.ContainsKey("_host"));
+        Assert.True(members.ContainsKey("Host"));
+        Assert.Equal("string", members["_host"].ToString());
+        Assert.Equal("string", members["Host"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_MixedFieldsAndProperties_AllRecordedInTypeMembers()
+    {
+        var source = @"
+class Entity {
+    _active: bool
+    Id: int
+    Name: string
+
+    Active: bool {
+        get { return _active }
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Entity");
+        Assert.NotNull(members);
+        Assert.Equal(4, members!.Count);
+        Assert.Equal("int", members["Id"].ToString());
+        Assert.Equal("string", members["Name"].ToString());
+        Assert.Equal("bool", members["_active"].ToString());
+        Assert.Equal("bool", members["Active"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_MultipleTypes_EachHasOwnTypeMembers()
+    {
+        var source = @"
+class Person {
+    Name: string
+}
+
+struct Point {
+    X: int
+    Y: int
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+
+        var personMembers = result.SemanticModel.GetTypeMembers("Person");
+        Assert.NotNull(personMembers);
+        Assert.Single(personMembers!);
+        Assert.Equal("string", personMembers["Name"].ToString());
+
+        var pointMembers = result.SemanticModel.GetTypeMembers("Point");
+        Assert.NotNull(pointMembers);
+        Assert.Equal(2, pointMembers!.Count);
+        Assert.Equal("int", pointMembers["X"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_FieldWithUserDefinedType_RecordedWithResolvedType()
+    {
+        var source = @"
+record Address {
+    City: string
+}
+
+class Person {
+    Home: Address
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        var members = result.SemanticModel.GetTypeMembers("Person");
+        Assert.NotNull(members);
+        Assert.True(members!.ContainsKey("Home"));
+        // The type should be the resolved RecordTypeInfo, not just a string
+        Assert.Equal("Address", members["Home"].ToString());
+    }
 }

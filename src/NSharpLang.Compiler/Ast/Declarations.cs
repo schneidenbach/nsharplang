@@ -268,7 +268,7 @@ public record AttributeNode(
 // Type references
 public abstract record TypeReference;
 
-public record SimpleTypeReference(string Name) : TypeReference;
+public record SimpleTypeReference(string Name, int Line = 0, int Column = 0) : TypeReference;
 
 public record GenericTypeReference(
     string Name,
