@@ -308,10 +308,10 @@ public class DaemonCommandTests
         Assert.Equal("30m", doc.RootElement.GetProperty("idleTimeout").GetString());
     }
 
-    // ── PID file lifecycle ─────────────────────────────────────────────
+    // ── PID file path convention ──────────────────────────────────────
 
     [Fact]
-    public void DaemonServer_Cleanup_RemovesPidAndSocket()
+    public void DaemonServer_PidAndSocketPaths_AreUnderNlcDir()
     {
         var tempDir = CreateTempDir();
         try
@@ -319,16 +319,15 @@ public class DaemonCommandTests
             var socketPath = DaemonConstants.GetSocketPath(tempDir);
             var pidPath = Path.Combine(Path.GetDirectoryName(socketPath)!, "daemon.pid");
 
-            // Simulate files that daemon creates
-            File.WriteAllText(socketPath, "socket-placeholder");
-            File.WriteAllText(pidPath, "99999");
-
-            Assert.True(File.Exists(socketPath));
-            Assert.True(File.Exists(pidPath));
-
-            // Verify the paths are in the right location
+            // Verify the paths are in the expected .nlc subdirectory
             Assert.Equal(Path.Combine(tempDir, ".nlc", "daemon.sock"), socketPath);
             Assert.Equal(Path.Combine(tempDir, ".nlc", "daemon.pid"), pidPath);
+
+            // Simulate files that daemon creates and verify they land correctly
+            File.WriteAllText(socketPath, "socket-placeholder");
+            File.WriteAllText(pidPath, "99999");
+            Assert.True(File.Exists(socketPath));
+            Assert.True(File.Exists(pidPath));
         }
         finally
         {

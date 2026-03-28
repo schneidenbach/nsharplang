@@ -275,13 +275,27 @@ func A() {
 
             var doc = JsonDocument.Parse(stdout);
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            if (results.Length >= 2)
+            Assert.True(results.Length >= 2,
+                $"Expected at least 2 diagnostics from 2 files, got {results.Length}");
+
+            // Verify ALL consecutive pairs are sorted by file, then by line
+            for (int i = 0; i < results.Length - 1; i++)
             {
-                var file0 = results[0].GetProperty("file").GetString() ?? "";
-                var file1 = results[1].GetProperty("file").GetString() ?? "";
-                // Results should be sorted by file name
-                Assert.True(string.Compare(file0, file1, StringComparison.Ordinal) <= 0,
-                    $"Expected diagnostics sorted by file, got: {file0} then {file1}");
+                var fileA = results[i].GetProperty("file").GetString() ?? "";
+                var fileB = results[i + 1].GetProperty("file").GetString() ?? "";
+                var cmp = string.Compare(fileA, fileB, StringComparison.Ordinal);
+                if (cmp == 0)
+                {
+                    var lineA = results[i].GetProperty("line").GetInt32();
+                    var lineB = results[i + 1].GetProperty("line").GetInt32();
+                    Assert.True(lineA <= lineB,
+                        $"Diagnostics not sorted by line within {fileA}: line {lineA} before {lineB}");
+                }
+                else
+                {
+                    Assert.True(cmp < 0,
+                        $"Diagnostics not sorted by file: {fileA} before {fileB}");
+                }
             }
         }
         finally

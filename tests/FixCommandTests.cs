@@ -106,10 +106,16 @@ func Main() {
             var filePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(filePath, source);
 
-            CaptureConsole(() =>
+            var (exitCode, stdout, _) = CaptureConsole(() =>
                 FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
 
-            // File should be untouched
+            // Confirm fixes WERE discovered (exit code 1 means pending fixes)
+            Assert.Equal(1, exitCode);
+            var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("filesModified").GetInt32() > 0,
+                "Expected dry-run to discover fixes, but filesModified was 0");
+
+            // File should be untouched despite pending fixes
             Assert.Equal(source, File.ReadAllText(filePath));
         }
         finally
