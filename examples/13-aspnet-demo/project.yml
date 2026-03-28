@@ -19,8 +19,6 @@ dependencies:
   # NuGet packages (with version)
   - nuget: Microsoft.EntityFrameworkCore.Sqlite
     version: 9.0.0
-  - nuget: Microsoft.EntityFrameworkCore.Design
-    version: 9.0.0
   - nuget: Swashbuckle.AspNetCore
     version: 7.2.0
   - nuget: Microsoft.AspNetCore.OpenApi
