@@ -550,6 +550,11 @@ public class Lexer
                 if (PeekNext() == '.')
                     break;
 
+                // Only treat as decimal point if followed by a digit.
+                // Otherwise it's member access (e.g., 5.ToString(), 5.Times(...))
+                if (!char.IsDigit(PeekNext()))
+                    break;
+
                 if (isFloat)
                     throw new Exception($"Invalid number format at {_fileName ?? "?"}:{startLine}:{startColumn}");
 
