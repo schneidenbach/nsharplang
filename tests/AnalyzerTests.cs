@@ -2565,4 +2565,272 @@ public class AnalyzerTests
             }
         ", AspNetCoreConfig);
     }
+
+    // ================================================================
+    // N#-declared method overload resolution
+    // ================================================================
+
+    [Fact]
+    public void OverloadResolution_ClassMethod_IntOverload()
+    {
+        AssertNoErrors(@"
+            class Processor {
+                func Process(x: int): int {
+                    return x
+                }
+                func Process(x: string): string {
+                    return x
+                }
+            }
+            func Main() {
+                p := new Processor()
+                result := p.Process(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ClassMethod_StringOverload()
+    {
+        AssertNoErrors(@"
+            class Processor {
+                func Process(x: int): int {
+                    return x
+                }
+                func Process(x: string): string {
+                    return x
+                }
+            }
+            func Main() {
+                p := new Processor()
+                result := p.Process(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ClassMethod_MultipleParams()
+    {
+        AssertNoErrors(@"
+            class Math {
+                func Add(a: int, b: int): int {
+                    return a
+                }
+                func Add(a: string, b: string): string {
+                    return a
+                }
+            }
+            func Main() {
+                m := new Math()
+                r1 := m.Add(1, 2)
+                r2 := m.Add(""a"", ""b"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ClassMethod_DifferentArity()
+    {
+        AssertNoErrors(@"
+            class Logger {
+                func Log(msg: string) {
+                }
+                func Log(msg: string, level: int) {
+                }
+            }
+            func Main() {
+                l := new Logger()
+                l.Log(""hello"")
+                l.Log(""hello"", 3)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_StructMethod()
+    {
+        AssertNoErrors(@"
+            struct Point {
+                x: int
+                y: int
+                func Scale(factor: int): int {
+                    return factor
+                }
+                func Scale(factor: double): double {
+                    return factor
+                }
+            }
+            func Main() {
+                p := new Point()
+                r := p.Scale(2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_NoMatchingOverload_Error()
+    {
+        AssertHasError(@"
+            class Processor {
+                func Process(x: int): int {
+                    return x
+                }
+                func Process(x: string): string {
+                    return x
+                }
+            }
+            func Main() {
+                p := new Processor()
+                p.Process(true)
+            }
+        ", "No matching overload");
+    }
+
+    [Fact]
+    public void OverloadResolution_TopLevelFunctions()
+    {
+        AssertNoErrors(@"
+            func Greet(name: string): string {
+                return name
+            }
+            func Greet(name: string, greeting: string): string {
+                return greeting
+            }
+            func Main() {
+                r1 := Greet(""Alice"")
+                r2 := Greet(""Alice"", ""Hi"")
+            }
+        ");
+    }
+
+    // ================================================================
+    // Generic type inference for N#-declared functions
+    // ================================================================
+
+    [Fact]
+    public void GenericInference_Identity_Int()
+    {
+        AssertNoErrors(@"
+            func Identity<T>(x: T): T {
+                return x
+            }
+            func Main() {
+                result := Identity(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_Identity_String()
+    {
+        AssertNoErrors(@"
+            func Identity<T>(x: T): T {
+                return x
+            }
+            func Main() {
+                result := Identity(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ExplicitTypeArg()
+    {
+        AssertNoErrors(@"
+            func Identity<T>(x: T): T {
+                return x
+            }
+            func Main() {
+                result := Identity<int>(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_TwoTypeParams()
+    {
+        AssertNoErrors(@"
+            func Pair<A, B>(a: A, b: B): A {
+                return a
+            }
+            func Main() {
+                result := Pair(1, ""two"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ClassMethod()
+    {
+        AssertNoErrors(@"
+            class Container {
+                func Wrap<T>(value: T): T {
+                    return value
+                }
+            }
+            func Main() {
+                c := new Container()
+                r := c.Wrap(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ClassMethodOverload_WithGeneric()
+    {
+        // Non-generic overload should be preferred over generic when both match
+        AssertNoErrors(@"
+            class Converter {
+                func Convert(x: int): string {
+                    return ""int""
+                }
+                func Convert<T>(x: T): T {
+                    return x
+                }
+            }
+            func Main() {
+                c := new Converter()
+                r1 := c.Convert(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_AmbiguousCall_Error()
+    {
+        AssertHasError(@"
+            class Processor {
+                func Do(x: int, y: int): int {
+                    return x
+                }
+                func Do(a: int, b: int): int {
+                    return a
+                }
+            }
+            func Main() {
+                p := new Processor()
+                p.Do(1, 2)
+            }
+        ", "Ambiguous call");
+    }
+
+    [Fact]
+    public void OverloadResolution_ParamsOverload()
+    {
+        AssertNoErrors(@"
+            class Formatter {
+                func Format(msg: string): string {
+                    return msg
+                }
+                func Format(msg: string, params args: int[]): string {
+                    return msg
+                }
+            }
+            func Main() {
+                f := new Formatter()
+                f.Format(""hello"")
+                f.Format(""hello"", 1, 2, 3)
+            }
+        ");
+    }
 }

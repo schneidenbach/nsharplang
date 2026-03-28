@@ -1997,17 +1997,9 @@ public class Analyzer
         // Handle declared types
         if (objectType is ClassTypeInfo classType)
         {
-            var member = classType.Declaration.Members.FirstOrDefault(m =>
-                (m is FieldDeclaration fd && fd.Name == memberName) ||
-                (m is PropertyDeclaration pd && pd.Name == memberName) ||
-                (m is FunctionDeclaration func && func.Name == memberName));
-
-            if (member is FieldDeclaration field)
-                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-            if (member is PropertyDeclaration property)
-                return ResolveType(property.Type);
-            if (member is FunctionDeclaration func)
-                return CreateFunctionTypeInfo(func);
+            var resolvedMember = ResolveDeclaredMember(classType.Declaration.Members, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
 
             // If member not found, check base class
             if (classType.Declaration.BaseClass != null)
@@ -2021,44 +2013,23 @@ public class Analyzer
 
         if (objectType is StructTypeInfo structType)
         {
-            var member = structType.Declaration.Members.FirstOrDefault(m =>
-                (m is FieldDeclaration fd && fd.Name == memberName) ||
-                (m is PropertyDeclaration pd && pd.Name == memberName) ||
-                (m is FunctionDeclaration func && func.Name == memberName));
-
-            if (member is FieldDeclaration field)
-                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-            if (member is PropertyDeclaration property)
-                return ResolveType(property.Type);
-            if (member is FunctionDeclaration func)
-                return CreateFunctionTypeInfo(func);
+            var resolvedMember = ResolveDeclaredMember(structType.Declaration.Members, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
         }
 
         if (objectType is RecordTypeInfo recordType)
         {
-            var member = recordType.Declaration.Members.FirstOrDefault(m =>
-                (m is FieldDeclaration fd && fd.Name == memberName) ||
-                (m is PropertyDeclaration pd && pd.Name == memberName) ||
-                (m is FunctionDeclaration func && func.Name == memberName));
-
-            if (member is FieldDeclaration field)
-                return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
-            if (member is PropertyDeclaration property)
-                return ResolveType(property.Type);
-            if (member is FunctionDeclaration func)
-                return CreateFunctionTypeInfo(func);
+            var resolvedMember = ResolveDeclaredMember(recordType.Declaration.Members, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
         }
 
         if (objectType is InterfaceTypeInfo interfaceType)
         {
-            var member = interfaceType.Declaration.Members.FirstOrDefault(m =>
-                (m is PropertyDeclaration pd && pd.Name == memberName) ||
-                (m is FunctionDeclaration func && func.Name == memberName));
-
-            if (member is PropertyDeclaration property)
-                return ResolveType(property.Type);
-            if (member is FunctionDeclaration func)
-                return CreateFunctionTypeInfo(func);
+            var resolvedMember = ResolveDeclaredMember(interfaceType.Declaration.Members, memberName);
+            if (resolvedMember != null)
+                return resolvedMember;
         }
 
         if (objectType is EnumTypeInfo)
@@ -2080,6 +2051,44 @@ public class Analyzer
 
         // Member not found on type, try extension methods
         return TryResolveExtensionMethod(objectType, memberName);
+    }
+
+    /// <summary>
+    /// Resolves a member from a list of N#-declared members by name.
+    /// Returns NSharpMethodGroupInfo when multiple function overloads exist.
+    /// </summary>
+    private TypeInfo? ResolveDeclaredMember(List<Declaration> members, string memberName)
+    {
+        // Collect all matching functions for overload resolution
+        var matchingFunctions = new List<FunctionDeclaration>();
+        Declaration? firstNonFunction = null;
+
+        foreach (var m in members)
+        {
+            if (m is FunctionDeclaration func && func.Name == memberName)
+            {
+                matchingFunctions.Add(func);
+            }
+            else if (firstNonFunction == null &&
+                     ((m is FieldDeclaration fd && fd.Name == memberName) ||
+                      (m is PropertyDeclaration pd && pd.Name == memberName)))
+            {
+                firstNonFunction = m;
+            }
+        }
+
+        // Fields and properties take priority over functions with the same name
+        if (firstNonFunction is FieldDeclaration field)
+            return field.Type != null ? ResolveType(field.Type) : BuiltInTypes.Unknown;
+        if (firstNonFunction is PropertyDeclaration property)
+            return ResolveType(property.Type);
+
+        if (matchingFunctions.Count == 1)
+            return CreateFunctionTypeInfo(matchingFunctions[0]);
+        if (matchingFunctions.Count > 1)
+            return new NSharpMethodGroupInfo(matchingFunctions);
+
+        return null;
     }
 
     private TypeInfo TryResolveExtensionMethod(TypeInfo targetType, string methodName)
@@ -2555,6 +2564,9 @@ public class Analyzer
                 }
                 else
                 {
+                    // Infer generic bindings for single N#-declared function
+                    var genericBindings = TryInferNSharpGenericBindings(funcType.Declaration, call, argTypes);
+
                     // Check each parameter type (non-params parameters)
                     int regularParamCount = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
                     for (int i = 0; i < regularParamCount && i < argTypes.Count; i++)
@@ -2562,6 +2574,7 @@ public class Analyzer
                         // For extension methods, parameter index in declaration is i + paramStartIndex
                         int paramIndex = i + paramStartIndex;
                         var paramType = ResolveType(parameters[paramIndex].Type);
+                        paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
                         var argType = argTypes[i];
 
                         if (!IsAssignable(paramType, argType))
@@ -2576,6 +2589,7 @@ public class Analyzer
                     {
                         var paramsParam = parameters[^1];
                         var paramsArrayType = ResolveType(paramsParam.Type);
+                        paramsArrayType = ApplyNSharpGenericBindings(paramsArrayType, genericBindings);
 
                         // Get element type from array type
                         if (paramsArrayType is ArrayTypeInfo arrayType)
@@ -2621,10 +2635,12 @@ public class Analyzer
                     }
                 }
 
-                // Return the declared return type
+                // Return the declared return type, with generic bindings applied
                 if (funcType.Declaration.ReturnType != null)
                 {
-                    return ResolveType(funcType.Declaration.ReturnType);
+                    var returnType = ResolveType(funcType.Declaration.ReturnType);
+                    var genericBindingsForReturn = TryInferNSharpGenericBindings(funcType.Declaration, call, argTypes);
+                    return ApplyNSharpGenericBindings(returnType, genericBindingsForReturn);
                 }
             }
             return funcType.ReturnType ?? BuiltInTypes.Void;
@@ -2658,6 +2674,25 @@ public class Analyzer
                 return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
         }
 
+        // Handle N#-declared method group (overloaded N# methods)
+        if (calleeType is NSharpMethodGroupInfo nsharpGroup)
+        {
+            var boundDecl = BindNSharpCall(nsharpGroup, call, argTypes);
+            if (boundDecl != null)
+            {
+                // Validate arguments against the selected overload
+                ValidateNSharpCallArguments(boundDecl, call, argTypes);
+                return boundDecl.ReturnType != null
+                    ? ResolveNSharpReturnType(boundDecl, call, argTypes)
+                    : BuiltInTypes.Void;
+            }
+
+            // No matching overload found
+            Error(ErrorCode.NoMatchingOverload,
+                $"No matching overload found for '{nsharpGroup.Declarations[0].Name}' with {argTypes.Count} argument(s)",
+                call.Line, call.Column);
+        }
+
         return BuiltInTypes.Unknown;
     }
 
@@ -2678,6 +2713,353 @@ public class Analyzer
         {
             _currentExpectedType = previousExpectedType;
         }
+    }
+
+    /// <summary>
+    /// Selects the best-matching overload from a group of N#-declared methods.
+    /// Uses a scoring system analogous to BindReflectionCall.
+    /// Reports an ambiguity error when two overloads score equally.
+    /// </summary>
+    private FunctionDeclaration? BindNSharpCall(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
+    {
+        FunctionDeclaration? bestDecl = null;
+        int bestScore = -1;
+        bool ambiguous = false;
+
+        foreach (var decl in methodGroup.Declarations)
+        {
+            var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+            var paramStart = isExtension ? 1 : 0;
+            var effectiveParamCount = decl.Parameters.Count - paramStart;
+            var hasParams = decl.Parameters.Count > 0 &&
+                            decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+
+            // Count required parameters
+            int requiredCount = 0;
+            for (int i = paramStart; i < decl.Parameters.Count; i++)
+            {
+                if (decl.Parameters[i].Modifier == Ast.ParameterModifier.Params)
+                    continue;
+                if (decl.Parameters[i].DefaultValue == null)
+                    requiredCount++;
+            }
+
+            // Check arity
+            if (argTypes.Count < requiredCount)
+                continue;
+            if (!hasParams && argTypes.Count > effectiveParamCount)
+                continue;
+
+            // Try generic inference if needed
+            var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
+
+            // Score each argument
+            int score = 0;
+            bool allMatch = true;
+
+            int regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
+            for (int i = 0; i < argTypes.Count && i < regularParamCount; i++)
+            {
+                var paramType = ResolveType(decl.Parameters[i + paramStart].Type);
+                paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
+                var argType = argTypes[i];
+
+                if (!IsAssignable(paramType, argType))
+                {
+                    allMatch = false;
+                    break;
+                }
+
+                score += GetNSharpMatchScore(paramType, argType);
+            }
+
+            if (!allMatch)
+                continue;
+
+            // Validate params arguments if present
+            if (hasParams && argTypes.Count > regularParamCount)
+            {
+                var paramsParamType = ResolveType(decl.Parameters[^1].Type);
+                paramsParamType = ApplyNSharpGenericBindings(paramsParamType, genericBindings);
+
+                if (paramsParamType is ArrayTypeInfo paramsArrayType)
+                {
+                    bool paramsMatch = true;
+                    for (int i = regularParamCount; i < argTypes.Count; i++)
+                    {
+                        if (!IsAssignable(paramsArrayType.ElementType, argTypes[i]))
+                        {
+                            paramsMatch = false;
+                            break;
+                        }
+                        score += GetNSharpMatchScore(paramsArrayType.ElementType, argTypes[i]);
+                    }
+
+                    if (!paramsMatch)
+                        continue;
+                }
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestDecl = decl;
+                ambiguous = false;
+            }
+            else if (score == bestScore && bestDecl != null)
+            {
+                // Tie-breaking rules (C# semantics):
+                // 1. Non-generic preferred over generic
+                // 2. Non-params preferred over params
+                // 3. More parameters (fewer defaults used) preferred
+                bool currentIsGeneric = decl.TypeParameters != null && decl.TypeParameters.Count > 0;
+                bool bestIsGeneric = bestDecl.TypeParameters != null && bestDecl.TypeParameters.Count > 0;
+                bool currentHasParams = decl.Parameters.Count > 0 &&
+                                        decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+                bool bestHasParams = bestDecl.Parameters.Count > 0 &&
+                                     bestDecl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+
+                if (bestIsGeneric && !currentIsGeneric)
+                {
+                    bestDecl = decl;
+                    ambiguous = false;
+                }
+                else if (!bestIsGeneric && currentIsGeneric)
+                {
+                    // Best (non-generic) already wins
+                }
+                else if (bestHasParams && !currentHasParams)
+                {
+                    bestDecl = decl;
+                    ambiguous = false;
+                }
+                else if (!bestHasParams && currentHasParams)
+                {
+                    // Best (non-params) already wins
+                }
+                else
+                {
+                    ambiguous = true;
+                }
+            }
+        }
+
+        if (ambiguous && bestDecl != null)
+        {
+            Error($"Ambiguous call to '{bestDecl.Name}' — multiple overloads match with equal specificity",
+                call.Line, call.Column);
+        }
+
+        return bestDecl;
+    }
+
+    /// <summary>
+    /// Scores how well an argument type matches a parameter type for N#-declared methods.
+    /// Exact match = 8, assignable = 4, fallback = 2.
+    /// </summary>
+    private int GetNSharpMatchScore(TypeInfo parameterType, TypeInfo argumentType)
+    {
+        var resolvedParam = ResolveTypeAlias(parameterType);
+        var resolvedArg = ResolveTypeAlias(argumentType);
+
+        // Exact match by reference or string representation
+        if (resolvedParam == resolvedArg)
+            return 8;
+        if (resolvedParam.ToString() == resolvedArg.ToString())
+            return 8;
+
+        // Assignable but not exact
+        if (IsAssignable(resolvedParam, resolvedArg))
+            return 4;
+
+        return 2;
+    }
+
+    /// <summary>
+    /// Validates arguments against a selected N#-declared overload and reports type errors.
+    /// </summary>
+    private void ValidateNSharpCallArguments(FunctionDeclaration decl, CallExpression call, List<TypeInfo> argTypes)
+    {
+        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+        var paramStart = isExtension ? 1 : 0;
+        var effectiveParamCount = decl.Parameters.Count - paramStart;
+        var hasParams = decl.Parameters.Count > 0 &&
+                        decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+        var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
+
+        int regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
+        for (int i = 0; i < regularParamCount && i < argTypes.Count; i++)
+        {
+            int paramIndex = i + paramStart;
+            var paramType = ResolveType(decl.Parameters[paramIndex].Type);
+            paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
+            var argType = argTypes[i];
+
+            if (!IsAssignable(paramType, argType))
+            {
+                Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{decl.Parameters[paramIndex].Name}' of type '{paramType}'",
+                    call.Line, call.Column);
+            }
+        }
+
+        // Validate params arguments
+        if (hasParams && argTypes.Count > regularParamCount)
+        {
+            var paramsParamType = ResolveType(decl.Parameters[^1].Type);
+            paramsParamType = ApplyNSharpGenericBindings(paramsParamType, genericBindings);
+
+            if (paramsParamType is ArrayTypeInfo paramsArrayType)
+            {
+                for (int i = regularParamCount; i < argTypes.Count; i++)
+                {
+                    var argType = argTypes[i];
+                    if (!IsAssignable(paramsArrayType.ElementType, argType))
+                    {
+                        Error($"Params argument {i + 1} of type '{argType}' is not assignable to params array element type '{paramsArrayType.ElementType}'",
+                            call.Line, call.Column);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolves the return type of an N#-declared function, applying generic bindings if needed.
+    /// </summary>
+    private TypeInfo ResolveNSharpReturnType(FunctionDeclaration decl, CallExpression call, List<TypeInfo> argTypes)
+    {
+        if (decl.ReturnType == null)
+            return BuiltInTypes.Void;
+
+        var returnType = ResolveType(decl.ReturnType);
+        var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
+        return ApplyNSharpGenericBindings(returnType, genericBindings);
+    }
+
+    /// <summary>
+    /// Tries to infer generic type bindings for an N#-declared function call.
+    /// Maps type parameter names to concrete TypeInfo values.
+    /// </summary>
+    private Dictionary<string, TypeInfo>? TryInferNSharpGenericBindings(
+        FunctionDeclaration decl,
+        CallExpression call,
+        List<TypeInfo> argTypes)
+    {
+        if (decl.TypeParameters == null || decl.TypeParameters.Count == 0)
+            return null;
+
+        var bindings = new Dictionary<string, TypeInfo>();
+
+        // First: use explicit type arguments if provided
+        if (call.TypeArguments != null && call.TypeArguments.Count > 0)
+        {
+            if (call.TypeArguments.Count != decl.TypeParameters.Count)
+                return null; // Arity mismatch on type args
+
+            for (int i = 0; i < decl.TypeParameters.Count; i++)
+            {
+                bindings[decl.TypeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
+            }
+            return bindings;
+        }
+
+        // Second: infer from argument types
+        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+        var paramStart = isExtension ? 1 : 0;
+
+        for (int i = 0; i < argTypes.Count && (i + paramStart) < decl.Parameters.Count; i++)
+        {
+            var paramTypeRef = decl.Parameters[i + paramStart].Type;
+            TryMatchNSharpTypeParameter(paramTypeRef, argTypes[i], decl.TypeParameters, bindings);
+        }
+
+        return bindings;
+    }
+
+    /// <summary>
+    /// Recursively matches a parameter type reference against an argument type to infer generic bindings.
+    /// </summary>
+    private void TryMatchNSharpTypeParameter(
+        TypeReference paramTypeRef,
+        TypeInfo argType,
+        List<TypeParameter> typeParameters,
+        Dictionary<string, TypeInfo> bindings)
+    {
+        if (paramTypeRef is SimpleTypeReference simple)
+        {
+            // Check if this simple type name is a type parameter
+            foreach (var tp in typeParameters)
+            {
+                if (tp.Name == simple.Name)
+                {
+                    // Bind it if not already bound, or verify consistency
+                    if (!bindings.ContainsKey(tp.Name))
+                        bindings[tp.Name] = argType;
+                    return;
+                }
+            }
+        }
+        else if (paramTypeRef is GenericTypeReference generic)
+        {
+            // e.g., List<T> matched against List<int> → T=int
+            if (argType is GenericTypeInfo argGeneric &&
+                generic.Name == argGeneric.Name &&
+                generic.TypeArguments.Count == argGeneric.TypeArguments.Count)
+            {
+                for (int i = 0; i < generic.TypeArguments.Count; i++)
+                {
+                    TryMatchNSharpTypeParameter(generic.TypeArguments[i], argGeneric.TypeArguments[i], typeParameters, bindings);
+                }
+            }
+        }
+        else if (paramTypeRef is ArrayTypeReference array)
+        {
+            // T[] matched against int[] → T=int
+            if (argType is ArrayTypeInfo argArray)
+            {
+                TryMatchNSharpTypeParameter(array.ElementType, argArray.ElementType, typeParameters, bindings);
+            }
+        }
+        else if (paramTypeRef is NullableTypeReference nullable)
+        {
+            if (argType is NullableTypeInfo argNullable)
+            {
+                TryMatchNSharpTypeParameter(nullable.InnerType, argNullable.InnerType, typeParameters, bindings);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies inferred generic bindings to a resolved TypeInfo.
+    /// Replaces ExternalTypeInfo/SimpleTypeInfo matching type parameter names with their bound types.
+    /// </summary>
+    private TypeInfo ApplyNSharpGenericBindings(TypeInfo type, Dictionary<string, TypeInfo>? bindings)
+    {
+        if (bindings == null || bindings.Count == 0)
+            return type;
+
+        // Check if this type is a generic parameter that should be replaced
+        if (type is ExternalTypeInfo ext && bindings.TryGetValue(ext.Name, out var bound))
+            return bound;
+        if (type is SimpleTypeInfo simple && bindings.TryGetValue(simple.Name, out var simpleBound))
+            return simpleBound;
+
+        // Recurse into composite types
+        if (type is GenericTypeInfo generic)
+        {
+            var newArgs = generic.TypeArguments.Select(a => ApplyNSharpGenericBindings(a, bindings)).ToList();
+            return new GenericTypeInfo(generic.Name, newArgs);
+        }
+        if (type is ArrayTypeInfo array)
+        {
+            return new ArrayTypeInfo(ApplyNSharpGenericBindings(array.ElementType, bindings));
+        }
+        if (type is NullableTypeInfo nullable)
+        {
+            return new NullableTypeInfo(ApplyNSharpGenericBindings(nullable.InnerType, bindings));
+        }
+
+        return type;
     }
 
     private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
@@ -4033,8 +4415,40 @@ public class Analyzer
     private void DeclareSymbol(string name, TypeInfo type, int line, int column)
     {
         var currentScope = _scopes.Peek();
-        if (currentScope.Symbols.ContainsKey(name))
+        if (currentScope.Symbols.TryGetValue(name, out var existing))
         {
+            // Allow function overloading: merge into NSharpMethodGroupInfo
+            // Only if parameter signatures differ (same name + same params = duplicate error)
+            if (type is FunctionTypeInfo newFunc && newFunc.Declaration != null)
+            {
+                if (existing is FunctionTypeInfo existingFunc && existingFunc.Declaration != null)
+                {
+                    if (HasDistinctParameterSignature(newFunc.Declaration, new[] { existingFunc.Declaration }))
+                    {
+                        // Upgrade single function to method group
+                        currentScope.Symbols[name] = new NSharpMethodGroupInfo(
+                            new List<FunctionDeclaration> { existingFunc.Declaration, newFunc.Declaration });
+                        var kind = TypeInfoToDeclarationKind(type);
+                        var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
+                        _bindingMap.RecordDeclaration(decl);
+                        return;
+                    }
+                }
+
+                if (existing is NSharpMethodGroupInfo group)
+                {
+                    if (HasDistinctParameterSignature(newFunc.Declaration, group.Declarations))
+                    {
+                        // Add to existing method group
+                        group.Declarations.Add(newFunc.Declaration);
+                        var kind = TypeInfoToDeclarationKind(type);
+                        var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
+                        _bindingMap.RecordDeclaration(decl);
+                        return;
+                    }
+                }
+            }
+
             Error($"Symbol '{name}' is already declared in this scope", line, column);
         }
         else
@@ -4048,6 +4462,40 @@ public class Analyzer
             // Also record the declaration location in the scope for later lookup
             currentScope.RecordDeclarationLocation(name, _currentFilePath, line, column, kind);
         }
+    }
+
+    /// <summary>
+    /// Checks if a new function declaration has a distinct parameter signature
+    /// from all existing declarations (for overload validation).
+    /// </summary>
+    private static bool HasDistinctParameterSignature(
+        FunctionDeclaration newDecl,
+        IEnumerable<FunctionDeclaration> existingDecls)
+    {
+        foreach (var existing in existingDecls)
+        {
+            if (ParameterSignaturesMatch(newDecl, existing))
+                return false; // Duplicate signature found
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Compares two function declarations' parameter signatures (types only, not names).
+    /// Returns true if they have the same parameter types.
+    /// </summary>
+    private static bool ParameterSignaturesMatch(FunctionDeclaration a, FunctionDeclaration b)
+    {
+        if (a.Parameters.Count != b.Parameters.Count)
+            return false;
+
+        for (int i = 0; i < a.Parameters.Count; i++)
+        {
+            if (a.Parameters[i].Type.ToString() != b.Parameters[i].Type.ToString())
+                return false;
+        }
+
+        return true;
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)
@@ -4082,6 +4530,7 @@ public class Analyzer
         EnumTypeInfo => "enum",
         UnionTypeInfo => "union",
         FunctionTypeInfo => "function",
+        NSharpMethodGroupInfo => "function",
         _ => "variable"
     };
 
@@ -5616,6 +6065,14 @@ public record ReflectionMethodInfo(MethodInfo Method) : TypeInfo
 public record ReflectionMethodGroupInfo(MethodInfo[] Methods) : TypeInfo
 {
     public override string ToString() => Methods.Length > 0 ? $"{Methods[0].Name}(...)" : "method group";
+}
+
+/// <summary>
+/// Represents a group of overloaded N#-declared methods
+/// </summary>
+public record NSharpMethodGroupInfo(List<FunctionDeclaration> Declarations) : TypeInfo
+{
+    public override string ToString() => Declarations.Count > 0 ? $"{Declarations[0].Name}(...)" : "method group";
 }
 
 /// <summary>
