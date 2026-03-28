@@ -215,8 +215,9 @@ public class CompletionEngineTests
             Assert.Equal("name", result.Receiver);
 
             var allItems = result.Completions.Values.SelectMany(v => v).ToList();
-            // String should have instance members like Length, ToUpper, etc.
-            Assert.True(allItems.Count > 0, "Should have instance members for string");
+            // String should have well-known instance members
+            Assert.Contains(allItems, c => c.Name == "Length");
+            Assert.Contains(allItems, c => c.Name == "ToUpper");
         }
         finally { Cleanup(filePath); }
     }
@@ -271,6 +272,12 @@ public class CompletionEngineTests
             var result = engine.GetCompletions(snapshot, filePath, 10, 8);
 
             Assert.Equal(CompletionContext.MemberAccess, result.Context);
+
+            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
+            Assert.True(allItems.Count > 0, "Should have members for N# class Dog");
+            // Verify actual N# class members are present
+            Assert.Contains(allItems, c => c.Name == "Name");
+            Assert.Contains(allItems, c => c.Name == "Bark");
         }
         finally { Cleanup(filePath); }
     }
@@ -358,6 +365,17 @@ public class CompletionEngineTests
             var addFunc = result.Completions["functions"].FirstOrDefault(c => c.Name == "add");
             Assert.NotNull(addFunc);
             Assert.Equal("function", addFunc!.Kind);
+            Assert.NotNull(addFunc.Type); // return type should be populated
+            Assert.Equal("int", addFunc.Type);
+            Assert.False(addFunc.IsStatic);
+
+            // The function also appears via declarations with full parameter metadata
+            Assert.True(result.Completions.ContainsKey("types"));
+            var addDecl = result.Completions["types"].FirstOrDefault(c => c.Name == "add");
+            Assert.NotNull(addDecl);
+            Assert.NotNull(addDecl!.Parameters);
+            Assert.Contains("a", addDecl.Parameters!);
+            Assert.Contains("b", addDecl.Parameters!);
         }
         finally { Cleanup(filePath); }
     }

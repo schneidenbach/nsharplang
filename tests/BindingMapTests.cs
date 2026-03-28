@@ -72,7 +72,7 @@ public class BindingMapTests
     }
 
     [Fact]
-    public void RecordBinding_UsageBeforeDeclarationLine_StillResolves()
+    public void RecordBinding_StoredDeclaration_RetrievableRegardlessOfLineOrder()
     {
         var map = new BindingMap();
         // Declaration is on line 10, usage is on line 3 (forward reference)
@@ -255,9 +255,13 @@ public class BindingMapTests
         map.RecordBinding("test.nl", 5, 10, 1, declOld);
         map.RecordBinding("test.nl", 5, 10, 1, declNew);
 
+        // Forward lookup should return the latest binding
         var result = map.GetBindingAt("test.nl", 5, 10);
-
         Assert.Equal("newX", result!.Name);
+
+        // Reverse lookup: new declaration should have the usage
+        var newRefs = map.GetReferences(declNew);
+        Assert.Contains(newRefs, r => r.Line == 5 && r.Column == 10);
     }
 
     [Fact]

@@ -116,6 +116,24 @@ public class FixApplicatorTests
     }
 
     [Fact]
+    public void ApplyEdits_MultipleEdits_LineCountChange_PreservesPositions()
+    {
+        var source = "aaa\nbbb\nccc\nddd";
+        // First edit (line 3): replace "ccc" with two lines — shifts line count
+        // Second edit (line 1): replace "aaa" with "AAA"
+        // If applied top-to-bottom, the line-3 edit would shift and corrupt the result
+        var edits = new List<TextEdit>
+        {
+            new(1, 0, 1, 3, "AAA"),
+            new(3, 0, 3, 3, "CCC-1\nCCC-2")
+        };
+
+        var result = FixApplicator.ApplyEdits(source, edits);
+
+        Assert.Equal("AAA\nbbb\nCCC-1\nCCC-2\nddd", result);
+    }
+
+    [Fact]
     public void ApplyEdits_MultipleEditsOnSameLine_RightToLeft()
     {
         var source = "hello world foo";
@@ -220,7 +238,7 @@ public class FixApplicatorTests
 
         var result = FixApplicator.ApplyEdits(source, edits);
 
-        Assert.Contains("appended", result);
+        Assert.Equal("only line\nappended", result);
     }
 
     [Fact]
