@@ -854,6 +854,12 @@ public partial class ILCompiler
                 EmitStringLiteral(strLit);
                 break;
 
+            case InterpolatedStringExpression interpolated:
+                // For IL compilation, emit interpolated strings using string.Format or string.Concat
+                // For now, concatenate the parts as a simple approach
+                EmitInterpolatedString(interpolated);
+                break;
+
             case BoolLiteralExpression boolLit:
                 _currentIL.Emit(boolLit.Value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
                 break;
@@ -945,6 +951,57 @@ public partial class ILCompiler
         // Remove quotes from string value
         var value = strLit.Value.Trim('"');
         _currentIL.Emit(OpCodes.Ldstr, value);
+    }
+
+    /// <summary>
+    /// Emit IL for an interpolated string using string.Concat
+    /// </summary>
+    private void EmitInterpolatedString(InterpolatedStringExpression interpolated)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Simple approach: convert each part to a string and concatenate
+        var parts = new List<InterpolatedStringPart>(interpolated.Parts);
+        if (parts.Count == 0)
+        {
+            _currentIL.Emit(OpCodes.Ldstr, "");
+            return;
+        }
+
+        // Emit each part
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    _currentIL.Emit(OpCodes.Ldstr, text.Text);
+                    break;
+                case InterpolatedStringHole hole:
+                    EmitExpression(hole.Expression);
+                    // Convert to string if not already
+                    var exprType = GetExpressionType(hole.Expression);
+                    if (exprType != typeof(string))
+                    {
+                        if (exprType.IsValueType)
+                        {
+                            _currentIL.Emit(OpCodes.Box, exprType);
+                        }
+                        var toStringMethod = typeof(object).GetMethod("ToString", Type.EmptyTypes)!;
+                        _currentIL.Emit(OpCodes.Callvirt, toStringMethod);
+                    }
+                    break;
+            }
+        }
+
+        // Concatenate all parts
+        if (parts.Count > 1)
+        {
+            var concatMethod = typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) })!;
+            for (int i = 1; i < parts.Count; i++)
+            {
+                _currentIL.Emit(OpCodes.Call, concatMethod);
+            }
+        }
     }
 
     /// <summary>
@@ -1646,6 +1703,7 @@ public partial class ILCompiler
             IntLiteralExpression => typeof(int),
             FloatLiteralExpression => typeof(double),
             StringLiteralExpression => typeof(string),
+            InterpolatedStringExpression => typeof(string),
             BoolLiteralExpression => typeof(bool),
             NullLiteralExpression => typeof(object),
             IdentifierExpression ident => GetIdentifierType(ident),
