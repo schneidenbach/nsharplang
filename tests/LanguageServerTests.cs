@@ -492,6 +492,133 @@ func main(): void
         Assert.Contains(completions.Items, c => c.Label == "Substring");
     }
 
+    [Fact]
+    public async Task Completion_Snippet_FuncAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "f");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        var snippet = completions.Items.FirstOrDefault(
+            c => c.Label == "func" && c.Kind == CompletionItemKind.Snippet);
+        Assert.NotNull(snippet);
+        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
+        Assert.Contains("${1:name}", snippet.InsertText);
+        Assert.Contains("${2:params}", snippet.InsertText);
+        Assert.Contains("${3:void}", snippet.InsertText);
+    }
+
+    [Fact]
+    public async Task Completion_Snippet_IfAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "i");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        var snippet = completions.Items.FirstOrDefault(
+            c => c.Label == "if" && c.Kind == CompletionItemKind.Snippet);
+        Assert.NotNull(snippet);
+        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
+        Assert.Contains("${1:condition}", snippet.InsertText);
+    }
+
+    [Fact]
+    public async Task Completion_Snippet_MatchAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "m");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        var snippet = completions.Items.FirstOrDefault(
+            c => c.Label == "match" && c.Kind == CompletionItemKind.Snippet);
+        Assert.NotNull(snippet);
+        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
+        Assert.Contains("${1:value}", snippet.InsertText);
+        Assert.Contains("${2:pattern}", snippet.InsertText);
+    }
+
+    [Fact]
+    public async Task Completion_Snippet_ForAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "f");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        var snippet = completions.Items.FirstOrDefault(
+            c => c.Label == "for" && c.Kind == CompletionItemKind.Snippet);
+        Assert.NotNull(snippet);
+        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
+        Assert.Contains("${1:item}", snippet.InsertText);
+        Assert.Contains("${2:collection}", snippet.InsertText);
+    }
+
+    [Fact]
+    public async Task Completion_Snippet_TypeAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "t");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        var snippet = completions.Items.FirstOrDefault(
+            c => c.Label == "type" && c.Kind == CompletionItemKind.Snippet);
+        Assert.NotNull(snippet);
+        Assert.Equal(InsertTextFormat.Snippet, snippet.InsertTextFormat);
+        Assert.Contains("${1:Name}", snippet.InsertText);
+    }
+
+    [Fact]
+    public async Task Completion_Snippets_CoexistWithKeywordsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        harness.OpenDocument(uri, "f");
+
+        var completions = await harness.GetCompletionsAsync(uri, 0, 1);
+
+        // Both snippet and keyword versions of "func" should exist
+        var funcSnippet = completions.Items.First(
+            c => c.Label == "func" && c.Kind == CompletionItemKind.Snippet);
+        var funcKeyword = completions.Items.First(
+            c => c.Label == "func" && c.Kind == CompletionItemKind.Keyword);
+
+        Assert.NotNull(funcSnippet);
+        Assert.NotNull(funcKeyword);
+    }
+
+    [Fact]
+    public async Task Completion_Snippets_NotShownInMemberAccessAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    Console.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 2, 12);
+
+        // Snippets should NOT appear in member access context
+        Assert.DoesNotContain(completions.Items, c => c.Kind == CompletionItemKind.Snippet);
+    }
+
     #endregion
 
     #region Hover Tests

@@ -42,6 +42,15 @@ public class CompletionHandler : CompletionHandlerBase
         "byte", "short", "char", "decimal", "uint", "ulong", "ushort", "sbyte"
     };
 
+    // Snippet completions for common N# constructs
+    private static readonly (string Label, string Detail, string InsertText)[] Snippets = {
+        ("func", "func declaration", "func ${1:name}(${2:params}): ${3:void} {\n\t$0\n}"),
+        ("if", "if statement", "if ${1:condition} {\n\t$0\n}"),
+        ("match", "match expression", "match ${1:value} {\n\t${2:pattern} => ${3:result},\n\t_ => ${0:default}\n}"),
+        ("for", "for-in loop", "for ${1:item} in ${2:collection} {\n\t$0\n}"),
+        ("type", "type alias", "type ${1:Name} = ${0:Type}"),
+    };
+
     public CompletionHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<CompletionHandler> logger)
     {
         _documentManager = documentManager;
@@ -94,6 +103,16 @@ public class CompletionHandler : CompletionHandlerBase
             Kind = CompletionItemKind.Keyword,
             Detail = "keyword",
             InsertText = k
+        }));
+
+        // Add snippet completions for common constructs
+        items.AddRange(Snippets.Select(s => new CompletionItem
+        {
+            Label = s.Label,
+            Kind = CompletionItemKind.Snippet,
+            Detail = s.Detail,
+            InsertText = s.InsertText,
+            InsertTextFormat = InsertTextFormat.Snippet,
         }));
 
         // Add primitive types
