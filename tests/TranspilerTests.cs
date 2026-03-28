@@ -772,6 +772,61 @@ func DoWork() {
     }
 
     [Fact]
+    public void TestParameterAttributeTranspilation()
+    {
+        var source = @"
+func Create([FromBody] dto: TaskDto, [Required] name: string): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Parameter attributes should appear inline in the C# parameter list
+        Assert.Contains("[FromBody] TaskDto dto", result);
+        Assert.Contains("[Required] string name", result);
+    }
+
+    [Fact]
+    public void TestParameterAttributeWithArgumentsTranspilation()
+    {
+        var source = @"
+func Search([FromQuery(Name = ""q"")] query: string, [Range(1, 100)] page: int): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[FromQuery(Name = \"q\")] string query", result);
+        Assert.Contains("[Range(1, 100)] int page", result);
+    }
+
+    [Fact]
+    public void TestParameterMultipleAttributesTranspilation()
+    {
+        var source = @"
+func Create([FromBody] [Required] dto: TaskDto): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[FromBody] [Required] TaskDto dto", result);
+    }
+
+    [Fact]
+    public void TestParameterAttributesWithModifiersTranspilation()
+    {
+        var source = @"
+func Process([Required] ref data: byte[]): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[Required] ref byte[] data", result);
+    }
+
+    [Fact]
     public void TestExtensionMethodTranspilation()
     {
         var source = @"
