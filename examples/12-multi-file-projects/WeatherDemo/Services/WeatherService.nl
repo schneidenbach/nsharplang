@@ -1,6 +1,7 @@
 namespace WeatherDemo.Services
 
 import System
+import System.Collections.Generic
 import System.Linq
 import WeatherDemo.Models
 
@@ -14,15 +15,16 @@ class WeatherService {
 
     // Default parameter values
     func GetForecasts(days: int = 5): WeatherForecast[] {
-        // LINQ with lambdas and collection expressions
-        return Enumerable
-            .Range(0, days)
-            .Select(index => new WeatherForecast {
-                Date: DateTime.Now.AddDays(index),
+        // Build forecast list and convert to array
+        result := new List<WeatherForecast>()
+        for i := 0; i < days; i++ {
+            result.Add(new WeatherForecast {
+                Date: DateTime.Now.AddDays(i),
                 TemperatureC: Random.Shared.Next(-20, 55),
                 Summary: summaries[Random.Shared.Next(summaries.Length)]
             })
-            .ToArray()
+        }
+        return result.ToArray()
     }
 
     // Pattern matching with guards for classification

@@ -153,7 +153,7 @@ namespace NSharpLang.VisualStudio.LanguageServer
             var currentDir = new DirectoryInfo(assemblyDir);
             while (currentDir != null)
             {
-                langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
+                var langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
                     "bin", "Debug", "net9.0", "LanguageServer.dll");
 
                 if (File.Exists(langServerPath))

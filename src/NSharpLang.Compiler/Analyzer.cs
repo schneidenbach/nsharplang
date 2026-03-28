@@ -38,6 +38,8 @@ public class Analyzer
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
+    private bool _assemblyResolveRegistered; // Guard for AssemblyResolve handler
+    private readonly HashSet<string> _resolvingAssemblies = new(); // Reentrancy guard for AssemblyResolve
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -3537,7 +3539,14 @@ public class Analyzer
             // Try referenced assemblies (NEW)
             foreach (var assembly in _referencedAssemblies)
             {
-                type = assembly.GetType(fullName);
+                try
+                {
+                    type = assembly.GetType(fullName);
+                }
+                catch
+                {
+                    continue;
+                }
                 if (type != null)
                 {
                     _externalTypeCache[fullName] = type;
@@ -4952,6 +4961,13 @@ public class Analyzer
     /// </summary>
     public void LoadSystemAssemblies()
     {
+        // Register handler to resolve transitive NuGet/framework dependencies at runtime
+        if (!_assemblyResolveRegistered)
+        {
+            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+            _assemblyResolveRegistered = true;
+        }
+
         var commonAssemblies = new[]
         {
             "System.Runtime",
@@ -4966,6 +4982,129 @@ public class Analyzer
         foreach (var assemblyName in commonAssemblies)
         {
             LoadReferencedAssemblyByName(assemblyName);
+        }
+    }
+
+    /// <summary>
+    /// Handles assembly resolution for transitive dependencies of loaded NuGet packages.
+    /// Searches the NuGet cache and shared framework directories.
+    /// </summary>
+    private Assembly? OnAssemblyResolve(object? sender, ResolveEventArgs args)
+    {
+        var assemblyName = new AssemblyName(args.Name);
+        var simpleName = assemblyName.Name;
+        if (simpleName == null) return null;
+
+        // Reentrancy guard — prevent infinite recursion if LoadFrom triggers another resolve
+        if (!_resolvingAssemblies.Add(simpleName))
+            return null;
+
+        try
+        {
+            // Check if already loaded in our referenced assemblies
+            foreach (var loaded in _referencedAssemblies)
+            {
+                if (string.Equals(loaded.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
+                    return loaded;
+            }
+
+            // Try NuGet cache
+            var nugetBase = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget", "packages", simpleName.ToLowerInvariant());
+
+            if (Directory.Exists(nugetBase))
+            {
+                var versionDir = Directory.GetDirectories(nugetBase)
+                    .OrderByDescending(d => d)
+                    .FirstOrDefault();
+
+                if (versionDir != null)
+                {
+                    var tfms = new[] { "net9.0", "net8.0", "netstandard2.1", "netstandard2.0" };
+                    foreach (var tfm in tfms)
+                    {
+                        var dllPath = Path.Combine(versionDir, "lib", tfm, $"{simpleName}.dll");
+                        if (File.Exists(dllPath))
+                        {
+                            try { return Assembly.LoadFrom(dllPath); }
+                            catch { /* continue searching */ }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: search NuGet packages with matching prefix for the DLL
+            // (handles cases like Microsoft.CodeAnalysis in package microsoft.codeanalysis.common)
+            var nugetRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget", "packages");
+            if (Directory.Exists(nugetRoot))
+            {
+                try
+                {
+                    var prefix = simpleName.ToLowerInvariant();
+                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot)
+                        .Where(d => Path.GetFileName(d)!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var latestVer = Directory.GetDirectories(pkgDir)
+                            .OrderByDescending(d => d)
+                            .FirstOrDefault();
+                        if (latestVer == null) continue;
+
+                        var tfms = new[] { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
+                        foreach (var tfm in tfms)
+                        {
+                            var dllPath = Path.Combine(latestVer, "lib", tfm, $"{simpleName}.dll");
+                            if (File.Exists(dllPath))
+                            {
+                                try { return Assembly.LoadFrom(dllPath); }
+                                catch { /* continue searching */ }
+                            }
+                        }
+                    }
+                }
+                catch { /* NuGet fallback search failed, continue */ }
+            }
+
+            // Try shared framework directories
+            try
+            {
+                var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+                var searchDir = runtimeDir;
+
+                for (int i = 0; i < 5; i++)
+                {
+                    searchDir = Path.GetDirectoryName(searchDir);
+                    if (searchDir == null) break;
+                    if (Path.GetFileName(searchDir) == "shared")
+                    {
+                        foreach (var fw in new[] { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" })
+                        {
+                            var fwPath = Path.Combine(searchDir, fw);
+                            if (!Directory.Exists(fwPath)) continue;
+
+                            foreach (var ver in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
+                            {
+                                var dllPath = Path.Combine(ver, $"{simpleName}.dll");
+                                if (File.Exists(dllPath))
+                                {
+                                    try { return Assembly.LoadFrom(dllPath); }
+                                    catch { /* continue searching */ }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            catch { /* shared framework search failed, continue */ }
+
+            return null;
+        }
+        finally
+        {
+            _resolvingAssemblies.Remove(simpleName);
         }
     }
 
