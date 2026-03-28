@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -295,5 +296,113 @@ public class FixApplicatorTests
         var result = FixApplicator.ApplyEdits(source, edits);
 
         Assert.Equal("new line", result);
+    }
+
+    // ── Overlapping Edit Detection ──────────────────────────────────────
+
+    [Fact]
+    public void ApplyEdits_OverlappingSameLine_Throws()
+    {
+        var source = "abcdefghijklmnop";
+        var edits = new List<TextEdit>
+        {
+            new(1, 2, 1, 8, "XX"),   // replace cols 2-8
+            new(1, 5, 1, 12, "YY")   // replace cols 5-12 (overlaps)
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Overlapping edits detected", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_OverlappingAcrossLines_Throws()
+    {
+        var source = "line1\nline2\nline3\nline4\nline5";
+        var edits = new List<TextEdit>
+        {
+            new(2, 0, 4, 0, "A"),  // spans lines 2-4
+            new(3, 0, 5, 0, "B")   // spans lines 3-5 (overlaps)
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Overlapping edits detected", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_AdjacentNonOverlapping_Succeeds()
+    {
+        var source = "abcdefghij";
+        var edits = new List<TextEdit>
+        {
+            new(1, 0, 1, 5, "ABCDE"),  // cols 0-5
+            new(1, 5, 1, 10, "FGHIJ")  // cols 5-10 (adjacent, not overlapping)
+        };
+
+        var result = FixApplicator.ApplyEdits(source, edits);
+
+        Assert.Equal("ABCDEFGHIJ", result);
+    }
+
+    [Fact]
+    public void ApplyEdits_FullyNestedEdit_Throws()
+    {
+        var source = "abcdefghijklmnop";
+        var edits = new List<TextEdit>
+        {
+            new(1, 0, 1, 15, "OUTER"),  // entire line
+            new(1, 3, 1, 8, "INNER")    // nested inside
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Overlapping edits detected", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_SameStartInsertAndReplace_Throws()
+    {
+        var source = "abcdefghij";
+        var edits = new List<TextEdit>
+        {
+            new(1, 2, 1, 4, "RR"),  // replace cols 2-4
+            new(1, 2, 1, 2, "I")    // insert at col 2 (same start)
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Overlapping edits detected", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_SameStartShorterAndLongerReplace_Throws()
+    {
+        var source = "abcdefghij";
+        var edits = new List<TextEdit>
+        {
+            new(1, 2, 1, 5, "XX"),  // replace cols 2-5
+            new(1, 2, 1, 8, "YY")  // replace cols 2-8 (same start, wider)
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Overlapping edits detected", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_SamePositionZeroWidthInserts_Succeeds()
+    {
+        var source = "abcdef";
+        var edits = new List<TextEdit>
+        {
+            new(1, 3, 1, 3, "X"),  // insert at col 3
+            new(1, 3, 1, 3, "Y")   // insert at col 3 (same position, both zero-width)
+        };
+
+        // Same-position zero-width inserts are allowed (order-dependent by design)
+        var result = FixApplicator.ApplyEdits(source, edits);
+        Assert.Contains("X", result);
+        Assert.Contains("Y", result);
     }
 }
