@@ -105,17 +105,21 @@ internal static class TopLevelFunctions
 ```
 
 ### Type Aliases
-N# type alias → C# comment (no runtime representation)
+N# type alias → C# file-scoped `using` alias directive with fully qualified type names
 
 **N# code:**
 ```
-type StringList = List<string>
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
 ```
 
 **Generated C#:**
 ```csharp
-// type alias: StringList = List<string>
+using StringDict = System.Collections.Generic.Dictionary<string, string>;
+using Callback = System.Action;
 ```
+
+Using aliases are emitted at the top of the file, after namespace imports but before namespace/class declarations. Well-known .NET types are mapped to their fully qualified names. `Func<void>` maps to `System.Action`.
 
 ## Convention to Explicit Modifiers
 
