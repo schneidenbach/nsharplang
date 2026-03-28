@@ -45,7 +45,27 @@ public static class FixApplicator
         var sortedEdits = edits
             .OrderByDescending(e => e.StartLine)
             .ThenByDescending(e => e.StartColumn)
+            .ThenBy(e => e.EndLine)
+            .ThenBy(e => e.EndColumn)
             .ToList();
+
+        // Detect overlapping edits before applying any changes
+        for (int i = 0; i < sortedEdits.Count - 1; i++)
+        {
+            var high = sortedEdits[i];     // higher start position (later in file)
+            var low = sortedEdits[i + 1];  // lower start position (earlier in file)
+
+            // high overlaps with low if high's start is strictly before low's end
+            bool overlaps = high.StartLine < low.EndLine
+                || (high.StartLine == low.EndLine && high.StartColumn < low.EndColumn);
+
+            if (overlaps)
+            {
+                throw new InvalidOperationException(
+                    $"Overlapping edits detected: edit at ({low.StartLine},{low.StartColumn})..({low.EndLine},{low.EndColumn}) " +
+                    $"overlaps with edit at ({high.StartLine},{high.StartColumn})..({high.EndLine},{high.EndColumn})");
+            }
+        }
 
         foreach (var edit in sortedEdits)
         {
