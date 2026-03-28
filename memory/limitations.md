@@ -157,19 +157,15 @@ import "Models/Person"
 
 ## Transpiler
 
-### 11. Type Aliases in Transpiled Code
-**Current:** Type aliases emitted as comments (no runtime representation).
+### 11. Type Aliases — Same-Namespace and Nullable Limitations
+**Current:** Type aliases now emit as C# file-scoped `using` directives. However, two edge cases remain:
 
-```
-type StringList = List<string>
+1. **Same-namespace types:** `type Foo = MyLocalClass` where `MyLocalClass` is in the same file's namespace will fail because `using` aliases appear before the namespace declaration and can't see types declared later.
+2. **Nullable reference types:** `type MaybeString = string?` will fail with CS9132 — C# does not allow nullable reference types in `using` aliases.
 
-// Transpiles to:
-// // type alias: StringList = List<string>
-```
+**Why:** C# `using` alias restrictions.
 
-**Why:** C# doesn't support type aliases at type level (only `using` aliases).
-
-**Future:** None (C# limitation). Consider preprocessor approach.
+**Future:** Consider emitting these edge cases as comments with a compiler warning diagnostic.
 
 ## Performance
 
