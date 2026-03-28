@@ -710,10 +710,93 @@ type Handler = Func<string, void>
 
         var result = Transpile(source);
 
-        // Type aliases should be emitted as comments in C# (C# doesn't support type aliases at type level)
-        Assert.Contains("// type UserId = int", result);
-        // Func<string, void> transpiles to Action<string>
-        Assert.Contains("// type Handler = Action<string>", result);
+        // Type aliases emit as C# file-scoped using directives
+        Assert.Contains("using UserId = int;", result);
+        // Func<string, void> transpiles to System.Action<string>
+        Assert.Contains("using Handler = System.Action<string>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasFullyQualified()
+    {
+        var source = @"
+type StringDict = Dictionary<string, string>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using StringDict = System.Collections.Generic.Dictionary<string, string>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasFuncVoidToAction()
+    {
+        var source = @"
+type Callback = Func<void>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using Callback = System.Action;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasMultiple()
+    {
+        var source = @"
+type UserId = int
+type Name = string
+type Lookup = Dictionary<string, int>
+type Callback = Func<void>
+type Handler = Func<string, void>
+type Transformer = Func<string, int>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using UserId = int;", result);
+        Assert.Contains("using Name = string;", result);
+        Assert.Contains("using Lookup = System.Collections.Generic.Dictionary<string, int>;", result);
+        Assert.Contains("using Callback = System.Action;", result);
+        Assert.Contains("using Handler = System.Action<string>;", result);
+        Assert.Contains("using Transformer = System.Func<string, int>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasAppearsBeforeNamespace()
+    {
+        var source = @"
+namespace MyApp
+
+type UserId = int
+
+class User {
+    Id: UserId
+}
+        ";
+
+        var result = Transpile(source);
+
+        // The using alias must appear before the namespace declaration
+        var usingIndex = result.IndexOf("using UserId = int;");
+        var namespaceIndex = result.IndexOf("namespace MyApp;");
+        Assert.True(usingIndex >= 0, "using alias should be present");
+        Assert.True(namespaceIndex >= 0, "namespace should be present");
+        Assert.True(usingIndex < namespaceIndex, "using alias must appear before namespace declaration");
+    }
+
+    [Fact]
+    public void TestTypeAliasNotEmittedAsComment()
+    {
+        var source = @"
+type UserId = int
+        ";
+
+        var result = Transpile(source);
+
+        // Should NOT emit as a comment anymore
+        Assert.DoesNotContain("// type UserId", result);
+        Assert.Contains("using UserId = int;", result);
     }
 
     [Fact]
