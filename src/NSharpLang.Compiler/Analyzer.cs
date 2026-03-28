@@ -4986,26 +4986,27 @@ public class Analyzer
     /// <summary>
     /// Static, process-singleton assembly resolver for transitive NuGet/framework dependencies.
     /// Registered once on AppDomain.CurrentDomain.AssemblyResolve and shared across all Analyzer instances.
-    /// Uses thread-safe collections and caches resolution results to avoid repeated file system scans.
+    /// Uses a lock for thread-safe resolution and caches successful results only.
     /// </summary>
     internal sealed class AssemblyResolver
     {
         private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
         private static readonly string[] FrameworkNames = { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" };
 
-        private int _registered; // 0 = not registered, 1 = registered (for Interlocked)
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Assembly?> _cache = new(StringComparer.OrdinalIgnoreCase);
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _resolving = new(StringComparer.OrdinalIgnoreCase);
-
-        // Lazily computed NuGet package directories (maps package dir name → full path)
-        private string[]? _nugetPackageDirs;
-        private readonly object _nugetDirLock = new();
+        // Successful resolutions only — misses are NOT cached so they can be retried after restore/install.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Assembly> _cache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly object _resolveLock = new();
+        private readonly HashSet<string> _resolving = new(StringComparer.OrdinalIgnoreCase); // same-thread reentrancy guard (under lock)
+        private bool _registered;
 
         public void EnsureRegistered()
         {
-            if (Interlocked.CompareExchange(ref _registered, 1, 0) == 0)
+            // Lock ensures the handler is fully attached before any caller proceeds.
+            lock (_resolveLock)
             {
+                if (_registered) return;
                 AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+                _registered = true;
             }
         }
 
@@ -5015,27 +5016,39 @@ public class Analyzer
             var simpleName = asmName.Name;
             if (simpleName == null) return null;
 
-            // Return cached result (including cached nulls for known misses)
+            // Fast path: return cached successful resolution
             if (_cache.TryGetValue(simpleName, out var cached))
                 return cached;
 
-            // Reentrancy guard — prevent infinite recursion if LoadFrom triggers another resolve
-            if (!_resolving.TryAdd(simpleName, 0))
-                return null;
+            // Serialize resolution so concurrent threads wait rather than returning null.
+            // The lock also protects the reentrancy guard set.
+            lock (_resolveLock)
+            {
+                // Double-check after acquiring lock
+                if (_cache.TryGetValue(simpleName, out cached))
+                    return cached;
 
-            try
-            {
-                var result = ResolveAssembly(simpleName);
-                _cache[simpleName] = result;
-                return result;
-            }
-            finally
-            {
-                _resolving.TryRemove(simpleName, out _);
+                // Reentrancy guard: if this thread is already resolving this name
+                // (e.g. Assembly.LoadFrom triggered another AssemblyResolve for the same name),
+                // return null to break the cycle.
+                if (!_resolving.Add(simpleName))
+                    return null;
+
+                try
+                {
+                    var result = ResolveAssembly(simpleName);
+                    if (result != null)
+                        _cache[simpleName] = result;
+                    return result;
+                }
+                finally
+                {
+                    _resolving.Remove(simpleName);
+                }
             }
         }
 
-        private Assembly? ResolveAssembly(string simpleName)
+        private static Assembly? ResolveAssembly(string simpleName)
         {
             // Check already-loaded assemblies in the AppDomain
             foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
@@ -5059,12 +5072,26 @@ public class Analyzer
 
             // Fallback: search NuGet packages with matching prefix
             // (handles cases like Microsoft.CodeAnalysis in package microsoft.codeanalysis.common)
-            found = TryLoadFromNuGetPrefix(nugetRoot, simpleName);
-            if (found != null) return found;
+            if (Directory.Exists(nugetRoot))
+            {
+                try
+                {
+                    var prefix = simpleName.ToLowerInvariant();
+                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
+                    {
+                        var dirName = Path.GetFileName(pkgDir);
+                        if (dirName == null || !dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var result = TryLoadFromNuGetPackageDir(pkgDir, simpleName);
+                        if (result != null) return result;
+                    }
+                }
+                catch { /* NuGet prefix search failed */ }
+            }
 
             // Try shared framework directories
-            found = TryLoadFromSharedFrameworks(simpleName);
-            return found;
+            return TryLoadFromSharedFrameworks(simpleName);
         }
 
         private static Assembly? TryLoadFromNuGetPackageDir(string packageDir, string simpleName)
@@ -5086,45 +5113,6 @@ public class Analyzer
                 }
             }
             return null;
-        }
-
-        private Assembly? TryLoadFromNuGetPrefix(string nugetRoot, string simpleName)
-        {
-            if (!Directory.Exists(nugetRoot)) return null;
-
-            // Cache the top-level package directory listing
-            var dirs = GetNuGetPackageDirs(nugetRoot);
-            var prefix = simpleName.ToLowerInvariant();
-
-            foreach (var pkgDir in dirs)
-            {
-                var dirName = Path.GetFileName(pkgDir);
-                if (dirName == null || !dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var result = TryLoadFromNuGetPackageDir(pkgDir, simpleName);
-                if (result != null) return result;
-            }
-            return null;
-        }
-
-        private string[] GetNuGetPackageDirs(string nugetRoot)
-        {
-            if (_nugetPackageDirs != null) return _nugetPackageDirs;
-
-            lock (_nugetDirLock)
-            {
-                if (_nugetPackageDirs != null) return _nugetPackageDirs;
-                try
-                {
-                    _nugetPackageDirs = Directory.GetDirectories(nugetRoot);
-                }
-                catch
-                {
-                    _nugetPackageDirs = Array.Empty<string>();
-                }
-                return _nugetPackageDirs;
-            }
         }
 
         private static Assembly? TryLoadFromSharedFrameworks(string simpleName)
