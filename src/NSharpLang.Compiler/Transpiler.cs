@@ -18,8 +18,9 @@ public class Transpiler
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
+    private readonly string? _sourceFilePath; // Source .nl file path for #line directives
 
-    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null)
     {
         _compilationUnit = compilationUnit;
         _projectConfig = projectConfig;
@@ -27,6 +28,7 @@ public class Transpiler
         _typeResolver = semanticModel != null ? new ExpressionTypeResolver(semanticModel) : null;
         _output = new StringBuilder();
         _indentLevel = 0;
+        _sourceFilePath = sourceFilePath;
     }
 
     public string Transpile()
@@ -134,6 +136,7 @@ public class Transpiler
                 Name = "Main",  // Capitalize for C# entry point
                 Modifiers = mainFunction.Modifiers | Modifiers.Static | Modifiers.Public
             };
+            EmitLineDirective(mainFunction.Line);
             TranspileFunctionDeclaration(modifiedMain);
             WriteLine();
 
@@ -176,6 +179,7 @@ public class Transpiler
                 var staticModifier = Modifiers.Static;
                 var visibilityModifier = _compilationUnit.Package != null ? Modifiers.Public : Modifiers.Internal;
                 var modifiedFunc = func with { Modifiers = originalModifiers | staticModifier | visibilityModifier };
+                EmitLineDirective(func.Line);
                 TranspileFunctionDeclaration(modifiedFunc);
                 WriteLine();
             }
@@ -197,12 +201,15 @@ public class Transpiler
 
             foreach (var test in testDeclarations)
             {
+                EmitLineDirective(test.Line);
                 TranspileTestDeclaration(test);
             }
 
             _indentLevel--;
             WriteLine("}");
         }
+
+        EmitLineDefault();
 
         return _output.ToString();
     }
@@ -222,6 +229,8 @@ public class Transpiler
 
     private void TranspileDeclaration(Declaration declaration)
     {
+        EmitLineDirective(declaration.Line);
+
         switch (declaration)
         {
             case TestDeclaration test:
@@ -1021,6 +1030,11 @@ public class Transpiler
 
     private void TranspileStatement(Statement statement)
     {
+        // Don't emit #line for block statements — they are structural braces,
+        // and the individual statements inside will have their own directives.
+        if (statement is not BlockStatement)
+            EmitLineDirective(statement.Line);
+
         switch (statement)
         {
             case ExpressionStatement expr:
@@ -2208,6 +2222,33 @@ public class Transpiler
     private string GetIndent()
     {
         return string.Concat(Enumerable.Repeat(IndentString, _indentLevel));
+    }
+
+    /// <summary>
+    /// Emits a #line directive mapping the next generated line back to the original .nl source.
+    /// Line numbers are 1-based. Only emits if source file path is set and line is valid.
+    /// </summary>
+    private void EmitLineDirective(int line)
+    {
+        if (_sourceFilePath == null || line <= 0)
+            return;
+
+        // #line directives must not be indented - they are preprocessor directives
+        // Sanitize the file path: C# #line directives don't support escape sequences,
+        // so strip characters that would break the directive (quotes, newlines)
+        var safePath = _sourceFilePath.Replace("\"", "").Replace("\n", "").Replace("\r", "");
+        _output.AppendLine($"#line {line} \"{safePath}\"");
+    }
+
+    /// <summary>
+    /// Emits #line default to restore the default source mapping.
+    /// </summary>
+    private void EmitLineDefault()
+    {
+        if (_sourceFilePath == null)
+            return;
+
+        _output.AppendLine("#line default");
     }
 
     /// <summary>

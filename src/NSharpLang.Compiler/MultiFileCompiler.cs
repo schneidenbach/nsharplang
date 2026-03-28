@@ -187,7 +187,7 @@ public class MultiFileCompiler
                 // Get the semantic model for this file (if available)
                 _semanticModels.TryGetValue(sourceFile, out var semanticModel);
 
-                var transpiler = new Transpiler(compilationUnit, _config, semanticModel);
+                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;
