@@ -49,6 +49,19 @@ public class BindingMap
                               SymbolDeclaration declaration)
     {
         var usageKey = (usageFile, usageLine, usageCol);
+
+        // If this usage was previously bound to a different declaration,
+        // remove it from the old declaration's reference list.
+        if (_bindings.TryGetValue(usageKey, out var oldDecl))
+        {
+            var oldDeclKey = (oldDecl.File, oldDecl.Line, oldDecl.Column);
+            var newDeclKey = (declaration.File, declaration.Line, declaration.Column);
+            if (oldDeclKey != newDeclKey && _references.TryGetValue(oldDeclKey, out var oldUsages))
+            {
+                oldUsages.RemoveAll(u => u.File == usageFile && u.Line == usageLine && u.Column == usageCol);
+            }
+        }
+
         _bindings[usageKey] = declaration;
 
         // Record the declaration itself
