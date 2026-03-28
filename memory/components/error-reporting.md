@@ -4,172 +4,109 @@
 
 ## Responsibility
 
-Professional error messages with codes, suggestions, and formatting (Rust-quality diagnostics).
+Elm-level error messages with rich context, source snippets, type information, and actionable suggestions.
+
+## Architecture
+
+### Two-Tier Error Reporting
+
+1. **Rich errors (via `ErrorMessageBuilder`)** — Elm-style with `HumanExplanation`, `ContextualHint`, type info, and docs URLs. Used for common errors.
+2. **Simple errors (via `Analyzer.Error()`)** — Rust-style with source snippet and caret. Used for less common errors.
+
+Rich errors automatically get Elm-style formatting. Simple errors get Rust-style formatting.
+
+### Key Classes
+
+- **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
+- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
+- **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
+- **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
+- **`ErrorSuggestions`** — Fallback suggestions keyed by error code
+
+### Formatting Paths
+
+| Method | Used By | Colors | "Hint:" prefix |
+|--------|---------|--------|---------------|
+| `Format()` → `FormatElmStyle()` | Direct use | ANSI | Yes |
+| `Format()` → `FormatRustStyle()` | Direct use (no HumanExplanation) | ANSI | No (uses "help:") |
+| `FormatForTooling()` | LSP, MSBuild task | No | No (raw text) |
+| `FormatForMsBuild()` | MSBuild single-line | No | No (inline) |
+| `OutputFormatter.DiagnosticsToText()` | CLI `--text` | No | Yes |
+| `OutputFormatter.DiagnosticsToJson()` | CLI JSON (default) | No | Raw field |
+
+**Important:** `ContextualHint` values must NOT include "Hint: " prefix — formatters add it when needed.
 
 ## Error Codes
 
 ### Syntax Errors (100-199)
-- `NL101`: Unexpected token
-- `NL102`: Missing token
-- `NL103`: Invalid syntax
+- `NL101`: UnexpectedToken
+- `NL102`: ExpectedToken
+- `NL103`: InvalidSyntax
+- `NL104`: UnexpectedEndOfFile
+- `NL105`: InvalidLiteral
+- `NL106-108`: Missing closing brace/paren/bracket
 
 ### Type Errors (200-299)
-- `NL201`: Type mismatch
-- `NL202`: Undefined type
-- `NL203`: Cannot infer type
-- `NL204`: Invalid type conversion
+- `NL201`: TypeNotFound
+- `NL202`: TypeMismatch (assignment, return, argument)
+- `NL203`: CannotInferType
+- `NL204-208`: InvalidCast, AmbiguousType, CannotResolveType, InvalidTypeArgument, GenericConstraintViolation
 
 ### Semantic Errors (300-399)
-- `NL301`: Undefined variable
-- `NL302`: Undefined function
-- `NL303`: Duplicate declaration
-- `NL304`: Uninitialized field
+- `NL301`: UndefinedVariable
+- `NL302`: UndefinedType
+- `NL303`: UndefinedMember
+- `NL304`: DefiniteAssignmentError
+- `NL305`: MissingReturn
+- `NL306`: DuplicateDeclaration
+- `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
 
 ### Function/Method Errors (400-499)
-- `NL401`: Wrong argument count
-- `NL402`: Wrong argument type
-- `NL403`: Cannot resolve overload
-- `NL404`: Return type mismatch
+- `NL401`: WrongArgumentCount
+- `NL402`: NoMatchingOverload
+- `NL403-410`: Various parameter errors
 
 ### Pattern Matching Errors (500-599)
-- `NL501`: Non-exhaustive match
-- `NL502`: Invalid pattern
-- `NL503`: Guard must be boolean
-- `NL504`: Unknown union case
-
-### Operator Errors (600-699)
-- `NL601`: Invalid operand type
-- `NL602`: Cannot overload operator
+- `NL501`: NonExhaustiveMatch
+- `NL502-505`: UnreachablePattern, InvalidPattern, PatternTypeMismatch, GuardNotBoolean
 
 ### Import/Using Errors (700-799)
-- `NL701`: File not found
-- `NL702`: Symbol collision
-- `NL703`: Circular import
-
-### Class/Struct/Interface Errors (800-899)
-- `NL801`: Interface not implemented
-- `NL802`: Abstract method not implemented
-- `NL803`: Invalid member access
+- `NL701`: ImportNotFound
+- `NL702-704`: ImportCollision, CircularImport, NamespaceNotFound
 
 ### Warnings (900-999)
-- `NL901`: Unused variable
-- `NL902`: Unreachable code
-- `NL903`: Non-conventional naming
+- `NL901`: UnusedVariable
+- `NL902-906`: UnreachableCode, VisibilityConvention, ObsoleteUsage, Nullability, UnnecessaryTypeAnnotation
 
-## CompilerError Record
-
-```csharp
-public record CompilerError(
-    ErrorCode Code,
-    string Message,
-    string FileName,
-    int Line,
-    int Column,
-    string? SourceSnippet = null,
-    string? Suggestion = null
-);
-```
-
-## Error Formatting
-
-Errors use Rust-style formatting:
+## Example Output (Elm-style)
 
 ```
-error[NL201]: Type mismatch in assignment
-  --> example.nl:5:10
-   |
- 5 |     let x: int = "hello"
-   |                  ^^^^^^^ expected 'int', found 'string'
-   |
-   = help: Change the type annotation or use a compatible value
-```
+── [NL305] ERROR ───────────────────────────── Program.nl:7:1 ──
 
-Components:
-1. **Error level**: `error` or `warning`
-2. **Error code**: `[NL201]`
-3. **Message**: Human-readable description
-4. **Location**: `filename:line:column`
-5. **Source snippet**: Code with position markers
-6. **Suggestion**: Helpful hint
+    7 | func GetName(): string {
+      | ^^^^^^^^^^^^
 
-## Suggestions
+Not all code paths return a value of type 'string'
 
-Context-aware suggestions powered by `ErrorSuggestions` class:
+This function is declared to return `string`, but not all code paths return a value:
 
-### Type Not Found
-Uses Levenshtein distance to find similar names:
-```
-error[NL202]: Type 'Consol' not found
-   = help: Did you mean 'Console'?
-```
+Expected: `string`
 
-### Missing Return
-Suggests adding return or changing to void:
-```
-error[NL404]: Function must return a value
-   = help: Add a return statement or change return type to 'void'
-```
+Hint: Every code path through this function must end with a `return` statement that
+provides a `string` value. If you don't need to return anything, change the
+return type to `void`.
 
-### Non-Exhaustive Match
-Lists missing union cases:
-```
-error[NL501]: Match expression is not exhaustive
-   = help: Missing cases: Failure, Pending
-```
+Suggestion: Add a `return` statement, or change the return type to `void`
 
-### Wrong Naming Convention
-Suggests following convention:
-```
-warning[NL903]: Public member 'myField' should use PascalCase
-   = help: Consider renaming to 'MyField'
-```
-
-## Color Output
-
-Terminal output uses ANSI colors:
-- **Red**: Error labels, error codes
-- **Yellow**: Warning labels
-- **Blue**: File locations, suggestions
-- **White**: Message text
-- **Gray**: Source code snippets
-
-## Multi-Error Display
-
-CLI displays all errors found, not just the first:
-```
-error[NL201]: Type mismatch at line 5
-error[NL301]: Undefined variable at line 8
-error[NL501]: Non-exhaustive match at line 12
-
-3 errors found, compilation aborted
+See: https://docs.n-sharp.dev/errors/NL305
 ```
 
 ## Testing
 
-Error reporting has comprehensive tests covering:
-- Error code assignment
-- Message formatting
-- Suggestion generation
-- Color codes (optional, based on terminal support)
-
-## Usage in Analyzer
-
-```csharp
-// Report error
-errors.Add(CompilerError.Create(
-    ErrorCode.TypeMismatch,
-    $"Cannot assign '{sourceType}' to '{targetType}'",
-    fileName,
-    line,
-    column,
-    suggestion: "Change the type or use a conversion operator"
-));
-```
-
-## Benefits
-
-- **Developer-friendly**: Clear, actionable error messages
-- **Professional**: Matches Rust, TypeScript error quality
-- **Searchable**: Error codes enable documentation lookup
-- **Helpful**: Suggestions guide users to solutions
-- **Foundation for IDE**: Error codes/suggestions work with LSP
+Error reporting tests are in `tests/ErrorReportingTests.cs` covering:
+- Error code formatting and DiagnosticId
+- Source snippet rendering with caret markers
+- All formatting paths (Elm, Rust, Tooling, MSBuild)
+- ErrorSuggestions, SmartSuggester, TypeConversionSuggester
+- Levenshtein distance accuracy
+- ANSI color codes
