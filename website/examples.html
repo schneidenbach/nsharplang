@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Examples - N#</title>
+    <meta name="description" content="N# code examples organized by category. Learn the language through real, runnable examples.">
+
+    <meta property="og:title" content="N# Examples">
+    <meta property="og:description" content="Learn N# through real code examples. Unions, pattern matching, async, duck interfaces, and more.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://schneidenbach.github.io/nsharplang/examples.html">
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+    <div class="container nav__inner">
+        <a href="index.html" class="nav__brand">
+            <img src="favicon.svg" alt="N#">
+            <span>N#</span>
+        </a>
+        <button class="nav__toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" onclick="var l=document.getElementById('nav-links');l.classList.toggle('nav__links--open');this.setAttribute('aria-expanded',l.classList.contains('nav__links--open'))">&#9776;</button>
+        <ul id="nav-links" class="nav__links">
+            <li><a href="index.html#features" class="nav__link">Features</a></li>
+            <li><a href="index.html#examples" class="nav__link">Examples</a></li>
+            <li><a href="examples.html" class="nav__link nav__link--active">Gallery</a></li>
+            <li><a href="docs.html" class="nav__link">Docs</a></li>
+        </ul>
+        <div class="nav__actions">
+            <button class="theme-toggle" aria-label="Toggle theme" onclick="toggleTheme()">
+                <span class="theme-toggle__icon">&#9789;</span>
+            </button>
+            <a href="https://github.com/schneidenbach/nsharplang" class="nav__github" target="_blank" rel="noopener" aria-label="GitHub">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main class="container container--narrow examples-page">
+    <div class="page-header">
+        <h1 class="page-header__title">Examples</h1>
+        <p class="page-header__desc">Learn N# through real, runnable code examples.</p>
+    </div>
+
+    <!-- Basics -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Basics</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Hello World</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System
+
+func Main() {
+    name := "World"
+    print $"Hello, {name}!"
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Variables &amp; Type Inference</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Main() {
+    x := 5                    // int (inferred)
+    name := "Alice"           // string (inferred)
+    isActive := true          // bool (inferred)
+
+    y: int = 10               // explicit type
+    let pi: double = 3.14159  // immutable
+
+    let items = [1, 2, 3]    // immutable int[]
+    print $"{name}: {x + y}"
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Control Flow</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Main() {
+    x := 42
+
+    if x > 100 {
+        print "big"
+    } else if x > 10 {
+        print "medium"
+    } else {
+        print "small"
+    }
+
+    items := [1, 2, 3, 4, 5]
+    for item in items {
+        print item
+    }
+
+    count := 0
+    while count < 3 {
+        print count
+        count += 1
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">String Interpolation</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Main() {
+    name := "Alice"
+    age := 30
+
+    // Basic interpolation
+    print $"Name: {name}, Age: {age}"
+
+    // Expressions in interpolation
+    print $"Next year: {age + 1}"
+
+    // Method calls
+    print $"Upper: {name.ToUpper()}"
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Functions -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Functions</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Basic Functions</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Add(a: int, b: int): int {
+    return a + b
+}
+
+func Greet(name: string) {
+    print $"Hello, {name}!"
+}
+
+// Expression-bodied
+func Double(x: int): int => x * 2
+
+func Main() {
+    print Add(3, 4)
+    Greet("World")
+    print Double(21)
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Local Functions &amp; Closures</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Linq
+
+func ProcessData(items: int[]): int[] {
+    func isValid(value: int): bool {
+        return value > 0 && value < 100
+    }
+
+    return items.Where(isValid).ToArray()
+}
+
+func Main() {
+    data := [5, -1, 42, 200, 17]
+    valid := ProcessData(data)
+    foreach v in valid {
+        print v  // 5, 42, 17
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Generic Functions</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Identity&lt;T&gt;(value: T): T => value
+
+func PrintAll&lt;T&gt;(items: T[]) {
+    for item in items {
+        print item
+    }
+}
+
+func Main() {
+    print Identity(42)
+    print Identity("hello")
+    PrintAll(["a", "b", "c"])
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Params &amp; Optional</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Sum(params numbers: int[]): int {
+    total := 0
+    for num in numbers {
+        total += num
+    }
+    return total
+}
+
+func Greet(name: string, greeting: string = "Hello"): string {
+    return $"{greeting}, {name}!"
+}
+
+func Main() {
+    print Sum(1, 2, 3, 4, 5)
+    print Greet("Alice")
+    print Greet("Bob", "Hey")
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Types -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Types</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Classes</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">class Person {
+    FirstName: string
+    LastName: string
+    Age: int
+
+    constructor(firstName: string, lastName: string, age: int) {
+        FirstName = firstName
+        LastName = lastName
+        Age = age
+    }
+
+    func FullName(): string => $"{FirstName} {LastName}"
+}
+
+func Main() {
+    p := new Person("Alice", "Smith", 30)
+    print p.FullName()
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Records</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">record Point {
+    X: int
+    Y: int
+}
+
+func Main() {
+    p1 := new Point { X: 10, Y: 20 }
+
+    // Non-destructive mutation
+    p2 := p1 with { X: 30 }
+
+    print $"p1: ({p1.X}, {p1.Y})"
+    print $"p2: ({p2.X}, {p2.Y})"
+
+    // Value equality
+    p3 := new Point { X: 10, Y: 20 }
+    print $"p1 == p3: {p1 == p3}"  // true
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Discriminated Unions</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">union HttpResponse {
+    Success { statusCode: int, body: string }
+    Redirect { location: string }
+    ClientError { code: int, message: string }
+    ServerError { code: int, details: string }
+}
+
+func Describe(r: HttpResponse): string {
+    return match r {
+        HttpResponse.Success { statusCode, body } =>
+            $"OK ({statusCode}): {body}",
+        HttpResponse.Redirect { location } =>
+            $"Redirect to {location}",
+        HttpResponse.ClientError { code, message } =>
+            $"Client error {code}: {message}",
+        HttpResponse.ServerError { code, details } =>
+            $"Server error {code}: {details}"
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Enums</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">// String enum
+enum Status {
+    Pending = "pending",
+    Active = "active",
+    Done = "done"
+}
+
+// Int enum
+enum Priority {
+    Low = 0,
+    Medium = 1,
+    High = 2
+}
+
+func Main() {
+    s := Status.Active
+    p := Priority.High
+    print $"Status: {s}, Priority: {p}"
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Primary Constructors</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">class Logger(name: string) {
+    func Log(message: string) {
+        print $"[{name}] {message}"
+    }
+}
+
+func Main() {
+    logger := new Logger("MyApp")
+    logger.Log("Application started")
+    logger.Log("Processing request...")
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Interfaces</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">interface IShape {
+    func GetArea(): double
+}
+
+class Circle : IShape {
+    Radius: double
+
+    constructor(radius: double) {
+        Radius = radius
+    }
+
+    func GetArea(): double => 3.14159 * Radius * Radius
+}
+
+func PrintArea(shape: IShape) {
+    print $"Area: {shape.GetArea()}"
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pattern Matching -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Pattern Matching</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Literal &amp; Relational Patterns</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Classify(age: int): string {
+    return match age {
+        < 13 => "child",
+        < 20 => "teenager",
+        >= 20 => "adult"
+    }
+}
+
+func HttpStatus(code: int): string {
+    return match code {
+        200 => "OK",
+        404 => "Not Found",
+        500 => "Server Error",
+        _ => "Unknown"
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Type &amp; Property Patterns</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Describe(obj: object): string {
+    return match obj {
+        int x => $"Integer: {x}",
+        string s => $"String: {s}",
+        _ => "Unknown type"
+    }
+}
+
+func Greet(person: Person): string {
+    return match person {
+        { Age: < 13 } => "Hey kid!",
+        { Age: >= 13, Name: "Alice" } => "Hi Alice!",
+        _ => "Hello there"
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">List Patterns</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Describe(nums: int[]): string {
+    return match nums {
+        [] => "empty",
+        [x] => $"single: {x}",
+        [first, ..] => $"starts with {first}",
+        _ => "other"
+    }
+}
+
+func Main() {
+    print Describe([])          // empty
+    print Describe([42])        // single: 42
+    print Describe([1, 2, 3])   // starts with 1
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Pattern Guards</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Categorize(value: int): string {
+    return match value {
+        x when x < 0 => "negative",
+        0 => "zero",
+        x when x > 0 and x < 100 => "small positive",
+        _ => "large positive"
+    }
+}
+
+func Main() {
+    print Categorize(-5)   // negative
+    print Categorize(0)    // zero
+    print Categorize(42)   // small positive
+    print Categorize(999)  // large positive
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Async -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Async</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Async / Await</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Threading.Tasks
+
+func async FetchData(url: string): string {
+    client := new HttpClient()
+    result := await client.GetStringAsync(url)
+    return result
+}
+
+func async Main() {
+    data := await FetchData("https://example.com")
+    print data
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Async Streams</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Collections.Generic
+import System.Threading.Tasks
+
+func async* GetNumbersAsync(): IAsyncEnumerable&lt;int&gt; {
+    for i := 0; i < 10; i++ {
+        await Task.Delay(100)
+        yield i
+    }
+}
+
+func async Main() {
+    await foreach num in GetNumbersAsync() {
+        print $"Received: {num}"
+    }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collections & LINQ -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Collections &amp; LINQ</h2>
+        <div class="examples-grid">
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Collection Expressions</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Collections.Generic
+
+func Main() {
+    // Array
+    numbers := [1, 2, 3, 4, 5]
+
+    // Typed collections
+    let names: List&lt;string&gt; = ["Alice", "Bob"]
+    let ids: HashSet&lt;int&gt; = [1, 2, 3]
+
+    print $"Count: {names.Count}"
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">LINQ Pipelines</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Linq
+
+func Main() {
+    let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    result := numbers
+        .Where(x => x > 3)
+        .Select(x => x * x)
+        .OrderByDescending(x => x)
+        .Take(3)
+        .ToList()
+
+    foreach n in result {
+        print n  // 100, 81, 64
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Iterators</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Collections.Generic
+
+func* Fibonacci(count: int): IEnumerable&lt;int&gt; {
+    a := 0
+    b := 1
+    for i := 0; i < count; i++ {
+        yield a
+        temp := a
+        a = b
+        b = temp + b
+    }
+}
+
+func Main() {
+    foreach n in Fibonacci(10) {
+        print n
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Range &amp; Index</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Main() {
+    items := ["a", "b", "c", "d", "e"]
+
+    // Indexing from end
+    last := items[^1]        // "e"
+    secondLast := items[^2]  // "d"
+
+    // Ranges
+    slice := items[1..3]     // ["b", "c"]
+    fromStart := items[..2]  // ["a", "b"]
+    toEnd := items[3..]      // ["d", "e"]
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interop -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">C# Interop</h2>
+        <div class="examples-grid">
+            <div class="example-card example-card--full">
+                <div class="example-card__header">
+                    <span class="example-card__title">ASP.NET Minimal API</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+import Microsoft.Extensions.Hosting
+import System
+
+func main(args: string[]) {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+
+    app.MapGet("/", () => "Hello from N#!")
+    app.MapGet("/time", () => DateTime.Now.ToString())
+    app.MapGet("/json", () => new {
+        Message: "Hello from N#",
+        Timestamp: DateTime.Now,
+        Language: "N#"
+    })
+
+    app.Run()
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Error Handling (Go-style)</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System
+
+func Divide(a: int, b: int): int {
+    if b == 0 {
+        throw new Exception("divide by zero")
+    }
+    return a / b
+}
+
+func Main() {
+    // Automatic exception capture
+    result, err := Divide(10, 2)
+    if err == null {
+        print $"Result: {result}"
+    } else {
+        print $"Error: {err.Message}"
+    }
+}</code></pre>
+            </div>
+
+            <div class="example-card">
+                <div class="example-card__header">
+                    <span class="example-card__title">Using NuGet Packages</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">import System.Linq
+
+// All of .NET is available
+// Add any NuGet package to project.yml
+// and use it directly
+
+func Main() {
+    let numbers = [1, 2, 3, 4, 5]
+
+    sum := numbers.Sum()
+    avg := numbers.Average()
+
+    print $"Sum: {sum}, Avg: {avg}"
+}</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Testing -->
+    <div class="examples-category">
+        <h2 class="examples-category__title">Testing</h2>
+        <div class="examples-grid">
+            <div class="example-card example-card--full">
+                <div class="example-card__header">
+                    <span class="example-card__title">Built-in Test Syntax</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre class="example-card__code"><code class="language-nsharp">func Add(a: int, b: int): int => a + b
+
+test "Add returns correct sum" {
+    assert Add(2, 3) == 5
+    assert Add(-1, 1) == 0
+    assert Add(0, 0) == 0
+}
+
+test "Add handles large numbers" {
+    result := Add(1000000, 2000000)
+    assert result == 3000000
+}</code></pre>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+    <div class="container footer__inner">
+        <div class="footer__left">
+            <span class="footer__brand">N#</span>
+            <span class="footer__copyright">&copy; 2025 N# Language. Open source.</span>
+        </div>
+        <ul class="footer__links">
+            <li><a href="https://github.com/schneidenbach/nsharplang" class="footer__link" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="docs.html" class="footer__link">Docs</a></li>
+            <li><a href="examples.html" class="footer__link">Examples</a></li>
+            <li><a href="https://github.com/schneidenbach/nsharplang/issues" class="footer__link" target="_blank" rel="noopener">Issues</a></li>
+        </ul>
+    </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" integrity="sha384-06z5D//U/xpvxZHuUz92xBvq3DqBBFi7Up53HRrbV7Jlv7Yvh/MZ7oenfUe9iCEt" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js" integrity="sha384-nMKYzg6yfy0qgpaRpVhHvZp0gT5sgvmZYlFC0XAKZSp+zFUB9rE6zsdmIEiou4bV" crossorigin="anonymous"></script>
+<script src="prism-nsharp.js"></script>
+<script>
+function getTheme() { return localStorage.getItem('theme') || 'dark'; }
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    var icon = document.querySelector('.theme-toggle__icon');
+    if (icon) icon.textContent = theme === 'dark' ? '\u263D' : '\u2600';
+}
+function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
+setTheme(getTheme());
+
+function copyCode(btn) {
+    var code = btn.closest('.example-card').querySelector('code');
+    navigator.clipboard.writeText(code.textContent).then(function () {
+        btn.textContent = 'Copied!';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+    }).catch(function () {
+        btn.textContent = 'Failed';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+    });
+}
+
+document.querySelectorAll('.nav__link').forEach(function (link) {
+    link.addEventListener('click', function () {
+        document.querySelector('.nav__links').classList.remove('nav__links--open');
+    });
+});
+</script>
+
+</body>
+</html>
