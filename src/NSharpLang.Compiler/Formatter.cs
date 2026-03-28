@@ -1579,6 +1579,25 @@ public class Formatter
 
     private void FormatParameter(Parameter param, StringBuilder sb)
     {
+        if (param.Attributes is { Count: > 0 })
+        {
+            foreach (var attr in param.Attributes)
+            {
+                sb.Append("[");
+                sb.Append(attr.Name);
+                if (attr.Arguments.Count > 0)
+                {
+                    sb.Append("(");
+                    for (int i = 0; i < attr.Arguments.Count; i++)
+                    {
+                        if (i > 0) sb.Append(", ");
+                        FormatExpression(attr.Arguments[i].Value, sb);
+                    }
+                    sb.Append(")");
+                }
+                sb.Append("] ");
+            }
+        }
         if (param.IsThis)
         {
             sb.Append("this ");
