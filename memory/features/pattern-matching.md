@@ -153,8 +153,13 @@ result := status match {
 }
 ```
 
+### Exhaustiveness and Guards
+- Guarded arms (`when` condition) do NOT count toward coverage — they only partially cover their pattern
+- Unguarded arms (no `when`) count as full coverage for their pattern
+- Unguarded wildcard `_` or catch-all binding `other` covers all remaining cases
+- If guards are present but no unguarded fallback exists, the compiler requires all union cases to be covered by unguarded arms
+
 ### When Exhaustiveness is Skipped
-- Guards present (too complex to analyze)
 - Non-union types (can't enumerate all possible values)
 - Type patterns (infinite possible types)
 

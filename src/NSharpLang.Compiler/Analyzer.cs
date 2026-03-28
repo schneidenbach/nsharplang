@@ -3375,8 +3375,9 @@ public class Analyzer
         }
 
         // Check exhaustiveness for union types (after analyzing patterns to report specific errors first)
-        // Note: Skip exhaustiveness check if any guards are present, as guards can make patterns conditional
-        if (valueType is UnionTypeInfo unionType && !match.Cases.Any(c => c.Guard != null))
+        // Guarded arms only partially cover their pattern, so unguarded arms (or a wildcard) are
+        // still required for full coverage.
+        if (valueType is UnionTypeInfo unionType)
         {
             CheckMatchExhaustiveness(match, unionType);
         }
@@ -3386,11 +3387,17 @@ public class Analyzer
 
     private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
     {
-        // Collect all union case names that are covered in the match
+        // Collect all union case names that are covered by UNGUARDED arms.
+        // Guarded arms only partially cover their pattern (the guard may be false at runtime),
+        // so they don't count toward exhaustiveness.
         var coveredCases = new HashSet<string>();
 
         foreach (var matchCase in match.Cases)
         {
+            // Skip guarded arms — they only partially cover their pattern
+            if (matchCase.Guard != null)
+                continue;
+
             if (matchCase.Pattern is UnionCasePattern unionPattern)
             {
                 // Extract just the case name (after the last dot if qualified)
@@ -3403,7 +3410,7 @@ public class Analyzer
             {
                 if (identPattern.Name == "_")
                 {
-                    // Wildcard pattern covers all remaining cases
+                    // Unguarded wildcard pattern covers all remaining cases
                     return;
                 }
                 else if (identPattern.Name.Contains('.'))
@@ -3411,6 +3418,12 @@ public class Analyzer
                     // Qualified union case name without properties
                     var caseName = identPattern.Name.Substring(identPattern.Name.LastIndexOf('.') + 1);
                     coveredCases.Add(caseName);
+                }
+                else
+                {
+                    // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
+                    // that matches everything at runtime — treat it the same as `_`
+                    return;
                 }
             }
         }
@@ -4489,6 +4502,34 @@ public class Analyzer
             return;
         }
 
+        // Check for self-import (file importing itself)
+        if (_currentFilePath != null &&
+            string.Equals(Path.GetFullPath(resolvedPath), Path.GetFullPath(_currentFilePath), StringComparison.OrdinalIgnoreCase))
+        {
+            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
+                ? _sourceLines[import.Line - 1]
+                : null;
+
+            if (sourceSnippet != null)
+            {
+                var error = ErrorMessageBuilder.CircularImport(
+                    _currentFilePath,
+                    import.Line,
+                    import.Column,
+                    sourceSnippet,
+                    import.Path.Length,
+                    import.Path);
+                _errors.Add(error);
+            }
+            else
+            {
+                Error(ErrorCode.CircularImport, $"Circular import detected: '{import.Path}' imports itself",
+                    import.Line, import.Column,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+            }
+            return;
+        }
+
         // Parse the imported file
         CompilationUnit? importedUnit = null;
         try
@@ -4515,6 +4556,47 @@ public class Analyzer
         {
             Error($"Failed to parse imported file '{import.Path}': {ex.Message}", import.Line, import.Column);
             return;
+        }
+
+        // Check imported file's own file imports for cycles back to the current file (A→B→A detection)
+        if (importedUnit.FileImports.Count > 0 && _projectRoot != null && _currentFilePath != null)
+        {
+            var currentNormalized = Path.GetFullPath(_currentFilePath);
+            var importedFileResolver = new FileResolver(_projectRoot, resolvedPath);
+            foreach (var nestedImport in importedUnit.FileImports)
+            {
+                if (nestedImport is FileImport nestedFileImport)
+                {
+                    var nestedPath = importedFileResolver.ValidateImportPath(nestedFileImport.Path, out _);
+                    if (nestedPath != null &&
+                        string.Equals(Path.GetFullPath(nestedPath), currentNormalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
+                            ? _sourceLines[import.Line - 1]
+                            : null;
+
+                        if (sourceSnippet != null)
+                        {
+                            var error = ErrorMessageBuilder.CircularImport(
+                                _currentFilePath,
+                                import.Line,
+                                import.Column,
+                                sourceSnippet,
+                                import.Path.Length,
+                                import.Path);
+                            _errors.Add(error);
+                        }
+                        else
+                        {
+                            Error(ErrorCode.CircularImport,
+                                $"Circular import detected: '{import.Path}' imports '{nestedFileImport.Path}' which creates a cycle",
+                                import.Line, import.Column,
+                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+                        }
+                        return;
+                    }
+                }
+            }
         }
 
         // Extract public symbols from the imported file

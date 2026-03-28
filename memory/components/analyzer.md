@@ -127,14 +127,26 @@ For discriminated unions:
 - Allow wildcard `_` as catch-all
 - Report missing cases if non-exhaustive
 
+Guard handling:
+- Guarded arms do not count toward coverage (only partial)
+- Unguarded arms count as full coverage
+- Catch-all bindings (`_` or plain identifiers) cover all remaining cases
+
 Skipped when:
-- Guards present (too complex to analyze)
 - Non-union types (can't enumerate all values)
 
 ### Pattern Type Checking
 - Validates pattern variables have correct types
 - Ensures property patterns match union case properties
 - Type checks guard expressions (must be bool)
+
+## Circular Import Detection
+
+The analyzer detects circular file imports during `ProcessFileImport`:
+- **Self-import**: File importing itself (A→A) — detected by comparing resolved path against `_currentFilePath`
+- **Two-file cycle**: A→B→A — detected by inspecting imported file's own `FileImports` for back-references to current file
+- **Longer chains**: A→B→C→A not yet detected (known limitation)
+- Reports `ErrorCode.CircularImport` (NL703) with Elm-style error message
 
 ## Error Reporting
 

@@ -60,10 +60,9 @@ These block both VS Code and LLM reliability.
 - Impact: hover, type queries, signature help, and completions are misleading.
 - Priority: high, but downstream of generic inference unless a targeted heuristic lands first.
 
-### 5. Pattern exhaustiveness with guards
-- Current: guarded match arms can suppress exhaustiveness checking.
-- Impact: false negatives in `nlc check` and `nlc query diagnostics`.
-- Priority: high correctness fix, independent.
+### 5. Pattern exhaustiveness with guards ✅ DONE
+- Fixed: guarded arms no longer count toward coverage; unguarded arms and catch-all bindings still do.
+- Remaining: guard condition semantic analysis not implemented (e.g., `when x > 0` + `when x <= 0` = full coverage).
 
 ### 6. Error recovery / multi-error reporting
 - Current: recent parser recovery work improved several no-progress/error-cascade cases, but this still needs another pass.
