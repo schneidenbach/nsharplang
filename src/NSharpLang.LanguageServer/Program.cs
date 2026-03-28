@@ -49,6 +49,7 @@ class Program
                     .WithHandler<CodeActionHandler>()
                     .WithHandler<RenameHandler>()
                     .WithHandler<ReferencesHandler>()
+                    .WithHandler<InlayHintHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();
