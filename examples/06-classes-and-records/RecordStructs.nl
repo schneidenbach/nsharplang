@@ -1,5 +1,6 @@
 import System
 
+
 // Record Structs (C# 10) - Value-Type Records
 //
 // Record structs combine the benefits of:
@@ -19,6 +20,7 @@ record struct Point {
 // Record struct with primary constructor (C# 12)
 // Parameters become public properties automatically
 record struct Vector2D(x: double, y: double) {
+
     // Computed property using primary constructor parameters
     Length: double => Math.Sqrt(x * x + y * y)
 
@@ -28,6 +30,7 @@ record struct Vector2D(x: double, y: double) {
         if len == 0 {
             return new Vector2D(0, 0)
         }
+
         return new Vector2D(x / len, y / len)
     }
 
@@ -37,6 +40,7 @@ record struct Vector2D(x: double, y: double) {
 
 // Record struct for RGB color (0-255 range)
 record struct Color(r: byte, g: byte, b: byte) {
+
     // Named color constants
     static Red: Color => new Color(255, 0, 0)
     static Green: Color => new Color(0, 255, 0)
@@ -50,6 +54,7 @@ record struct Color(r: byte, g: byte, b: byte) {
 
 // Record struct with methods
 record struct Dimensions(width: double, height: double) {
+
     // Read-only computed property
     Area: double => width * height
 
@@ -61,6 +66,7 @@ record struct Dimensions(width: double, height: double) {
 
 // Record struct representing a time duration
 record struct Duration(seconds: int) {
+
     // Factory methods for readability
     static func FromMinutes(minutes: int): Duration => new Duration(minutes * 60)
     static func FromHours(hours: int): Duration => new Duration(hours * 3600)
@@ -79,11 +85,12 @@ func Main() {
 
     // Basic record struct usage
     print "1. Basic Record Struct:"
-    p1 := new Point { X: 3.0, Y: 4.0 }
-    p2 := new Point { X: 3.0, Y: 4.0 }
+    p1 := new Point() { X: 3.0, Y: 4.0 }
+    p2 := new Point() { X: 3.0, Y: 4.0 }
     print $"Point 1: ({p1.X}, {p1.Y})"
     print $"Point 2: ({p2.X}, {p2.Y})"
-    print $"p1 == p2: {p1 == p2}"  // Value equality!
+    print $"p1 == p2: {p1 == p2}"
+    // Value equality!
     print ""
 
     // Primary constructor
@@ -129,7 +136,8 @@ func Main() {
     // With expressions (non-destructive mutation)
     print "6. With Expressions:"
     color1 := new Color(255, 0, 0)
-    color2 := color1 with { g: 128 }  // Change only green component
+    color2 := color1 with { g: 128 }
+    // Change only green component
     print $"Original: {color1.ToHex()}"
     print $"Modified: {color2.ToHex()}"
     print ""

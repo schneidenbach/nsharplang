@@ -2,11 +2,13 @@ namespace ErrorHandlingDemo
 
 import System
 
+
 // Example function that might throw
 func Divide(a: int, b: int): int {
     if b == 0 {
         throw new Exception("Cannot divide by zero")
     }
+
     return a / b
 }
 

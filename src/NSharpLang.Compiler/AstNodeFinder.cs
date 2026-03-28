@@ -215,6 +215,10 @@ public class AstNodeFinder
                         VisitStatement(lambda.BlockBody);
                     }
                     break;
+
+                case ParenthesizedExpression paren:
+                    VisitExpression(paren.Inner);
+                    break;
             }
         }
 

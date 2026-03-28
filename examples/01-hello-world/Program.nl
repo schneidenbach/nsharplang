@@ -2,7 +2,6 @@ import System
 import System.Linq
 import System.Threading.Tasks
 
-
 func hi(): int {
     throw new Exception("hi")
 }
@@ -24,12 +23,12 @@ func Main() {
 
     print i
 
-    let numbers = [1, 2, 3, 4, 5]
+    numbers := [1, 2, 3, 4, 5]
     doubled := numbers.Select(x => x * 2).ToList()
 
     print "doubled nums:"
 
-    foreach num in doubled {
+    for num in doubled {
         print num
     }
 }

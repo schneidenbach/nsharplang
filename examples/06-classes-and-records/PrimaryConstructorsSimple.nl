@@ -1,6 +1,5 @@
 // Primary Constructors (C# 12 Feature)
 // Simple demonstration showing the syntax
-
 class Logger(name: string) {
     logName: string = name
 
@@ -9,7 +8,7 @@ class Logger(name: string) {
     }
 }
 
-struct Point(x: double, y: double) {
+struct Point {
     X: double = x
     Y: double = y
 
@@ -25,13 +24,13 @@ record Person(name: string, age: int) {
 
 func Main() {
     print "=== Primary Constructors Demo ==="
-    
+
     logger := new Logger("MyApp")
     logger.Log("Hello World")
-    
+
     p := new Point(3.0, 4.0)
     print p.ToString()
-    
+
     person := new Person("Alice", 30)
     print $"{person.Name} is {person.Age} years old"
 }

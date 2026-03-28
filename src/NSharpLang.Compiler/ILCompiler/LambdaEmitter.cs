@@ -110,6 +110,10 @@ public partial class ILCompiler
                 else if (nestedLambda.BlockBody != null)
                     FindCapturedVariablesInStatement(nestedLambda.BlockBody, nestedParams, captured);
                 break;
+
+            case ParenthesizedExpression paren:
+                FindCapturedVariablesInExpression(paren.Inner, parameterNames, captured);
+                break;
         }
     }
 

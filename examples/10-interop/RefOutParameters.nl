@@ -1,7 +1,7 @@
 // Ref and Out Parameters Example
 // Demonstrates .NET interop with ref/out parameters
-
 import System.Collections.Generic
+
 
 // Custom swap function using ref parameters
 func Swap(ref a: int, ref b: int) {
@@ -25,6 +25,7 @@ func TryGetValue(dict: Dictionary<string, int>, key: string, out value: int): bo
         value = 123
         return true
     }
+
     value = 0
     return false
 }
@@ -38,8 +39,10 @@ func MultiplyByTwo(ref value: int) {
 func ProcessNumbers(ref input: int, out doubled: int, out tripled: int) {
     doubled = input * 2
     tripled = input * 3
-    input = input + 1  // Modify input
+    input = input + 1
 }
+
+// Modify input
 
 // Main demonstration
 func Main() {
@@ -65,11 +68,11 @@ func Main() {
     print ""
 
     // TryParse pattern (custom)
-    let result1: int
+    result1: int
     success1 := TryParseInt("123", out result1)
     print $"Parse success: {success1}, result: {result1}"
 
-    let result2: int
+    result2: int
     success2 := TryParseInt("", out result2)
     print $"Parse empty string: {success2}, result: {result2}"
     print ""
@@ -77,19 +80,20 @@ func Main() {
     // Dictionary TryGetValue pattern (custom implementation)
     dict := new Dictionary<string, int>()
 
-    let value1: int
+    value1: int
     found1 := TryGetValue(dict, "test", out value1)
     if found1 {
         print $"Found 'test': {value1}"
     }
 
-    let value2: int
+    value2: int
     found2 := TryGetValue(dict, "missing", out value2)
     if found2 {
         print $"Found 'missing': {value2}"
     } else {
         print "Key 'missing' not found in dictionary"
     }
+
     print ""
 
     print "=== Combined ref and out Example ==="
@@ -97,8 +101,8 @@ func Main() {
 
     // Example: A function demonstrates mixing ref and out parameters
     n := 10
-    let d: int
-    let t: int
+    d: int
+    t: int
     print $"Before: n = {n}"
     ProcessNumbers(ref n, out d, out t)
     print $"After: n = {n}, doubled = {d}, tripled = {t}"

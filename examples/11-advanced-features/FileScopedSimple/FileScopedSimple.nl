@@ -41,7 +41,7 @@ file class Application {
         logger.Log($"Starting {config.AppName} v{config.Version}")
 
         // Use file-scoped struct
-        point := new Point { X: 10.5, Y: 20.3 }
+        point := new Point() { X: 10.5, Y: 20.3 }
         logger.Log($"Point: ({point.X}, {point.Y})")
 
         logger.Log("Application finished")
@@ -49,10 +49,7 @@ file class Application {
 }
 
 func Main() {
-    cfg := new Config {
-        AppName: "FileScopedDemo",
-        Version: "1.0.0"
-    }
+    cfg := new Config() { AppName: "FileScopedDemo", Version: "1.0.0" }
 
     app := new Application(cfg)
     app.Run()
