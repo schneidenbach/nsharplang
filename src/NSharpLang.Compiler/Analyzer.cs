@@ -27,6 +27,7 @@ public class Analyzer
     private bool _inLoop;
     private bool _inConstructor;
     private ClassDeclaration? _currentClass;
+    private string? _currentTypeName;
     private string? _currentFilePath;
     private string? _projectRoot;
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
@@ -322,7 +323,9 @@ public class Analyzer
     private void AnalyzeClassDeclaration(ClassDeclaration classDecl)
     {
         var previousClass = _currentClass;
+        var previousTypeName = _currentTypeName;
         _currentClass = classDecl;
+        _currentTypeName = classDecl.Name;
 
         CheckVisibilityConvention(classDecl.Name, classDecl.Modifiers, classDecl.Line, classDecl.Column);
 
@@ -367,10 +370,14 @@ public class Analyzer
 
         PopScope();
         _currentClass = previousClass;
+        _currentTypeName = previousTypeName;
     }
 
     private void AnalyzeStructDeclaration(StructDeclaration structDecl)
     {
+        var previousTypeName = _currentTypeName;
+        _currentTypeName = structDecl.Name;
+
         CheckVisibilityConvention(structDecl.Name, structDecl.Modifiers, structDecl.Line, structDecl.Column);
 
         PushScope(new Scope(ScopeKind.Struct));
@@ -394,10 +401,14 @@ public class Analyzer
         }
 
         PopScope();
+        _currentTypeName = previousTypeName;
     }
 
     private void AnalyzeRecordDeclaration(RecordDeclaration recordDecl)
     {
+        var previousTypeName = _currentTypeName;
+        _currentTypeName = recordDecl.Name;
+
         CheckVisibilityConvention(recordDecl.Name, recordDecl.Modifiers, recordDecl.Line, recordDecl.Column);
 
         PushScope(new Scope(ScopeKind.Record));
@@ -421,6 +432,7 @@ public class Analyzer
         }
 
         PopScope();
+        _currentTypeName = previousTypeName;
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
@@ -541,6 +553,12 @@ public class Analyzer
         }
 
         DeclareSymbol(field.Name, fieldType, field.Line, field.Column);
+
+        // Record field type into SemanticModel for completion support
+        if (_currentTypeName != null)
+        {
+            _semanticModel.RecordTypeMember(_currentTypeName, field.Name, fieldType);
+        }
     }
 
     private void AnalyzePropertyDeclaration(PropertyDeclaration prop)
@@ -549,6 +567,12 @@ public class Analyzer
 
         var propType = ResolveType(prop.Type!);
         DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
+
+        // Record property type into SemanticModel for completion support
+        if (_currentTypeName != null)
+        {
+            _semanticModel.RecordTypeMember(_currentTypeName, prop.Name, propType);
+        }
 
         // Expression-bodied property: validate expression type matches property type
         if (prop.ExpressionBody != null)
@@ -3427,7 +3451,7 @@ public class Analyzer
     {
         return typeRef switch
         {
-            SimpleTypeReference simple => ResolveSimpleType(simple.Name),
+            SimpleTypeReference simple => ResolveSimpleType(simple.Name, simple.Line, simple.Column),
             GenericTypeReference generic => new GenericTypeInfo(generic.Name,
                 generic.TypeArguments.Select(ResolveType).ToList()),
             ArrayTypeReference array => new ArrayTypeInfo(ResolveType(array.ElementType)),
@@ -3443,7 +3467,7 @@ public class Analyzer
         };
     }
 
-    private TypeInfo ResolveSimpleType(string name)
+    private TypeInfo ResolveSimpleType(string name, int line = 0, int column = 0)
     {
         // Check built-in types
         var builtInType = name switch
@@ -3466,7 +3490,15 @@ public class Analyzer
         // Check local type declarations
         var localType = LookupType(name);
         if (localType != null)
+        {
+            // Record a binding for this type reference so FindReferences works
+            // across files (e.g., imported types used in annotations).
+            if (line > 0)
+            {
+                TryRecordTypeBinding(name, line, column);
+            }
             return localType;
+        }
 
         // Check using aliases
         if (_usingAliases.TryGetValue(name, out var fullName))
@@ -3483,6 +3515,25 @@ public class Analyzer
 
         // Return unknown type (not an error - might be from C# library)
         return new ExternalTypeInfo(name);
+    }
+
+    /// <summary>
+    /// Record a binding from a type reference position to the type's declaration.
+    /// </summary>
+    private void TryRecordTypeBinding(string name, int line, int column)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.Types.TryGetValue(name, out _))
+            {
+                var declLocation = scope.GetDeclarationLocation(name);
+                if (declLocation != null)
+                {
+                    _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, declLocation);
+                }
+                return;
+            }
+        }
     }
 
     private TypeInfo? TryResolveExternalType(string name)
