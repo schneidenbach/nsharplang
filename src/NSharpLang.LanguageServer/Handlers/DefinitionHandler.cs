@@ -50,29 +50,27 @@ public class DefinitionHandler : DefinitionHandlerBase
 
             _logger.LogDebug("Go to definition for: {Word}", word);
 
+            // Tier 1: Synchronized project snapshot (most accurate — open buffers match disk)
             var projectDefinition = _documentManager.FindProjectDefinition(uri, request.Position.Line, request.Position.Character);
             if (projectDefinition != null)
             {
-                var projectRoot = _documentManager.GetProjectRootForUri(uri);
-                var filePath = _documentManager.ResolveProjectFilePath(projectRoot, projectDefinition.File);
-                var projectLocation = new Location
-                {
-                    Uri = DocumentUri.From(new Uri(filePath).AbsoluteUri),
-                    Range = new LspRange(
-                        projectDefinition.Line - 1,
-                        projectDefinition.Column - 1,
-                        projectDefinition.Line - 1,
-                        projectDefinition.Column - 1 + Math.Max(1, projectDefinition.Length))
-                };
-
-                return Task.FromResult<LocationOrLocationLinks?>(new LocationOrLocationLinks(projectLocation));
+                return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));
             }
 
+            // If the synced snapshot exists but found nothing, that's authoritative
             if (_documentManager.HasSynchronizedProjectSnapshot(uri))
             {
                 return Task.FromResult<LocationOrLocationLinks?>(null);
             }
 
+            // Tier 2: Disk-based project snapshot (cross-file, may be slightly stale)
+            projectDefinition = _documentManager.FindProjectDefinitionFromDisk(uri, request.Position.Line, request.Position.Character);
+            if (projectDefinition != null)
+            {
+                return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));
+            }
+
+            // Tier 3: Text-based fallback (open documents only, for synthetic URIs or when disk lookup missed)
             var candidates = _documentManager.FindSymbolLocations(word);
             if (candidates.Count == 0)
             {
@@ -98,6 +96,22 @@ public class DefinitionHandler : DefinitionHandlerBase
             _logger.LogError(ex, "Error handling go to definition");
             return Task.FromResult<LocationOrLocationLinks?>(null);
         }
+    }
+
+    private LocationOrLocationLinks CreateProjectLocation(string uri, NSharpLang.Compiler.CodeIntelligence.DefinitionResult result)
+    {
+        var projectRoot = _documentManager.GetProjectRootForUri(uri);
+        var filePath = _documentManager.ResolveProjectFilePath(projectRoot, result.File);
+        var location = new Location
+        {
+            Uri = DocumentUri.From(new Uri(filePath).AbsoluteUri),
+            Range = new LspRange(
+                result.Line - 1,
+                result.Column - 1,
+                result.Line - 1,
+                result.Column - 1 + Math.Max(1, result.Length))
+        };
+        return new LocationOrLocationLinks(location);
     }
 
     protected override DefinitionRegistrationOptions CreateRegistrationOptions(
