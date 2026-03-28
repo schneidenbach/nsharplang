@@ -2565,4 +2565,142 @@ public class AnalyzerTests
             }
         ", AspNetCoreConfig);
     }
+
+    // ── Lambda Contextual Type Inference for N# Functions ──
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersParameterType_FuncIntInt()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, int>): int {
+                return f(42)
+            }
+
+            func Main() {
+                result := Apply(x => x * 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersParameterType_FuncStringInt()
+    {
+        AssertNoErrors(@"
+            func Transform(items: List<string>, f: Func<string, int>): int {
+                return f(items[0])
+            }
+
+            func Main() {
+                items := [""hello"", ""world""]
+                result := Transform(items, x => x.Length)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersMultipleParams_FuncIntIntInt()
+    {
+        AssertNoErrors(@"
+            func Process(f: Func<int, int, int>): int {
+                return f(1, 2)
+            }
+
+            func Main() {
+                result := Process((x, y) => x + y)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_BlockBody_InfersParameterType()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, int>): int {
+                return f(42)
+            }
+
+            func Main() {
+                result := Apply(x => { return x * 2 })
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_Action_InfersParameterType()
+    {
+        AssertNoErrors(@"
+            func DoWith(value: int, action: Action<int>) {
+                action(value)
+            }
+
+            func Main() {
+                DoWith(42, x => x + 1)
+            }
+        ");
+    }
+
+    // ── Extension Methods on Literals ──
+
+    [Fact]
+    public void ExtensionMethod_OnIntLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func Double(this n: int): int {
+                return n * 2
+            }
+
+            func Main() {
+                let result: int = 5.Double()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnStringLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func IsEmpty(this s: string): bool {
+                return s.Length == 0
+            }
+
+            func Main() {
+                let result: bool = ""hello"".IsEmpty()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnDoubleLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func Negate(this d: double): double {
+                return 0.0 - d
+            }
+
+            func Main() {
+                let result: double = 3.14.Negate()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_IntLiteral_InstanceMethod_NoError()
+    {
+        // Instance methods on built-in types should also work on literals
+        AssertNoErrors(@"
+            func Main() {
+                s := 5.ToString()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_StringLiteral_InstanceProperty_NoError()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                len := ""hello"".Length
+            }
+        ");
+    }
 }
