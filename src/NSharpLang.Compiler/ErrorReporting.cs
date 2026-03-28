@@ -358,7 +358,7 @@ public record CompilerError
         // Contextual hint
         if (ContextualHint != null)
         {
-            builder.AppendLine(ContextualHint);
+            builder.AppendLine($"Hint: {ContextualHint}");
             builder.AppendLine();
         }
 
@@ -711,48 +711,48 @@ public static class TypeConversionSuggester
         return (fromType, toType) switch
         {
             ("string", "int") =>
-                "Hint: Strings and integers are different types. To convert a string to an int,\n" +
+                "Strings and integers are different types. To convert a string to an int,\n" +
                 "you can use int.Parse(yourString) or int.TryParse(yourString, out result).",
 
             ("int", "string") =>
-                "Hint: You can convert an integer to a string using .ToString() or string\n" +
+                "You can convert an integer to a string using .ToString() or string\n" +
                 "interpolation: $\"{yourNumber}\"",
 
             ("int", "double") =>
-                "Hint: Implicit conversion from int to double works automatically.",
+                "Implicit conversion from int to double works automatically.",
 
             ("double", "int") =>
-                "Hint: You need an explicit cast: (int)value\n" +
+                "You need an explicit cast: (int)value\n" +
                 "Warning: This truncates decimals, so 3.7 becomes 3.",
 
             ("string", "double") =>
-                "Hint: Use double.Parse(yourString) or double.TryParse(yourString, out result).",
+                "Use double.Parse(yourString) or double.TryParse(yourString, out result).",
 
             ("double", "string") =>
-                "Hint: Use value.ToString() or $\"{value}\"",
+                "Use value.ToString() or $\"{value}\"",
 
             ("int", "long") =>
-                "Hint: Implicit conversion from int to long works automatically.",
+                "Implicit conversion from int to long works automatically.",
 
             ("long", "int") =>
-                "Hint: You need an explicit cast: (int)value\n" +
+                "You need an explicit cast: (int)value\n" +
                 "Warning: This may lose data if the long value is too large for int.",
 
             // Nullable conversions
             (var from, var to) when to == from + "?" =>
-                "Hint: This conversion is implicit. Non-nullable values can be assigned to nullable types.",
+                "This conversion is implicit. Non-nullable values can be assigned to nullable types.",
 
             (var from, var to) when from == to + "?" =>
-                "Hint: You're trying to use a nullable value where a non-nullable is expected.\n" +
+                "You're trying to use a nullable value where a non-nullable is expected.\n" +
                 "You need to handle the null case, perhaps with 'if (x != null)' or the\n" +
                 "null-coalescing operator 'x ?? defaultValue'.",
 
             // Array/List conversions
             (var from, var to) when from.EndsWith("[]") && to.StartsWith("List<") =>
-                "Hint: Use .ToList() to convert an array to a List, or use 'new List<T>(array)'.",
+                "Use .ToList() to convert an array to a List, or use 'new List<T>(array)'.",
 
             (var from, var to) when from.StartsWith("List<") && to.EndsWith("[]") =>
-                "Hint: Use .ToArray() to convert a List to an array.",
+                "Use .ToArray() to convert a List to an array.",
 
             _ => null
         };
@@ -781,7 +781,7 @@ public static class ErrorMessageBuilder
             ActualType = actualType,
             ExpectedType = expectedType,
             HumanExplanation = humanExplanation,
-            ContextualHint = contextualHint ?? "Hint: These types are not compatible. Check if you need to convert or cast.",
+            ContextualHint = contextualHint ?? "These types are not compatible. Check if you need to convert or cast.",
             DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
         };
     }
@@ -795,9 +795,9 @@ public static class ErrorMessageBuilder
         var humanExplanation = $"I cannot find a `{varName}` variable on line {line}:";
 
         var contextualHint = similarNames.Any()
-            ? "Hint: Variables need to be declared before they can be used. If you meant to\n" +
+            ? "Variables need to be declared before they can be used. If you meant to\n" +
               "use a variable from outside this function, make sure it's in scope."
-            : "Hint: Make sure you've declared this variable before using it.";
+            : "Make sure you've declared this variable before using it.";
 
         return new CompilerError(ErrorCode.UndefinedVariable, $"Variable '{varName}' not found", line, column, ErrorSeverity.Error)
         {
@@ -822,7 +822,7 @@ public static class ErrorMessageBuilder
         var contextualHint =
             $"You need to handle these cases:\n\n" +
             string.Join("\n", missingCases.Select(c => $"    {c}")) + "\n\n" +
-            "Hint: Pattern matching in N# must be exhaustive, meaning every possible value\n" +
+            "Pattern matching in N# must be exhaustive, meaning every possible value\n" +
             "must be handled. You can either add the missing cases, or use a wildcard '_'\n" +
             "pattern to catch everything else:\n\n" +
             "    _ => handleOtherCases()\n\n" +
@@ -850,9 +850,9 @@ public static class ErrorMessageBuilder
         var humanExplanation = $"I cannot find a type called `{typeName}` on line {line}:";
 
         var contextualHint = similarTypes.Any()
-            ? "Hint: Check that the type is imported. If it's from another namespace,\n" +
+            ? "Check that the type is imported. If it's from another namespace,\n" +
               "you may need to add an import statement at the top of your file."
-            : "Hint: Make sure the type is defined and imported correctly.";
+            : "Make sure the type is defined and imported correctly.";
 
         return new CompilerError(ErrorCode.UndefinedType, $"Type '{typeName}' not found", line, column, ErrorSeverity.Error)
         {
@@ -875,9 +875,9 @@ public static class ErrorMessageBuilder
         var humanExplanation = $"I am having trouble with this function call on line {line}:";
 
         var contextualHint = expected > actual
-            ? $"Hint: The function `{functionName}` expects {expected} arguments, but you are\n" +
+            ? $"The function `{functionName}` expects {expected} arguments, but you are\n" +
               $"passing {actual}. You may have forgotten to pass some arguments."
-            : $"Hint: The function `{functionName}` expects {expected} arguments, but you are\n" +
+            : $"The function `{functionName}` expects {expected} arguments, but you are\n" +
               $"passing {actual}. You may have passed too many arguments.";
 
         return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expected} arguments but got {actual}", line, column, ErrorSeverity.Error)
@@ -900,7 +900,7 @@ public static class ErrorMessageBuilder
         var humanExplanation = $"I cannot find the file you're trying to import on line {line}:";
 
         var contextualHint =
-            $"Hint: Make sure the file exists at the path '{importPath}'.\n" +
+            $"Make sure the file exists at the path '{importPath}'.\n" +
             "The path should be relative to your project root.\n\n" +
             "Common issues:\n" +
             "  - Check for typos in the file path\n" +
@@ -954,9 +954,9 @@ public static class ErrorMessageBuilder
         var humanExplanation = $"I found something unexpected on line {line}:";
 
         var contextualHint = expectedToken != null
-            ? $"Hint: I was expecting to see {expectedToken}, but I found {unexpectedToken} instead.\n" +
+            ? $"I was expecting to see {expectedToken}, but I found {unexpectedToken} instead.\n" +
               "Check for missing semicolons, parentheses, or other syntax elements."
-            : $"Hint: The token `{unexpectedToken}` is not valid here.\n" +
+            : $"The token `{unexpectedToken}` is not valid here.\n" +
               "Check your syntax - you may be missing a semicolon, closing brace, or parenthesis.";
 
         var message = expectedToken != null
@@ -971,6 +971,107 @@ public static class ErrorMessageBuilder
             HumanExplanation = humanExplanation,
             ContextualHint = contextualHint,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL101"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style missing return error
+    /// </summary>
+    public static CompilerError MissingReturn(string fileName, int line, int column, string sourceSnippet,
+        int length, string returnType)
+    {
+        var humanExplanation = $"This function is declared to return `{returnType}`, but not all code paths " +
+                               "return a value:";
+
+        var contextualHint =
+            $"Every code path through this function must end with a `return` statement that\n" +
+            $"provides a `{returnType}` value. If you don't need to return anything, change the\n" +
+            "return type to `void`.";
+
+        return new CompilerError(ErrorCode.MissingReturn, $"Not all code paths return a value of type '{returnType}'", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ExpectedType = returnType,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = $"Add a `return` statement, or change the return type to `void`",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL305"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style wrong argument type error
+    /// </summary>
+    public static CompilerError WrongArgumentType(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, int argIndex, string paramName, string actualType, string expectedType)
+    {
+        var humanExplanation = $"Argument {argIndex} in the call to `{functionName}` has the wrong type:";
+
+        var contextualHint = TypeConversionSuggester.SuggestConversion(actualType, expectedType)
+            ?? $"The parameter `{paramName}` expects a `{expectedType}` value, but you passed a\n" +
+               $"`{actualType}`. These types are not compatible.";
+
+        return new CompilerError(ErrorCode.TypeMismatch, $"Cannot pass `{actualType}` as argument for parameter `{paramName}` of type `{expectedType}`", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = actualType,
+            ExpectedType = expectedType,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style duplicate declaration error
+    /// </summary>
+    public static CompilerError DuplicateDeclaration(string fileName, int line, int column, string sourceSnippet,
+        int length, string name, string kind)
+    {
+        var humanExplanation = $"I found a duplicate {kind} named `{name}` on line {line}:";
+
+        var contextualHint =
+            $"The name `{name}` is already defined. Each {kind} must have a unique name\n" +
+            "within its scope. Rename one of the declarations to fix this.";
+
+        return new CompilerError(ErrorCode.DuplicateDeclaration, $"Duplicate {kind} '{name}'", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL306"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style undefined member error
+    /// </summary>
+    public static CompilerError UndefinedMember(string fileName, int line, int column, string sourceSnippet,
+        int length, string memberName, string typeName, List<string> similarMembers)
+    {
+        var humanExplanation = $"I cannot find a member called `{memberName}` on type `{typeName}`:";
+
+        var contextualHint = similarMembers.Any()
+            ? $"The type `{typeName}` does not have a member named `{memberName}`.\n" +
+              "Check for typos, or make sure you're accessing the right type."
+            : $"The type `{typeName}` does not have a member named `{memberName}`.\n" +
+              "Check the type's documentation for available members.";
+
+        return new CompilerError(ErrorCode.UndefinedMember, $"Member '{memberName}' not found on type '{typeName}'", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestions = similarMembers.Any() ? similarMembers : null,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL303"
         };
     }
 }

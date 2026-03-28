@@ -2654,6 +2654,268 @@ public class AnalyzerTests
         ", AspNetCoreConfig);
     }
 
+    // ── Lambda Contextual Type Inference for N# Functions ──
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersParameterType_FuncIntInt()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, int>): int {
+                return f(42)
+            }
+
+            func Main() {
+                result := Apply(x => x * 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersParameterType_FuncStringInt()
+    {
+        AssertNoErrors(@"
+            func Transform(items: List<string>, f: Func<string, int>): int {
+                return f(items[0])
+            }
+
+            func Main() {
+                items := [""hello"", ""world""]
+                result := Transform(items, x => x.Length)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_InfersMultipleParams_FuncIntIntInt()
+    {
+        AssertNoErrors(@"
+            func Process(f: Func<int, int, int>): int {
+                return f(1, 2)
+            }
+
+            func Main() {
+                result := Process((x, y) => x + y)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_BlockBody_InfersParameterType()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, int>): int {
+                return f(42)
+            }
+
+            func Main() {
+                result := Apply(x => { return x * 2 })
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_NSharpFunction_Action_InfersParameterType()
+    {
+        AssertNoErrors(@"
+            func DoWith(value: int, action: Action<int>) {
+                action(value)
+            }
+
+            func Main() {
+                DoWith(42, x => x + 1)
+            }
+        ");
+    }
+
+    // ── Extension Methods on Literals ──
+
+    [Fact]
+    public void ExtensionMethod_OnIntLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func Double(this n: int): int {
+                return n * 2
+            }
+
+            func Main() {
+                let result: int = 5.Double()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnStringLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func IsEmpty(this s: string): bool {
+                return s.Length == 0
+            }
+
+            func Main() {
+                let result: bool = ""hello"".IsEmpty()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_OnDoubleLiteral_NoError()
+    {
+        AssertNoErrors(@"
+            func Negate(this d: double): double {
+                return 0.0 - d
+            }
+
+            func Main() {
+                let result: double = 3.14.Negate()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_IntLiteral_InstanceMethod_NoError()
+    {
+        // Instance methods on built-in types should also work on literals
+        AssertNoErrors(@"
+            func Main() {
+                s := 5.ToString()
+            }
+        ");
+    }
+
+    [Fact]
+    public void ExtensionMethod_StringLiteral_InstanceProperty_NoError()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                len := ""hello"".Length
+            }
+        ");
+    }
+
+    // Circular import detection tests
+
+    [Fact]
+    public void CircularImport_TwoFiles_ReportsError()
+    {
+        // Create temp directory with two files that import each other
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_circular_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var fileA = Path.Combine(tempDir, "A.nl");
+            var fileB = Path.Combine(tempDir, "B.nl");
+
+            File.WriteAllText(fileA, @"import ""./B""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+            File.WriteAllText(fileB, @"import ""./A""
+
+func World(): string {
+    return ""world""
+}
+");
+
+            // Parse and analyze file A
+            var sourceA = File.ReadAllText(fileA);
+            var lexer = new Lexer(sourceA, fileA);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, fileA, sourceA);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
+
+            Assert.True(result.HasErrors, "Expected circular import error but got none");
+            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CircularImport_SelfImport_ReportsError()
+    {
+        // Create temp directory with a file that imports itself
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_self_import_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var file = Path.Combine(tempDir, "Self.nl");
+            File.WriteAllText(file, @"import ""./Self""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+
+            var source = File.ReadAllText(file);
+            var lexer = new Lexer(source, file);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, file, source);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, file, tempDir, source);
+
+            Assert.True(result.HasErrors, "Expected circular import error but got none");
+            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void NonCircularImport_NoError()
+    {
+        // Create temp directory with two files where only one imports the other (no cycle)
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_no_circular_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var fileA = Path.Combine(tempDir, "A.nl");
+            var fileB = Path.Combine(tempDir, "B.nl");
+
+            File.WriteAllText(fileA, @"import ""./B""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+            File.WriteAllText(fileB, @"func World(): string {
+    return ""world""
+}
+");
+
+            var sourceA = File.ReadAllText(fileA);
+            var lexer = new Lexer(sourceA, fileA);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, fileA, sourceA);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
+
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ================================================================
     // N#-declared method overload resolution
     // ================================================================
@@ -2920,129 +3182,5 @@ public class AnalyzerTests
                 f.Format(""hello"", 1, 2, 3)
             }
         ");
-    }
-
-    // Circular import detection tests
-
-    [Fact]
-    public void CircularImport_TwoFiles_ReportsError()
-    {
-        // Create temp directory with two files that import each other
-        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_circular_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            var fileA = Path.Combine(tempDir, "A.nl");
-            var fileB = Path.Combine(tempDir, "B.nl");
-
-            File.WriteAllText(fileA, @"import ""./B""
-
-func Hello(): string {
-    return ""hello""
-}
-");
-            File.WriteAllText(fileB, @"import ""./A""
-
-func World(): string {
-    return ""world""
-}
-");
-
-            // Parse and analyze file A
-            var sourceA = File.ReadAllText(fileA);
-            var lexer = new Lexer(sourceA, fileA);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, fileA, sourceA);
-            var parseResult = parser.ParseCompilationUnit();
-            var analyzer = new Analyzer();
-            analyzer.LoadSystemAssemblies();
-
-            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
-
-            Assert.True(result.HasErrors, "Expected circular import error but got none");
-            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CircularImport_SelfImport_ReportsError()
-    {
-        // Create temp directory with a file that imports itself
-        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_self_import_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            var file = Path.Combine(tempDir, "Self.nl");
-            File.WriteAllText(file, @"import ""./Self""
-
-func Hello(): string {
-    return ""hello""
-}
-");
-
-            var source = File.ReadAllText(file);
-            var lexer = new Lexer(source, file);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, file, source);
-            var parseResult = parser.ParseCompilationUnit();
-            var analyzer = new Analyzer();
-            analyzer.LoadSystemAssemblies();
-
-            var result = analyzer.Analyze(parseResult.CompilationUnit!, file, tempDir, source);
-
-            Assert.True(result.HasErrors, "Expected circular import error but got none");
-            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void NonCircularImport_NoError()
-    {
-        // Create temp directory with two files where only one imports the other (no cycle)
-        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_no_circular_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            var fileA = Path.Combine(tempDir, "A.nl");
-            var fileB = Path.Combine(tempDir, "B.nl");
-
-            File.WriteAllText(fileA, @"import ""./B""
-
-func Hello(): string {
-    return ""hello""
-}
-");
-            File.WriteAllText(fileB, @"func World(): string {
-    return ""world""
-}
-");
-
-            var sourceA = File.ReadAllText(fileA);
-            var lexer = new Lexer(sourceA, fileA);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, fileA, sourceA);
-            var parseResult = parser.ParseCompilationUnit();
-            var analyzer = new Analyzer();
-            analyzer.LoadSystemAssemblies();
-
-            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
-
-            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CircularImport);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
     }
 }
