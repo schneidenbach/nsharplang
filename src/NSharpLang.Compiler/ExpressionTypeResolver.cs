@@ -33,6 +33,7 @@ public class ExpressionTypeResolver
             IntLiteralExpression => typeof(int),
             FloatLiteralExpression => typeof(double),
             StringLiteralExpression => typeof(string),
+            InterpolatedStringExpression => typeof(string),
             BoolLiteralExpression => typeof(bool),
             NullLiteralExpression => typeof(object),
             ArrayLiteralExpression => typeof(Array), // Simplified

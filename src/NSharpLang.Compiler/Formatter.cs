@@ -1118,6 +1118,29 @@ public class Formatter
             case StringLiteralExpression strLit:
                 sb.Append(strLit.Value);
                 break;
+            case InterpolatedStringExpression interpolated:
+                sb.Append("$\"");
+                foreach (var part in interpolated.Parts)
+                {
+                    switch (part)
+                    {
+                        case InterpolatedStringText text:
+                            sb.Append(text.Text);
+                            break;
+                        case InterpolatedStringHole hole:
+                            sb.Append('{');
+                            FormatExpression(hole.Expression, sb);
+                            if (hole.FormatClause != null)
+                            {
+                                sb.Append(':');
+                                sb.Append(hole.FormatClause);
+                            }
+                            sb.Append('}');
+                            break;
+                    }
+                }
+                sb.Append('"');
+                break;
             case BoolLiteralExpression boolLit:
                 sb.Append(boolLit.Value ? "true" : "false");
                 break;

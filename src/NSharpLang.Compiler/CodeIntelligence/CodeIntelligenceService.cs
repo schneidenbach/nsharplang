@@ -1221,6 +1221,19 @@ public class CodeIntelligenceService
                     yield return candidate;
                 }
                 yield break;
+
+            case InterpolatedStringExpression interpolated:
+                foreach (var part in interpolated.Parts)
+                {
+                    if (part is InterpolatedStringHole hole)
+                    {
+                        foreach (var candidate in EnumerateReferenceCandidatesInExpression(hole.Expression))
+                        {
+                            yield return candidate;
+                        }
+                    }
+                }
+                yield break;
         }
     }
 
@@ -1687,6 +1700,7 @@ public class CodeIntelligenceService
             IntLiteralExpression => new SimpleTypeInfo("int"),
             FloatLiteralExpression => new SimpleTypeInfo("double"),
             StringLiteralExpression => new SimpleTypeInfo("string"),
+            InterpolatedStringExpression => new SimpleTypeInfo("string"),
             BoolLiteralExpression => new SimpleTypeInfo("bool"),
             NullLiteralExpression => new SimpleTypeInfo("object"),
             _ => null
