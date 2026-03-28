@@ -1,7 +1,7 @@
+import System
 import Microsoft.AspNetCore.Builder
 import Microsoft.AspNetCore.Http
 import Microsoft.Extensions.Hosting
-import System
 
 func main(args: string[]) {
     builder := WebApplication.CreateBuilder(args)
@@ -14,11 +14,7 @@ func main(args: string[]) {
     app.MapGet("/time", () => DateTime.Now.ToString())
 
     // JSON endpoint
-    app.MapGet("/json", () => new {
-        Message: "Hello from N#",
-        Timestamp: DateTime.Now,
-        Language: "N#"
-    })
+    app.MapGet("/json", () => new() { Message: "Hello from N#", Timestamp: DateTime.Now, Language: "N#" })
 
     // Environment check
     if app.Environment.IsDevelopment() {

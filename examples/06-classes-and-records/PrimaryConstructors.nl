@@ -1,7 +1,7 @@
 // Primary Constructors (C# 12 Feature)
 // Demonstrates primary constructor syntax for classes, structs, and records
-
 import System
+
 
 // 1. Class with Primary Constructor - Perfect for Dependency Injection
 class Logger(name: string) {
@@ -15,7 +15,7 @@ class Logger(name: string) {
 }
 
 // 2. Struct with Primary Constructor - Clean Value Types
-struct Point(x: double, y: double) {
+struct Point {
     func GetDistance(): double {
         return Math.Sqrt(x * x + y * y)
     }
@@ -31,6 +31,7 @@ struct Point(x: double, y: double) {
 
 // 3. Record with Primary Constructor - Immutable Data
 record Person(name: string, age: int, email: string) {
+
     // Can add additional members
     FullInfo: string => $"{name} ({age}) - {email}"
 
@@ -41,6 +42,7 @@ record Person(name: string, age: int, email: string) {
 
 // 4. Record with Validation
 record EmailAddress(value: string) {
+
     // Simple validation using length only for now
     IsValid: bool => value.Length > 5
 

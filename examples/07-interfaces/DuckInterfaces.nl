@@ -1,7 +1,7 @@
 // Duck Interfaces Example
 // Demonstrates structural typing with duck interfaces
-
 import System
+
 
 // Define a duck interface for anything that can read
 duck interface IReader {
@@ -119,7 +119,7 @@ func Main() {
 
     // Can assign to duck interface variables
     print "6. Variable assignment with duck interfaces:"
-    let reader: IReader = new FileReader("/another/file.txt")
+    reader: IReader = new FileReader("/another/file.txt")
     content := reader.Read()
     print content
     print ""

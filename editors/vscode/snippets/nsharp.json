@@ -1,0 +1,192 @@
+{
+  "Function": {
+    "prefix": "func",
+    "body": [
+      "func ${1:name}(${2:params}): ${3:returnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function declaration"
+  },
+  "Async Function": {
+    "prefix": "async",
+    "body": [
+      "func async ${1:name}(${2:params}): ${3:returnType} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Async function declaration"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "\tconstructor(${2:params}) {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Class with constructor"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": [
+      "record ${1:Name} {",
+      "\t${2:Field}: ${3:type}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Record with fields"
+  },
+  "Union": {
+    "prefix": "union",
+    "body": [
+      "union ${1:Name} {",
+      "\t${2:Case1} { ${3:field}: ${4:type} }",
+      "\t${5:Case2} { ${6:field}: ${7:type} }",
+      "\t$0",
+      "}"
+    ],
+    "description": "Discriminated union with cases"
+  },
+  "Match Expression": {
+    "prefix": "match",
+    "body": [
+      "match ${1:value} {",
+      "\t${2:pattern} => ${3:result},",
+      "\t${4:_} => ${5:default},",
+      "}"
+    ],
+    "description": "Match expression with cases"
+  },
+  "Test Block": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:description}\" {",
+      "\t${2:// arrange}",
+      "\tassert ${3:condition}",
+      "}"
+    ],
+    "description": "Test block with assert"
+  },
+  "For-In Loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} in ${2:collection} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For-in loop"
+  },
+  "If Block": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If block"
+  },
+  "If-Else Block": {
+    "prefix": "ife",
+    "body": [
+      "if ${1:condition} {",
+      "\t$2",
+      "} else {",
+      "\t$0",
+      "}"
+    ],
+    "description": "If-else block"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": [
+      "import ${1:Namespace}"
+    ],
+    "description": "Import statement"
+  },
+  "Error Handling": {
+    "prefix": "err",
+    "body": [
+      "${1:result}, ${2:err} := ${3:expression}",
+      "if ${2:err} != null {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Error handling pattern with result and error"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name} {",
+      "\t${2:Value1},",
+      "\t${3:Value2},",
+      "\t$0",
+      "}"
+    ],
+    "description": "Enum declaration"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:IName} {",
+      "\tfunc ${2:Method}(${3:params}): ${4:returnType}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Interface declaration"
+  },
+  "Duck Interface": {
+    "prefix": "duck",
+    "body": [
+      "duck interface ${1:IName} {",
+      "\tfunc ${2:Method}(${3:params}): ${4:returnType}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Duck interface declaration"
+  },
+  "Try-Catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "\t$1",
+      "} catch ${2:ex}: ${3:Exception} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Try-catch block"
+  },
+  "Print": {
+    "prefix": "print",
+    "body": [
+      "print $\"${1:message}\""
+    ],
+    "description": "Print with string interpolation"
+  },
+  "Constructor": {
+    "prefix": "constructor",
+    "body": [
+      "constructor(${1:params}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Constructor"
+  },
+  "While Loop": {
+    "prefix": "while",
+    "body": [
+      "while ${1:condition} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Type Alias": {
+    "prefix": "type",
+    "body": [
+      "type ${1:Name} = ${2:existingType}"
+    ],
+    "description": "Type alias"
+  }
+}

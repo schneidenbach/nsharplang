@@ -17,6 +17,7 @@ class Calculator {
         if b == 0 {
             throw new System.DivideByZeroException("Cannot divide by zero")
         }
+
         return a / b
     }
 }
