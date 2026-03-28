@@ -423,9 +423,9 @@ public class QueryIntegrationTests : IDisposable
     // ═══════════════════════════════════════════════════════════════════
 
     // HelloWorld Program.nl layout:
-    //   Line 6:  func hi(): int {        (col 1 = "func", col 6 = "hi")
-    //   Line 14: func Main() {           (col 1 = "func", col 6 = "Main")
-    //   Line 15:     name := "Spencer"   (col 5 = "name")
+    //   Line 5:  func hi(): int {        (col 1 = "func", col 6 = "hi")
+    //   Line 13: func Main() {           (col 1 = "func", col 6 = "Main")
+    //   Line 14:     name := "Spencer"   (col 5 = "name")
 
     [Fact]
     public void Definition_AtPosition_FindsHiFunction()
@@ -436,7 +436,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var hi = results.First(d => d.Name == "hi");
         Assert.Equal("function", hi.Kind);
-        Assert.Equal(6, hi.Line); // func hi() is on line 6
+        Assert.Equal(5, hi.Line); // func hi() is on line 5
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(14, main.Line); // func Main() is on line 14
+        Assert.Equal(13, main.Line); // func Main() is on line 13
     }
 
     // MultiFile Person.nl layout:
@@ -513,8 +513,8 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_HelloWorld_FindsHiFunctionUsages()
     {
-        // hi() is declared on line 6, called on line 19
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 6, 1);
+        // hi() is declared on line 5, called on line 18
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 5, 1);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
@@ -562,8 +562,8 @@ public class QueryIntegrationTests : IDisposable
         var bindings = MultiFile.Bindings!;
         var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
 
-        var memberColumn = FindColumnInFile(programPath, 42, "GetPeople");
-        var declaration = bindings.GetBindingAt(programPath, 42, memberColumn);
+        var memberColumn = FindColumnInFile(programPath, 30, "GetPeople");
+        var declaration = bindings.GetBindingAt(programPath, 30, memberColumn);
 
         Assert.NotNull(declaration);
         Assert.Equal("GetPeople", declaration!.Name);
@@ -653,9 +653,9 @@ public class QueryIntegrationTests : IDisposable
     public void Definition_MultiFile_ImportedMemberUseSite_Resolves()
     {
         var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
-        var memberColumn = FindColumnInFile(programPath, 42, "GetPeople");
+        var memberColumn = FindColumnInFile(programPath, 30, "GetPeople");
 
-        var result = _service.FindDefinition(MultiFile, "Program.nl", 42, memberColumn);
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 30, memberColumn);
 
         Assert.NotNull(result);
         Assert.Equal("GetPeople", result!.Name);

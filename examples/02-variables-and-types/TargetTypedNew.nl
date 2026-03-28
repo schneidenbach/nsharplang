@@ -46,29 +46,29 @@ func Main() {
 
     // Example 1: Target-typed new with explicit type
     print "1. Target-typed new with constructor arguments:"
-    let person: Person = new("Alice", 30)
+    person: Person = new("Alice", 30)
     print person.Greet()
     print ""
 
     // Example 2: Target-typed new with object initializer
     print "2. Explicit type with object initializer:"
-    let point: Point = new Point { X: 3.0, Y: 4.0 }
+    point: Point = new Point() { X: 3.0, Y: 4.0 }
     print $"Point: ({point.X}, {point.Y})"
     print ""
 
     // Example 3: Target-typed new with generics
     print "3. Target-typed new with generic types:"
-    let intBox: Box<int> = new(42)
-    let stringBox: Box<string> = new("Hello")
+    intBox: Box<int> = new(42)
+    stringBox: Box<string> = new("Hello")
     print $"Int box contains: {intBox.GetValue()}"
     print $"String box contains: {stringBox.GetValue()}"
     print ""
 
     // Example 4: Multiple instances with explicit type
     print "4. Multiple instances:"
-    let bob: Person = new("Bob", 25)
-    let charlie: Person = new("Charlie", 35)
-    let diana: Person = new("Diana", 28)
+    bob: Person = new("Bob", 25)
+    charlie: Person = new("Charlie", 35)
+    diana: Person = new("Diana", 28)
 
     print bob.Greet()
     print charlie.Greet()

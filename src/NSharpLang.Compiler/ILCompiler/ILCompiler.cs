@@ -901,6 +901,10 @@ public partial class ILCompiler
                 EmitLambda(lambda);
                 break;
 
+            case ParenthesizedExpression paren:
+                EmitExpression(paren.Inner);
+                break;
+
             default:
                 throw new NotImplementedException($"Expression type {expression.GetType().Name} not yet implemented in IL compiler");
         }
@@ -1708,6 +1712,7 @@ public partial class ILCompiler
             NullLiteralExpression => typeof(object),
             IdentifierExpression ident => GetIdentifierType(ident),
             BinaryExpression binary => GetBinaryExpressionType(binary),
+            ParenthesizedExpression paren => GetExpressionType(paren.Inner),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
             NewExpression newExpr => newExpr.Type != null ? ResolveType(newExpr.Type, _currentGenericParameters) : typeof(object),
             MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),

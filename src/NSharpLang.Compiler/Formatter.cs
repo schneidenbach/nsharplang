@@ -10,6 +10,9 @@ public class Formatter
 {
     private int _indent = 0;
     private readonly string _indentString;
+    private List<CommentTrivia> _comments = new();
+    private int _commentIndex = 0;
+    private int _lastEmittedSourceLine = 0;
 
     public Formatter(FormatterConfig? config = null)
     {
@@ -17,27 +20,41 @@ public class Formatter
         _indentString = config.GetIndentString();
     }
 
-    public string Format(CompilationUnit ast)
+    public string Format(CompilationUnit ast, List<CommentTrivia>? comments = null)
     {
+        _comments = comments ?? new List<CommentTrivia>();
+        _commentIndex = 0;
+        _lastEmittedSourceLine = 0;
         var sb = new StringBuilder();
 
         // Format package declaration
         if (ast.Package != null)
         {
+            EmitCommentsBefore(ast.Package.Line, sb);
             sb.AppendLine($"package {ast.Package.Name}");
+            _lastEmittedSourceLine = ast.Package.Line;
             sb.AppendLine();
         }
 
         // Format namespace declaration
         if (ast.Namespace != null)
         {
+            EmitCommentsBefore(ast.Namespace.Line, sb);
             sb.AppendLine($"namespace {ast.Namespace.Name}");
+            _lastEmittedSourceLine = ast.Namespace.Line;
             sb.AppendLine();
         }
 
+        // Sort imports: System.* first, then alphabetical
+        var sortedImports = ast.Imports
+            .OrderByDescending(i => i.Namespace.StartsWith("System"))
+            .ThenBy(i => i.Namespace)
+            .ToList();
+
         // Format imports
-        foreach (var import in ast.Imports)
+        foreach (var import in sortedImports)
         {
+            EmitCommentsBefore(import.Line, sb);
             sb.Append("import ");
             sb.Append(import.Namespace);
             if (import.Alias != null)
@@ -45,6 +62,7 @@ public class Formatter
                 sb.Append($" as {import.Alias}");
             }
             sb.AppendLine();
+            _lastEmittedSourceLine = import.Line;
         }
 
         // Format file imports
@@ -52,12 +70,14 @@ public class Formatter
         {
             if (fileImport is FileImport fi)
             {
+                EmitCommentsBefore(fi.Line, sb);
                 sb.Append($"import \"{fi.Path}\"");
                 if (fi.Alias != null)
                 {
                     sb.Append($" as {fi.Alias}");
                 }
                 sb.AppendLine();
+                _lastEmittedSourceLine = fi.Line;
             }
         }
 
@@ -66,17 +86,96 @@ public class Formatter
             sb.AppendLine();
         }
 
-        // Format declarations
+        // Format declarations with blank line preservation
         for (int i = 0; i < ast.Declarations.Count; i++)
         {
-            FormatDeclaration(ast.Declarations[i], sb);
-            if (i < ast.Declarations.Count - 1)
+            var decl = ast.Declarations[i];
+            EmitCommentsBefore(decl.Line, sb);
+            if (i > 0 && _lastEmittedSourceLine > 0)
+            {
+                // Preserve blank lines between declarations based on source gap
+                // Uses _lastEmittedSourceLine which accounts for any comments just emitted
+                if (decl.Line - _lastEmittedSourceLine > 1)
+                {
+                    sb.AppendLine();
+                }
+            }
+            FormatDeclaration(decl, sb);
+            _lastEmittedSourceLine = decl.Line;
+        }
+
+        // Emit any trailing comments after all declarations
+        EmitRemainingComments(sb);
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Emit all comments whose line is before the given source line.
+    /// </summary>
+    private void EmitCommentsBefore(int beforeLine, StringBuilder sb)
+    {
+        while (_commentIndex < _comments.Count && _comments[_commentIndex].Line < beforeLine)
+        {
+            var comment = _comments[_commentIndex];
+            // Preserve blank line before comment if source had one
+            // (but only if we've already emitted content on a meaningful line)
+            if (_lastEmittedSourceLine > 0 && comment.Line - _lastEmittedSourceLine > 1)
             {
                 sb.AppendLine();
             }
+            Indent(sb);
+            sb.AppendLine(comment.Text);
+            _lastEmittedSourceLine = comment.Line;
+            _commentIndex++;
         }
+    }
 
-        return sb.ToString();
+    /// <summary>
+    /// Emit any remaining comments at the end of the file.
+    /// </summary>
+    private void EmitRemainingComments(StringBuilder sb)
+    {
+        while (_commentIndex < _comments.Count)
+        {
+            var comment = _comments[_commentIndex];
+            if (comment.Line - _lastEmittedSourceLine > 1)
+            {
+                sb.AppendLine();
+            }
+            Indent(sb);
+            sb.AppendLine(comment.Text);
+            _lastEmittedSourceLine = comment.Line;
+            _commentIndex++;
+        }
+    }
+
+    /// <summary>
+    /// Estimate the end line of a declaration (heuristic: next decl's line - 1).
+    /// For declarations with bodies, we approximate using the start line.
+    /// </summary>
+    private static int GetEndLine(Declaration decl)
+    {
+        return decl.Line; // Conservative: use start line
+    }
+
+    /// <summary>
+    /// Format a list of member declarations (e.g., inside a class/struct/interface),
+    /// preserving comments and blank lines between members.
+    /// </summary>
+    private void FormatMembers(List<Declaration> members, StringBuilder sb)
+    {
+        for (int i = 0; i < members.Count; i++)
+        {
+            var member = members[i];
+            EmitCommentsBefore(member.Line, sb);
+            if (i > 0 && _lastEmittedSourceLine > 0 && member.Line - _lastEmittedSourceLine > 1)
+            {
+                sb.AppendLine();
+            }
+            FormatDeclaration(member, sb);
+            _lastEmittedSourceLine = member.Line;
+        }
     }
 
     private void FormatDeclaration(Declaration decl, StringBuilder sb)
@@ -192,6 +291,7 @@ public class Formatter
         else if (func.Body != null)
         {
             sb.AppendLine(" {");
+            _lastEmittedSourceLine = func.Line;
             _indent++;
             FormatBlock(func.Body, sb);
             _indent--;
@@ -254,10 +354,7 @@ public class Formatter
 
         sb.AppendLine(" {");
         _indent++;
-        for (int i = 0; i < cls.Members.Count; i++)
-        {
-            FormatDeclaration(cls.Members[i], sb);
-        }
+        FormatMembers(cls.Members, sb);
         _indent--;
         Indent(sb);
         sb.AppendLine("}");
@@ -292,10 +389,7 @@ public class Formatter
 
         sb.AppendLine(" {");
         _indent++;
-        for (int i = 0; i < str.Members.Count; i++)
-        {
-            FormatDeclaration(str.Members[i], sb);
-        }
+        FormatMembers(str.Members, sb);
         _indent--;
         Indent(sb);
         sb.AppendLine("}");
@@ -350,10 +444,7 @@ public class Formatter
         {
             sb.AppendLine(" {");
             _indent++;
-            for (int i = 0; i < rec.Members.Count; i++)
-            {
-                FormatDeclaration(rec.Members[i], sb);
-            }
+            FormatMembers(rec.Members, sb);
             _indent--;
             Indent(sb);
             sb.AppendLine("}");
@@ -398,10 +489,7 @@ public class Formatter
 
         sb.AppendLine(" {");
         _indent++;
-        for (int i = 0; i < iface.Members.Count; i++)
-        {
-            FormatDeclaration(iface.Members[i], sb);
-        }
+        FormatMembers(iface.Members, sb);
         _indent--;
         Indent(sb);
         sb.AppendLine("}");
@@ -697,9 +785,18 @@ public class Formatter
 
     private void FormatBlock(BlockStatement block, StringBuilder sb)
     {
-        foreach (var stmt in block.Statements)
+        for (int i = 0; i < block.Statements.Count; i++)
         {
+            var stmt = block.Statements[i];
+            EmitCommentsBefore(stmt.Line, sb);
+            // Preserve blank lines between statements
+            // Use _lastEmittedSourceLine to account for comments just emitted
+            if (i > 0 && _lastEmittedSourceLine > 0 && stmt.Line - _lastEmittedSourceLine > 1)
+            {
+                sb.AppendLine();
+            }
             FormatStatement(stmt, sb);
+            _lastEmittedSourceLine = stmt.Line;
         }
     }
 
@@ -794,9 +891,8 @@ public class Formatter
 
             case TupleDeconstructionStatement tupleDecl:
                 Indent(sb);
-                sb.Append("(");
                 sb.Append(string.Join(", ", tupleDecl.Names));
-                sb.Append(") := ");
+                sb.Append(" := ");
                 FormatExpression(tupleDecl.Initializer, sb);
                 sb.AppendLine();
                 break;
@@ -817,6 +913,14 @@ public class Formatter
                 break;
 
             case ForStatement forStmt:
+                // Detect for...in pattern: ForStatement(null, null, null, ForeachStatement)
+                if (forStmt.Initializer == null && forStmt.Condition == null
+                    && forStmt.Iterator == null && forStmt.Body is ForeachStatement forInStmt)
+                {
+                    Indent(sb);
+                    FormatForeachBody(forInStmt, sb);
+                    break;
+                }
                 Indent(sb);
                 sb.Append("for ");
                 if (forStmt.Initializer != null)
@@ -867,23 +971,7 @@ public class Formatter
 
             case ForeachStatement foreachStmt:
                 Indent(sb);
-                sb.Append("foreach ");
-                sb.Append(foreachStmt.VariableName);
-                sb.Append(" in ");
-                FormatExpression(foreachStmt.Collection, sb);
-                sb.AppendLine(" {");
-                _indent++;
-                if (foreachStmt.Body is BlockStatement foreachBlock)
-                {
-                    FormatBlock(foreachBlock, sb);
-                }
-                else
-                {
-                    FormatStatement(foreachStmt.Body, sb);
-                }
-                _indent--;
-                Indent(sb);
-                sb.AppendLine("}");
+                FormatForeachBody(foreachStmt, sb);
                 break;
 
             case WhileStatement whileStmt:
@@ -1105,6 +1193,28 @@ public class Formatter
         }
     }
 
+    private void FormatForeachBody(ForeachStatement foreachStmt, StringBuilder sb)
+    {
+        // Canonical N# style: for x in collection (not foreach)
+        sb.Append("for ");
+        sb.Append(foreachStmt.VariableName);
+        sb.Append(" in ");
+        FormatExpression(foreachStmt.Collection, sb);
+        sb.AppendLine(" {");
+        _indent++;
+        if (foreachStmt.Body is BlockStatement foreachBlock)
+        {
+            FormatBlock(foreachBlock, sb);
+        }
+        else
+        {
+            FormatStatement(foreachStmt.Body, sb);
+        }
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
+    }
+
     private void FormatExpression(Expression expr, StringBuilder sb)
     {
         switch (expr)
@@ -1221,9 +1331,19 @@ public class Formatter
                 FormatExpression(assign.Value, sb);
                 break;
             case LambdaExpression lambda:
-                if (lambda.Parameters.Count == 1 && lambda.Parameters[0].Type == null)
+                bool allParamsInferred = lambda.Parameters.All(p =>
+                    p.Type == null || (p.Type is SimpleTypeReference s && s.Name == "var"));
+                if (lambda.Parameters.Count == 1 && allParamsInferred)
                 {
+                    // Single inferred-type param: x => expr
                     sb.Append(lambda.Parameters[0].Name);
+                }
+                else if (lambda.Parameters.Count > 1 && allParamsInferred)
+                {
+                    // Multi inferred-type params: (x, y) => expr
+                    sb.Append("(");
+                    sb.Append(string.Join(", ", lambda.Parameters.Select(p => p.Name)));
+                    sb.Append(")");
                 }
                 else
                 {
@@ -1291,9 +1411,10 @@ public class Formatter
                 sb.Append(")");
                 break;
             case NewExpression newExpr:
-                sb.Append("new ");
+                sb.Append("new");
                 if (newExpr.Type != null)
                 {
+                    sb.Append(" ");
                     sb.Append(FormatTypeReference(newExpr.Type));
                 }
                 sb.Append("(");
@@ -1321,7 +1442,7 @@ public class Formatter
                         if (prop.Name != null)
                         {
                             sb.Append(prop.Name);
-                            sb.Append(" = ");
+                            sb.Append(": ");
                         }
                         FormatExpression(prop.Value, sb);
                         if (i < newExpr.Initializer.Properties.Count - 1)
@@ -1387,7 +1508,7 @@ public class Formatter
                     if (prop.Name != null)
                     {
                         sb.Append(prop.Name);
-                        sb.Append(" = ");
+                        sb.Append(": ");
                     }
                     FormatExpression(prop.Value, sb);
                     if (i < withExpr.Properties.Count - 1)
@@ -1453,6 +1574,11 @@ public class Formatter
                     sb.Append("var ");
                 }
                 sb.Append(outVar.VariableName);
+                break;
+            case ParenthesizedExpression paren:
+                sb.Append("(");
+                FormatExpression(paren.Inner, sb);
+                sb.Append(")");
                 break;
         }
     }
