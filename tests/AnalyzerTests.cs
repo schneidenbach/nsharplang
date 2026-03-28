@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
@@ -1163,10 +1165,9 @@ public class AnalyzerTests
     }
 
     [Fact]
-    public void MatchExpression_WithGuard_SkipsExhaustivenessCheck()
+    public void MatchExpression_WithGuard_AndUnguardedWildcard_IsExhaustive()
     {
-        // When guards are present, exhaustiveness checking is skipped
-        // This should not report a missing case error
+        // Guarded arms don't count for coverage, but an unguarded wildcard covers everything
         AssertNoErrors(@"
             union Status {
                 Active
@@ -1179,6 +1180,93 @@ public class AnalyzerTests
                 msg := match s {
                     Status.Active when true => ""active"",
                     _ => ""other""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_WithGuards_MissingCases_ReportsError()
+    {
+        // Guards on 2 of 3 cases, no wildcard — should report missing unguarded coverage
+        AssertHasError(@"
+            union Status {
+                Active
+                Inactive
+                Pending
+            }
+
+            func Main() {
+                s := new Status.Active { }
+                msg := match s {
+                    Status.Active when true => ""active"",
+                    Status.Inactive when true => ""inactive""
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void MatchExpression_WithGuards_AllCasesUnguarded_IsExhaustive()
+    {
+        // All union cases covered by unguarded arms (some arms also have guards — doesn't matter)
+        AssertNoErrors(@"
+            union Status {
+                Active
+                Inactive
+                Pending
+            }
+
+            func Main() {
+                s := new Status.Active { }
+                msg := match s {
+                    Status.Active when true => ""active special"",
+                    Status.Active => ""active"",
+                    Status.Inactive => ""inactive"",
+                    Status.Pending => ""pending""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_AllGuardedNoWildcard_ReportsError()
+    {
+        // Every arm has a guard and no wildcard — non-exhaustive
+        AssertHasError(@"
+            union Status {
+                Active
+                Inactive
+                Pending
+            }
+
+            func Main() {
+                s := new Status.Active { }
+                msg := match s {
+                    Status.Active when true => ""active"",
+                    Status.Inactive when true => ""inactive"",
+                    Status.Pending when true => ""pending""
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void MatchExpression_WithGuard_CatchAllBinding_IsExhaustive()
+    {
+        // An unguarded plain identifier binding (not `_`) is a catch-all and covers all cases
+        AssertNoErrors(@"
+            union Status {
+                Active
+                Inactive
+                Pending
+            }
+
+            func Main() {
+                s := new Status.Active { }
+                msg := match s {
+                    Status.Active when true => ""active special"",
+                    other => ""fallback""
                 }
             }
         ");
@@ -2564,5 +2652,129 @@ public class AnalyzerTests
                 app := builder.Build()
             }
         ", AspNetCoreConfig);
+    }
+
+    // Circular import detection tests
+
+    [Fact]
+    public void CircularImport_TwoFiles_ReportsError()
+    {
+        // Create temp directory with two files that import each other
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_circular_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var fileA = Path.Combine(tempDir, "A.nl");
+            var fileB = Path.Combine(tempDir, "B.nl");
+
+            File.WriteAllText(fileA, @"import ""./B""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+            File.WriteAllText(fileB, @"import ""./A""
+
+func World(): string {
+    return ""world""
+}
+");
+
+            // Parse and analyze file A
+            var sourceA = File.ReadAllText(fileA);
+            var lexer = new Lexer(sourceA, fileA);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, fileA, sourceA);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
+
+            Assert.True(result.HasErrors, "Expected circular import error but got none");
+            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CircularImport_SelfImport_ReportsError()
+    {
+        // Create temp directory with a file that imports itself
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_self_import_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var file = Path.Combine(tempDir, "Self.nl");
+            File.WriteAllText(file, @"import ""./Self""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+
+            var source = File.ReadAllText(file);
+            var lexer = new Lexer(source, file);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, file, source);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, file, tempDir, source);
+
+            Assert.True(result.HasErrors, "Expected circular import error but got none");
+            Assert.Contains(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void NonCircularImport_NoError()
+    {
+        // Create temp directory with two files where only one imports the other (no cycle)
+        var tempDir = Path.Combine(Path.GetTempPath(), "nsharp_test_no_circular_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var fileA = Path.Combine(tempDir, "A.nl");
+            var fileB = Path.Combine(tempDir, "B.nl");
+
+            File.WriteAllText(fileA, @"import ""./B""
+
+func Hello(): string {
+    return ""hello""
+}
+");
+            File.WriteAllText(fileB, @"func World(): string {
+    return ""world""
+}
+");
+
+            var sourceA = File.ReadAllText(fileA);
+            var lexer = new Lexer(sourceA, fileA);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, fileA, sourceA);
+            var parseResult = parser.ParseCompilationUnit();
+            var analyzer = new Analyzer();
+            analyzer.LoadSystemAssemblies();
+
+            var result = analyzer.Analyze(parseResult.CompilationUnit!, fileA, tempDir, sourceA);
+
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CircularImport);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 }
