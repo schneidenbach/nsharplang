@@ -156,9 +156,9 @@ public class Linter
         _config = config ?? LinterConfig.Default();
     }
 
-    public List<Diagnostic> Lint(CompilationUnit ast, string? filePath = null)
+    public List<Diagnostic> Lint(CompilationUnit ast, string? filePath = null, string? sourceText = null)
     {
-        var visitor = new LintVisitor(filePath, _config);
+        var visitor = new LintVisitor(filePath, sourceText, _config);
         visitor.Visit(ast);
         return visitor.Diagnostics;
     }
@@ -171,6 +171,7 @@ internal class LintVisitor
 {
     private readonly string? _filePath;
     private readonly LinterConfig _config;
+    private readonly Dictionary<int, HashSet<string>> _suppressedDiagnosticsByLine;
     private readonly List<Diagnostic> _diagnostics = new();
     private Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
@@ -185,10 +186,11 @@ internal class LintVisitor
 
     public List<Diagnostic> Diagnostics => _diagnostics;
 
-    public LintVisitor(string? filePath = null, LinterConfig? config = null)
+    public LintVisitor(string? filePath = null, string? sourceText = null, LinterConfig? config = null)
     {
         _filePath = filePath;
         _config = config ?? LinterConfig.Default();
+        _suppressedDiagnosticsByLine = BuildSuppressions(filePath, sourceText);
     }
 
     public void Visit(CompilationUnit unit)
@@ -257,7 +259,116 @@ internal class LintVisitor
 
     private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null)
     {
+        if (IsSuppressed(code, location.Line))
+            return;
+
         _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion));
+    }
+
+    private bool IsSuppressed(string code, int line)
+        => _suppressedDiagnosticsByLine.TryGetValue(line, out var codes)
+           && (codes.Contains(code) || codes.Contains("*"));
+
+    private static Dictionary<int, HashSet<string>> BuildSuppressions(string? filePath, string? sourceText)
+    {
+        if (string.IsNullOrEmpty(sourceText) && !string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
+        {
+            try
+            {
+                sourceText = File.ReadAllText(filePath);
+            }
+            catch
+            {
+                sourceText = null;
+            }
+        }
+
+        var suppressions = new Dictionary<int, HashSet<string>>();
+        if (string.IsNullOrEmpty(sourceText))
+            return suppressions;
+
+        var lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var pendingCodes = new List<string>();
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var trimmed = line.Trim();
+            var codes = ParseSuppressionCodes(line);
+            if (codes.Count == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(trimmed) && !trimmed.StartsWith("//", StringComparison.Ordinal))
+                    pendingCodes.Clear();
+                continue;
+            }
+
+            var commentIndex = line.IndexOf("//", StringComparison.Ordinal);
+            var hasCodeBeforeComment = commentIndex > 0 && !string.IsNullOrWhiteSpace(line[..commentIndex]);
+            if (hasCodeBeforeComment)
+            {
+                AddSuppression(suppressions, i + 1, codes);
+                pendingCodes.Clear();
+                continue;
+            }
+
+            pendingCodes.AddRange(codes);
+            var nextLine = FindNextCodeLine(lines, i + 1);
+            if (nextLine > 0)
+                AddSuppression(suppressions, nextLine, pendingCodes);
+            pendingCodes.Clear();
+        }
+
+        return suppressions;
+    }
+
+    private static int FindNextCodeLine(string[] lines, int startIndex)
+    {
+        for (var i = startIndex; i < lines.Length; i++)
+        {
+            var trimmed = lines[i].Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+                continue;
+
+            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                continue;
+
+            return i + 1;
+        }
+
+        return -1;
+    }
+
+    private static List<string> ParseSuppressionCodes(string line)
+    {
+        const string marker = "nlc:ignore";
+        var markerIndex = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+            return new List<string>();
+
+        var codesPart = line[(markerIndex + marker.Length)..]
+            .Trim()
+            .TrimStart(':')
+            .Trim();
+
+        if (string.IsNullOrWhiteSpace(codesPart))
+            return new List<string> { "*" };
+
+        return codesPart
+            .Split(new[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(code => code.Trim().ToUpperInvariant())
+            .ToList();
+    }
+
+    private static void AddSuppression(Dictionary<int, HashSet<string>> suppressions, int line, IEnumerable<string> codes)
+    {
+        if (!suppressions.TryGetValue(line, out var lineCodes))
+        {
+            lineCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            suppressions[line] = lineCodes;
+        }
+
+        foreach (var code in codes)
+            lineCodes.Add(code);
     }
 
     private void VisitDeclaration(Declaration declaration)

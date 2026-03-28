@@ -88,7 +88,7 @@ public static class CheckCommand
 
             var fileDir = Path.GetDirectoryName(filePath) ?? projectDir;
             var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
-            var diagnostics = linter.Lint(parseResult.CompilationUnit, filePath);
+            var diagnostics = linter.Lint(parseResult.CompilationUnit, filePath, source);
 
             foreach (var diagnostic in diagnostics)
             {
