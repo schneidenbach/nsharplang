@@ -1290,6 +1290,8 @@ public class Parser
         }
 
         // Simple or generic type (possibly qualified with dots like Result.Success)
+        var typeNameLine = Current.Line;
+        var typeNameColumn = Current.Column;
         var name = ConsumeIdentifier("Expected type name");
 
         // Support qualified names like Result.Success
@@ -1313,7 +1315,7 @@ public class Parser
             return new GenericTypeReference(name, typeArgs);
         }
 
-        return new SimpleTypeReference(name);
+        return new SimpleTypeReference(name, typeNameLine, typeNameColumn);
     }
 
     private TupleTypeReference ParseTupleTypeReference()

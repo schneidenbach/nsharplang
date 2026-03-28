@@ -82,4 +82,133 @@ func test() {
         Assert.Equal(3, declaration.Line);
         Assert.Equal(5, declaration.Column);
     }
+
+    [Fact]
+    public void AnalyzerBindingMap_TypeAnnotation_RecordsBindingToTypeDeclaration()
+    {
+        var source = @"
+class Greeter {
+    Name: string
+}
+
+func test() {
+    g: Greeter = new Greeter()
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        // The type annotation "Greeter" on line 7 should bind to the class declaration on line 2
+        var typeRefColumn = FindColumn(source, 7, "Greeter");
+        var declaration = bindings.GetBindingAt("test.nl", 7, typeRefColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Greeter", declaration!.Name);
+        Assert.Equal("class", declaration.Kind);
+        Assert.Equal(2, declaration.Line);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_TypeAnnotationInParameter_RecordsBinding()
+    {
+        var source = @"
+record Point {
+    X: int
+    Y: int
+}
+
+func draw(p: Point) {
+    print p.X
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        // The parameter type "Point" on line 7 should bind to the record declaration on line 2
+        var typeRefColumn = FindColumn(source, 7, "Point");
+        var declaration = bindings.GetBindingAt("test.nl", 7, typeRefColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Point", declaration!.Name);
+        Assert.Equal("record", declaration.Kind);
+        Assert.Equal(2, declaration.Line);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_ReturnType_RecordsBinding()
+    {
+        var source = @"
+struct Vector {
+    X: float
+    Y: float
+}
+
+func make(): Vector {
+    return new Vector()
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        // The return type "Vector" on line 7 should bind to the struct declaration on line 2
+        var typeRefColumn = FindColumn(source, 7, "Vector");
+        var declaration = bindings.GetBindingAt("test.nl", 7, typeRefColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Vector", declaration!.Name);
+        Assert.Equal("struct", declaration.Kind);
+        Assert.Equal(2, declaration.Line);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_FieldTypeAnnotation_RecordsBinding()
+    {
+        var source = @"
+record Address {
+    City: string
+}
+
+class Person {
+    Home: Address
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        // The field type "Address" on line 7 should bind to the record declaration on line 2
+        var typeRefColumn = FindColumn(source, 7, "Address");
+        var declaration = bindings.GetBindingAt("test.nl", 7, typeRefColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Address", declaration!.Name);
+        Assert.Equal("record", declaration.Kind);
+        Assert.Equal(2, declaration.Line);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_FindAllReferences_IncludesTypeAnnotations()
+    {
+        var source = @"
+class Config {
+    Value: string
+}
+
+func make(): Config {
+    c: Config = new Config()
+    return c
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        // FindAllReferences from the Config declaration (at 'class' keyword position)
+        var declColumn = FindColumn(source, 2, "class");
+        var (declaration, usages) = bindings.FindAllReferences("test.nl", 2, declColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Config", declaration!.Name);
+
+        // Should have usages from: return type (line 6), variable type (line 7), constructor (line 7)
+        Assert.True(usages.Count >= 2, $"Expected at least 2 usages, got {usages.Count}");
+    }
 }
