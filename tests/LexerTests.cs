@@ -73,6 +73,36 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestNumberDotIdentifier_ParsesAsMemberAccess()
+    {
+        // 5.ToString should tokenize as: IntLiteral("5"), Dot, Identifier("ToString"), EOF
+        var source = "5.ToString";
+        var tokens = Tokenize(source);
+
+        Assert.Equal(4, tokens.Count);
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("5", tokens[0].Value);
+        Assert.Equal(TokenType.Dot, tokens[1].Type);
+        Assert.Equal(TokenType.Identifier, tokens[2].Type);
+        Assert.Equal("ToString", tokens[2].Value);
+    }
+
+    [Fact]
+    public void TestFloatDotIdentifier_ParsesAsMemberAccess()
+    {
+        // 3.14.Negate should tokenize as: FloatLiteral("3.14"), Dot, Identifier("Negate"), EOF
+        var source = "3.14.Negate";
+        var tokens = Tokenize(source);
+
+        Assert.Equal(4, tokens.Count);
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("3.14", tokens[0].Value);
+        Assert.Equal(TokenType.Dot, tokens[1].Type);
+        Assert.Equal(TokenType.Identifier, tokens[2].Type);
+        Assert.Equal("Negate", tokens[2].Value);
+    }
+
+    [Fact]
     public void TestStrings()
     {
         var source = """
