@@ -10,6 +10,9 @@ namespace NSharpLang.Cli;
 class Program
 {
     static int Main(string[] args)
+        => Execute(args);
+
+    internal static int Execute(string[] args)
     {
         if (args.Length == 0)
         {
@@ -28,6 +31,10 @@ class Program
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => LintCommand(args.Skip(1).ToArray()),
+            "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
+            "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
+            "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
+            "completion" => CompletionCommand.Execute(args.Skip(1).ToArray()),
             "check" => Commands.CheckCommand.Execute(args.Skip(1).ToArray()),
             "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
@@ -39,6 +46,29 @@ class Program
 
     static int BuildCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Build
+
+Usage: nlc build [file.nl] [options]
+
+Build a project or a single N# source file.
+
+Options:
+  --keep-generated   Keep generated temporary files for debugging
+  --help, -h         Show this help text
+
+Examples:
+  nlc build
+  nlc build Program.nl
+  nlc build --keep-generated
+
+Exit codes:
+  0  Build succeeded
+  1  Build failed");
+            return 0;
+        }
+
         // Check for --keep-generated flag
         var keepGenerated = args.Contains("--keep-generated");
         args = args.Where(a => a != "--keep-generated").ToArray();
@@ -392,6 +422,23 @@ class Program
 
     static int TranspileCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Transpile
+
+Usage: nlc transpile <file.nl>
+
+Transpile a single N# source file to C# and print the generated code to stdout.
+
+Examples:
+  nlc transpile Program.nl
+
+Exit codes:
+  0  Transpilation succeeded
+  1  Transpilation failed");
+            return 0;
+        }
+
         if (args.Length == 0)
         {
             return Error("Usage: nlc transpile <file.nl>");
@@ -422,6 +469,24 @@ class Program
 
     static int RunCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Run
+
+Usage: nlc run [file.nl]
+
+Build and run either the current project or a single N# source file.
+
+Examples:
+  nlc run
+  nlc run Program.nl
+
+Exit codes:
+  0  Program ran successfully
+  1  Build or execution failed");
+            return 0;
+        }
+
         // Support both single-file and multi-file runs
         if (args.Length == 0)
         {
@@ -810,6 +875,23 @@ class Program
 
     static int NewCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# New Project
+
+Usage: nlc new <project-name>
+
+Create a new N# project with a starter `project.yml` and `Program.nl`.
+
+Examples:
+  nlc new MyApp
+
+Exit codes:
+  0  Project created successfully
+  1  Project creation failed");
+            return 0;
+        }
+
         if (args.Length == 0)
         {
             return Error("Usage: nlc new <project-name>");
@@ -858,7 +940,35 @@ class Program
 
     static int TestCommand(string[] args)
     {
-        var projectRoot = Directory.GetCurrentDirectory();
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Test
+
+Usage: nlc test [options]
+
+Run `.tests.nl` suites through the generated xUnit test project.
+
+Options:
+  --project <dir>   Project root directory (default: current directory)
+  --filter <name>   Run only tests whose display name or fully-qualified name matches
+  --verbose         Use more detailed `dotnet test` output
+  --help, -h        Show this help text
+
+Examples:
+  nlc test
+  nlc test --filter AddPerson
+  nlc test --project examples/15-dogfood-project --verbose
+
+Exit codes:
+  0  Tests passed
+  1  Compilation or test execution failed");
+            return 0;
+        }
+
+        var projectRoot = GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory();
+        projectRoot = Path.GetFullPath(projectRoot);
+        var filter = GetOptionValue(args, "--filter");
+        var verbose = args.Contains("--verbose");
 
         try
         {
@@ -891,11 +1001,7 @@ class Program
                 Console.WriteLine("Building main project first...");
 
                 // Build main project
-                var mainBuildDir = Path.Combine(Path.GetTempPath(), "nlc-main-build");
-                if (Directory.Exists(mainBuildDir))
-                {
-                    Directory.Delete(mainBuildDir, true);
-                }
+                var mainBuildDir = Path.Combine(Path.GetTempPath(), $"nlc-main-build-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(mainBuildDir);
 
                 // Compile source files (excluding tests)
@@ -993,11 +1099,7 @@ class Program
             }
 
             // Write C# files to temp directory
-            var tempDir = Path.Combine(Path.GetTempPath(), "nlc-tests");
-            if (Directory.Exists(tempDir))
-            {
-                Directory.Delete(tempDir, true);
-            }
+            var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-tests-{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDir);
 
             foreach (var kvp in result.TranspiledFiles)
@@ -1066,10 +1168,28 @@ class Program
             Console.WriteLine();
 
             // Run tests
+            var dotnetFilter = string.IsNullOrWhiteSpace(filter)
+                ? null
+                : $"DisplayName~{filter}|FullyQualifiedName~{filter}";
+            var testArguments = new List<string>
+            {
+                "test",
+                QuoteArgument(projectFile),
+                "--no-build",
+                "-v",
+                verbose ? "normal" : "minimal"
+            };
+
+            if (!string.IsNullOrWhiteSpace(dotnetFilter))
+            {
+                testArguments.Add("--filter");
+                testArguments.Add(QuoteArgument(dotnetFilter));
+            }
+
             var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"test \"{projectFile}\" --no-build",
+                Arguments = string.Join(" ", testArguments),
                 UseShellExecute = false
             });
 
@@ -1085,118 +1205,147 @@ class Program
 
     static int FormatCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Format
+
+Usage: nlc format [options] [files...]
+
+Format N# source files with the canonical formatter.
+
+Options:
+  --project <dir>         Project root directory (default: current directory)
+  --check                 Exit with code 1 if any file needs formatting
+  --verify-no-changes     Back-compat alias for --check
+  --diff                  Print unified diffs instead of writing files
+  --stdin                 Read source from stdin and write the formatted result to stdout
+  --help, -h              Show this help text
+
+Examples:
+  nlc format
+  nlc format --check
+  nlc format --diff Program.nl
+  nlc format --stdin < Program.nl
+
+Exit codes:
+  0  Formatting succeeded
+  1  Formatting failed or --check found unformatted files");
+            return 0;
+        }
+
         try
         {
-            // Check for --verify-no-changes flag
-            var verifyOnly = args.Contains("--verify-no-changes");
-            args = args.Where(a => a != "--verify-no-changes").ToArray();
+            var verifyOnly = args.Contains("--check") || args.Contains("--verify-no-changes");
+            var diffOnly = args.Contains("--diff");
+            var stdinMode = args.Contains("--stdin");
+            var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
+            var positionalFiles = GetPositionalArgs(args, "--project");
+
+            if (stdinMode && positionalFiles.Length > 0)
+            {
+                Console.Error.WriteLine("Cannot combine --stdin with file arguments.");
+                return 1;
+            }
+
+            if (stdinMode)
+            {
+                var source = Console.In.ReadToEnd();
+                var formatted = FormatSource(source, "stdin.nl", projectRoot);
+
+                if (diffOnly)
+                    Console.Write(UnifiedDiff.Create(source, formatted, "a/stdin.nl", "b/stdin.nl"));
+                else
+                    Console.Write(formatted);
+
+                return verifyOnly && source != formatted ? 1 : 0;
+            }
 
             string[] files;
-
-            if (args.Length == 0)
+            if (positionalFiles.Length == 0)
             {
-                // Format all .nl files in current directory (recursively)
-                files = Directory.GetFiles(".", "*.nl", SearchOption.AllDirectories)
-                    .Where(f => !f.EndsWith(".tests.nl"))
+                files = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories)
+                    .Where(f => !f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
                     .ToArray();
             }
             else
             {
-                // Format specified files
-                files = args;
+                files = positionalFiles
+                    .Select(file => Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(projectRoot, file)))
+                    .ToArray();
             }
 
             if (files.Length == 0)
             {
-                Console.WriteLine("No .nl files found to format");
+                Console.WriteLine("No .nl files found to format.");
                 return 0;
             }
 
             var formattedCount = 0;
             var filesNeedingFormatting = new List<string>();
+            var failed = false;
 
             foreach (var file in files)
             {
                 if (!File.Exists(file))
                 {
                     Console.Error.WriteLine($"File not found: {file}");
+                    failed = true;
                     continue;
                 }
 
                 try
                 {
-                    if (!verifyOnly)
-                    {
-                        Console.WriteLine($"Formatting {file}...");
-                    }
-
                     var source = File.ReadAllText(file);
+                    var formatted = FormatSource(source, file, projectRoot);
+                    var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
 
-                    // Lexical analysis
-                    var lexer = new Lexer(source, file);
-                    var tokens = lexer.Tokenize();
-
-                    // Parsing
-                    var parser = new Parser(tokens, file, source);  // Pass source code
-                    var parseResult = parser.ParseCompilationUnit();
-
-                    // Check for parse errors
-                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+                    if (!string.Equals(source, formatted, StringComparison.Ordinal))
                     {
-                        throw new Exception($"Parse errors in {file}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
-                    }
+                        filesNeedingFormatting.Add(relativePath);
 
-                    // Load formatter config from .editorconfig
-                    var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
-                    var config = FormatterConfig.FromEditorConfig(fileDir);
+                        if (diffOnly)
+                            Console.Write(UnifiedDiff.Create(source, formatted, $"a/{relativePath}", $"b/{relativePath}"));
 
-                    // Format (pass comments from lexer for preservation)
-                    var formatter = new Formatter(config);
-                    var formatted = formatter.Format(parseResult.CompilationUnit!, lexer.Comments);
-
-                    if (verifyOnly)
-                    {
-                        // Verify mode: check if file would change
-                        if (source != formatted)
+                        if (!verifyOnly && !diffOnly)
                         {
-                            filesNeedingFormatting.Add(file);
+                            File.WriteAllText(file, formatted);
+                            formattedCount++;
                         }
-                    }
-                    else
-                    {
-                        // Format mode: write back to file
-                        File.WriteAllText(file, formatted);
-                        formattedCount++;
                     }
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"Error formatting {file}: {ex.Message}");
+                    failed = true;
                 }
+            }
+
+            if (failed)
+                return 1;
+
+            if (verifyOnly && filesNeedingFormatting.Count > 0)
+            {
+                Console.Error.WriteLine($"Formatting check failed for {filesNeedingFormatting.Count} file(s):");
+                foreach (var file in filesNeedingFormatting)
+                    Console.Error.WriteLine($"  {file}");
+                return 1;
+            }
+
+            if (diffOnly)
+            {
+                if (filesNeedingFormatting.Count == 0)
+                    Console.WriteLine("All files are properly formatted.");
+                return 0;
             }
 
             if (verifyOnly)
             {
-                if (filesNeedingFormatting.Count > 0)
-                {
-                    Console.Error.WriteLine($"Error: {filesNeedingFormatting.Count} file(s) need formatting:");
-                    foreach (var file in filesNeedingFormatting)
-                    {
-                        Console.Error.WriteLine($"  - {file}");
-                    }
-                    return 1;
-                }
-                else
-                {
-                    Console.WriteLine("All files are properly formatted");
-                    return 0;
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Formatted {formattedCount} file(s)");
+                Console.WriteLine("All files are properly formatted.");
                 return 0;
             }
+
+            Console.WriteLine($"Formatted {formattedCount} file(s).");
+            return 0;
         }
         catch (Exception ex)
         {
@@ -1211,6 +1360,24 @@ class Program
     /// </summary>
     static int LintCommand(string[] args)
     {
+        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        {
+            Console.WriteLine(@"N# Lint
+
+Usage: nlc lint [files...]
+
+Run static analysis rules such as unused-variable and missing-import checks.
+
+Examples:
+  nlc lint
+  nlc lint Program.nl
+
+Exit codes:
+  0  No lint issues found
+  1  One or more lint issues were reported");
+            return 0;
+        }
+
         try
         {
             string[] files;
@@ -1266,7 +1433,7 @@ class Program
 
                     // Lint
                     var linter = new Linter(linterConfig);
-                    var diagnostics = linter.Lint(parseResult.CompilationUnit!, file);
+                    var diagnostics = linter.Lint(parseResult.CompilationUnit!, file, source);
 
                     if (diagnostics.Count > 0)
                     {
@@ -1361,6 +1528,63 @@ class Program
 </Project>";
     }
 
+    static string FormatSource(string source, string file, string projectRoot)
+    {
+        var lexer = new Lexer(source, file);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, file, source);
+        var parseResult = parser.ParseCompilationUnit();
+
+        if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+        {
+            throw new Exception($"Parse errors in {NormalizePath(Path.GetRelativePath(projectRoot, file))}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+        }
+
+        var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;
+        var config = FormatterConfig.FromEditorConfig(fileDir);
+        var formatter = new Formatter(config);
+        return formatter.Format(parseResult.CompilationUnit!);
+    }
+
+    static string? GetOptionValue(string[] args, string flag)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == flag)
+                return args[i + 1];
+        }
+
+        return null;
+    }
+
+    static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
+    {
+        var positional = new List<string>();
+        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (options.Contains(args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                positional.Add(args[i]);
+        }
+
+        return positional.ToArray();
+    }
+
+    static string QuoteArgument(string value)
+        => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+
+    static string NormalizePath(string path) => path.Replace('\\', '/');
+
     static int ShowHelp()
     {
         Console.WriteLine("NewCLILang Compiler (nlc)");
@@ -1375,6 +1599,10 @@ class Program
         Console.WriteLine("  run                  - Compile and run all .nl files in project");
         Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
         Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
+        Console.WriteLine("  clean                - Remove build artifacts (bin/, obj/, nsharp/, .nlc/)");
+        Console.WriteLine("  watch                - Re-run check/build/test when files change");
+        Console.WriteLine("  doc                  - Generate HTML API documentation for a project");
+        Console.WriteLine("  completion           - Generate shell completion scripts");
         Console.WriteLine("  check                - Fast type-check (JSON by default) — like cargo check");
         Console.WriteLine("  fix                  - Auto-apply compiler suggestions (JSON by default)");
         Console.WriteLine("  lint [files...]      - Lint .nl files and show diagnostics");
@@ -1385,7 +1613,8 @@ class Program
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --keep-generated         - Keep generated .cs files for debugging (build command)");
-        Console.WriteLine("  --verify-no-changes      - Verify files are formatted correctly (format command, for CI)");
+        Console.WriteLine("  --check                  - Verify files are formatted correctly (format command, for CI)");
+        Console.WriteLine("  --verify-no-changes      - Back-compat alias for --check");
         Console.WriteLine("  --text                   - Human-readable output for check/fix/query");
         Console.WriteLine("  --json                   - Structured JSON output (default for check/fix/query)");
         Console.WriteLine();

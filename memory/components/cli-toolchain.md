@@ -17,7 +17,10 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
+| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`) | `nlc clean` |
+| `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
+| `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check (JSON by default) | `nlc check` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
@@ -48,15 +51,23 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 |---------|---------|---------|
 | `nlc format` | Format all .nl files | `nlc format` |
 | `nlc format <files>` | Format specific files | `nlc format Program.nl` |
+| `nlc format --check` | Exit 1 if formatting would change files | `nlc format --check` |
+| `nlc format --diff` | Print unified diffs without writing files | `nlc format --diff` |
+| `nlc format --stdin` | Format stdin to stdout | `nlc format --stdin < Program.nl` |
 | `nlc lint` | Static analysis diagnostics | `nlc lint` |
 | `nlc lint <files>` | Lint specific files | `nlc lint Program.nl` |
 | `nlc test` | Run .tests.nl files with XUnit | `nlc test` |
+| `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
+| `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 
 ### Project Management
 
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `nlc new <name>` | Create new N# project | `nlc new MyApp` |
+| `nlc doc` | Generate project API documentation | `nlc doc` |
+| `nlc doc --json` | Emit a structured doc-generation result | `nlc doc --json` |
+| `nlc completion <shell>` | Generate shell completions | `nlc completion zsh` |
 | `nlc daemon start` | Start background analysis daemon | `nlc daemon start` |
 | `nlc daemon stop` | Stop daemon | `nlc daemon stop` |
 | `nlc daemon status` | Show daemon info | `nlc daemon status` |
@@ -125,6 +136,13 @@ $ nlc fix --file F     # fix single file
 **Currently supported fixes:**
 - **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
 - **NL001** — Unused variable: removes the declaration line
+
+Inline lint suppression is also supported for specific warnings:
+
+```nsharp
+// nlc:ignore NL001
+unusedVar := 42
+```
 
 **The LLM coding loop:**
 ```bash
@@ -275,6 +293,73 @@ Supported request commands:
 - `references` / `refs`
 - `completions`
 - `doc`
+
+### `nlc format` — Canonical Formatting With CI Support
+
+`format` now supports the standard cargo/gofmt-style workflows:
+
+```bash
+nlc format           # rewrite files in place
+nlc format --check   # exit 1 if any file would change
+nlc format --diff    # show unified diffs without writing files
+nlc format --stdin < Program.nl
+```
+
+- `--check` is the preferred CI flag
+- `--verify-no-changes` remains as a compatibility alias
+- `--diff` prints unified hunks against the formatter output
+
+### `nlc test` — Filtered, Developer-Friendly Test Runs
+
+`test` now supports focused development loops:
+
+```bash
+nlc test --filter "should add"
+nlc test --verbose
+```
+
+- `--filter` matches both test display names and fully-qualified test names
+- `--verbose` increases `dotnet test` output detail without changing the underlying test pipeline
+
+### `nlc clean` — Build Artifact Cleanup
+
+Equivalent to `cargo clean` / `go clean` for local artifacts:
+
+```bash
+nlc clean
+nlc clean --all
+```
+
+- Removes `bin/`, `obj/`, `nsharp/`, and `.nlc/` directories under the project root
+- `--all` also clears NuGet caches via `dotnet nuget locals all --clear`
+
+### `nlc watch` — Re-run On Change
+
+Watch the project tree and re-run a command after a debounce window:
+
+```bash
+nlc watch check
+nlc watch build
+nlc watch test --filter "should add"
+```
+
+- Watches `.nl`, `project.yml`, and `.editorconfig`
+- Defaults to a 250ms debounce
+- `--max-runs` is available for scripts and test harnesses
+
+### `nlc doc` — Project API Documentation
+
+Generate a lightweight HTML API reference directly from the project symbol graph:
+
+```bash
+nlc doc
+nlc doc --open
+nlc doc --json
+```
+
+- Default output directory: `./nsharp/docs`
+- Generates `index.html` plus per-symbol pages
+- `--json` emits a stable result envelope containing the generated paths
 
 ### `nlc query diagnostics` — Elm-Level Error Output
 
