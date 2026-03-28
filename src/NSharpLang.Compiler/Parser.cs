@@ -1940,9 +1940,18 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.Foreach, "Expected 'foreach'");
 
+        // Allow optional parentheses: foreach (x in y) or foreach x in y
+        var hasParens = Match(TokenType.LeftParen);
+
         var varName = ConsumeIdentifier("Expected variable name");
         Consume(TokenType.In, "Expected 'in'");
         var collection = ParseExpression();
+
+        if (hasParens)
+        {
+            Consume(TokenType.RightParen, "Expected ')' to match opening '('");
+        }
+
         var body = ParseStatement();
 
         return new ForeachStatement(varName, collection, body, line, column);
@@ -1955,9 +1964,18 @@ public class Parser
         Consume(TokenType.Await, "Expected 'await'");
         Consume(TokenType.Foreach, "Expected 'foreach'");
 
+        // Allow optional parentheses: await foreach (x in y) or await foreach x in y
+        var hasParens = Match(TokenType.LeftParen);
+
         var varName = ConsumeIdentifier("Expected variable name");
         Consume(TokenType.In, "Expected 'in'");
         var collection = ParseExpression();
+
+        if (hasParens)
+        {
+            Consume(TokenType.RightParen, "Expected ')' to match opening '('");
+        }
+
         var body = ParseStatement();
 
         return new AwaitForEachStatement(varName, collection, body, line, column);
