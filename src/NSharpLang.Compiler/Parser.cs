@@ -13,6 +13,7 @@ public class Parser
     private readonly string[]? _sourceLines;
     private readonly List<CompilerError> _errors = new();
     private int _position;
+    private bool _panicMode;
 
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
@@ -61,11 +62,39 @@ public class Parser
                 packageDecl = ParsePackage();
             }
 
-            // Parse top-level declarations
+            // Parse top-level declarations with error recovery
             var declarations = new List<Declaration>();
             while (!IsAtEnd())
             {
-                declarations.Add(ParseDeclaration());
+                _panicMode = false; // Reset at each declaration boundary
+                var startPosition = _position;
+
+                try
+                {
+                    declarations.Add(ParseDeclaration());
+                }
+                catch (Exception ex)
+                {
+                    // ParseDeclaration or its callees threw unexpectedly.
+                    // Report the error and synchronize to the next declaration.
+                    _panicMode = false; // Ensure we can report this error
+                    ReportError(
+                        ErrorCode.InvalidSyntax,
+                        ex.Message,
+                        Current.Line,
+                        Current.Column,
+                        humanExplanation: "An unexpected error occurred while parsing this declaration."
+                    );
+                    SynchronizeToNextDeclaration();
+                    continue;
+                }
+
+                // If ParseDeclaration returned but we're in panic mode and
+                // didn't make progress, synchronize to avoid infinite loops
+                if (_position == startPosition && !IsAtEnd())
+                {
+                    SynchronizeToNextDeclaration();
+                }
             }
 
             unit = new CompilationUnit(namespaceDecl, imports, fileImports, packageDecl, declarations, line, column);
@@ -631,21 +660,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = new List<Declaration>();
-
-        while (!Check(TokenType.RightBrace) && !IsAtEnd())
-        {
-            var startPosition = _position;
-            members.Add(ParseMemberDeclaration());
-
-            // Safety: ensure we always make progress, even on unexpected tokens in class bodies.
-            if (_position == startPosition && !IsAtEnd())
-            {
-                Advance();
-            }
-        }
-
-        Consume(TokenType.RightBrace, "Expected '}'");
+        var members = ParseMemberList(line, column);
 
         return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
@@ -677,20 +692,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = new List<Declaration>();
-
-        while (!Check(TokenType.RightBrace) && !IsAtEnd())
-        {
-            var startPosition = _position;
-            members.Add(ParseMemberDeclaration());
-
-            if (_position == startPosition && !IsAtEnd())
-            {
-                Advance();
-            }
-        }
-
-        Consume(TokenType.RightBrace, "Expected '}'");
+        var members = ParseMemberList(line, column);
 
         return new StructDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
@@ -730,20 +732,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = new List<Declaration>();
-
-        while (!Check(TokenType.RightBrace) && !IsAtEnd())
-        {
-            var startPosition = _position;
-            members.Add(ParseMemberDeclaration());
-
-            if (_position == startPosition && !IsAtEnd())
-            {
-                Advance();
-            }
-        }
-
-        Consume(TokenType.RightBrace, "Expected '}'");
+        var members = ParseMemberList(line, column);
 
         return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, isStruct, modifiers, attributes, line, column);
     }
@@ -775,20 +764,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = new List<Declaration>();
-
-        while (!Check(TokenType.RightBrace) && !IsAtEnd())
-        {
-            var startPosition = _position;
-            members.Add(ParseMemberDeclaration());
-
-            if (_position == startPosition && !IsAtEnd())
-            {
-                Advance();
-            }
-        }
-
-        Consume(TokenType.RightBrace, "Expected '}'");
+        var members = ParseMemberList(line, column);
 
         return new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, line, column);
     }
@@ -838,11 +814,13 @@ public class Parser
 
             if (EnsureProgress(startPosition))
             {
+                _panicMode = false; // Reset for next case
                 continue;
             }
         }
 
-        Consume(TokenType.RightBrace, "Expected '}'");
+        if (Check(TokenType.RightBrace))
+            Advance();
 
         return new UnionDeclaration(name, cases, modifiers, attributes, line, column);
     }
@@ -895,7 +873,8 @@ public class Parser
             }
         }
 
-        Consume(TokenType.RightBrace, "Expected '}'");
+        if (Check(TokenType.RightBrace))
+            Advance();
 
         return new EnumDeclaration(name, members, enumType, modifiers, attributes, line, column);
     }
@@ -911,6 +890,50 @@ public class Parser
         var type = ParseTypeReference();
 
         return new TypeAliasDeclaration(name, type, line, column);
+    }
+
+    /// <summary>
+    /// Parse a list of member declarations inside a type body (class/struct/record/interface).
+    /// Handles error recovery by synchronizing to the next member or closing brace.
+    /// Assumes the opening '{' has already been consumed. The openLine/openColumn parameters
+    /// indicate where the opening brace was for error reporting.
+    /// </summary>
+    private List<Declaration> ParseMemberList(int openLine = 0, int openColumn = 0)
+    {
+        var members = new List<Declaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            _panicMode = false; // Reset at each member boundary
+            var startPosition = _position;
+            members.Add(ParseMemberDeclaration());
+
+            // If we didn't make progress, synchronize to avoid infinite loops
+            if (_position == startPosition && !IsAtEnd())
+            {
+                SynchronizeToNextStatement();
+            }
+        }
+
+        // Only consume '}' if present; otherwise report the missing brace
+        if (Check(TokenType.RightBrace))
+        {
+            Advance();
+        }
+        else if (IsAtEnd() && openLine > 0)
+        {
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                openLine,
+                openColumn,
+                humanExplanation: $"The type body that started on line {openLine} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this type declaration.",
+                length: 1
+            );
+        }
+
+        return members;
     }
 
     private Declaration ParseMemberDeclaration()
@@ -1492,17 +1515,54 @@ public class Parser
         var statements = new List<Statement>();
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            // Detect a type declaration keyword that can't appear as a statement.
+            // This signals a missing closing brace - break out so the caller
+            // can return and the next declaration gets parsed.
+            if (IsBlockClosingDeclarationStart())
+            {
+                ReportError(
+                    ErrorCode.MissingClosingBrace,
+                    "Missing closing '}'",
+                    line,
+                    column,
+                    humanExplanation: $"The block that started on line {line} appears to be missing its closing brace. " +
+                                     $"I found '{Current.Value}' on line {Current.Line}, which looks like a new declaration.",
+                    hint: "Add a '}' before this declaration to close the previous block.",
+                    length: 1
+                );
+                // Don't advance - let the outer loop parse this as a new declaration
+                break;
+            }
+
+            _panicMode = false; // Reset at each statement boundary
             var startPosition = _position;
             statements.Add(ParseStatement());
 
-            // Safety: ensure we always make progress, even in error recovery paths.
+            // If we didn't make progress, synchronize to next statement boundary
             if (_position == startPosition && !IsAtEnd())
             {
-                Advance();
+                SynchronizeToNextStatement();
             }
         }
 
-        Consume(TokenType.RightBrace, "Expected '}'");
+        // Only consume '}' if present; otherwise report the missing brace
+        if (Check(TokenType.RightBrace))
+        {
+            Advance();
+        }
+        else if (IsAtEnd())
+        {
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                line,
+                column,
+                humanExplanation: $"The block that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this block.",
+                length: 1
+            );
+        }
+
         return new BlockStatement(statements, line, column);
     }
 
@@ -4185,6 +4245,10 @@ public class Parser
         List<string>? suggestions = null,
         int length = 1)
     {
+        // In panic mode, suppress cascading errors until we synchronize
+        if (_panicMode)
+            return;
+
         var snippet = GetSourceSnippet(line);
 
         var error = CompilerError.WithSnippet(
@@ -4211,6 +4275,189 @@ public class Parser
         }
 
         _errors.Add(error);
+        _panicMode = true;
+    }
+
+    /// <summary>
+    /// Check if a token type is a keyword that starts a top-level declaration.
+    /// These tokens cannot appear as statements inside a function body (unlike 'func'
+    /// which can start a local function).
+    /// </summary>
+    private static bool IsTypeDeclarationKeyword(TokenType type)
+    {
+        return type == TokenType.Class || type == TokenType.Struct ||
+               type == TokenType.Record || type == TokenType.Interface ||
+               type == TokenType.Union || type == TokenType.Enum ||
+               type == TokenType.Type;
+    }
+
+    /// <summary>
+    /// Check if current token starts a declaration keyword (includes func, modifiers, attributes).
+    /// Used for synchronization when recovering from errors.
+    /// </summary>
+    private static bool IsDeclarationKeyword(TokenType type)
+    {
+        return type == TokenType.Func || IsTypeDeclarationKeyword(type) ||
+               type == TokenType.Test || type == TokenType.Implicit || type == TokenType.Explicit ||
+               type == TokenType.Duck;
+    }
+
+    /// <summary>
+    /// Check if a token type is a modifier keyword that can precede declarations.
+    /// </summary>
+    private static bool IsModifierKeyword(TokenType type)
+    {
+        return type == TokenType.Static || type == TokenType.Internal ||
+               type == TokenType.Protected || type == TokenType.Virtual ||
+               type == TokenType.Override || type == TokenType.Abstract ||
+               type == TokenType.Sealed || type == TokenType.Readonly ||
+               type == TokenType.Partial || type == TokenType.Async ||
+               type == TokenType.File;
+    }
+
+    /// <summary>
+    /// Check if a token type starts a statement (used for statement-level synchronization).
+    /// </summary>
+    private static bool IsStatementStartKeyword(TokenType type)
+    {
+        return type == TokenType.Let || type == TokenType.Const ||
+               type == TokenType.Readonly || type == TokenType.If ||
+               type == TokenType.For || type == TokenType.Foreach ||
+               type == TokenType.While || type == TokenType.Return ||
+               type == TokenType.Yield || type == TokenType.Break ||
+               type == TokenType.Continue || type == TokenType.Throw ||
+               type == TokenType.Try || type == TokenType.Using ||
+               type == TokenType.Lock || type == TokenType.Switch ||
+               type == TokenType.Print || type == TokenType.Assert ||
+               type == TokenType.Func || type == TokenType.Semicolon ||
+               type == TokenType.LeftBrace;
+    }
+
+    /// <summary>
+    /// Check if the parser is at a position that looks like the start of a top-level
+    /// or class-level declaration. This is used inside ParseBlock to detect missing '}'.
+    /// Only checks for type declarations (class, struct, etc.) since 'func' could be a
+    /// local function inside a block.
+    /// </summary>
+    private bool IsBlockClosingDeclarationStart()
+    {
+        // Direct type declaration keywords
+        if (IsTypeDeclarationKeyword(Current.Type))
+            return true;
+
+        // 'duck interface' declaration
+        if (Current.Type == TokenType.Duck && LookAhead(1).Type == TokenType.Interface)
+            return true;
+
+        // 'test' keyword (contextual)
+        if (Current.Type == TokenType.Test ||
+            (Current.Type == TokenType.Identifier && Current.Value == "test" &&
+             LookAhead(1).Type == TokenType.StringLiteral))
+            return true;
+
+        // Modifier(s) followed by a type declaration keyword
+        if (IsModifierKeyword(Current.Type))
+        {
+            var ahead = 1;
+            while (_position + ahead < _tokens.Count &&
+                   IsModifierKeyword(_tokens[_position + ahead].Type))
+            {
+                ahead++;
+            }
+            if (_position + ahead < _tokens.Count &&
+                IsTypeDeclarationKeyword(_tokens[_position + ahead].Type))
+                return true;
+        }
+
+        // '[' (attribute) followed eventually by a type declaration keyword
+        if (Current.Type == TokenType.LeftBracket)
+        {
+            // Look ahead past the attribute to see if a type keyword follows
+            var ahead = 1;
+            var depth = 1;
+            while (_position + ahead < _tokens.Count && depth > 0)
+            {
+                if (_tokens[_position + ahead].Type == TokenType.LeftBracket) depth++;
+                else if (_tokens[_position + ahead].Type == TokenType.RightBracket) depth--;
+                ahead++;
+            }
+            // Skip modifiers after attribute
+            while (_position + ahead < _tokens.Count &&
+                   IsModifierKeyword(_tokens[_position + ahead].Type))
+            {
+                ahead++;
+            }
+            if (_position + ahead < _tokens.Count &&
+                IsTypeDeclarationKeyword(_tokens[_position + ahead].Type))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Synchronize to the next top-level declaration boundary after an error.
+    /// Skips tokens until finding a declaration keyword or EOF.
+    /// </summary>
+    private void SynchronizeToNextDeclaration()
+    {
+        _panicMode = false;
+
+        while (!IsAtEnd())
+        {
+            // Declaration keywords
+            if (IsDeclarationKeyword(Current.Type))
+                return;
+
+            // Modifier keywords that might precede a declaration
+            if (IsModifierKeyword(Current.Type))
+            {
+                // Look ahead to see if this is really a declaration
+                var ahead = 1;
+                while (_position + ahead < _tokens.Count &&
+                       IsModifierKeyword(_tokens[_position + ahead].Type))
+                    ahead++;
+                if (_position + ahead < _tokens.Count &&
+                    IsDeclarationKeyword(_tokens[_position + ahead].Type))
+                    return;
+            }
+
+            // Attribute that might precede a declaration
+            if (Current.Type == TokenType.LeftBracket)
+                return;
+
+            // 'test' contextual keyword
+            if (Current.Type == TokenType.Identifier && Current.Value == "test")
+                return;
+
+            Advance();
+        }
+    }
+
+    /// <summary>
+    /// Synchronize to the next statement boundary after an error inside a block.
+    /// Skips tokens until finding a statement keyword, closing brace, or declaration keyword.
+    /// </summary>
+    private void SynchronizeToNextStatement()
+    {
+        _panicMode = false;
+
+        while (!IsAtEnd())
+        {
+            // Closing brace ends the block - let caller handle it
+            if (Check(TokenType.RightBrace))
+                return;
+
+            // Statement-starting keywords
+            if (IsStatementStartKeyword(Current.Type))
+                return;
+
+            // Type declaration keywords signal missing } (handled by caller)
+            if (IsTypeDeclarationKeyword(Current.Type))
+                return;
+
+            Advance();
+        }
     }
 
     /// <summary>

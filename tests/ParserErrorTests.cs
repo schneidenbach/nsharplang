@@ -370,4 +370,214 @@ func test() {
     }
 
     #endregion
+
+    #region Error Recovery Tests
+
+    [Fact]
+    public void Parser_ThreeErrorsInThreeFunctions_AllReported()
+    {
+        var source = @"
+func test1() {
+    let x: int = @@
+}
+
+func test2() {
+    let y: int = @@
+}
+
+func test3() {
+    let z: int = @@
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.CompilationUnit);
+        Assert.True(result.Errors.Count >= 3, $"Expected at least 3 errors, got {result.Errors.Count}");
+
+        // All 3 functions should be parsed
+        var functions = result.CompilationUnit!.Declarations
+            .OfType<FunctionDeclaration>()
+            .Where(f => f.Name != "<error>")
+            .ToList();
+        Assert.Equal(3, functions.Count);
+    }
+
+    [Fact]
+    public void Parser_ErrorInFirstFunction_SecondFunctionStillParsed()
+    {
+        var source = @"
+func broken() {
+    let x: int = @@
+}
+
+func valid() {
+    let y = 42
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+
+        // The valid function should be parsed correctly
+        var functions = result.CompilationUnit!.Declarations
+            .OfType<FunctionDeclaration>()
+            .Where(f => f.Name != "<error>")
+            .ToList();
+        Assert.Contains(functions, f => f.Name == "valid");
+
+        // The valid function should have a body with statements
+        var validFunc = functions.First(f => f.Name == "valid");
+        Assert.NotNull(validFunc.Body);
+        Assert.NotEmpty(validFunc.Body!.Statements);
+    }
+
+    [Fact]
+    public void Parser_MissingClosingBrace_NextDeclarationStillParsed()
+    {
+        var source = @"
+func broken() {
+    let x = 5
+
+class MyClass {
+    name: string
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.CompilationUnit);
+
+        // Should report a missing brace error
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.MissingClosingBrace);
+
+        // The class declaration should still be parsed
+        var classDecl = result.CompilationUnit!.Declarations
+            .OfType<ClassDeclaration>()
+            .FirstOrDefault(c => c.Name == "MyClass");
+        Assert.NotNull(classDecl);
+    }
+
+    [Fact]
+    public void Parser_InvalidExpressionInsideFunction_FunctionBoundaryRecovered()
+    {
+        var source = @"
+func broken() {
+    let x = 5 @@ 3
+}
+
+func valid() {
+    let y = 10
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+        Assert.NotEmpty(result.Errors);
+
+        // The valid function should be parsed
+        var functions = result.CompilationUnit!.Declarations
+            .OfType<FunctionDeclaration>()
+            .Where(f => f.Name != "<error>")
+            .ToList();
+        Assert.Contains(functions, f => f.Name == "valid");
+    }
+
+    [Fact]
+    public void Parser_EmptyMalformedFile_NoException()
+    {
+        // Completely malformed content
+        var source = "@@ ## !! %%";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(result.Errors);
+        // Should not throw, should produce some AST or null
+    }
+
+    [Fact]
+    public void Parser_MissingBrace_ErrorPositionAccurate()
+    {
+        var source = @"
+func test() {
+    let x = 5
+
+struct Point {
+    x: int
+    y: int
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+
+        // The missing brace error should reference the block that started on line 2
+        var braceError = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.MissingClosingBrace);
+        Assert.NotNull(braceError);
+        Assert.Equal(2, braceError!.Line); // The block started on line 2
+
+        // Struct should still be parsed
+        var structDecl = result.CompilationUnit!.Declarations
+            .OfType<StructDeclaration>()
+            .FirstOrDefault(s => s.Name == "Point");
+        Assert.NotNull(structDecl);
+    }
+
+    [Fact]
+    public void Parser_MultipleDeclarationTypes_AllRecovered()
+    {
+        var source = @"
+func broken() {
+    let x = @@
+}
+
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+class Person {
+    name: string
+    age: int
+}
+
+func alsoValid() {
+    let y = 42
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+
+        // All valid declarations should be parsed
+        var decls = result.CompilationUnit!.Declarations;
+        Assert.Contains(decls, d => d is EnumDeclaration e && e.Name == "Color");
+        Assert.Contains(decls, d => d is ClassDeclaration c && c.Name == "Person");
+        Assert.Contains(decls, d => d is FunctionDeclaration f && f.Name == "alsoValid");
+    }
+
+    [Fact]
+    public void Parser_CascadingErrorsSuppressed()
+    {
+        // A single missing } could cause many cascading errors.
+        // With panic mode, we should see a reasonable number of errors, not dozens.
+        var source = @"
+func test() {
+    let x = 5 +
+
+func other() {
+    let y = 10
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+        // Should not produce an unreasonable number of errors
+        Assert.True(result.Errors.Count <= 5,
+            $"Expected 5 or fewer errors (cascading suppression), got {result.Errors.Count}");
+    }
+
+    #endregion
 }
