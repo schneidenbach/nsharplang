@@ -2071,6 +2071,16 @@ public class Analyzer
 
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName)
     {
+        // Convert built-in simple types to reflection types for full CLR member resolution.
+        // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
+        if (objectType is SimpleTypeInfo && objectType != BuiltInTypes.Unknown
+            && objectType != BuiltInTypes.Null && objectType != BuiltInTypes.Never && objectType != BuiltInTypes.Void)
+        {
+            var clrType = TryConvertTypeInfoToClrType(objectType);
+            if (clrType != null)
+                objectType = new ReflectionTypeInfo(clrType);
+        }
+
         // Handle reflection-based types
         if (objectType is ReflectionTypeInfo reflectionType)
         {
@@ -2486,6 +2496,15 @@ public class Analyzer
             "IDictionary" when genericType.TypeArguments.Count == 2 => typeof(IDictionary<,>),
             "Task" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.Task<>),
             "ValueTask" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.ValueTask<>),
+            "Func" when genericType.TypeArguments.Count == 1 => typeof(Func<>),
+            "Func" when genericType.TypeArguments.Count == 2 => typeof(Func<,>),
+            "Func" when genericType.TypeArguments.Count == 3 => typeof(Func<,,>),
+            "Func" when genericType.TypeArguments.Count == 4 => typeof(Func<,,,>),
+            "Func" when genericType.TypeArguments.Count == 5 => typeof(Func<,,,,>),
+            "Action" when genericType.TypeArguments.Count == 1 => typeof(Action<>),
+            "Action" when genericType.TypeArguments.Count == 2 => typeof(Action<,>),
+            "Action" when genericType.TypeArguments.Count == 3 => typeof(Action<,,>),
+            "Action" when genericType.TypeArguments.Count == 4 => typeof(Action<,,,>),
             _ => null
         };
 
@@ -3304,6 +3323,14 @@ public class Analyzer
         if (resolvedExpectedType is ReflectionTypeInfo reflectionType && IsDelegateType(reflectionType.Type))
             return CreateFunctionTypeInfoFromDelegate(reflectionType.Type);
 
+        // Handle generic delegate types (Func<int, int>, Action<string>) from N# declarations
+        if (resolvedExpectedType is GenericTypeInfo)
+        {
+            var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
+            if (clrType != null && IsDelegateType(clrType))
+                return CreateFunctionTypeInfoFromDelegate(clrType);
+        }
+
         return null;
     }
 
@@ -3921,6 +3948,10 @@ public class Analyzer
 
         // Same type name
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
+
+        // Lambda function types (FunctionTypeInfo) are assignable to delegate types (Func/Action)
+        if (resolvedSource is FunctionTypeInfo && resolvedTarget is GenericTypeInfo { Name: "Func" or "Action" })
+            return true;
 
         // Duck interface structural typing
         if (resolvedTarget is InterfaceTypeInfo iface && iface.Declaration.IsDuckInterface)
