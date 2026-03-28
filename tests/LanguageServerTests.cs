@@ -752,6 +752,148 @@ func main(): void
         Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Format"));
     }
 
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_BasicAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func greet(name: string, times: int): void
+    for i in 0..times
+        Console.WriteLine(name)
+
+func main(): void
+    greet(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 6, 10);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("greet"));
+        var sig = sigHelp.Signatures.First(s => s.Label.Contains("greet"));
+        Assert.Contains("name: string", sig.Label);
+        Assert.Contains("times: int", sig.Label);
+        Assert.Contains(": void", sig.Label);
+        Assert.Equal(2, sig.Parameters!.Count());
+    }
+
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_ActiveParameterAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func add(a: int, b: int): int
+    return a + b
+
+func main(): void
+    add(1, ";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 5, 11);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        Assert.Equal(1, sigHelp.ActiveParameter);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_ReturnTypeAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func multiply(x: double, y: double): double
+    return x * y
+
+func main(): void
+    multiply(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 5, 13);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        var sig = sigHelp.Signatures.First();
+        Assert.Contains("multiply(x: double, y: double): double", sig.Label);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_NoParamsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func getTime(): string
+    return ""now""
+
+func main(): void
+    getTime(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 5, 12);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        var sig = sigHelp.Signatures.First();
+        Assert.Equal("getTime(): string", sig.Label);
+        Assert.Empty(sig.Parameters!);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_DefaultValueParamAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func greet(name: string, greeting: string = ""Hello""): void
+    Console.WriteLine(greeting + "" "" + name)
+
+func main(): void
+    greet(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 5, 10);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        var sig = sigHelp.Signatures.First();
+        Assert.Equal(2, sig.Parameters!.Count());
+        Assert.Contains("name: string", sig.Label);
+        Assert.Contains("greeting: string", sig.Label);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_NSharpFunction_StillWorksForDotNetAsync()
+    {
+        // Ensure existing .NET type signature help still works after refactor
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    Math.Max(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 2, 13);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Max"));
+    }
+
     #endregion
 
     #region Definition Tests
