@@ -24,6 +24,19 @@ public class FormatterTests
         return formatter.Format(ast);
     }
 
+    /// <summary>
+    /// Format with comment preservation (uses lexer to extract comments).
+    /// </summary>
+    private static string FormatWithComments(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        var formatter = new Formatter();
+        return formatter.Format(result.CompilationUnit!, lexer.Comments);
+    }
+
     [Fact]
     public void Format_FixesIndentation()
     {
@@ -177,7 +190,7 @@ print item
 }
 }";
         var expected = @"func Loop(items: int[]) {
-    foreach item in items {
+    for item in items {
         print item
     }
 }";
@@ -312,7 +325,7 @@ f := x => x * 2
 print f(5)
 }";
         var expected = @"func Test() {
-    f := (x: var) => x * 2
+    f := x => x * 2
     print f(5)
 }";
 
@@ -468,7 +481,7 @@ return t
 return x + y
 }";
         var expected = @"func Test() {
-    (x, y) := GetPair()
+    x, y := GetPair()
     return x + y
 }";
 
@@ -545,7 +558,7 @@ yield 3
 return p with { Age: 30 }
 }";
         var expected = @"func Test(p: Person): Person {
-    return p with { Age = 30 }
+    return p with { Age: 30 }
 }";
 
         var result = Format(input).Trim();
@@ -704,6 +717,337 @@ Y: int
         var config = new FormatterConfig { UseSpaces = false };
         var formatter = new Formatter(config);
         var result = formatter.Format(ast).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Idempotency tests ──────────────────────────────────────────────
+
+    [Fact]
+    public void Format_Idempotent_SimpleFunction()
+    {
+        var input = @"func Add(x: int, y: int): int {
+    return x + y
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Format_Idempotent_ClassWithMembers()
+    {
+        var input = @"class Calculator {
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+
+    func Sub(x: int, y: int): int {
+        return x - y
+    }
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    // ── Parenthesis preservation ────────────────────────────────────────
+
+    [Fact]
+    public void Format_PreservesParentheses()
+    {
+        var input = @"func Test(): int {
+    return 2 * (x + y)
+}";
+        var expected = @"func Test(): int {
+    return 2 * (x + y)
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesNestedParentheses()
+    {
+        var input = @"func Test(): int {
+    return (a + b) * (c + d)
+}";
+        var expected = @"func Test(): int {
+    return (a + b) * (c + d)
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── for...in canonical style ────────────────────────────────────────
+
+    [Fact]
+    public void Format_ForIn_Canonical()
+    {
+        var input = @"func Loop(items: int[]) {
+for item in items {
+print item
+}
+}";
+        var expected = @"func Loop(items: int[]) {
+    for item in items {
+        print item
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ForeachNormalizesToForIn()
+    {
+        // Both foreach and for...in should output canonical for...in
+        var input = @"func Loop(items: int[]) {
+foreach item in items {
+print item
+}
+}";
+        var expected = @"func Loop(items: int[]) {
+    for item in items {
+        print item
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Lambda formatting ───────────────────────────────────────────────
+
+    [Fact]
+    public void Format_LambdaSingleParam_NoType()
+    {
+        var input = @"func Test() {
+f := x => x * 2
+}";
+        var expected = @"func Test() {
+    f := x => x * 2
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_LambdaMultiParam()
+    {
+        var input = @"func Test() {
+f := (x, y) => x + y
+}";
+        var expected = @"func Test() {
+    f := (x, y) => x + y
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Target-typed new ────────────────────────────────────────────────
+
+    [Fact]
+    public void Format_TargetTypedNew_NoSpace()
+    {
+        var input = @"func Test(): Person {
+return new(""Alice"", 30)
+}";
+        var expected = @"func Test(): Person {
+    return new(""Alice"", 30)
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_NewWithType_HasSpace()
+    {
+        var input = @"func Test() {
+p := new Person(""Alice"", 30)
+}";
+        var expected = @"func Test() {
+    p := new Person(""Alice"", 30)
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Comment preservation ────────────────────────────────────────────
+
+    [Fact]
+    public void Format_PreservesComments_BeforeFunction()
+    {
+        var input = @"// This is a helper function
+func Add(x: int, y: int): int {
+    return x + y
+}";
+        var expected = @"// This is a helper function
+func Add(x: int, y: int): int {
+    return x + y
+}";
+
+        var result = FormatWithComments(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesComments_InsideFunction()
+    {
+        var input = @"func Test() {
+    // Calculate result
+    x := 1 + 2
+    print x
+}";
+        var expected = @"func Test() {
+    // Calculate result
+    x := 1 + 2
+    print x
+}";
+
+        var result = FormatWithComments(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesComments_BetweenDeclarations()
+    {
+        var input = @"// First function
+func First() {
+    print 1
+}
+
+// Second function
+func Second() {
+    print 2
+}";
+        var expected = @"// First function
+func First() {
+    print 1
+}
+
+// Second function
+func Second() {
+    print 2
+}";
+
+        var result = FormatWithComments(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Blank line preservation ─────────────────────────────────────────
+
+    [Fact]
+    public void Format_PreservesBlankLines_BetweenStatements()
+    {
+        var input = @"func Test() {
+    x := 1
+
+    y := 2
+    print x + y
+}";
+        var expected = @"func Test() {
+    x := 1
+
+    y := 2
+    print x + y
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Import sorting ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Format_SortsImports_SystemFirst()
+    {
+        var input = @"import MyApp.Utils
+import System.Linq
+import System
+import ThirdParty.Lib
+
+func Main() {
+    print ""hello""
+}";
+        var expected = @"import System
+import System.Linq
+import MyApp.Utils
+import ThirdParty.Lib
+
+func Main() {
+    print ""hello""
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── String literals not mangled ─────────────────────────────────────
+
+    [Fact]
+    public void Format_InterpolatedString_NotMangled()
+    {
+        var input = @"func Test() {
+    name := ""Alice""
+    print $""Hello, {name}!""
+}";
+        var expected = @"func Test() {
+    name := ""Alice""
+    print $""Hello, {name}!""
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Match expression formatting ─────────────────────────────────────
+
+    [Fact]
+    public void Format_MatchExpression_Indented()
+    {
+        var input = @"func Test(x: int): string {
+return match x {
+0 => ""zero"",
+1 => ""one"",
+_ => ""other""
+}
+}";
+        var expected = @"func Test(x: int): string {
+    return x match {
+        0 => ""zero""
+        1 => ""one""
+        _ => ""other""
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── C-style for loop still works ────────────────────────────────────
+
+    [Fact]
+    public void Format_CStyleForLoop()
+    {
+        var input = @"func Test() {
+for i = 0; i < 10; i++ {
+print i
+}
+}";
+        var expected = @"func Test() {
+    for i = 0; i < 10; i++ {
+        print i
+    }
+}";
+
+        var result = Format(input).Trim();
         Assert.Equal(expected, result);
     }
 }

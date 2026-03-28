@@ -69,18 +69,22 @@ func Process(x: string)  // Same count, different types ❌
 ## Pattern Matching
 
 ### 5. Exhaustiveness with Guards
-**Current:** Exhaustiveness checking skipped when guards present.
+**Current:** Guarded arms do not count toward exhaustiveness coverage. Unguarded arms
+(including wildcard `_` and plain identifier bindings like `other`) still count as full coverage.
+If all union cases have only guarded arms and no wildcard/catch-all fallback, the compiler
+reports a non-exhaustive match error.
 
 ```
+// This is now correctly flagged as non-exhaustive:
 result := value match {
-    x when x > 0 => "positive",
-    // Missing: x <= 0 case, but no warning
+    Result.Ok { v } when v > 0 => "positive",
+    Result.Ok { v } when v <= 0 => "non-positive",
+    // Missing: Result.Err case — no unguarded arm covers it
 }
 ```
 
-**Why:** Static analysis of guard conditions is complex.
-
-**Future:** Conservative exhaustiveness checking with warnings.
+**Limitation:** Guard conditions are not analyzed semantically. The compiler cannot
+determine that `when x > 0` and `when x <= 0` together cover all integers.
 
 ### 6. Nested Union Matching
 **Current:** Deep pattern matching on nested unions limited.
@@ -153,19 +157,15 @@ import "Models/Person"
 
 ## Transpiler
 
-### 11. Type Aliases in Transpiled Code
-**Current:** Type aliases emitted as comments (no runtime representation).
+### 11. Type Aliases — Same-Namespace and Nullable Limitations
+**Current:** Type aliases now emit as C# file-scoped `using` directives. However, two edge cases remain:
 
-```
-type StringList = List<string>
+1. **Same-namespace types:** `type Foo = MyLocalClass` where `MyLocalClass` is in the same file's namespace will fail because `using` aliases appear before the namespace declaration and can't see types declared later.
+2. **Nullable reference types:** `type MaybeString = string?` will fail with CS9132 — C# does not allow nullable reference types in `using` aliases.
 
-// Transpiles to:
-// // type alias: StringList = List<string>
-```
+**Why:** C# `using` alias restrictions.
 
-**Why:** C# doesn't support type aliases at type level (only `using` aliases).
-
-**Future:** None (C# limitation). Consider preprocessor approach.
+**Future:** Consider emitting these edge cases as comments with a compiler warning diagnostic.
 
 ## Performance
 

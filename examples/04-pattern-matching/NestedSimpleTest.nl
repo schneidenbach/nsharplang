@@ -10,15 +10,15 @@ class Person {
 }
 
 func Test(p: Person): string {
-    return match p {
-        { Addr: { City: "NYC" } } => "New Yorker",
+    return p match {
+        { Addr: { City: "NYC" } } => "New Yorker"
         _ => "Other"
     }
 }
 
 func Main() {
-    addr := new Address { City: "NYC" }
-    person := new Person { Name: "Alice", Addr: addr }
+    addr := new Address() { City: "NYC" }
+    person := new Person() { Name: "Alice", Addr: addr }
     result := Test(person)
     print result
 }

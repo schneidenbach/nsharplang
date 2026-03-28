@@ -1227,6 +1227,98 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestParameterAttributes()
+    {
+        var source = @"
+            func Create([FromBody] dto: TaskDto, [Required] name: string): void {
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        // First parameter has [FromBody]
+        var param0 = funcDecl!.Parameters[0];
+        Assert.NotNull(param0.Attributes);
+        Assert.Single(param0.Attributes!);
+        Assert.Equal("FromBody", param0.Attributes![0].Name);
+
+        // Second parameter has [Required]
+        var param1 = funcDecl!.Parameters[1];
+        Assert.NotNull(param1.Attributes);
+        Assert.Single(param1.Attributes!);
+        Assert.Equal("Required", param1.Attributes![0].Name);
+    }
+
+    [Fact]
+    public void TestParameterAttributesWithArguments()
+    {
+        var source = @"
+            func Search([FromQuery(Name = ""q"")] query: string, [Range(1, 100)] page: int): void {
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var param0 = funcDecl!.Parameters[0];
+        Assert.NotNull(param0.Attributes);
+        Assert.Single(param0.Attributes!);
+        Assert.Equal("FromQuery", param0.Attributes![0].Name);
+        Assert.Single(param0.Attributes![0].Arguments);
+
+        var param1 = funcDecl!.Parameters[1];
+        Assert.NotNull(param1.Attributes);
+        Assert.Single(param1.Attributes!);
+        Assert.Equal("Range", param1.Attributes![0].Name);
+        Assert.Equal(2, param1.Attributes![0].Arguments.Count);
+    }
+
+    [Fact]
+    public void TestParameterMultipleAttributes()
+    {
+        var source = @"
+            func Create([FromBody] [Required] dto: TaskDto): void {
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var param0 = funcDecl!.Parameters[0];
+        Assert.NotNull(param0.Attributes);
+        Assert.Equal(2, param0.Attributes!.Count);
+        Assert.Equal("FromBody", param0.Attributes![0].Name);
+        Assert.Equal("Required", param0.Attributes![1].Name);
+    }
+
+    [Fact]
+    public void TestParameterAttributesWithModifiers()
+    {
+        var source = @"
+            func Process([Required] ref data: byte[], [FromBody] params items: string[]): void {
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var param0 = funcDecl!.Parameters[0];
+        Assert.NotNull(param0.Attributes);
+        Assert.Equal("Required", param0.Attributes![0].Name);
+        Assert.Equal(ParameterModifier.Ref, param0.Modifier);
+
+        var param1 = funcDecl!.Parameters[1];
+        Assert.NotNull(param1.Attributes);
+        Assert.Equal("FromBody", param1.Attributes![0].Name);
+        Assert.Equal(ParameterModifier.Params, param1.Modifier);
+    }
+
+    [Fact]
     public void TestExtensionMethod()
     {
         var source = @"

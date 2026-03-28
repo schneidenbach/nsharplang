@@ -1234,6 +1234,13 @@ public class CodeIntelligenceService
                     }
                 }
                 yield break;
+
+            case ParenthesizedExpression paren:
+                foreach (var candidate in EnumerateReferenceCandidatesInExpression(paren.Inner))
+                {
+                    yield return candidate;
+                }
+                yield break;
         }
     }
 
@@ -1697,6 +1704,7 @@ public class CodeIntelligenceService
             WithExpression withExpr => ResolveTypeInfoFromExpression(withExpr.Target, semanticModel, snapshot, currentUnit),
             AwaitExpression awaitExpr => ResolveTypeInfoFromExpression(awaitExpr.Expression, semanticModel, snapshot, currentUnit),
             CastExpression castExpr => ResolveTypeReferenceToTypeInfo(castExpr.TargetType, snapshot),
+            ParenthesizedExpression paren => ResolveTypeInfoFromExpression(paren.Inner, semanticModel, snapshot, currentUnit),
             IntLiteralExpression => new SimpleTypeInfo("int"),
             FloatLiteralExpression => new SimpleTypeInfo("double"),
             StringLiteralExpression => new SimpleTypeInfo("string"),
@@ -1931,6 +1939,7 @@ public class CodeIntelligenceService
             WithExpression withExpr => GetExpressionQueryName(withExpr.Target),
             AwaitExpression awaitExpr => GetExpressionQueryName(awaitExpr.Expression),
             CastExpression castExpr => GetTypeReferenceName(castExpr.TargetType),
+            ParenthesizedExpression paren => GetExpressionQueryName(paren.Inner),
             _ => null
         };
     }

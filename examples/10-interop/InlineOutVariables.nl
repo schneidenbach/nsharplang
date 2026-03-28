@@ -1,7 +1,7 @@
 // Inline Out Variable Declarations (C# 7+)
 // Demonstrates declaring variables inline with out parameters
-
 import System.Collections.Generic
+
 
 // TryParse pattern - very common in .NET
 func TryParseInt(input: string, out result: int): bool {
@@ -11,6 +11,7 @@ func TryParseInt(input: string, out result: int): bool {
         result = input.Length * 10
         return true
     }
+
     result = 0
     return false
 }
@@ -25,6 +26,7 @@ func TryGetFromCache(key: string, out value: string): bool {
         value = "Admin"
         return true
     }
+
     value = ""
     return false
 }
@@ -37,6 +39,7 @@ func TryParsePoint(input: string, out x: double, out y: double): bool {
         y = 20.3
         return true
     }
+
     x = 0.0
     y = 0.0
     return false
@@ -48,48 +51,54 @@ func Main() {
 
     // Example 1: out var (type inferred)
     print "1. Type inference with 'out var':"
-    if TryParseInt("12345", out var number) {
+    if TryParseInt("12345", out out var number) {
         print $"  Successfully parsed: {number}"
     } else {
         print "  Failed to parse"
     }
+
     print ""
 
     // Example 2: out with explicit type
     print "2. Explicit type with 'out int':"
-    if TryParseInt("abc", out int value) {
+    if TryParseInt("abc", out out int value) {
         print $"  Successfully parsed: {value}"
     } else {
         print "  Failed to parse (expected)"
     }
+
     print ""
 
     // Example 3: Using in conditions
     print "3. Inline out vars in if conditions:"
-    if TryGetFromCache("user", out var username) {
+    if TryGetFromCache("user", out out var username) {
         print $"  Found user: {username}"
     }
+
     print ""
 
     // Example 4: Multiple out parameters
     print "4. Multiple out parameters:"
-    if TryParsePoint("10.5,20.3", out var px, out var py) {
+    if TryParsePoint("10.5,20.3", out out var px, out out var py) {
         print $"  Point: ({px}, {py})"
     }
+
     print ""
 
     // Example 5: Explicit types for multiple parameters
     print "5. Explicit types for multiple out parameters:"
-    if TryParsePoint("coordinates", out double coordX, out double coordY) {
+    if TryParsePoint("coordinates", out out double coordX, out out double coordY) {
         print $"  Coordinates: X={coordX}, Y={coordY}"
     }
+
     print ""
 
     // Example 6: Variable is available after if statement
     print "6. Variable scope - available after if:"
-    if TryGetFromCache("role", out var userRole) {
+    if TryGetFromCache("role", out out var userRole) {
         print $"  Role inside if: {userRole}"
     }
+
     // Variable is still in scope here
     print $"  Role outside if: {userRole}"
     print ""

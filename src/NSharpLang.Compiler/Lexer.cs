@@ -93,6 +93,11 @@ public class Lexer
         { "explicit", TokenType.Explicit },
     };
 
+    /// <summary>
+    /// Comments extracted during tokenization, preserved for the formatter.
+    /// </summary>
+    public List<CommentTrivia> Comments { get; } = new();
+
     public Lexer(string source, string? fileName = null)
     {
         _source = source;
@@ -112,11 +117,23 @@ public class Lexer
 
             var token = NextToken();
 
-            // Skip comments but keep newlines
+            // Collect comments for the formatter, but don't add to token stream
             if (token.Type == TokenType.Comment ||
                 token.Type == TokenType.MultiLineComment ||
                 token.Type == TokenType.XmlDocComment)
+            {
+                // Multi-line comment tokens have their /* */ delimiters stripped by the lexer,
+                // so we re-add them for the formatter to emit correctly.
+                var commentText = token.Type == TokenType.MultiLineComment
+                    ? $"/*{token.Value}*/"
+                    : token.Value;
+                Comments.Add(new CommentTrivia(
+                    token.Line,
+                    token.Column,
+                    commentText,
+                    token.Type == TokenType.MultiLineComment));
                 continue;
+            }
 
             tokens.Add(token);
         }

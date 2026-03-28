@@ -1,9 +1,9 @@
 // Generic Method Calls Example
 // Demonstrates explicit type argument syntax for generic methods
-
 import System
-import System.Linq
 import System.Collections.Generic
+import System.Linq
+
 
 // Generic helper functions
 func CreateList<T>(params items: T[]): List<T> {
@@ -11,6 +11,7 @@ func CreateList<T>(params items: T[]): List<T> {
     for item in items {
         list.Add(item)
     }
+
     return list
 }
 
@@ -27,7 +28,7 @@ func Main() {
     // Example 2: Generic method call on LINQ extension methods
     print ""
     print "2. LINQ methods with explicit types:"
-    let items: int[] = [1, 2, 3, 4, 5]
+    items: int[] = [1, 2, 3, 4, 5]
 
     // Cast to specific type
     objects := items.Cast<object>().ToList()

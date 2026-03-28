@@ -710,10 +710,93 @@ type Handler = Func<string, void>
 
         var result = Transpile(source);
 
-        // Type aliases should be emitted as comments in C# (C# doesn't support type aliases at type level)
-        Assert.Contains("// type UserId = int", result);
-        // Func<string, void> transpiles to Action<string>
-        Assert.Contains("// type Handler = Action<string>", result);
+        // Type aliases emit as C# file-scoped using directives
+        Assert.Contains("using UserId = int;", result);
+        // Func<string, void> transpiles to System.Action<string>
+        Assert.Contains("using Handler = System.Action<string>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasFullyQualified()
+    {
+        var source = @"
+type StringDict = Dictionary<string, string>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using StringDict = System.Collections.Generic.Dictionary<string, string>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasFuncVoidToAction()
+    {
+        var source = @"
+type Callback = Func<void>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using Callback = System.Action;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasMultiple()
+    {
+        var source = @"
+type UserId = int
+type Name = string
+type Lookup = Dictionary<string, int>
+type Callback = Func<void>
+type Handler = Func<string, void>
+type Transformer = Func<string, int>
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using UserId = int;", result);
+        Assert.Contains("using Name = string;", result);
+        Assert.Contains("using Lookup = System.Collections.Generic.Dictionary<string, int>;", result);
+        Assert.Contains("using Callback = System.Action;", result);
+        Assert.Contains("using Handler = System.Action<string>;", result);
+        Assert.Contains("using Transformer = System.Func<string, int>;", result);
+    }
+
+    [Fact]
+    public void TestTypeAliasAppearsBeforeNamespace()
+    {
+        var source = @"
+namespace MyApp
+
+type UserId = int
+
+class User {
+    Id: UserId
+}
+        ";
+
+        var result = Transpile(source);
+
+        // The using alias must appear before the namespace declaration
+        var usingIndex = result.IndexOf("using UserId = int;");
+        var namespaceIndex = result.IndexOf("namespace MyApp;");
+        Assert.True(usingIndex >= 0, "using alias should be present");
+        Assert.True(namespaceIndex >= 0, "namespace should be present");
+        Assert.True(usingIndex < namespaceIndex, "using alias must appear before namespace declaration");
+    }
+
+    [Fact]
+    public void TestTypeAliasNotEmittedAsComment()
+    {
+        var source = @"
+type UserId = int
+        ";
+
+        var result = Transpile(source);
+
+        // Should NOT emit as a comment anymore
+        Assert.DoesNotContain("// type UserId", result);
+        Assert.Contains("using UserId = int;", result);
     }
 
     [Fact]
@@ -769,6 +852,61 @@ func DoWork() {
         Assert.Contains("[System.Runtime.CompilerServices.InlineArray(10)]", result);
         Assert.Contains("struct Buffer", result);
         Assert.Contains("[System.Diagnostics.CodeAnalysis.SuppressMessage(\"Category\", \"CheckId\")]", result);
+    }
+
+    [Fact]
+    public void TestParameterAttributeTranspilation()
+    {
+        var source = @"
+func Create([FromBody] dto: TaskDto, [Required] name: string): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Parameter attributes should appear inline in the C# parameter list
+        Assert.Contains("[FromBody] TaskDto dto", result);
+        Assert.Contains("[Required] string name", result);
+    }
+
+    [Fact]
+    public void TestParameterAttributeWithArgumentsTranspilation()
+    {
+        var source = @"
+func Search([FromQuery(Name = ""q"")] query: string, [Range(1, 100)] page: int): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[FromQuery(Name = \"q\")] string query", result);
+        Assert.Contains("[Range(1, 100)] int page", result);
+    }
+
+    [Fact]
+    public void TestParameterMultipleAttributesTranspilation()
+    {
+        var source = @"
+func Create([FromBody] [Required] dto: TaskDto): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[FromBody] [Required] TaskDto dto", result);
+    }
+
+    [Fact]
+    public void TestParameterAttributesWithModifiersTranspilation()
+    {
+        var source = @"
+func Process([Required] ref data: byte[]): void {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[Required] ref byte[] data", result);
     }
 
     [Fact]

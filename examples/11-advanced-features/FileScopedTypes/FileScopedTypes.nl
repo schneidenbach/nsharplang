@@ -2,6 +2,7 @@
 // Types marked with 'file' are only visible within this file
 import System.Collections.Generic
 
+
 // File-scoped class - only visible in this file
 file class InternalCache {
     _data: Dictionary<string, string> = new Dictionary<string, string>()
@@ -14,6 +15,7 @@ file class InternalCache {
         if _data.ContainsKey(key) {
             return _data[key]
         }
+
         return null
     }
 }
@@ -24,11 +26,11 @@ file struct ValidationResult {
     ErrorMessage: string
 
     static func Success(): ValidationResult {
-        return new ValidationResult { IsValid: true, ErrorMessage: "" }
+        return new ValidationResult() { IsValid: true, ErrorMessage: "" }
     }
 
     static func Failure(message: string): ValidationResult {
-        return new ValidationResult { IsValid: false, ErrorMessage: message }
+        return new ValidationResult() { IsValid: false, ErrorMessage: message }
     }
 }
 
@@ -74,7 +76,7 @@ file class UserService {
 }
 
 // File-scoped validator implementation
-file class UsernameValidator : IValidator {
+file class UsernameValidator: IValidator {
     func Validate(input: string): ValidationResult {
         if input.Length < 3 {
             return ValidationResult.Failure("Username must be at least 3 characters")

@@ -383,12 +383,12 @@ public class CompletionHandler : CompletionHandlerBase
     }
 
     /// <summary>
-    /// Get members from a user-defined N# type (class, struct, record) via SymbolsInfo
+    /// Get members from a user-defined N# type (class, struct, record).
+    /// Uses SemanticModel for resolved field/property types, SymbolsInfo for methods.
     /// </summary>
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, Models.DocumentState doc)
     {
         var items = new List<CompletionItem>();
-        if (doc.SymbolsInfo == null) return items;
 
         // Get the type name from the TypeInfo — handle all TypeInfo variants
         string? typeName = typeInfo switch
@@ -401,16 +401,48 @@ public class CompletionHandler : CompletionHandlerBase
             _ => typeInfo.ToString() // SimpleTypeInfo, etc. — ToString() returns the type name
         };
 
-        if (typeName != null && doc.SymbolsInfo.TryGetValue(typeName, out var symbolInfo))
+        // Build a lookup of resolved types from SemanticModel
+        Dictionary<string, TypeInfo>? resolvedTypes = null;
+        if (typeName != null && doc.SemanticModel != null)
+        {
+            resolvedTypes = doc.SemanticModel.GetTypeMembers(typeName);
+        }
+
+        // Use SymbolsInfo as the primary member list (has correct kinds for fields/properties/methods),
+        // but enhance field/property details with resolved types from SemanticModel
+        if (doc.SymbolsInfo != null && typeName != null &&
+            doc.SymbolsInfo.TryGetValue(typeName, out var symbolInfo))
         {
             foreach (var member in symbolInfo.Members)
             {
+                var detail = GetSymbolDetail(member);
+
+                // Use resolved type from SemanticModel when available
+                if (resolvedTypes != null && resolvedTypes.TryGetValue(member.Name, out var resolvedType))
+                {
+                    detail = resolvedType.ToString();
+                }
+
                 items.Add(new CompletionItem
                 {
                     Label = member.Name,
                     Kind = GetCompletionItemKindFromSymbol(member.Kind),
-                    Detail = GetSymbolDetail(member),
+                    Detail = detail,
                     InsertText = member.Name
+                });
+            }
+        }
+        else if (resolvedTypes != null)
+        {
+            // No SymbolsInfo available — use SemanticModel alone as fallback
+            foreach (var (memberName, memberType) in resolvedTypes)
+            {
+                items.Add(new CompletionItem
+                {
+                    Label = memberName,
+                    Kind = CompletionItemKind.Field,
+                    Detail = memberType.ToString(),
+                    InsertText = memberName
                 });
             }
         }

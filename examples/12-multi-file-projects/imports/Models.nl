@@ -1,5 +1,4 @@
 // Models.nl - Defines public types for export
-
 class Person {
     Name: string
     Age: int
@@ -14,7 +13,7 @@ class Person {
     }
 }
 
-enum Status {
+enum Status: string {
     Active = "active",
     Inactive = "inactive",
     Pending = "pending"
