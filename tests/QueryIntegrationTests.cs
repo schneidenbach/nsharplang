@@ -684,7 +684,7 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void Definition_Dogfood_LocalVariableInInterpolation_Resolves()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 33);
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 21);
 
         Assert.NotNull(result);
         Assert.Equal("stats", result!.Name);
@@ -697,7 +697,7 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void Definition_Dogfood_RecordPropertyInInterpolation_Resolves()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 39);
+        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 27);
 
         Assert.NotNull(result);
         Assert.Equal("Total", result!.Name);
@@ -710,22 +710,22 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_Dogfood_LocalVariableUseSite_IncludeInterpolationUses()
     {
-        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 33);
+        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 21);
 
         Assert.Equal(8, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 91 && r.Column == 43);
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 93 && r.Column == 23);
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 91 && r.Column == 31);
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 93 && r.Column == 11);
     }
 
     [Fact]
     public void References_Dogfood_RecordPropertyUseSite_IncludeInterpolationUse()
     {
-        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 39);
+        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 27);
 
         Assert.Equal(6, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 39);
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 27);
         Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 115 && r.Column == 38);
     }
 

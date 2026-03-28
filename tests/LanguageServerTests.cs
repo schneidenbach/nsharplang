@@ -1098,8 +1098,8 @@ func Foo(): void
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(93, location.Range.Start.Line);
-        Assert.Equal(4, location.Range.Start.Character);
+        Assert.Equal(4, location.Range.Start.Line);
+        Assert.Equal(5, location.Range.Start.Character);
     }
 
     [Fact]
