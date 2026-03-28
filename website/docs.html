@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation - N#</title>
+    <meta name="description" content="N# language documentation. Guides, references, and migration resources for learning N#.">
+
+    <meta property="og:title" content="N# Documentation">
+    <meta property="og:description" content="Language guides, API references, and migration resources for N#.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://schneidenbach.github.io/nsharplang/docs.html">
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+    <div class="container nav__inner">
+        <a href="index.html" class="nav__brand">
+            <img src="favicon.svg" alt="N#">
+            <span>N#</span>
+        </a>
+        <button class="nav__toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links" onclick="var l=document.getElementById('nav-links');l.classList.toggle('nav__links--open');this.setAttribute('aria-expanded',l.classList.contains('nav__links--open'))">&#9776;</button>
+        <ul id="nav-links" class="nav__links">
+            <li><a href="index.html#features" class="nav__link">Features</a></li>
+            <li><a href="index.html#examples" class="nav__link">Examples</a></li>
+            <li><a href="examples.html" class="nav__link">Gallery</a></li>
+            <li><a href="docs.html" class="nav__link nav__link--active">Docs</a></li>
+        </ul>
+        <div class="nav__actions">
+            <button class="theme-toggle" aria-label="Toggle theme" onclick="toggleTheme()">
+                <span class="theme-toggle__icon">&#9789;</span>
+            </button>
+            <a href="https://github.com/schneidenbach/nsharplang" class="nav__github" target="_blank" rel="noopener" aria-label="GitHub">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </a>
+        </div>
+    </div>
+</nav>
+
+<main class="container container--narrow">
+    <div class="page-header">
+        <h1 class="page-header__title">Documentation</h1>
+        <p class="page-header__desc">Everything you need to learn and use N#.</p>
+    </div>
+
+    <div class="docs-grid">
+        <div class="docs-card">
+            <h3 class="docs-card__title">Language Guide</h3>
+            <ul class="docs-card__list">
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/basics.md" target="_blank" rel="noopener">Basics</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/functions.md" target="_blank" rel="noopener">Functions</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/types.md" target="_blank" rel="noopener">Types</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/pattern-matching.md" target="_blank" rel="noopener">Pattern Matching</a></li>
+            </ul>
+        </div>
+
+        <div class="docs-card">
+            <h3 class="docs-card__title">Migration &amp; Interop</h3>
+            <ul class="docs-card__list">
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/csharp-migration.md" target="_blank" rel="noopener">Coming from C#</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/interop.md" target="_blank" rel="noopener">C# Interop Guide</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/ci-cd.md" target="_blank" rel="noopener">CI/CD Setup</a></li>
+            </ul>
+        </div>
+
+        <div class="docs-card">
+            <h3 class="docs-card__title">Examples</h3>
+            <ul class="docs-card__list">
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/examples/01-hello-world" target="_blank" rel="noopener">Hello World</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/examples/05-unions" target="_blank" rel="noopener">Unions &amp; Matching</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/examples/07-interfaces" target="_blank" rel="noopener">Duck Interfaces</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/examples/14-minimal-api" target="_blank" rel="noopener">ASP.NET Minimal API</a></li>
+            </ul>
+        </div>
+
+        <div class="docs-card">
+            <h3 class="docs-card__title">Tooling</h3>
+            <ul class="docs-card__list">
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/editors/vscode" target="_blank" rel="noopener">VS Code Extension</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/src/NSharpLang.Compiler" target="_blank" rel="noopener">Compiler</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/tree/main/src/NSharpLang.Sdk" target="_blank" rel="noopener">MSBuild SDK</a></li>
+            </ul>
+        </div>
+
+        <div class="docs-card">
+            <h3 class="docs-card__title">Project</h3>
+            <ul class="docs-card__list">
+                <li><a href="https://github.com/schneidenbach/nsharplang" target="_blank" rel="noopener">GitHub Repository</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/issues" target="_blank" rel="noopener">Issue Tracker</a></li>
+            </ul>
+        </div>
+
+        <div class="docs-card">
+            <h3 class="docs-card__title">Quick Start</h3>
+            <ul class="docs-card__list">
+                <li><a href="index.html#quickstart">Installation</a></li>
+                <li><a href="examples.html">Code Examples</a></li>
+                <li><a href="https://github.com/schneidenbach/nsharplang/blob/main/docs/guide/basics.md" target="_blank" rel="noopener">Your First Program</a></li>
+            </ul>
+        </div>
+    </div>
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+    <div class="container footer__inner">
+        <div class="footer__left">
+            <span class="footer__brand">N#</span>
+            <span class="footer__copyright">&copy; 2025 N# Language. Open source.</span>
+        </div>
+        <ul class="footer__links">
+            <li><a href="https://github.com/schneidenbach/nsharplang" class="footer__link" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="docs.html" class="footer__link">Docs</a></li>
+            <li><a href="examples.html" class="footer__link">Examples</a></li>
+            <li><a href="https://github.com/schneidenbach/nsharplang/issues" class="footer__link" target="_blank" rel="noopener">Issues</a></li>
+        </ul>
+    </div>
+</footer>
+
+<script>
+function getTheme() { return localStorage.getItem('theme') || 'dark'; }
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    var icon = document.querySelector('.theme-toggle__icon');
+    if (icon) icon.textContent = theme === 'dark' ? '\u263D' : '\u2600';
+}
+function toggleTheme() { setTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
+setTheme(getTheme());
+
+document.querySelectorAll('.nav__link').forEach(function (link) {
+    link.addEventListener('click', function () {
+        document.querySelector('.nav__links').classList.remove('nav__links--open');
+    });
+});
+</script>
+
+</body>
+</html>
