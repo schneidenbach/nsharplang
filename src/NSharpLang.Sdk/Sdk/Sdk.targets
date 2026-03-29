@@ -18,6 +18,13 @@
   <UsingTask TaskName="NSharpLang.Build.Tasks.TranspileTests"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
+  <!-- Fail fast if project.yml exists but nlc restore hasn't been run -->
+  <Target Name="_ValidateNSharpProjectConfig"
+          BeforeTargets="Build;Rebuild;Restore"
+          Condition="Exists('$(NSharpProjectFile)') And !Exists('$(MSBuildProjectDirectory)/obj/project.g.props')">
+    <Error Text="project.yml found but build configuration is missing. Run 'nlc restore' to generate it, then retry. (Expected: obj/project.g.props)" />
+  </Target>
+
   <!-- Auto-discover all .nl files (excluding tests) -->
   <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />

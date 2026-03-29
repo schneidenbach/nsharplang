@@ -162,7 +162,7 @@ section "Step 7: Build Template-Generated Project"
 if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
     cd "$TEMP_DIR/TestConsoleApp"
     echo "Building template-generated project..."
-    if dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
+    if dotnet exec "$CLI_DLL" restore > /dev/null 2>&1 && dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
         handle_success "Template project builds"
     else
         handle_error "Template project build"
@@ -174,7 +174,7 @@ fi
 if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
     cd "$TEMP_DIR/TestWebApiApp"
     echo "Building web API template-generated project..."
-    if dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
+    if dotnet exec "$CLI_DLL" restore > /dev/null 2>&1 && dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
         handle_success "Web API template project builds"
     else
         handle_error "Web API template project build"
@@ -217,7 +217,7 @@ else
 
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
 
-        if (cd "$work_dir" && dotnet restore --disable-build-servers > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore > "$log_file" 2>&1); then
+        if (cd "$work_dir" && dotnet exec "$repo_root/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll" restore > /dev/null 2>&1 && dotnet restore --disable-build-servers > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore > "$log_file" 2>&1); then
             printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
         else
             printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"

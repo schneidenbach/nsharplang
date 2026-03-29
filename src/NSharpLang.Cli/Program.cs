@@ -37,6 +37,7 @@ class Program
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => Commands.LintCommand.Execute(args.Skip(1).ToArray()),
+            "restore" => RestoreCommand.Execute(args.Skip(1).ToArray()),
             "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
             "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
             "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
@@ -258,88 +259,31 @@ Exit codes:
 
     static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool announceGeneratedFiles = true)
     {
-        string? generatedCsprojPath = null;
-        string? generatedGlobalJsonPath = null;
-        string? generatedNuGetConfigPath = null;
-
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
 
-            // Check for project.yml
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
-            if (!File.Exists(projectYmlPath))
+            // Generate obj/project.g.props from project.yml (canonical YAML→XML projection)
+            var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
+            if (restoreResult != 0)
             {
                 return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or 'nlc build <file.nl>' to build a single file.");
             }
 
-            // Load project config
-            var config = ProjectFileParser.Parse(projectYmlPath);
-            var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-
-            // Generate .csproj in the project directory
-            generatedCsprojPath = Path.Combine(projectRoot, $"{projectName}.csproj");
-            var csprojContent = $@"<Project Sdk=""NSharpLang.Sdk"">
-  <PropertyGroup>
-    <OutputType>{(config.OutputType == "exe" ? "Exe" : "Library")}</OutputType>
-    <TargetFramework>{config.TargetFramework}</TargetFramework>
-  </PropertyGroup>
-</Project>";
-
-            File.WriteAllText(generatedCsprojPath, csprojContent);
-            Console.WriteLine($"Generated {projectName}.csproj");
-
-            // Generate global.json to point to local SDK (for now)
-            generatedGlobalJsonPath = Path.Combine(projectRoot, "global.json");
-            if (!File.Exists(generatedGlobalJsonPath))
+            // Find the .csproj file (should already exist from template or nlc new)
+            var csprojFiles = Directory.GetFiles(projectRoot, "*.csproj");
+            if (csprojFiles.Length == 0)
             {
-                var repoRoot = FindRepoRoot(projectRoot);
-                var globalJsonContent = $$"""
-{
-  "sdk": {
-    "version": "9.0.100"
-  },
-  "msbuild-sdks": {
-    "NSharpLang.Sdk": "0.1.0"
-  }
-}
-""";
-                File.WriteAllText(generatedGlobalJsonPath, globalJsonContent);
-                Console.WriteLine("Generated global.json");
+                return Error("No .csproj file found. Create one with: nlc new <name>");
             }
-            else
-            {
-                generatedGlobalJsonPath = null; // Don't delete if it already existed
-            }
-
-            // Generate NuGet.config to point to local SDK (for now)
-            generatedNuGetConfigPath = Path.Combine(projectRoot, "NuGet.config");
-            if (!File.Exists(generatedNuGetConfigPath))
-            {
-                var repoRoot = FindRepoRoot(projectRoot);
-                var sdkPath = Path.Combine(repoRoot, "src/NSharpLang.Sdk/bin/Debug");
-                var nugetConfigContent = $@"<?xml version=""1.0"" encoding=""utf-8""?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
-    <add key=""local"" value=""{sdkPath}"" />
-  </packageSources>
-</configuration>";
-                File.WriteAllText(generatedNuGetConfigPath, nugetConfigContent);
-                Console.WriteLine("Generated NuGet.config");
-            }
-            else
-            {
-                generatedNuGetConfigPath = null; // Don't delete if it already existed
-            }
+            var csprojPath = csprojFiles[0];
 
             // Call dotnet build
             Console.WriteLine("Running dotnet build...");
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{generatedCsprojPath}\"",
+                Arguments = $"build \"{csprojPath}\"",
                 WorkingDirectory = projectRoot,
                 UseShellExecute = false,
                 RedirectStandardOutput = false,
@@ -359,32 +303,6 @@ Exit codes:
         catch (Exception ex)
         {
             return Error($"Build failed: {ex.Message}");
-        }
-        finally
-        {
-            // Delete generated files unless --keep-generated
-            if (!keepGenerated)
-            {
-                if (generatedCsprojPath != null && File.Exists(generatedCsprojPath))
-                {
-                    File.Delete(generatedCsprojPath);
-                    Console.WriteLine($"Deleted {Path.GetFileName(generatedCsprojPath)}");
-                }
-                if (generatedGlobalJsonPath != null && File.Exists(generatedGlobalJsonPath))
-                {
-                    File.Delete(generatedGlobalJsonPath);
-                    Console.WriteLine("Deleted global.json");
-                }
-                if (generatedNuGetConfigPath != null && File.Exists(generatedNuGetConfigPath))
-                {
-                    File.Delete(generatedNuGetConfigPath);
-                    Console.WriteLine("Deleted NuGet.config");
-                }
-            }
-            else if (announceGeneratedFiles)
-            {
-                Console.WriteLine($"Generated files kept in: {projectRoot}");
-            }
         }
     }
 
@@ -1506,6 +1424,7 @@ Usage: nlc <command> [options]
 Build & Run:
   build [file]         Compile a project or single .nl file
   run [file]           Build and run a project or single file
+  restore              Generate build config from project.yml
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
 
