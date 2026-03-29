@@ -499,6 +499,7 @@ public class Transpiler
         _indentLevel++;
 
         var previousTypeName = _currentTypeName;
+        var previousDuckMethodNames = _duckInterfaceMethodNames;
         _currentTypeName = cls.Name;
         foreach (var member in cls.Members)
         {
@@ -506,7 +507,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
-        _duckInterfaceMethodNames = null;
+        _duckInterfaceMethodNames = previousDuckMethodNames;
 
         _indentLevel--;
         WriteLine("}");
@@ -570,6 +571,7 @@ public class Transpiler
         _indentLevel++;
 
         var previousTypeName = _currentTypeName;
+        var previousDuckMethodNames = _duckInterfaceMethodNames;
         _currentTypeName = str.Name;
         foreach (var member in str.Members)
         {
@@ -577,7 +579,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
-        _duckInterfaceMethodNames = null;
+        _duckInterfaceMethodNames = previousDuckMethodNames;
 
         _indentLevel--;
         WriteLine("}");
@@ -643,6 +645,7 @@ public class Transpiler
         _indentLevel++;
 
         var previousTypeName = _currentTypeName;
+        var previousDuckMethodNames = _duckInterfaceMethodNames;
         _currentTypeName = rec.Name;
         foreach (var member in rec.Members)
         {
@@ -650,7 +653,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
-        _duckInterfaceMethodNames = null;
+        _duckInterfaceMethodNames = previousDuckMethodNames;
 
         _indentLevel--;
         WriteLine("}");

@@ -3462,6 +3462,35 @@ class FileReader {
     }
 
     [Fact]
+    public void DuckInterface_NestedTypeDoesNotClearOuterVisibility()
+    {
+        // Bug fix: nested types must not clear the outer type's duck-interface tracking
+        var source = @"
+duck interface IReader {
+    func read(): string
+}
+
+class FileReader {
+    func read(): string {
+        return ""file contents""
+    }
+
+    class Helper {
+        func help(): string {
+            return ""helping""
+        }
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // FileReader should auto-implement IReader and read() should be public
+        Assert.Contains("class FileReader : IReader", result);
+        Assert.Contains("public string read()", result);
+    }
+
+    [Fact]
     public void DuckInterface_NonMatchingClassDoesNotImplement()
     {
         var source = @"
