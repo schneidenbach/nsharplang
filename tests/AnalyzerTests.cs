@@ -248,6 +248,46 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void BinaryArithmetic_BytePlusByte_ProducesInt()
+    {
+        // C# binary numeric promotion: byte + byte = int
+        // getA/getB return byte, so a+b should be int, not assignable back to byte
+        AssertHasError(@"
+            func getA(): byte { return 0 as byte }
+            func getB(): byte { return 0 as byte }
+            func Main() {
+                c: byte = getA() + getB()
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_ShortPlusShort_ProducesInt()
+    {
+        // C# binary numeric promotion: short + short = int
+        AssertHasError(@"
+            func getA(): short { return 0 as short }
+            func getB(): short { return 0 as short }
+            func Main() {
+                c: short = getA() + getB()
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_SmallTypes_AssignableToInt()
+    {
+        // byte + byte = int, which should be assignable to int
+        AssertNoErrors(@"
+            func getA(): byte { return 0 as byte }
+            func getB(): byte { return 0 as byte }
+            func Main() {
+                c: int = getA() + getB()
+            }
+        ");
+    }
+
+    [Fact]
     public void BinaryArithmetic_InvalidOperands()
     {
         AssertHasError(@"
