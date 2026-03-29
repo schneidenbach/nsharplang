@@ -5220,18 +5220,54 @@ public class Analyzer
         return type is NullableTypeInfo;
     }
 
+    /// <summary>
+    /// C# binary numeric promotion rules (ECMA-334 §12.4.7).
+    /// These determine the result type of arithmetic binary operations.
+    /// NOTE: This is NOT the same as implicit numeric conversion (assignment context).
+    /// C# promotes small types (byte, sbyte, short, ushort) to int for arithmetic.
+    /// </summary>
     private TypeInfo GetWiderType(TypeInfo left, TypeInfo right)
     {
-        // Use the CLR implicit numeric conversion rules to find the wider type
-        if (IsImplicitNumericConversion(left, right)) return right;
-        if (IsImplicitNumericConversion(right, left)) return left;
-        // Same types
-        if (left == right) return left;
-        // Fallback: only use common promotions that CLR actually supports
-        if (left == BuiltInTypes.Double || right == BuiltInTypes.Double) return BuiltInTypes.Double;
-        if (left == BuiltInTypes.Float || right == BuiltInTypes.Float) return BuiltInTypes.Float;
-        if (left == BuiltInTypes.Long || right == BuiltInTypes.Long) return BuiltInTypes.Long;
+        var l = GetNumericName(left);
+        var r = GetNumericName(right);
+        if (l == null || r == null)
+            return BuiltInTypes.Int; // fallback
+
+        // Same types: still apply promotion (byte + byte = int in C#)
+        // Follow C# binary numeric promotion order:
+        if (l == "decimal" || r == "decimal") return BuiltInTypes.Decimal;
+        if (l == "double" || r == "double") return BuiltInTypes.Double;
+        if (l == "float" || r == "float") return BuiltInTypes.Float;
+
+        // ulong: only valid if neither operand is a signed type
+        if (l == "ulong" || r == "ulong")
+        {
+            var other = l == "ulong" ? r : l;
+            if (other is "sbyte" or "short" or "int" or "long")
+                return BuiltInTypes.Long; // C# would error, but we promote to long for diagnostics
+            return BuiltInTypes.ULong;
+        }
+
+        if (l == "long" || r == "long") return BuiltInTypes.Long;
+
+        // uint: if the other is a signed type (sbyte, short, int), promote to long
+        if (l == "uint" || r == "uint")
+        {
+            var other = l == "uint" ? r : l;
+            if (other is "sbyte" or "short" or "int")
+                return BuiltInTypes.Long;
+            return BuiltInTypes.UInt;
+        }
+
+        // Everything else (byte, sbyte, short, ushort, int, char) promotes to int
         return BuiltInTypes.Int;
+    }
+
+    private static string? GetNumericName(TypeInfo type)
+    {
+        if (type is SimpleTypeInfo simple)
+            return simple.Name;
+        return null;
     }
 
     private TypeInfo GetCommonType(TypeInfo left, TypeInfo right)

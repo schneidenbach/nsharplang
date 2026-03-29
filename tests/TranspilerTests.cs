@@ -3437,6 +3437,31 @@ class FileReader {
     }
 
     [Fact]
+    public void DuckInterface_LowercaseMethodForcedPublic()
+    {
+        // Bug fix: duck interface methods with lowercase names must be emitted as public
+        // so C# interface compliance is satisfied (CS0737)
+        var source = @"
+duck interface IReader {
+    func read(): string
+}
+
+class FileReader {
+    func read(): string {
+        return ""file contents""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Class should auto-implement the duck interface
+        Assert.Contains("class FileReader : IReader", result);
+        // The method must be public even though it's lowercase (duck interface requirement)
+        Assert.Contains("public string read()", result);
+    }
+
+    [Fact]
     public void DuckInterface_NonMatchingClassDoesNotImplement()
     {
         var source = @"

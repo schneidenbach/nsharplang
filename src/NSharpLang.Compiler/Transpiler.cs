@@ -17,6 +17,7 @@ public class Transpiler
     private const string IndentString = "    ";
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
+    private HashSet<string>? _duckInterfaceMethodNames; // Methods that must be public for duck interface compliance
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
     private readonly string? _sourceFilePath; // Source .nl file path for #line directives
 
@@ -371,10 +372,12 @@ public class Transpiler
                 modifiers = "public static ";
             }
             // If no explicit visibility modifier, apply naming convention
+            // Exception: methods required by duck interfaces must be public for C# interface compliance
             else if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
                 !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal))
             {
-                modifiers = char.IsUpper(func.Name[0])
+                var isDuckRequired = _duckInterfaceMethodNames?.Contains(func.Name) == true;
+                modifiers = (char.IsUpper(func.Name[0]) || isDuckRequired)
                     ? "public " + modifiers
                     : "private " + modifiers;
             }
@@ -503,6 +506,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
+        _duckInterfaceMethodNames = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -573,6 +577,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
+        _duckInterfaceMethodNames = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -645,6 +650,7 @@ public class Transpiler
             WriteLine();
         }
         _currentTypeName = previousTypeName;
+        _duckInterfaceMethodNames = null;
 
         _indentLevel--;
         WriteLine("}");
@@ -2376,6 +2382,13 @@ public class Transpiler
             if (StructurallyMatchesDuckInterface(typeMembers, iface))
             {
                 matches.Add(iface.Name);
+                // Collect method names that must be public for interface compliance
+                _duckInterfaceMethodNames ??= new HashSet<string>();
+                foreach (var member in iface.Members)
+                {
+                    if (member is FunctionDeclaration ifaceFunc)
+                        _duckInterfaceMethodNames.Add(ifaceFunc.Name);
+                }
             }
         }
 
