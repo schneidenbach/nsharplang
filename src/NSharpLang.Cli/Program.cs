@@ -62,11 +62,15 @@ Usage: nlc build [file.nl] [options]
 Build a project or a single N# source file.
 
 Options:
+  --release          Build with Release configuration (default: Debug)
+  --verbose          Show detailed build output
   --keep-generated   Keep generated temporary files for debugging
   --help, -h         Show this help text
 
 Examples:
   nlc build
+  nlc build --release
+  nlc build --verbose
   nlc build Program.nl
   nlc build --keep-generated
 
@@ -76,16 +80,18 @@ Exit codes:
             return 0;
         }
 
-        // Check for --keep-generated flag
+        // Check for flags
         var keepGenerated = args.Contains("--keep-generated");
-        args = args.Where(a => a != "--keep-generated").ToArray();
+        var release = args.Contains("--release");
+        var verbose = args.Contains("--verbose");
+        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose").ToArray();
 
         // Support both single-file and multi-file builds
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
             // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
-            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated);
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose);
         }
 
         var sourceFile = args[0];
@@ -95,6 +101,7 @@ Exit codes:
         }
 
         // Single file build - use temp directory
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var tempDir = CreateTempBuildDirectory();
         try
         {
@@ -114,12 +121,16 @@ Exit codes:
             File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
 
             // Build
+            var buildArgs = $"build \"{projectFile}\"";
+            if (release) buildArgs += " -c Release";
+            buildArgs += verbose ? " -v normal" : " -v q";
+
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                Arguments = buildArgs,
+                RedirectStandardOutput = !verbose,
+                RedirectStandardError = !verbose,
                 UseShellExecute = false
             });
 
@@ -127,12 +138,14 @@ Exit codes:
 
             if (buildResult?.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Build failed:\n{error}{output}");
+                var error = verbose ? "" : (buildResult?.StandardError.ReadToEnd() ?? "");
+                var output = verbose ? "" : (buildResult?.StandardOutput.ReadToEnd() ?? "");
+                var detail = string.IsNullOrWhiteSpace(error + output) ? "" : $"\n{error}{output}";
+                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
+                return Error($"Build failed{detail}");
             }
 
-            Console.WriteLine("Build successful!");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
 
             return 0;
         }
@@ -256,12 +269,13 @@ Exit codes:
         }
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool announceGeneratedFiles = true)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool announceGeneratedFiles = true, bool release = false, bool verbose = false)
     {
         string? generatedCsprojPath = null;
         string? generatedGlobalJsonPath = null;
         string? generatedNuGetConfigPath = null;
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
@@ -336,10 +350,14 @@ Exit codes:
 
             // Call dotnet build
             Console.WriteLine("Running dotnet build...");
+            var buildArgs = $"build \"{generatedCsprojPath}\"";
+            if (release) buildArgs += " -c Release";
+            if (verbose) buildArgs += " -v detailed";
+
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{generatedCsprojPath}\"",
+                Arguments = buildArgs,
                 WorkingDirectory = projectRoot,
                 UseShellExecute = false,
                 RedirectStandardOutput = false,
@@ -350,10 +368,11 @@ Exit codes:
 
             if (buildResult?.ExitCode != 0)
             {
+                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
                 return Error("Build failed");
             }
 
-            Console.WriteLine("Build successful!");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
             return 0;
         }
         catch (Exception ex)
@@ -966,11 +985,13 @@ Options:
   --project <dir>   Project root directory (default: current directory)
   --filter <name>   Run only tests whose display name or fully-qualified name matches
   --verbose         Use more detailed `dotnet test` output
+  --coverage        Collect code coverage (generates coverage.opencover.xml)
   --help, -h        Show this help text
 
 Examples:
   nlc test
   nlc test --filter AddPerson
+  nlc test --coverage
   nlc test --project examples/15-dogfood-project --verbose
 
 Exit codes:
@@ -983,7 +1004,9 @@ Exit codes:
         projectRoot = Path.GetFullPath(projectRoot);
         var filter = GetOptionValue(args, "--filter");
         var verbose = args.Contains("--verbose");
+        var coverage = args.Contains("--coverage");
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Console.WriteLine($"Testing project in {projectRoot}...");
@@ -1200,6 +1223,14 @@ Exit codes:
                 testArguments.Add(QuoteArgument(dotnetFilter));
             }
 
+            if (coverage)
+            {
+                var coverageOutput = NormalizePath(Path.Combine(projectRoot, "coverage."));
+                testArguments.Add($"/p:CollectCoverage=true");
+                testArguments.Add($"/p:CoverletOutputFormat=opencover");
+                testArguments.Add($"/p:CoverletOutput={QuoteArgument(coverageOutput)}");
+            }
+
             var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
@@ -1209,10 +1240,23 @@ Exit codes:
 
             testRunResult?.WaitForExit();
 
-            return testRunResult?.ExitCode ?? 0;
+            var testExitCode = testRunResult?.ExitCode ?? 0;
+
+            if (coverage)
+            {
+                var coveragePath = Path.Combine(projectRoot, "coverage.opencover.xml");
+                if (File.Exists(coveragePath))
+                    Console.WriteLine($"Coverage report: {coveragePath}");
+                else
+                    Console.Error.WriteLine("Warning: coverage report was not generated.");
+            }
+
+            Console.WriteLine($"  Tests completed in {FormatElapsed(sw.Elapsed)}");
+            return testExitCode;
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1407,6 +1451,10 @@ Exit codes:
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include=""coverlet.msbuild"" Version=""6.0.0"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     {dependencies}
   </ItemGroup>{assemblyReference}
 </Project>";
@@ -1469,6 +1517,13 @@ Exit codes:
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 
+    static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
+        return $"{elapsed.TotalSeconds:F1}s";
+    }
+
     internal static string GetVersion()
     {
         return typeof(Program).Assembly
@@ -1491,7 +1546,7 @@ Exit codes:
 Usage: nlc <command> [options]
 
 Build & Run:
-  build [file]         Compile a project or single .nl file
+  build [file]         Compile a project or single .nl file (--release, --verbose)
   run [file]           Build and run a project or single file
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
@@ -1505,7 +1560,7 @@ Analysis & Fix:
 Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
-  test                 Run .tests.nl test suites
+  test                 Run .tests.nl test suites (--coverage, --verbose)
 
 Project:
   new <name>           Create a new N# project
@@ -1523,8 +1578,10 @@ Common Workflows:
   nlc new MyApp && cd MyApp    Create and enter a new project
   nlc check                    Fast feedback loop
   nlc fix && nlc check         Auto-fix then verify
+  nlc build --release          Optimized release build
   nlc format --check           CI formatting gate
   nlc test --filter AddPerson  Run specific tests
+  nlc test --coverage          Run tests with coverage
   nlc watch check              Re-check on every save
 
 Run 'nlc <command> --help' for command-specific options.");
