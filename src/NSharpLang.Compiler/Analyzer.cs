@@ -1071,11 +1071,7 @@ public class Analyzer
         if (thenNarrowings.Count > 0)
         {
             PushScope(new Scope(ScopeKind.Block));
-            foreach (var (name, narrowedType) in thenNarrowings)
-            {
-                var currentScope = _scopes.Peek();
-                currentScope.Symbols[name] = narrowedType;
-            }
+            ApplyNarrowingsToScope(thenNarrowings);
             AnalyzeStatement(ifStmt.ThenStatement);
             PopScope();
         }
@@ -1086,21 +1082,44 @@ public class Analyzer
 
         if (ifStmt.ElseStatement != null)
         {
-            // Apply else-branch narrowings (from == null checks)
+            // Apply else-branch narrowings (from == null checks, || chains)
             if (elseNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block));
-                foreach (var (name, narrowedType) in elseNarrowings)
-                {
-                    var currentScope = _scopes.Peek();
-                    currentScope.Symbols[name] = narrowedType;
-                }
+                ApplyNarrowingsToScope(elseNarrowings);
                 AnalyzeStatement(ifStmt.ElseStatement);
                 PopScope();
             }
             else
             {
                 AnalyzeStatement(ifStmt.ElseStatement);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies narrowings to the current scope, intersecting duplicate symbols
+    /// (keeping the most specific/derived type rather than last-one-wins).
+    /// </summary>
+    private void ApplyNarrowingsToScope(List<(string Name, TypeInfo NarrowedType)> narrowings)
+    {
+        var currentScope = _scopes.Peek();
+        foreach (var (name, narrowedType) in narrowings)
+        {
+            if (currentScope.Symbols.TryGetValue(name, out var existing))
+            {
+                // If new type is more specific (subtype of existing), use it
+                // If existing is more specific (subtype of new), keep existing
+                // Otherwise (unrelated types), keep the new one (it came from a later condition)
+                if (IsSubtypeOf(narrowedType, existing))
+                    currentScope.Symbols[name] = narrowedType; // new is more specific
+                // else: existing is already more specific or equal, keep it
+                else if (!IsSubtypeOf(existing, narrowedType))
+                    currentScope.Symbols[name] = narrowedType; // unrelated, use later narrowing
+            }
+            else
+            {
+                currentScope.Symbols[name] = narrowedType;
             }
         }
     }
@@ -1138,6 +1157,15 @@ public class Analyzer
                 thenNarrowings.AddRange(leftThen);
                 thenNarrowings.AddRange(rightThen);
                 // else-branch gets nothing for compound && (negation is disjunction)
+            }
+            // a || b → both sides must be false in else-branch; then = a || b (can't narrow)
+            else if (binary.Operator == BinaryOperator.Or)
+            {
+                var (_, leftElse) = ExtractFlowNarrowings(binary.Left);
+                var (_, rightElse) = ExtractFlowNarrowings(binary.Right);
+                elseNarrowings.AddRange(leftElse);
+                elseNarrowings.AddRange(rightElse);
+                // then-branch gets nothing for compound || (only one side needs to be true)
             }
         }
         // x is Type varName → narrow/declare in then-branch
@@ -1897,17 +1925,60 @@ public class Analyzer
 
     private TypeInfo AnalyzeBinaryExpression(BinaryExpression binary)
     {
-        var leftType = AnalyzeExpression(binary.Left);
-        var rightType = AnalyzeExpression(binary.Right);
+        // For && (short-circuit AND), apply left-side then-narrowings while analyzing the RHS.
+        // This handles: if (x != null && x.Length > 0) — x is non-nullable on the RHS.
+        if (binary.Operator == BinaryOperator.And)
+        {
+            var leftType = AnalyzeExpression(binary.Left);
+            var (leftThenNarrowings, _) = ExtractFlowNarrowings(binary.Left);
+
+            TypeInfo rightType;
+            if (leftThenNarrowings.Count > 0)
+            {
+                PushScope(new Scope(ScopeKind.Block));
+                ApplyNarrowingsToScope(leftThenNarrowings);
+                rightType = AnalyzeExpression(binary.Right);
+                PopScope();
+            }
+            else
+            {
+                rightType = AnalyzeExpression(binary.Right);
+            }
+            return AnalyzeLogicalOp(leftType, rightType, binary);
+        }
+
+        // For || (short-circuit OR), apply left-side else-narrowings while analyzing the RHS.
+        // This handles: if (x == null || useX(x)) — x is non-nullable on the RHS.
+        if (binary.Operator == BinaryOperator.Or)
+        {
+            var leftType = AnalyzeExpression(binary.Left);
+            var (_, leftElseNarrowings) = ExtractFlowNarrowings(binary.Left);
+
+            TypeInfo rightType;
+            if (leftElseNarrowings.Count > 0)
+            {
+                PushScope(new Scope(ScopeKind.Block));
+                ApplyNarrowingsToScope(leftElseNarrowings);
+                rightType = AnalyzeExpression(binary.Right);
+                PopScope();
+            }
+            else
+            {
+                rightType = AnalyzeExpression(binary.Right);
+            }
+            return AnalyzeLogicalOp(leftType, rightType, binary);
+        }
+
+        var leftT = AnalyzeExpression(binary.Left);
+        var rightT = AnalyzeExpression(binary.Right);
 
         return binary.Operator switch
         {
             BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
-                or BinaryOperator.Divide or BinaryOperator.Modulo => AnalyzeArithmeticOp(leftType, rightType, binary),
+                or BinaryOperator.Divide or BinaryOperator.Modulo => AnalyzeArithmeticOp(leftT, rightT, binary),
             BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
-            BinaryOperator.And or BinaryOperator.Or => AnalyzeLogicalOp(leftType, rightType, binary),
-            BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftType, rightType, binary),
+            BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftT, rightT, binary),
             BinaryOperator.Range => LookupType("System.Range") ?? BuiltInTypes.DeferredExternal,
             _ => BuiltInTypes.Unknown
         };
@@ -4872,8 +4943,11 @@ public class Analyzer
             }
         }
 
-        // Union cases: a union case is assignable to its parent union type
-        // (handled via name matching above, but also check inheritance)
+        // Reflection-backed CLR types: walk the actual CLR type hierarchy
+        if (source is ReflectionTypeInfo reflSource && target is ReflectionTypeInfo reflTarget)
+        {
+            return reflTarget.Type.IsAssignableFrom(reflSource.Type) && reflSource.Type != reflTarget.Type;
+        }
 
         return false;
     }
