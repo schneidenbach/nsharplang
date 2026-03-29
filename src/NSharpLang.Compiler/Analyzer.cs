@@ -23,6 +23,7 @@ public class Analyzer
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
+    private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private bool _inConstructor;
@@ -119,6 +120,16 @@ public class Analyzer
             }
         }
 
+        // Collect setup symbols first (so tests can reference them)
+        _setupSymbols = new List<(string Name, TypeInfo Type, int Line, int Column)>();
+        foreach (var decl in unit.Declarations)
+        {
+            if (decl is SetupDeclaration setup)
+            {
+                CollectSetupSymbols(setup);
+            }
+        }
+
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
         {
@@ -181,6 +192,12 @@ public class Analyzer
         // Tests are similar to functions - create scope and analyze body
         PushScope(new Scope(ScopeKind.Function));
 
+        // Inject setup symbols so tests can reference setup-declared variables
+        foreach (var (name, type, line, column) in _setupSymbols)
+        {
+            DeclareSymbol(name, type, line, column);
+        }
+
         // If table-driven, declare parameters in scope
         if (test.TableParameters != null)
         {
@@ -216,6 +233,8 @@ public class Analyzer
 
     private void AnalyzeSetupDeclaration(SetupDeclaration setup)
     {
+        // Analyze setup body in its own scope (validates the code),
+        // but symbols are already collected via CollectSetupSymbols
         PushScope(new Scope(ScopeKind.Function));
 
         foreach (var stmt in setup.Body.Statements)
@@ -224,6 +243,31 @@ public class Analyzer
         }
 
         PopScope();
+    }
+
+    private void CollectSetupSymbols(SetupDeclaration setup)
+    {
+        // Extract variable declarations from setup block so they can be
+        // injected into each test's scope during analysis
+        foreach (var stmt in setup.Body.Statements)
+        {
+            if (stmt is VariableDeclarationStatement varDecl)
+            {
+                TypeInfo type;
+                if (varDecl.Type != null)
+                {
+                    type = ResolveType(varDecl.Type);
+                }
+                else
+                {
+                    // Inferred type — use a generic object type since we can't fully
+                    // resolve the initializer without a scope. The transpiler handles
+                    // the actual type via C#'s var keyword.
+                    type = BuiltInTypes.Object;
+                }
+                _setupSymbols.Add((varDecl.Name, type, varDecl.Line, varDecl.Column));
+            }
+        }
     }
 
     private void AnalyzeFunctionDeclaration(FunctionDeclaration func)

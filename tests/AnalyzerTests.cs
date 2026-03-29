@@ -3183,4 +3183,19 @@ func Hello(): string {
             }
         ");
     }
+
+    [Fact]
+    public void SetupSymbols_VisibleInTestBodies()
+    {
+        // Setup variables must be available in test scopes (not unresolved)
+        AssertNoErrors(@"
+            setup {
+                count := 42
+            }
+
+            test ""should see setup variable"" {
+                assert count == 42
+            }
+        ");
+    }
 }

@@ -995,18 +995,23 @@ Exit codes:
 
         try
         {
-            Console.WriteLine($"Testing project in {projectRoot}...");
+            if (!jsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
 
             // Find all .tests.nl files
             var testFiles = Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories);
 
             if (testFiles.Length == 0)
             {
+                if (jsonOutput)
+                {
+                    OutputTestJson(null, projectRoot, true);
+                    return 0;
+                }
                 Console.WriteLine("No test files (*.tests.nl) found.");
                 return 0;
             }
 
-            Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (!jsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
 
             // Load project config
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -1021,7 +1026,7 @@ Exit codes:
 
             if (projectConfig?.OutputType == "exe")
             {
-                Console.WriteLine("Building main project first...");
+                if (!jsonOutput) Console.WriteLine("Building main project first...");
 
                 // Build main project
                 var mainBuildDir = Path.Combine(Path.GetTempPath(), $"nlc-main-build-{Guid.NewGuid():N}");
@@ -1038,7 +1043,9 @@ Exit codes:
 
                 if (!mainResult.Success)
                 {
-                    return Error($"Main project compilation failed with {mainResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+                    var msg = $"Main project compilation failed with {mainResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)";
+                    if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                    return Error(msg);
                 }
 
                 // Write main project C# files
@@ -1078,11 +1085,13 @@ Exit codes:
                 {
                     var error = mainBuildResult?.StandardError.ReadToEnd() ?? "";
                     var output = mainBuildResult?.StandardOutput.ReadToEnd() ?? "";
-                    return Error($"Main project build failed:\n{error}{output}");
+                    var msg = $"Main project build failed:\n{error}{output}";
+                    if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                    return Error(msg);
                 }
 
                 mainProjectDll = Path.Combine(mainBuildDir, "bin", "Debug", projectConfig.TargetFramework, $"{projectConfig.EffectiveName}.dll");
-                Console.WriteLine($"Main project built successfully: {mainProjectDll}");
+                if (!jsonOutput) Console.WriteLine($"Main project built successfully: {mainProjectDll}");
 
                 // Create a test config that includes reference to main project DLL
                 var testConfig = new ProjectConfig
@@ -1118,7 +1127,9 @@ Exit codes:
 
             if (!result.Success)
             {
-                return Error($"Compilation failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+                var msg = $"Compilation failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)";
+                if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                return Error(msg);
             }
 
             // Write C# files to temp directory
@@ -1185,10 +1196,11 @@ Exit codes:
             {
                 var error = buildResult?.StandardError.ReadToEnd() ?? "";
                 var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Test build failed:\n{error}{output}");
+                var msg = $"Test build failed:\n{error}{output}";
+                if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
             }
 
-            Console.WriteLine();
+            if (!jsonOutput) Console.WriteLine();
 
             // Run tests
             var dotnetFilter = string.IsNullOrWhiteSpace(filter)
@@ -1253,6 +1265,13 @@ Exit codes:
                 if (coverageFile != null && File.Exists(coverageFile))
                 {
                     OutputCoverageSummary(coverageFile);
+
+                    // Generate HTML report if requested
+                    if (coverageReport)
+                    {
+                        var reportDir = Path.Combine(projectRoot, "coverage-report");
+                        GenerateCoverageReport(coverageFile, reportDir);
+                    }
                 }
             }
 
@@ -1267,6 +1286,7 @@ Exit codes:
         }
         catch (Exception ex)
         {
+            if (jsonOutput) { OutputTestJson(null, projectRoot, false, ex.Message); return 1; }
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1470,13 +1490,13 @@ Exit codes:
 </Project>";
     }
 
-    static void OutputTestJson(string trxFile, string projectRoot, bool ok)
+    static void OutputTestJson(string? trxFile, string projectRoot, bool ok, string? errorMessage = null)
     {
         var results = new List<object>();
         int total = 0, passed = 0, failed = 0, skipped = 0;
         string duration = "0s";
 
-        if (File.Exists(trxFile))
+        if (trxFile != null && File.Exists(trxFile))
         {
             try
             {
@@ -1501,11 +1521,11 @@ Exit codes:
                     var displayName = testName;
 
                     // Extract error message if failed
-                    string? errorMessage = null;
+                    string? testErrorMsg = null;
                     var errorInfo = tr.Element(ns + "Output")?.Element(ns + "ErrorInfo");
                     if (errorInfo != null)
                     {
-                        errorMessage = errorInfo.Element(ns + "Message")?.Value;
+                        testErrorMsg = errorInfo.Element(ns + "Message")?.Value;
                     }
 
                     var testDuration = tr.Attribute("duration")?.Value ?? "00:00:00";
@@ -1520,7 +1540,7 @@ Exit codes:
                         displayName,
                         outcome = outcome.ToLower(),
                         duration = testDuration,
-                        errorMessage
+                        errorMessage = testErrorMsg
                     });
                 }
 
@@ -1549,6 +1569,7 @@ Exit codes:
             command = "test",
             ok,
             projectRoot = projectRoot.Replace('\\', '/'),
+            error = errorMessage,
             summary = new { total, passed, failed, skipped, duration },
             results
         };
@@ -1619,6 +1640,53 @@ Exit codes:
         catch
         {
             Console.Error.WriteLine("Warning: Could not parse coverage report.");
+        }
+    }
+
+    static void GenerateCoverageReport(string coverageFile, string reportDir)
+    {
+        try
+        {
+            // Install reportgenerator as a global tool if not already installed
+            var installResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = "tool install -g dotnet-reportgenerator-globaltool",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+            installResult?.WaitForExit();
+            // Ignore exit code — tool may already be installed
+
+            // Generate HTML report
+            var reportResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "reportgenerator",
+                Arguments = $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+            reportResult?.WaitForExit();
+
+            if (reportResult?.ExitCode == 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Coverage report generated: {reportDir}/index.html");
+            }
+            else
+            {
+                var error = reportResult?.StandardError.ReadToEnd() ?? "";
+                Console.Error.WriteLine($"Warning: Could not generate HTML report. Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
+                if (!string.IsNullOrWhiteSpace(error))
+                    Console.Error.WriteLine(error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not generate HTML report: {ex.Message}");
+            Console.Error.WriteLine("Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
         }
     }
 
