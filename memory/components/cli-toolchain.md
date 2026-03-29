@@ -59,7 +59,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
 | `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
 | `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/15-dogfood-project` |
-| `nlc test` | Run .tests.nl files with XUnit | `nlc test` |
+| `nlc test` | Run .tests.nl files (xUnit or NUnit per project.yml) | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 
