@@ -43,6 +43,12 @@ public class LoadProjectConfig : Task
     public string Sdk { get; set; } = string.Empty;
 
     /// <summary>
+    /// Output: Test framework (e.g., "xunit", "nunit")
+    /// </summary>
+    [Output]
+    public string TestFramework { get; set; } = "xunit";
+
+    /// <summary>
     /// Output: NuGet package references (semicolon-separated "Package;Version" pairs)
     /// </summary>
     [Output]
@@ -92,6 +98,7 @@ public class LoadProjectConfig : Task
 
             AssemblyName = config.Name ?? Path.GetFileName(ProjectDirectory);
             Sdk = config.Sdk;
+            TestFramework = config.TestFramework;
 
             // Convert dependencies to MSBuild items
             var packageRefs = new System.Collections.Generic.List<ITaskItem>();

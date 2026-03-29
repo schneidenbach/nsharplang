@@ -587,7 +587,10 @@ public class Analyzer
 
             if (field.Initializer != null)
             {
+                var previousExpectedType = _currentExpectedType;
+                _currentExpectedType = fieldType;
                 var initType = AnalyzeExpression(field.Initializer);
+                _currentExpectedType = previousExpectedType;
                 if (!IsAssignable(fieldType, initType))
                 {
                     var sourceSnippet = _sourceLines != null && field.Line > 0 && field.Line <= _sourceLines.Length
@@ -1208,7 +1211,10 @@ public class Analyzer
 
         if (returnStmt.Value != null)
         {
+            var previousExpectedType = _currentExpectedType;
+            _currentExpectedType = _currentReturnType;
             var returnedType = AnalyzeExpression(returnStmt.Value);
+            _currentExpectedType = previousExpectedType;
             if (!IsAssignable(_currentReturnType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message
@@ -1647,7 +1653,7 @@ public class Analyzer
             MemberAccessExpression member => AnalyzeMemberAccess(member),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
-            LambdaExpression lambda => AnalyzeLambda(lambda),
+            LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
@@ -3578,7 +3584,11 @@ public class Analyzer
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
         var targetType = AnalyzeExpression(assignment.Target);
+
+        var previousExpectedType = _currentExpectedType;
+        _currentExpectedType = targetType;
         var valueType = AnalyzeExpression(assignment.Value);
+        _currentExpectedType = previousExpectedType;
 
         // Check for readonly field assignment outside constructor
         CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);

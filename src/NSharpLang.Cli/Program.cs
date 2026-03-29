@@ -979,7 +979,7 @@ Exit codes:
 
 Usage: nlc test [options]
 
-Run `.tests.nl` suites through the generated xUnit test project.
+Run `.tests.nl` suites through the generated test project.
 
 Options:
   --project <dir>   Project root directory (default: current directory)
@@ -987,6 +987,9 @@ Options:
   --verbose         Use more detailed `dotnet test` output
   --coverage        Collect code coverage (generates coverage.opencover.xml)
   --help, -h        Show this help text
+
+The test framework is configured in project.yml via the `testFramework` field.
+Supported values: xunit (default), nunit
 
 Examples:
   nlc test
@@ -1104,6 +1107,7 @@ Exit codes:
                     Name = projectConfig.Name + ".Tests",
                     OutputType = "library",
                     TargetFramework = projectConfig.TargetFramework,
+                    TestFramework = projectConfig.TestFramework,
                     Sdk = projectConfig.Sdk,
                     Dependencies = new List<Reference>(projectConfig.Dependencies)
                     {
@@ -1436,6 +1440,20 @@ Exit codes:
   </ItemGroup>";
         }
 
+        var testFrameworkPackages = config.TestFramework == "nunit"
+            ? @"<PackageReference Include=""Microsoft.NET.Test.Sdk"" Version=""17.11.1"" />
+    <PackageReference Include=""NUnit"" Version=""4.3.2"" />
+    <PackageReference Include=""NUnit3TestAdapter"" Version=""4.6.0"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>"
+            : @"<PackageReference Include=""Microsoft.NET.Test.Sdk"" Version=""17.11.1"" />
+    <PackageReference Include=""xunit"" Version=""2.9.2"" />
+    <PackageReference Include=""xunit.runner.visualstudio"" Version=""2.8.2"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>";
+
         return $@"<Project Sdk=""Microsoft.NET.Sdk"">
   <PropertyGroup>
     <TargetFramework>{config.TargetFramework}</TargetFramework>
@@ -1445,12 +1463,7 @@ Exit codes:
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include=""Microsoft.NET.Test.Sdk"" Version=""17.8.0"" />
-    <PackageReference Include=""xunit"" Version=""2.6.0"" />
-    <PackageReference Include=""xunit.runner.visualstudio"" Version=""2.5.6"">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
+    {testFrameworkPackages}
     <PackageReference Include=""coverlet.msbuild"" Version=""6.0.0"">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

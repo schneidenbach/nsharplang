@@ -38,6 +38,7 @@ Projects use `project.yml` (not .csproj properties):
 name: MyApp
 outputType: exe
 targetFramework: net9.0
+testFramework: xunit  # or "nunit"
 ```
 
 The .csproj must be minimal: `<Project Sdk="NSharpLang.Sdk" />` — one line.

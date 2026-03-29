@@ -2727,6 +2727,85 @@ public class AnalyzerTests
         ");
     }
 
+    // ── Lambda Contextual Type Inference from Variable/Field/Return/Assignment ──
+
+    [Fact]
+    public void Lambda_VarDecl_FuncIntInt_InfersParamType()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                let handler: Func<int, int> = x => x * 2
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_VarDecl_ActionString_InfersParamType()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                let action: Action<string> = s => Console.WriteLine(s)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_VarDecl_MultiParam_InfersParamTypes()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                let combine: Func<int, int, int> = (x, y) => x + y
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_VarDecl_BlockBody_InfersParamType()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                let handler: Func<int, int> = x => { return x * 2 }
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_Assignment_InfersParamType()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, int>): int {
+                return f(42)
+            }
+
+            func Main() {
+                let handler: Func<int, int> = x => x
+                handler = x => x * 2
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_ReturnStatement_InfersParamType()
+    {
+        AssertNoErrors(@"
+            func GetHandler(): Func<int, int> {
+                return x => x * 2
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_FieldInitializer_InfersParamType()
+    {
+        AssertNoErrors(@"
+            class Calculator {
+                Doubler: Func<int, int> = x => x * 2
+            }
+        ");
+    }
+
     // ── Extension Methods on Literals ──
 
     [Fact]
