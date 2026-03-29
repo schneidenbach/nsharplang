@@ -64,9 +64,10 @@ CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll"
 section "Step 1: Clean Previous Build Artifacts"
 echo "Cleaning bin/ and obj/ directories..."
 find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
-    if [[ "$dir" != "./node_modules"* ]]; then
-        rm -rf "$dir"
+    if [[ "$dir" == "./node_modules"* ]] || [[ "$dir" == *".vscode-test"* ]] || [[ "$dir" == *"node_modules"* ]]; then
+        continue
     fi
+    rm -rf "$dir"
 done
 handle_success "Cleaned build artifacts"
 
@@ -92,6 +93,37 @@ else
     handle_error "Unit tests"
 fi
 rm -f "$TEST_OUTPUT"
+
+section "Step 3b: VS Code Integration Tests (MANDATORY)"
+# VS Code integration tests are REQUIRED — they catch parser/LSP regressions
+# that unit tests miss (e.g., false-positive NL101 errors on valid syntax).
+# If prerequisites are missing, this is a FAILURE, not a skip.
+VSCODE_SKIP_REASON=""
+if ! command -v code >/dev/null 2>&1; then
+    VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
+fi
+if ! command -v node >/dev/null 2>&1; then
+    VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
+fi
+
+if [ -n "$VSCODE_SKIP_REASON" ]; then
+    echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
+    echo "VS Code integration tests are mandatory. Install prerequisites:"
+    echo "  - VS Code: https://code.visualstudio.com/"
+    echo "  - Node.js: https://nodejs.org/"
+    echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
+    handle_error "VS Code integration tests (missing prerequisites)"
+else
+    echo "Running VS Code integration tests..."
+    VSCODE_OUTPUT=$(mktemp)
+    if "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1; then
+        handle_success "VS Code integration tests"
+    else
+        cat "$VSCODE_OUTPUT"
+        handle_error "VS Code integration tests"
+    fi
+    rm -f "$VSCODE_OUTPUT"
+fi
 
 section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing SDK to local NuGet feed..."

@@ -7,6 +7,8 @@
 !QUICKSTART.md
 !INTELLISENSE.md
 src/**
+test/**
+out/test/**
 tsconfig.json
 .vscodeignore
 .git
