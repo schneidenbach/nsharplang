@@ -66,11 +66,15 @@ When run in a directory with project.yml, generates a .g.csproj file and
 invokes MSBuild via the NSharpLang.Sdk. No user-authored .csproj is needed.
 
 Options:
+  --release          Build with Release configuration (default: Debug)
+  --verbose          Show detailed build output
   --keep-generated   Keep generated temporary files for debugging (single-file mode)
   --help, -h         Show this help text
 
 Examples:
   nlc build              Build the current project
+  nlc build --release    Optimized release build
+  nlc build --verbose    Show detailed build output
   nlc build Program.nl   Build a single file
 
 Exit codes:
@@ -79,16 +83,18 @@ Exit codes:
             return 0;
         }
 
-        // Check for --keep-generated flag
+        // Check for flags
         var keepGenerated = args.Contains("--keep-generated");
-        args = args.Where(a => a != "--keep-generated").ToArray();
+        var release = args.Contains("--release");
+        var verbose = args.Contains("--verbose");
+        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose").ToArray();
 
         // Support both single-file and multi-file builds
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
             // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
-            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated);
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose);
         }
 
         var sourceFile = args[0];
@@ -98,6 +104,7 @@ Exit codes:
         }
 
         // Single file build - use temp directory
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var tempDir = CreateTempBuildDirectory();
         try
         {
@@ -117,12 +124,16 @@ Exit codes:
             File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
 
             // Build
+            var buildArgs = $"build \"{projectFile}\"";
+            if (release) buildArgs += " -c Release";
+            buildArgs += verbose ? " -v normal" : " -v q";
+
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                Arguments = buildArgs,
+                RedirectStandardOutput = !verbose,
+                RedirectStandardError = !verbose,
                 UseShellExecute = false
             });
 
@@ -130,12 +141,14 @@ Exit codes:
 
             if (buildResult?.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Build failed:\n{error}{output}");
+                var error = verbose ? "" : (buildResult?.StandardError.ReadToEnd() ?? "");
+                var output = verbose ? "" : (buildResult?.StandardOutput.ReadToEnd() ?? "");
+                var detail = string.IsNullOrWhiteSpace(error + output) ? "" : $"\n{error}{output}";
+                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
+                return Error($"Build failed{detail}");
             }
 
-            Console.WriteLine("Build successful!");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
 
             return 0;
         }
@@ -232,8 +245,9 @@ Exit codes:
         return csprojPath;
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool excludeTests = true)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
@@ -250,11 +264,15 @@ Exit codes:
             var csprojPath = EnsureProjectFiles(projectRoot, config);
 
             // Build — pass NSharpExcludeTests to skip test compilation for production builds
-            var excludeTestsFlag = excludeTests ? " -p:NSharpExcludeTests=true" : "";
+            var buildArgs = $"build \"{csprojPath}\"";
+            if (excludeTests) buildArgs += " -p:NSharpExcludeTests=true";
+            if (release) buildArgs += " -c Release";
+            if (verbose) buildArgs += " -v detailed";
+
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{csprojPath}\"{excludeTestsFlag}",
+                Arguments = buildArgs,
                 WorkingDirectory = projectRoot,
                 UseShellExecute = false,
                 RedirectStandardOutput = false,
@@ -265,10 +283,11 @@ Exit codes:
 
             if (buildResult?.ExitCode != 0)
             {
+                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
                 return Error("Build failed");
             }
 
-            Console.WriteLine("Build successful!");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
             return 0;
         }
         catch (Exception ex)
@@ -829,6 +848,7 @@ Options:
   --filter <name>   Run only tests whose display name or fully-qualified name matches
   --coverage        Collect code coverage and generate HTML report
   --verbose         Use more detailed `dotnet test` output
+  --coverage        Collect code coverage (generates coverage.opencover.xml)
   --help, -h        Show this help text
 
 The test framework is configured in project.yml via the `testFramework` field.
@@ -852,6 +872,7 @@ Exit codes:
         var verbose = args.Contains("--verbose");
         var coverage = args.Contains("--coverage");
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             Console.WriteLine($"Testing project in {projectRoot}...");
@@ -1071,10 +1092,11 @@ Exit codes:
 
             if (coverage)
             {
-                testArguments.Add("-p:CollectCoverage=true");
-                testArguments.Add("-p:CoverletOutputFormat=opencover");
-                testArguments.Add($"-p:CoverletOutput={QuoteArgument(Path.Combine(projectRoot, "coverage."))}");
-                testArguments.Add("-p:ExcludeByFile=**/*.g.cs");
+                var coverageOutput = NormalizePath(Path.Combine(projectRoot, "coverage."));
+                testArguments.Add("/p:CollectCoverage=true");
+                testArguments.Add("/p:CoverletOutputFormat=opencover");
+                testArguments.Add($"/p:CoverletOutput={QuoteArgument(coverageOutput)}");
+                testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
             }
 
             var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -1086,10 +1108,7 @@ Exit codes:
 
             testRunResult?.WaitForExit();
 
-            if (testRunResult?.ExitCode != 0)
-            {
-                return testRunResult?.ExitCode ?? 1;
-            }
+            var testExitCode = testRunResult?.ExitCode ?? 0;
 
             // Generate HTML coverage report if coverage was collected
             if (coverage)
@@ -1146,12 +1165,18 @@ Exit codes:
                         Console.WriteLine($"Coverage data: {coverageFile}");
                     }
                 }
+                else
+                {
+                    Console.Error.WriteLine("Warning: coverage report was not generated.");
+                }
             }
 
-            return 0;
+            Console.WriteLine($"  Tests completed in {FormatElapsed(sw.Elapsed)}");
+            return testExitCode;
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1355,6 +1380,10 @@ Exit codes:
   </PropertyGroup>
   <ItemGroup>
     {testFrameworkPackages}
+    <PackageReference Include=""coverlet.msbuild"" Version=""6.0.0"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     {dependencies}
   </ItemGroup>{assemblyReference}
 </Project>";
@@ -1417,6 +1446,13 @@ Exit codes:
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 
+    static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
+        return $"{elapsed.TotalSeconds:F1}s";
+    }
+
     internal static string GetVersion()
     {
         return typeof(Program).Assembly
@@ -1439,7 +1475,7 @@ Exit codes:
 Usage: nlc <command> [options]
 
 Build & Run:
-  build [file]         Compile a project or single .nl file
+  build [file]         Compile a project or single .nl file (--release, --verbose)
   run [file]           Build and run a project or single file
   publish              Package for distribution
   transpile <file>     Transpile .nl to C# and print to stdout
@@ -1454,7 +1490,7 @@ Analysis & Fix:
 Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
-  test                 Run .tests.nl test suites
+  test                 Run .tests.nl test suites (--coverage, --verbose)
 
 Project:
   new <name>           Create a new N# project
@@ -1475,8 +1511,12 @@ Common Workflows:
   nlc test                     Run tests
   nlc publish                  Package for distribution
   nlc check                    Fast feedback loop
+  nlc fix && nlc check         Auto-fix then verify
+  nlc build --release          Optimized release build
   nlc format --check           CI formatting gate
+  nlc test --filter AddPerson  Run specific tests
   nlc test --coverage          Run tests with coverage
+  nlc watch check              Re-check on every save
 
 Run 'nlc <command> --help' for command-specific options.");
 

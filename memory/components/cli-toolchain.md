@@ -15,6 +15,8 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 |---------|---------|---------|
 | `nlc build` | Compile project (generates .g.csproj, no user .csproj needed) | `nlc build` |
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
+| `nlc build --release` | Build with Release configuration | `nlc build --release` |
+| `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
@@ -64,6 +66,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
+| `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
 
 ### Project Management
 
@@ -321,10 +324,27 @@ nlc format --stdin < Program.nl
 ```bash
 nlc test --filter "should add"
 nlc test --verbose
+nlc test --coverage
 ```
 
 - `--filter` matches both test display names and fully-qualified test names
 - `--verbose` increases `dotnet test` output detail without changing the underlying test pipeline
+- `--coverage` collects code coverage via coverlet.msbuild, generates `coverage.opencover.xml` in the project root
+
+### `nlc build` — Release Builds and Verbose Output
+
+Build supports Go/Rust-style configuration flags:
+
+```bash
+nlc build                # debug build (default)
+nlc build --release      # release (optimized) build
+nlc build --verbose      # detailed MSBuild output
+nlc build --release --verbose
+```
+
+- All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
+- `--release` passes `-c Release` to `dotnet build`
+- `--verbose` increases MSBuild verbosity to `detailed`
 
 ### `nlc clean` — Build Artifact Cleanup
 
@@ -573,6 +593,10 @@ Protocol: JSON-RPC over Unix socket
 |---------|-----|------|----|
 | Fast type-check | `go build` | `cargo check` | `nlc check` |
 | Auto-fix | — | `cargo clippy --fix` (lints) | `nlc fix` (compiler + linter) |
+| Release build | implicit | `cargo build --release` | `nlc build --release` |
+| Verbose build | `go build -v` | `cargo build -v` | `nlc build --verbose` |
+| Build timing | external (`time`) | `cargo build --timings` | Built-in (always shown) |
+| Test coverage | `go test -cover` | `cargo tarpaulin` | `nlc test --coverage` |
 | Code intelligence CLI | Need `gopls` server | Need `rust-analyzer` server | `nlc query` (single-shot JSON) |
 | Structured output | No | No | Yes (versioned JSON schemas) |
 | Canonical format | `gofmt` | `rustfmt` | `nlc format` |
