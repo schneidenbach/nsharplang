@@ -4,20 +4,23 @@ This document lists current limitations and planned improvements.
 
 ## Type System
 
-### 1. Lambda Type Inference from Context
-**Current:** Lambda parameters typed as `Unknown` without explicit types.
+### 1. Lambda Type Inference from Context (RESOLVED)
+**Current:** ✅ Lambda parameters inferred from contextual delegate types.
 
 ```
-// Works but limited
-let handler := (x) => x * 2  // x is Unknown type
+// All of these now infer parameter types correctly:
+let handler: Func<int, int> = x => x * 2          // x inferred as int
+numbers.Select(x => x * 2)                         // x inferred from element type
+Apply(x => x * 2)                                  // x inferred from Func<int, int> param
+handler = x => x * 2                               // x inferred from handler's type
+return x => x * 2                                  // x inferred from function return type
+class Foo { Doubler: Func<int, int> = x => x * 2 } // x inferred from field type
 
-// Workaround: explicit types
-let handler := (x: int) => x * 2
+// Still requires explicit types (no context available):
+f := x => x * 2  // x is Unknown — no declared type to infer from
 ```
 
-**Why:** Context-based type inference not implemented. LINQ method signatures not analyzed to infer lambda parameter types.
-
-**Future:** Analyze call site context to infer lambda types.
+**Status:** Fully implemented. Contextual type flows through variable declarations, assignments, return statements, field initializers, function call arguments, and LINQ methods.
 
 ### 2. Generic Type Inference
 **Current:** Generic type parameters must be explicit.
