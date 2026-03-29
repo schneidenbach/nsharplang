@@ -17,7 +17,7 @@ Updated: 2026-03-29
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc transpile <file>` | Print generated C# | none | `nlc transpile Program.nl` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
-| `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose` | `nlc test --filter "should add"` |
+| `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
@@ -215,10 +215,14 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 
 | Feature | Go | Rust | N# Score | Notes |
 |---------|----|------|----------|-------|
-| Run tests | `go test ./...` | `cargo test` | `4` | `nlc test` runs `.tests.nl` suites |
+| Run tests | `go test ./...` | `cargo test` | `5` | `nlc test` runs `.tests.nl` suites |
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
 | Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` increases `dotnet test` verbosity |
-| Test coverage | `-cover` | external tools | `1` | Future work |
+| Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
+| Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
+| Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
+| JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
+| Test coverage | `-cover` | external tools | `4` | `nlc test --coverage` via Coverlet |
 | Benchmark | `-bench` | `cargo bench` | `1` | Future work |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |

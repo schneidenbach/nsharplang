@@ -24,6 +24,7 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
+    private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private bool _inConstructor;
@@ -122,6 +123,16 @@ public class Analyzer : IDisposable
             }
         }
 
+        // Collect setup symbols first (so tests can reference them)
+        _setupSymbols = new List<(string Name, TypeInfo Type, int Line, int Column)>();
+        foreach (var decl in unit.Declarations)
+        {
+            if (decl is SetupDeclaration setup)
+            {
+                CollectSetupSymbols(setup);
+            }
+        }
+
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
         {
@@ -139,6 +150,9 @@ public class Analyzer : IDisposable
         {
             case TestDeclaration test:
                 AnalyzeTestDeclaration(test);
+                break;
+            case SetupDeclaration setup:
+                AnalyzeSetupDeclaration(setup);
                 break;
             case FunctionDeclaration func:
                 AnalyzeFunctionDeclaration(func);
@@ -181,12 +195,82 @@ public class Analyzer : IDisposable
         // Tests are similar to functions - create scope and analyze body
         PushScope(new Scope(ScopeKind.Function));
 
+        // Inject setup symbols so tests can reference setup-declared variables
+        foreach (var (name, type, line, column) in _setupSymbols)
+        {
+            DeclareSymbol(name, type, line, column);
+        }
+
+        // If table-driven, declare parameters in scope
+        if (test.TableParameters != null)
+        {
+            foreach (var param in test.TableParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, test.Line, test.Column);
+            }
+
+            // Validate test case row counts match parameter count
+            if (test.TableCases != null)
+            {
+                foreach (var row in test.TableCases)
+                {
+                    if (row.Count != test.TableParameters.Count)
+                    {
+                        Error(
+                            ErrorCode.TypeMismatch,
+                            $"Test case row has {row.Count} values but {test.TableParameters.Count} parameters were declared",
+                            test.Line, test.Column);
+                    }
+                }
+            }
+        }
+
         foreach (var stmt in test.Body.Statements)
         {
             AnalyzeStatement(stmt);
         }
 
         PopScope();
+    }
+
+    private void AnalyzeSetupDeclaration(SetupDeclaration setup)
+    {
+        // Analyze setup body in its own scope (validates the code),
+        // but symbols are already collected via CollectSetupSymbols
+        PushScope(new Scope(ScopeKind.Function));
+
+        foreach (var stmt in setup.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+
+        PopScope();
+    }
+
+    private void CollectSetupSymbols(SetupDeclaration setup)
+    {
+        // Extract variable declarations from setup block so they can be
+        // injected into each test's scope during analysis
+        foreach (var stmt in setup.Body.Statements)
+        {
+            if (stmt is VariableDeclarationStatement varDecl)
+            {
+                TypeInfo type;
+                if (varDecl.Type != null)
+                {
+                    type = ResolveType(varDecl.Type);
+                }
+                else
+                {
+                    // Inferred type — use a generic object type since we can't fully
+                    // resolve the initializer without a scope. The transpiler handles
+                    // the actual type via C#'s var keyword.
+                    type = BuiltInTypes.Object;
+                }
+                _setupSymbols.Add((varDecl.Name, type, varDecl.Line, varDecl.Column));
+            }
+        }
     }
 
     private void AnalyzeFunctionDeclaration(FunctionDeclaration func)
@@ -854,6 +938,9 @@ public class Analyzer : IDisposable
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
                 break;
+            case AssertThrowsStatement assertThrows:
+                AnalyzeAssertThrowsStatement(assertThrows);
+                break;
             case PreprocessorDirective:
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
@@ -868,8 +955,25 @@ public class Analyzer : IDisposable
         // Analyze the condition expression
         var condType = AnalyzeExpression(assertStmt.Condition);
 
+        // Analyze optional message expression
+        if (assertStmt.Message != null)
+        {
+            AnalyzeExpression(assertStmt.Message);
+        }
+
         // We don't strictly require boolean type because we support various comparison patterns
         // The transpiler will convert different expression types to appropriate Assert calls
+    }
+
+    private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
+    {
+        // Analyze the body block
+        PushScope(new Scope(ScopeKind.Block));
+        foreach (var stmt in assertThrows.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+        PopScope();
     }
 
     private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)

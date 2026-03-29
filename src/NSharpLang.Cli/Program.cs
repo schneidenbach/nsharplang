@@ -982,11 +982,13 @@ Usage: nlc test [options]
 Run `.tests.nl` suites through the generated test project.
 
 Options:
-  --project <dir>   Project root directory (default: current directory)
-  --filter <name>   Run only tests whose display name or fully-qualified name matches
-  --verbose         Use more detailed `dotnet test` output
-  --coverage        Collect code coverage (generates coverage.opencover.xml)
-  --help, -h        Show this help text
+  --project <dir>       Project root directory (default: current directory)
+  --filter <name>       Run only tests whose display name or fully-qualified name matches
+  --verbose             Use more detailed `dotnet test` output
+  --json                Output results as structured JSON (schemaVersion 1 envelope)
+  --coverage            Collect code coverage using Coverlet and print a summary
+  --coverage-report     Also generate an HTML coverage report (implies --coverage)
+  --help, -h            Show this help text
 
 The test framework is configured in project.yml via the `testFramework` field.
 Supported values: xunit (default), nunit
@@ -996,6 +998,9 @@ Examples:
   nlc test --filter AddPerson
   nlc test --coverage
   nlc test --project examples/15-dogfood-project --verbose
+  nlc test --json
+  nlc test --coverage
+  nlc test --coverage --coverage-report
 
 Exit codes:
   0  Tests passed
@@ -1007,23 +1012,30 @@ Exit codes:
         projectRoot = Path.GetFullPath(projectRoot);
         var filter = GetOptionValue(args, "--filter");
         var verbose = args.Contains("--verbose");
-        var coverage = args.Contains("--coverage");
+        var jsonOutput = args.Contains("--json");
+        var coverageReport = args.Contains("--coverage-report");
+        var collectCoverage = args.Contains("--coverage") || coverageReport;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            Console.WriteLine($"Testing project in {projectRoot}...");
+            if (!jsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
 
             // Find all .tests.nl files
             var testFiles = Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories);
 
             if (testFiles.Length == 0)
             {
+                if (jsonOutput)
+                {
+                    OutputTestJson(null, projectRoot, true);
+                    return 0;
+                }
                 Console.WriteLine("No test files (*.tests.nl) found.");
                 return 0;
             }
 
-            Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (!jsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
 
             // Load project config
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -1038,7 +1050,7 @@ Exit codes:
 
             if (projectConfig?.OutputType == "exe")
             {
-                Console.WriteLine("Building main project first...");
+                if (!jsonOutput) Console.WriteLine("Building main project first...");
 
                 // Build main project
                 var mainBuildDir = Path.Combine(Path.GetTempPath(), $"nlc-main-build-{Guid.NewGuid():N}");
@@ -1055,7 +1067,9 @@ Exit codes:
 
                 if (!mainResult.Success)
                 {
-                    return Error($"Main project compilation failed with {mainResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+                    var msg = $"Main project compilation failed with {mainResult.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)";
+                    if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                    return Error(msg);
                 }
 
                 // Write main project C# files
@@ -1095,11 +1109,13 @@ Exit codes:
                 {
                     var error = mainBuildResult?.StandardError.ReadToEnd() ?? "";
                     var output = mainBuildResult?.StandardOutput.ReadToEnd() ?? "";
-                    return Error($"Main project build failed:\n{error}{output}");
+                    var msg = $"Main project build failed:\n{error}{output}";
+                    if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                    return Error(msg);
                 }
 
                 mainProjectDll = Path.Combine(mainBuildDir, "bin", "Debug", projectConfig.TargetFramework, $"{projectConfig.EffectiveName}.dll");
-                Console.WriteLine($"Main project built successfully: {mainProjectDll}");
+                if (!jsonOutput) Console.WriteLine($"Main project built successfully: {mainProjectDll}");
 
                 // Create a test config that includes reference to main project DLL
                 var testConfig = new ProjectConfig
@@ -1136,7 +1152,9 @@ Exit codes:
 
             if (!result.Success)
             {
-                return Error($"Compilation failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)");
+                var msg = $"Compilation failed with {result.Errors.Count(e => e.Severity == ErrorSeverity.Error)} error(s)";
+                if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                return Error(msg);
             }
 
             // Write C# files to temp directory
@@ -1203,15 +1221,17 @@ Exit codes:
             {
                 var error = buildResult?.StandardError.ReadToEnd() ?? "";
                 var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Test build failed:\n{error}{output}");
+                var msg = $"Test build failed:\n{error}{output}";
+                if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
             }
 
-            Console.WriteLine();
+            if (!jsonOutput) Console.WriteLine();
 
             // Run tests
             var dotnetFilter = string.IsNullOrWhiteSpace(filter)
                 ? null
                 : $"DisplayName~{filter}|FullyQualifiedName~{filter}";
+            var trxFile = Path.Combine(tempDir, "results.trx");
             var testArguments = new List<string>
             {
                 "test",
@@ -1227,40 +1247,73 @@ Exit codes:
                 testArguments.Add(QuoteArgument(dotnetFilter));
             }
 
-            if (coverage)
+            // Add TRX logger for JSON output parsing
+            if (jsonOutput)
             {
-                var coverageOutput = NormalizePath(Path.Combine(projectRoot, "coverage."));
-                testArguments.Add($"/p:CollectCoverage=true");
+                testArguments.Add("--logger");
+                testArguments.Add(QuoteArgument($"trx;LogFileName={trxFile}"));
+            }
+
+            // Add Coverlet properties for coverage
+            if (collectCoverage)
+            {
+                var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
+                testArguments.Add("--");
+                testArguments.Add("/p:CollectCoverage=true");
                 testArguments.Add($"/p:CoverletOutputFormat=opencover");
-                testArguments.Add($"/p:CoverletOutput={QuoteArgument(coverageOutput)}");
+                testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
             }
 
             var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
                 Arguments = string.Join(" ", testArguments),
+                RedirectStandardOutput = jsonOutput,
+                RedirectStandardError = jsonOutput,
                 UseShellExecute = false
             });
 
             testRunResult?.WaitForExit();
+            var exitCode = testRunResult?.ExitCode ?? 0;
 
-            var testExitCode = testRunResult?.ExitCode ?? 0;
-
-            if (coverage)
+            // JSON output: parse TRX and emit structured JSON
+            if (jsonOutput)
             {
-                var coveragePath = Path.Combine(projectRoot, "coverage.opencover.xml");
-                if (File.Exists(coveragePath))
-                    Console.WriteLine($"Coverage report: {coveragePath}");
-                else
-                    Console.Error.WriteLine("Warning: coverage report was not generated.");
+                OutputTestJson(trxFile, projectRoot, exitCode == 0);
             }
 
-            Console.WriteLine($"  Tests completed in {FormatElapsed(sw.Elapsed)}");
-            return testExitCode;
+            // Coverage summary
+            if (collectCoverage && !jsonOutput)
+            {
+                var coverageFile = Directory.GetFiles(tempDir, "coverage.opencover.xml", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                if (coverageFile != null && File.Exists(coverageFile))
+                {
+                    OutputCoverageSummary(coverageFile);
+
+                    // Generate HTML report if requested
+                    if (coverageReport)
+                    {
+                        var reportDir = Path.Combine(projectRoot, "coverage-report");
+                        GenerateCoverageReport(coverageFile, reportDir);
+                    }
+                }
+            }
+
+            // Cleanup temp directories
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch { /* best effort cleanup */ }
+
+            if (!jsonOutput) Console.WriteLine($"  Tests completed in {FormatElapsed(sw.Elapsed)}");
+            return exitCode;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
+            if (!jsonOutput) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
+            if (jsonOutput) { OutputTestJson(null, projectRoot, false, ex.Message); return 1; }
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1468,9 +1521,213 @@ Exit codes:
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include=""coverlet.msbuild"" Version=""6.0.0"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     {dependencies}
   </ItemGroup>{assemblyReference}
 </Project>";
+    }
+
+    static void OutputTestJson(string? trxFile, string projectRoot, bool ok, string? errorMessage = null)
+    {
+        var results = new List<object>();
+        int total = 0, passed = 0, failed = 0, skipped = 0;
+        string duration = "0s";
+
+        if (trxFile != null && File.Exists(trxFile))
+        {
+            try
+            {
+                var doc = System.Xml.Linq.XDocument.Load(trxFile);
+                var ns = doc.Root?.Name.Namespace ?? System.Xml.Linq.XNamespace.None;
+
+                // Parse test results
+                var testResults = doc.Descendants(ns + "UnitTestResult");
+                foreach (var tr in testResults)
+                {
+                    total++;
+                    var outcome = tr.Attribute("outcome")?.Value ?? "Unknown";
+                    switch (outcome.ToLower())
+                    {
+                        case "passed": passed++; break;
+                        case "failed": failed++; break;
+                        case "notexecuted": skipped++; break;
+                    }
+
+                    // Try to get the NSharpDescription trait
+                    var testName = tr.Attribute("testName")?.Value ?? "";
+                    var displayName = testName;
+
+                    // Extract error message if failed
+                    string? testErrorMsg = null;
+                    var errorInfo = tr.Element(ns + "Output")?.Element(ns + "ErrorInfo");
+                    if (errorInfo != null)
+                    {
+                        testErrorMsg = errorInfo.Element(ns + "Message")?.Value;
+                    }
+
+                    var testDuration = tr.Attribute("duration")?.Value ?? "00:00:00";
+                    if (TimeSpan.TryParse(testDuration, out var ts))
+                    {
+                        testDuration = $"{ts.TotalSeconds:F3}s";
+                    }
+
+                    results.Add(new
+                    {
+                        name = testName,
+                        displayName,
+                        outcome = outcome.ToLower(),
+                        duration = testDuration,
+                        errorMessage = testErrorMsg
+                    });
+                }
+
+                // Parse total duration from Times element
+                var times = doc.Descendants(ns + "Times").FirstOrDefault();
+                if (times != null)
+                {
+                    var start = times.Attribute("start")?.Value;
+                    var finish = times.Attribute("finish")?.Value;
+                    if (DateTime.TryParse(start, out var startDt) && DateTime.TryParse(finish, out var finishDt))
+                    {
+                        var totalDuration = finishDt - startDt;
+                        duration = $"{totalDuration.TotalSeconds:F3}s";
+                    }
+                }
+            }
+            catch
+            {
+                // If TRX parsing fails, output minimal JSON
+            }
+        }
+
+        var envelope = new
+        {
+            schemaVersion = 1,
+            command = "test",
+            ok,
+            projectRoot = projectRoot.Replace('\\', '/'),
+            error = errorMessage,
+            summary = new { total, passed, failed, skipped, duration },
+            results
+        };
+
+        var options = new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(envelope, options));
+    }
+
+    static void OutputCoverageSummary(string coverageFile)
+    {
+        try
+        {
+            var doc = System.Xml.Linq.XDocument.Load(coverageFile);
+            var ns = doc.Root?.Name.Namespace ?? System.Xml.Linq.XNamespace.None;
+
+            Console.WriteLine();
+            Console.WriteLine("Coverage Summary:");
+            Console.WriteLine(new string('-', 60));
+            Console.WriteLine($"{"File",-40} {"Line%",8} {"Branch%",8}");
+            Console.WriteLine(new string('-', 60));
+
+            var modules = doc.Descendants(ns + "Module");
+            foreach (var module in modules)
+            {
+                var classes = module.Descendants(ns + "Class");
+                foreach (var cls in classes)
+                {
+                    var fullName = cls.Element(ns + "FullName")?.Value ?? "Unknown";
+                    var shortName = fullName.Contains('.') ? fullName[(fullName.LastIndexOf('.') + 1)..] : fullName;
+
+                    var methods = cls.Descendants(ns + "Method");
+                    int totalLines = 0, coveredLines = 0, totalBranches = 0, coveredBranches = 0;
+
+                    foreach (var method in methods)
+                    {
+                        var seqPoints = method.Descendants(ns + "SequencePoint");
+                        foreach (var sp in seqPoints)
+                        {
+                            totalLines++;
+                            var vc = int.Parse(sp.Attribute("vc")?.Value ?? "0");
+                            if (vc > 0) coveredLines++;
+                        }
+
+                        var branchPoints = method.Descendants(ns + "BranchPoint");
+                        foreach (var bp in branchPoints)
+                        {
+                            totalBranches++;
+                            var vc = int.Parse(bp.Attribute("vc")?.Value ?? "0");
+                            if (vc > 0) coveredBranches++;
+                        }
+                    }
+
+                    var linePercent = totalLines > 0 ? (100.0 * coveredLines / totalLines) : 0;
+                    var branchPercent = totalBranches > 0 ? (100.0 * coveredBranches / totalBranches) : 0;
+
+                    Console.WriteLine($"{shortName,-40} {linePercent,7:F1}% {branchPercent,7:F1}%");
+                }
+            }
+
+            Console.WriteLine(new string('-', 60));
+        }
+        catch
+        {
+            Console.Error.WriteLine("Warning: Could not parse coverage report.");
+        }
+    }
+
+    static void GenerateCoverageReport(string coverageFile, string reportDir)
+    {
+        try
+        {
+            // Install reportgenerator as a global tool if not already installed
+            var installResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = "tool install -g dotnet-reportgenerator-globaltool",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+            installResult?.WaitForExit();
+            // Ignore exit code — tool may already be installed
+
+            // Generate HTML report
+            var reportResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "reportgenerator",
+                Arguments = $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            });
+            reportResult?.WaitForExit();
+
+            if (reportResult?.ExitCode == 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Coverage report generated: {reportDir}/index.html");
+            }
+            else
+            {
+                var error = reportResult?.StandardError.ReadToEnd() ?? "";
+                Console.Error.WriteLine($"Warning: Could not generate HTML report. Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
+                if (!string.IsNullOrWhiteSpace(error))
+                    Console.Error.WriteLine(error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Could not generate HTML report: {ex.Message}");
+            Console.Error.WriteLine("Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
+        }
     }
 
     static string FormatSource(string source, string file, string projectRoot)
