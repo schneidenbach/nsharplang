@@ -537,4 +537,85 @@ dependencies:
         Assert.Throws<InvalidOperationException>(() => emptyRef.Type);
         Assert.Throws<InvalidOperationException>(() => emptyRef.Value);
     }
+
+    [Fact]
+    public void TestTestFrameworkDefaultsToXUnit()
+    {
+        var config = new ProjectConfig();
+        Assert.Equal("xunit", config.TestFramework);
+    }
+
+    [Fact]
+    public void TestParseTestFrameworkXUnit()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var yaml = @"name: MyProject
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0
+testFramework: xunit
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+
+            var config = ProjectFileParser.Parse(projectFile);
+            Assert.Equal("xunit", config.TestFramework);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestParseTestFrameworkNUnit()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var yaml = @"name: MyProject
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0
+testFramework: nunit
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+
+            var config = ProjectFileParser.Parse(projectFile);
+            Assert.Equal("nunit", config.TestFramework);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestParseTestFrameworkInvalid()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var yaml = @"name: MyProject
+version: 1.0.0
+outputType: exe
+targetFramework: net9.0
+testFramework: mstest
+";
+            var projectFile = Path.Combine(tempDir, "project.yml");
+            File.WriteAllText(projectFile, yaml);
+
+            Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(projectFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }
