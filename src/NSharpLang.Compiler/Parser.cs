@@ -213,6 +213,10 @@ public class Parser
         if (IsTestDeclarationStart())
             return ParseTestDeclaration();
 
+        // Setup block declarations (contextual keyword "setup")
+        if (IsSetupDeclarationStart())
+            return ParseSetupDeclaration();
+
         // Preprocessor directives can appear at top level
         if (Check(TokenType.PreprocessorDirective))
         {
@@ -508,10 +512,68 @@ public class Parser
             Advance();
         }
 
+        // Check for table-driven test syntax: with (params) [cases]
+        List<Parameter>? tableParameters = null;
+        List<List<Expression>>? tableCases = null;
+
+        if (Check(TokenType.With))
+        {
+            Advance(); // consume 'with'
+            tableParameters = ParseParameterList();
+
+            Consume(TokenType.LeftBracket, "Expected '[' to start test cases");
+            tableCases = new List<List<Expression>>();
+
+            while (!Check(TokenType.RightBracket) && !IsAtEnd())
+            {
+                Consume(TokenType.LeftParen, "Expected '(' to start test case row");
+                var row = new List<Expression>();
+                while (!Check(TokenType.RightParen) && !IsAtEnd())
+                {
+                    row.Add(ParseExpression());
+                    if (!Check(TokenType.RightParen))
+                        Match(TokenType.Comma);
+                }
+                Consume(TokenType.RightParen, "Expected ')' to end test case row");
+                tableCases.Add(row);
+                if (!Check(TokenType.RightBracket))
+                    Match(TokenType.Comma);
+            }
+
+            Consume(TokenType.RightBracket, "Expected ']' to end test cases");
+        }
+
+        // Check for skip: test "desc" skip "reason"
+        string? skipReason = null;
+        if (Current.Type == TokenType.Identifier && Current.Value == "skip")
+        {
+            Advance(); // consume 'skip'
+            if (Current.Type != TokenType.StringLiteral)
+            {
+                ReportError(
+                    ErrorCode.ExpectedToken,
+                    $"Expected string literal for skip reason. Got '{Current.Value}'",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "The 'skip' modifier requires a string explaining why the test is skipped.",
+                    hint: "Add a reason string after 'skip'.",
+                    suggestions: new List<string> {
+                        "Example: test \"my test\" skip \"needs network\" { ... }"
+                    },
+                    length: Current.Value.Length
+                );
+            }
+            else
+            {
+                skipReason = Current.Value.Trim('"');
+                Advance();
+            }
+        }
+
         // Parse test body
         var body = ParseBlock();
 
-        return new TestDeclaration(description, body, line, column);
+        return new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column);
     }
 
     private bool IsTestDeclarationStart()
@@ -537,6 +599,21 @@ public class Parser
         }
 
         Consume(TokenType.Test, "Expected 'test'");
+    }
+
+    private bool IsSetupDeclarationStart()
+    {
+        return Current.Type == TokenType.Identifier && Current.Value == "setup"
+            && LookAhead(1).Type == TokenType.LeftBrace;
+    }
+
+    private SetupDeclaration ParseSetupDeclaration()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // consume 'setup'
+        var body = ParseBlock();
+        return new SetupDeclaration(body, line, column);
     }
 
     private List<TypeParameter>? ParseTypeParameters()
@@ -1655,15 +1732,32 @@ public class Parser
         return ParseExpressionStatement();
     }
 
-    private AssertStatement ParseAssertStatement()
+    private Statement ParseAssertStatement()
     {
         var line = Current.Line;
         var column = Current.Column;
         Consume(TokenType.Assert, "Expected 'assert'");
 
+        // Check for assert throws ExceptionType { body }
+        if (Current.Type == TokenType.Identifier && Current.Value == "throws")
+        {
+            Advance(); // consume 'throws'
+            var exceptionType = ParseTypeReference();
+            var body = ParseBlock();
+            return new AssertThrowsStatement(exceptionType, body, line, column);
+        }
+
         var condition = ParseExpression();
 
-        return new AssertStatement(condition, line, column);
+        // Check for optional message: assert condition, "message"
+        Expression? message = null;
+        if (Check(TokenType.Comma))
+        {
+            Advance(); // consume ','
+            message = ParseExpression();
+        }
+
+        return new AssertStatement(condition, message, line, column);
     }
 
     private LocalFunctionStatement ParseLocalFunction()

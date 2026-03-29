@@ -29,6 +29,7 @@ local-packages/
 TestResults/
 test-sdk-project/
 test-output.log
+coverage-report/
 
 # Build task debug logs
 compile-debug.log

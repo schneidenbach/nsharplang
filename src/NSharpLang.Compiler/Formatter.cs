@@ -222,6 +222,9 @@ public class Formatter
             case TestDeclaration test:
                 FormatTest(test, sb);
                 break;
+            case SetupDeclaration setup:
+                FormatSetup(setup, sb);
+                break;
             case PreprocessorDeclaration preproc:
                 Indent(sb);
                 sb.AppendLine(preproc.Directive);
@@ -775,9 +778,57 @@ public class Formatter
         Indent(sb);
         sb.Append("test ");
         sb.Append($"\"{test.Description}\"");
+
+        // Table-driven parameters and cases
+        if (test.TableParameters != null && test.TableCases != null)
+        {
+            sb.Append(" with (");
+            sb.Append(string.Join(", ", test.TableParameters.Select(p =>
+                $"{p.Name}: {FormatTypeReference(p.Type)}")));
+            sb.AppendLine(") [");
+            _indent++;
+            for (int i = 0; i < test.TableCases.Count; i++)
+            {
+                Indent(sb);
+                sb.Append("(");
+                var exprs = new List<string>();
+                foreach (var expr in test.TableCases[i])
+                {
+                    var exprSb = new StringBuilder();
+                    FormatExpression(expr, exprSb);
+                    exprs.Add(exprSb.ToString());
+                }
+                sb.Append(string.Join(", ", exprs));
+                sb.Append(")");
+                if (i < test.TableCases.Count - 1)
+                    sb.Append(",");
+                sb.AppendLine();
+            }
+            _indent--;
+            Indent(sb);
+            sb.Append("]");
+        }
+
+        // Skip reason
+        if (test.SkipReason != null)
+        {
+            sb.Append($" skip \"{test.SkipReason}\"");
+        }
+
         sb.AppendLine(" {");
         _indent++;
         FormatBlock(test.Body, sb);
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
+    }
+
+    private void FormatSetup(SetupDeclaration setup, StringBuilder sb)
+    {
+        Indent(sb);
+        sb.AppendLine("setup {");
+        _indent++;
+        FormatBlock(setup.Body, sb);
         _indent--;
         Indent(sb);
         sb.AppendLine("}");
@@ -1180,7 +1231,24 @@ public class Formatter
                 Indent(sb);
                 sb.Append("assert ");
                 FormatExpression(assertStmt.Condition, sb);
+                if (assertStmt.Message != null)
+                {
+                    sb.Append(", ");
+                    FormatExpression(assertStmt.Message, sb);
+                }
                 sb.AppendLine();
+                break;
+
+            case AssertThrowsStatement assertThrows:
+                Indent(sb);
+                sb.Append("assert throws ");
+                sb.Append(FormatTypeReference(assertThrows.ExceptionType));
+                sb.AppendLine(" {");
+                _indent++;
+                FormatBlock(assertThrows.Body, sb);
+                _indent--;
+                Indent(sb);
+                sb.AppendLine("}");
                 break;
 
             case PreprocessorDirective preproc:
