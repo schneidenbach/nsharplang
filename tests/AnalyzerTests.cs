@@ -3430,4 +3430,285 @@ func Hello(): string {
     }
 
     #endregion
+
+    // ===================================================================
+    // Type System Hardening: Phase 2 — Flow Typing, Structural Delegates,
+    // Constraint Validation, Enum Nominality
+    // ===================================================================
+
+    #region Flow Narrowing: && Chaining
+
+    [Fact]
+    public void FlowNarrowing_AndChain_BothNullChecks()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x != null && y != null {
+                    a: string = x
+                    b: int = y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_NullCheckWithCondition()
+    {
+        // x != null narrows x; the second operand doesn't produce narrowings but shouldn't break
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null && true {
+                    a: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_NoElseNarrowing()
+    {
+        // else of && is !a || !b — can't narrow either variable
+        AssertHasError(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x != null && y != null {
+                    a: string = x
+                } else {
+                    b: string = x
+                }
+            }
+        ", "Cannot assign");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: Is-Type Patterns
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_BindsVariable()
+    {
+        // if x is Dog d — should declare d with type Dog in then-branch
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog d {
+                    name: string = d.Name
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_NarrowsWithoutBinding()
+    {
+        // if x is Dog — should narrow x to Dog in then-branch (no new variable)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog {
+                    dog: Dog = a
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_WithAndChain()
+    {
+        // Combine is-pattern with && null check on separate variables
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal, x: string?) {
+                if a is Dog && x != null {
+                    dog: Dog = a
+                    s: string = x
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Lambda-Delegate Structural Validation
+
+    [Fact]
+    public void Lambda_Delegate_CorrectParamCount_NoError()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, string>, x: int): string {
+                return f(x)
+            }
+            func Main() {
+                result := Apply((x) => ""hello"", 42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_Delegate_WrongParamCount_Error()
+    {
+        // Lambda with 2 params assigned to Func<int, string> (1 param + return type)
+        AssertHasError(@"
+            func Main() {
+                let f: Func<int, string> = (x, y) => ""hello""
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void Lambda_Delegate_ZeroParams_MatchesFunc()
+    {
+        AssertNoErrors(@"
+            func RunIt(f: Func<int>): int {
+                return f()
+            }
+            func Main() {
+                result := RunIt(() => 42)
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Generic Constraint Validation
+
+    [Fact]
+    public void GenericConstraint_Satisfied_NoError()
+    {
+        AssertNoErrors(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class MyInt : IComparable {
+                func CompareTo(other: object): int {
+                    return 0
+                }
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new MyInt(), new MyInt())
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericConstraint_Violated_Error()
+    {
+        AssertHasError(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class Plain {
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new Plain(), new Plain())
+            }
+        ", "does not satisfy constraint");
+    }
+
+    #endregion
+
+    #region String-to-Enum Rejection
+
+    [Fact]
+    public void StringToEnum_Rejected()
+    {
+        // Assigning a string literal to an enum type should be rejected
+        AssertHasError(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c: Color = ""red""
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void IntToEnum_Rejected()
+    {
+        // Assigning an int literal to an enum type should be rejected
+        AssertHasError(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c: Color = 0
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void EnumToString_Allowed()
+    {
+        // Enum to its underlying type is allowed
+        AssertNoErrors(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c := Color.Red
+                n: int = c
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringEnumToString_Allowed()
+    {
+        // String enums are inferred from the first member value being a string literal
+        AssertNoErrors(@"
+            enum Color {
+                Red = ""red"",
+                Blue = ""blue""
+            }
+            func Main() {
+                c := Color.Red
+                s: string = c
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringToStringEnum_Rejected()
+    {
+        AssertHasError(@"
+            enum Color {
+                Red = ""red"",
+                Blue = ""blue""
+            }
+            func Main() {
+                c: Color = ""red""
+            }
+        ", "Cannot assign");
+    }
+
+    #endregion
 }

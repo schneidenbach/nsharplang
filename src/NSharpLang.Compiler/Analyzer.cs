@@ -1038,8 +1038,8 @@ public class Analyzer
     {
         var condType = AnalyzeExpression(ifStmt.Condition);
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
-        // Extract null-check narrowings from the condition for flow-sensitive typing
-        var narrowings = ExtractNullCheckNarrowings(ifStmt.Condition);
+        // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
+        var (thenNarrowings, elseNarrowings) = ExtractFlowNarrowings(ifStmt.Condition);
 
         if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType))
         {
@@ -1067,11 +1067,11 @@ public class Analyzer
             }
         }
 
-        // Apply null-check narrowings to then-branch scope
-        if (narrowings.Count > 0)
+        // Apply then-branch narrowings (null checks, is-patterns, && chains)
+        if (thenNarrowings.Count > 0)
         {
             PushScope(new Scope(ScopeKind.Block));
-            foreach (var (name, narrowedType) in narrowings)
+            foreach (var (name, narrowedType) in thenNarrowings)
             {
                 var currentScope = _scopes.Peek();
                 currentScope.Symbols[name] = narrowedType;
@@ -1086,12 +1086,11 @@ public class Analyzer
 
         if (ifStmt.ElseStatement != null)
         {
-            // Apply inverted narrowings to else-branch
-            var invertedNarrowings = InvertNarrowings(narrowings);
-            if (invertedNarrowings.Count > 0)
+            // Apply else-branch narrowings (from == null checks)
+            if (elseNarrowings.Count > 0)
             {
                 PushScope(new Scope(ScopeKind.Block));
-                foreach (var (name, narrowedType) in invertedNarrowings)
+                foreach (var (name, narrowedType) in elseNarrowings)
                 {
                     var currentScope = _scopes.Peek();
                     currentScope.Symbols[name] = narrowedType;
@@ -1107,31 +1106,57 @@ public class Analyzer
     }
 
     /// <summary>
-    /// Extracts null-check narrowings from an if-condition.
-    /// e.g., "x != null" narrows x from T? to T in the then-branch.
+    /// Extracts flow-sensitive type narrowings from a condition expression.
+    /// Returns separate narrowing lists for then-branch and else-branch.
+    /// Handles: null checks (!=null, ==null), is-type patterns, and && chains.
     /// </summary>
-    private List<(string Name, TypeInfo NarrowedType)> ExtractNullCheckNarrowings(Expression condition)
+    private (List<(string Name, TypeInfo NarrowedType)> Then, List<(string Name, TypeInfo NarrowedType)> Else)
+        ExtractFlowNarrowings(Expression condition)
     {
-        var narrowings = new List<(string, TypeInfo)>();
+        var thenNarrowings = new List<(string, TypeInfo)>();
+        var elseNarrowings = new List<(string, TypeInfo)>();
 
         if (condition is BinaryExpression binary)
         {
-            // x != null -> narrow x to non-nullable in then-branch
+            // x != null → narrow x to non-nullable in then-branch
             if (binary.Operator == BinaryOperator.NotEqual)
             {
-                TryExtractNullNarrowing(binary.Left, binary.Right, narrowings);
-                TryExtractNullNarrowing(binary.Right, binary.Left, narrowings);
+                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings);
+                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings);
             }
-            // x == null -> narrow x to non-nullable in else-branch (handled by InvertNarrowings)
+            // x == null → narrow x to non-nullable in else-branch
             else if (binary.Operator == BinaryOperator.Equal)
             {
-                // For == null, we produce narrowings that will be inverted for the else branch
-                TryExtractNullNarrowingForEquality(binary.Left, binary.Right, narrowings);
-                TryExtractNullNarrowingForEquality(binary.Right, binary.Left, narrowings);
+                TryExtractNullNarrowing(binary.Left, binary.Right, elseNarrowings);
+                TryExtractNullNarrowing(binary.Right, binary.Left, elseNarrowings);
+            }
+            // a && b → both sides hold in then-branch; else = !a || !b (can't narrow)
+            else if (binary.Operator == BinaryOperator.And)
+            {
+                var (leftThen, _) = ExtractFlowNarrowings(binary.Left);
+                var (rightThen, _) = ExtractFlowNarrowings(binary.Right);
+                thenNarrowings.AddRange(leftThen);
+                thenNarrowings.AddRange(rightThen);
+                // else-branch gets nothing for compound && (negation is disjunction)
+            }
+        }
+        // x is Type varName → narrow/declare in then-branch
+        else if (condition is IsExpression isExpr)
+        {
+            var narrowedType = ResolveType(isExpr.Type);
+            if (isExpr.VariableName != null)
+            {
+                // `x is Dog d` — declare d: Dog in then-branch
+                thenNarrowings.Add((isExpr.VariableName, narrowedType));
+            }
+            else if (isExpr.Expression is IdentifierExpression ident)
+            {
+                // `x is Dog` — narrow x to Dog in then-branch
+                thenNarrowings.Add((ident.Name, narrowedType));
             }
         }
 
-        return narrowings;
+        return (thenNarrowings, elseNarrowings);
     }
 
     private void TryExtractNullNarrowing(Expression expr, Expression other, List<(string, TypeInfo)> narrowings)
@@ -1144,45 +1169,6 @@ public class Analyzer
                 narrowings.Add((ident.Name, nullable.InnerType));
             }
         }
-    }
-
-    private void TryExtractNullNarrowingForEquality(Expression expr, Expression other, List<(string, TypeInfo)> narrowings)
-    {
-        // For x == null, we mark the narrowing as "inverted" — the then-branch keeps T?,
-        // and the else-branch gets T. We encode this by NOT adding narrowings here;
-        // instead, InvertNarrowings will handle it.
-        // But we need to record which variables were null-checked so InvertNarrowings can work.
-        if (other is NullLiteralExpression && expr is IdentifierExpression ident)
-        {
-            var symbolType = LookupSymbol(ident.Name);
-            if (symbolType is NullableTypeInfo nullable)
-            {
-                // Tag: negative narrowing — the ELSE branch narrows, not the then branch
-                narrowings.Add((ident.Name, new NullableTypeInfo(nullable.InnerType)));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Inverts narrowings for the else branch.
-    /// If then-branch narrowed x from T? to T (x != null), else-branch keeps T?.
-    /// If then-branch was for x == null (no narrowing in then), else-branch narrows to T.
-    /// </summary>
-    private List<(string Name, TypeInfo NarrowedType)> InvertNarrowings(List<(string Name, TypeInfo NarrowedType)> narrowings)
-    {
-        var inverted = new List<(string, TypeInfo)>();
-        foreach (var (name, type) in narrowings)
-        {
-            // If the narrowing was from != null (type is already non-nullable), invert means no narrowing for else
-            // If the narrowing was from == null (type is still nullable), invert means narrow to non-nullable
-            if (type is NullableTypeInfo nullable)
-            {
-                // This was an == null check; the else-branch should narrow to non-nullable
-                inverted.Add((name, nullable.InnerType));
-            }
-            // For != null narrowings, the else branch doesn't narrow (x could be null there)
-        }
-        return inverted;
     }
 
     private void AnalyzeForStatement(ForStatement forStmt)
@@ -2814,6 +2800,7 @@ public class Analyzer
                 {
                     // Infer generic bindings for single N#-declared function
                     var genericBindings = TryInferNSharpGenericBindings(funcType.Declaration, call, argTypes);
+                    ValidateGenericConstraints(funcType.Declaration, call, genericBindings);
 
                     // Check each parameter type (non-params parameters)
                     int regularParamCount = hasParamsParameter ? effectiveParamCount - 1 : effectiveParamCount;
@@ -3158,6 +3145,7 @@ public class Analyzer
         var hasParams = decl.Parameters.Count > 0 &&
                         decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
         var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
+        ValidateGenericConstraints(decl, call, genericBindings);
 
         int regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
         for (int i = 0; i < regularParamCount && i < argTypes.Count; i++)
@@ -3188,6 +3176,32 @@ public class Analyzer
                     if (!IsAssignable(paramsArrayType.ElementType, argType))
                     {
                         Error($"Params argument {i + 1} of type '{argType}' is not assignable to params array element type '{paramsArrayType.ElementType}'",
+                            call.Line, call.Column);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates that inferred or explicit generic bindings satisfy declared constraints.
+    /// Call this from argument validation sites only (not from overload scoring or return-type resolution).
+    /// </summary>
+    private void ValidateGenericConstraints(FunctionDeclaration decl, CallExpression call, Dictionary<string, TypeInfo>? bindings)
+    {
+        if (decl.Constraints == null || bindings == null || bindings.Count == 0)
+            return;
+
+        foreach (var constraint in decl.Constraints)
+        {
+            if (bindings.TryGetValue(constraint.TypeParameter, out var boundType))
+            {
+                foreach (var constraintTypeRef in constraint.Constraints)
+                {
+                    var constraintType = ApplyNSharpGenericBindings(ResolveType(constraintTypeRef), bindings);
+                    if (!IsSubtypeOf(boundType, constraintType) && !IsAssignable(constraintType, boundType))
+                    {
+                        Error($"Type '{boundType}' does not satisfy constraint '{constraintType}' on type parameter '{constraint.TypeParameter}'",
                             call.Line, call.Column);
                     }
                 }
@@ -3232,17 +3246,19 @@ public class Analyzer
             {
                 bindings[decl.TypeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
             }
-            return bindings;
+            // Fall through to constraint validation below
         }
-
-        // Second: infer from argument types
-        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-        var paramStart = isExtension ? 1 : 0;
-
-        for (int i = 0; i < argTypes.Count && (i + paramStart) < decl.Parameters.Count; i++)
+        else
         {
-            var paramTypeRef = decl.Parameters[i + paramStart].Type;
-            TryMatchNSharpTypeParameter(paramTypeRef, argTypes[i], decl.TypeParameters, bindings);
+            // Second: infer from argument types
+            var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+            var paramStart = isExtension ? 1 : 0;
+
+            for (int i = 0; i < argTypes.Count && (i + paramStart) < decl.Parameters.Count; i++)
+            {
+                var paramTypeRef = decl.Parameters[i + paramStart].Type;
+                TryMatchNSharpTypeParameter(paramTypeRef, argTypes[i], decl.TypeParameters, bindings);
+            }
         }
 
         return bindings;
@@ -4605,6 +4621,11 @@ public class Analyzer
         if (resolvedSource is ReflectionMethodInfo || resolvedTarget is ReflectionMethodInfo) return true;
         if (resolvedSource is ReflectionMethodGroupInfo || resolvedTarget is ReflectionMethodGroupInfo) return true;
 
+        // Function type structural comparison (both sides are FunctionTypeInfo) — must come before
+        // the ToString fallback because FunctionTypeInfo.ToString() is always "FunctionTypeInfo"
+        if (resolvedSource is FunctionTypeInfo srcFunc && resolvedTarget is FunctionTypeInfo tgtFunc)
+            return IsFunctionTypeAssignable(srcFunc, tgtFunc);
+
         // Same type name (string comparison fallback for types we can't structurally compare)
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
 
@@ -4623,8 +4644,9 @@ public class Analyzer
         }
 
         // Lambda function types (FunctionTypeInfo) are assignable to delegate types (Func/Action)
-        if (resolvedSource is FunctionTypeInfo && resolvedTarget is GenericTypeInfo { Name: "Func" or "Action" })
-            return true;
+        // with structural parameter count and type validation
+        if (resolvedSource is FunctionTypeInfo funcType && resolvedTarget is GenericTypeInfo { Name: "Func" or "Action" } delegateType)
+            return IsLambdaAssignableToDelegate(funcType, delegateType);
 
         // Duck interface structural typing
         if (resolvedTarget is InterfaceTypeInfo iface && iface.Declaration.IsDuckInterface)
@@ -4647,6 +4669,94 @@ public class Analyzer
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Structurally validates that a source FunctionTypeInfo is assignable to a target FunctionTypeInfo.
+    /// Checks parameter count, parameter type compatibility, and return type compatibility.
+    /// </summary>
+    private bool IsFunctionTypeAssignable(FunctionTypeInfo source, FunctionTypeInfo target)
+    {
+        var srcParamCount = source.ParameterTypes?.Count ?? 0;
+        var tgtParamCount = target.ParameterTypes?.Count ?? 0;
+
+        if (srcParamCount != tgtParamCount)
+            return false;
+
+        // Validate parameter types (contravariant: target param must be assignable to source param)
+        for (int i = 0; i < tgtParamCount; i++)
+        {
+            var srcParam = source.ParameterTypes![i];
+            var tgtParam = target.ParameterTypes![i];
+            if (BuiltInTypes.IsUnknown(srcParam)) continue; // Inferred — don't reject
+            if (!IsAssignable(srcParam, tgtParam))
+                return false;
+        }
+
+        // Validate return type (covariant: source return must be assignable to target return)
+        if (source.ReturnType != null && target.ReturnType != null
+            && !BuiltInTypes.IsUnknown(source.ReturnType))
+        {
+            if (!IsAssignable(target.ReturnType, source.ReturnType))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Structurally validates that a lambda (FunctionTypeInfo) is assignable to a
+    /// Func/Action delegate type. Checks parameter count and, when types are known,
+    /// validates parameter and return type compatibility.
+    /// </summary>
+    private bool IsLambdaAssignableToDelegate(FunctionTypeInfo funcType, GenericTypeInfo delegateType)
+    {
+        var funcParamCount = funcType.ParameterTypes?.Count ?? 0;
+
+        if (delegateType.Name == "Func")
+        {
+            // Func<P1, ..., Pn, R> — last type arg is return type, rest are params
+            var expectedParamCount = delegateType.TypeArguments.Count - 1;
+            if (funcParamCount != expectedParamCount)
+                return false;
+
+            // Validate parameter types when known (contravariant: delegate param assignable to lambda param)
+            for (int i = 0; i < expectedParamCount; i++)
+            {
+                var lambdaParam = funcType.ParameterTypes![i];
+                if (BuiltInTypes.IsUnknown(lambdaParam)) continue;
+                var delegateParam = delegateType.TypeArguments[i];
+                if (!IsAssignable(lambdaParam, delegateParam))
+                    return false;
+            }
+
+            // Validate return type when known
+            if (funcType.ReturnType != null && !BuiltInTypes.IsUnknown(funcType.ReturnType))
+            {
+                var delegateReturn = delegateType.TypeArguments[^1];
+                if (!IsAssignable(delegateReturn, funcType.ReturnType))
+                    return false;
+            }
+
+            return true;
+        }
+        else // Action
+        {
+            // Action<P1, ..., Pn> — all type args are parameters
+            if (funcParamCount != delegateType.TypeArguments.Count)
+                return false;
+
+            for (int i = 0; i < delegateType.TypeArguments.Count; i++)
+            {
+                var lambdaParam = funcType.ParameterTypes![i];
+                if (BuiltInTypes.IsUnknown(lambdaParam)) continue;
+                var delegateParam = delegateType.TypeArguments[i];
+                if (!IsAssignable(lambdaParam, delegateParam))
+                    return false;
+            }
+
+            return true;
+        }
     }
 
     /// <summary>
