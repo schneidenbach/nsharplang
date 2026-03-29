@@ -3834,7 +3834,9 @@ public class Analyzer : IDisposable
         // Validate the type exists
         ResolveType(typeofExpr.Type);
         // typeof always returns System.Type
-        return new ReflectionTypeInfo(typeof(Type));
+        return _wellKnownTypes != null
+            ? new ReflectionTypeInfo(_wellKnownTypes.SystemType)
+            : BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeNameofExpression(NameofExpression nameofExpr)
@@ -5301,29 +5303,19 @@ public class Analyzer : IDisposable
             return cachedType;
         }
 
-        var type = Type.GetType(fullName);
-        if (type != null)
-        {
-            _externalTypeCache[fullName] = type;
-            return type;
-        }
-
-        foreach (var assembly in GetExternalSearchAssemblies())
+        // Search MLC assemblies for the exact fully-qualified type name
+        foreach (var assembly in _mlcAssemblies)
         {
             try
             {
-                type = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+                var resolved = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+                if (resolved != null)
+                {
+                    _externalTypeCache[fullName] = resolved;
+                    return resolved;
+                }
             }
-            catch
-            {
-                continue;
-            }
-
-            if (type != null)
-            {
-                _externalTypeCache[fullName] = type;
-                return type;
-            }
+            catch { continue; }
         }
 
         return null;
@@ -5574,10 +5566,9 @@ public class Analyzer : IDisposable
                 {
                     var fwPath = Path.Combine(searchDir, fwDir);
                     if (!Directory.Exists(fwPath)) continue;
-                    // Add the latest version directory
-                    var latestVersion = Directory.GetDirectories(fwPath).OrderByDescending(d => d).FirstOrDefault();
-                    if (latestVersion != null)
-                        _metadataResolver.AddSearchDirectory(latestVersion);
+                    // Add all version directories so transitive deps can be resolved
+                    foreach (var versionDir in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
+                        _metadataResolver.AddSearchDirectory(versionDir);
                 }
                 break;
             }
@@ -5963,7 +5954,6 @@ public class Analyzer : IDisposable
         private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
 
         private readonly List<string> _searchDirectories = new();
-        private readonly Dictionary<string, string> _knownPaths = new(StringComparer.OrdinalIgnoreCase);
 
         public void AddSearchDirectory(string directory)
         {
@@ -5975,13 +5965,6 @@ public class Analyzer : IDisposable
         {
             var simpleName = assemblyName.Name;
             if (simpleName == null) return null;
-
-            // Check known exact paths
-            if (_knownPaths.TryGetValue(simpleName, out var knownPath) && File.Exists(knownPath))
-            {
-                try { return context.LoadFromAssemblyPath(knownPath); }
-                catch { /* fall through */ }
-            }
 
             // Search configured directories
             foreach (var dir in _searchDirectories)
@@ -6053,7 +6036,7 @@ public class Analyzer : IDisposable
     /// </summary>
     internal sealed class WellKnownTypes
     {
-        // Primitives
+        // Primitives (non-nullable — guaranteed to exist in any .NET runtime)
         public readonly Type Int32;
         public readonly Type Int64;
         public readonly Type Single;
@@ -6062,6 +6045,9 @@ public class Analyzer : IDisposable
         public readonly Type String;
         public readonly Type Void;
         public readonly Type Object;
+
+        // System.Type (for typeof expressions)
+        public readonly Type SystemType;
 
         // Delegate hierarchy
         public readonly Type Delegate;
@@ -6097,27 +6083,37 @@ public class Analyzer : IDisposable
         {
             var core = mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded");
 
-            // Primitives (all in System.Runtime / core assembly)
-            Int32 = core.GetType("System.Int32")!;
-            Int64 = core.GetType("System.Int64")!;
-            Single = core.GetType("System.Single")!;
-            Double = core.GetType("System.Double")!;
-            Boolean = core.GetType("System.Boolean")!;
-            String = core.GetType("System.String")!;
-            Void = core.GetType("System.Void")!;
-            Object = core.GetType("System.Object")!;
-            Delegate = core.GetType("System.Delegate")!;
-            NullableOpen = core.GetType("System.Nullable`1");
-            Action = core.GetType("System.Action");
-            Action1 = core.GetType("System.Action`1");
-            Action2 = core.GetType("System.Action`2");
-            Action3 = core.GetType("System.Action`3");
-            Action4 = core.GetType("System.Action`4");
-            Func1 = core.GetType("System.Func`1");
-            Func2 = core.GetType("System.Func`2");
-            Func3 = core.GetType("System.Func`3");
-            Func4 = core.GetType("System.Func`4");
-            Func5 = core.GetType("System.Func`5");
+            // Some types may be defined in System.Private.CoreLib rather than System.Runtime
+            // (depending on framework layout). Try both to be safe.
+            Assembly? coreLib = null;
+            try { coreLib = mlc.LoadFromAssemblyName("System.Private.CoreLib"); } catch { }
+
+            Type? Resolve(string fullName) =>
+                core.GetType(fullName) ?? coreLib?.GetType(fullName);
+
+            // Primitives — these must exist in any .NET runtime
+            Int32 = Resolve("System.Int32") ?? throw new InvalidOperationException("System.Int32 not found in MLC");
+            Int64 = Resolve("System.Int64") ?? throw new InvalidOperationException("System.Int64 not found in MLC");
+            Single = Resolve("System.Single") ?? throw new InvalidOperationException("System.Single not found in MLC");
+            Double = Resolve("System.Double") ?? throw new InvalidOperationException("System.Double not found in MLC");
+            Boolean = Resolve("System.Boolean") ?? throw new InvalidOperationException("System.Boolean not found in MLC");
+            String = Resolve("System.String") ?? throw new InvalidOperationException("System.String not found in MLC");
+            Void = Resolve("System.Void") ?? throw new InvalidOperationException("System.Void not found in MLC");
+            Object = Resolve("System.Object") ?? throw new InvalidOperationException("System.Object not found in MLC");
+            Delegate = Resolve("System.Delegate") ?? throw new InvalidOperationException("System.Delegate not found in MLC");
+            SystemType = Resolve("System.Type") ?? throw new InvalidOperationException("System.Type not found in MLC");
+
+            NullableOpen = Resolve("System.Nullable`1");
+            Action = Resolve("System.Action");
+            Action1 = Resolve("System.Action`1");
+            Action2 = Resolve("System.Action`2");
+            Action3 = Resolve("System.Action`3");
+            Action4 = Resolve("System.Action`4");
+            Func1 = Resolve("System.Func`1");
+            Func2 = Resolve("System.Func`2");
+            Func3 = Resolve("System.Func`3");
+            Func4 = Resolve("System.Func`4");
+            Func5 = Resolve("System.Func`5");
 
             // Collections — may be in a separate assembly
             try
@@ -6132,15 +6128,21 @@ public class Analyzer : IDisposable
             catch { /* collections assembly not available */ }
 
             // IEnumerable<T> is in System.Runtime
-            IEnumerableOpen = core.GetType("System.Collections.Generic.IEnumerable`1");
+            IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1");
 
-            // Tasks
-            try
+            // Tasks — try core first, then dedicated assembly
+            TaskOpen = Resolve("System.Threading.Tasks.Task`1");
+            ValueTaskOpen = Resolve("System.Threading.Tasks.ValueTask`1");
+            if (TaskOpen == null || ValueTaskOpen == null)
             {
-                TaskOpen = core.GetType("System.Threading.Tasks.Task`1");
-                ValueTaskOpen = core.GetType("System.Threading.Tasks.ValueTask`1");
+                try
+                {
+                    var threading = mlc.LoadFromAssemblyName("System.Threading.Tasks");
+                    TaskOpen ??= threading.GetType("System.Threading.Tasks.Task`1");
+                    ValueTaskOpen ??= threading.GetType("System.Threading.Tasks.ValueTask`1");
+                }
+                catch { /* threading assembly not available */ }
             }
-            catch { /* task types not available */ }
         }
     }
 }
