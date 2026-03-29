@@ -1,0 +1,15 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0
+
+# Copy pre-packed NuGet packages into the container
+COPY packages/ /packages/
+
+# Register the local package source so dotnet restore/build can find our packages
+RUN dotnet nuget add source /packages --name local
+
+# Ensure global tools are on PATH
+ENV PATH="${PATH}:/root/.dotnet/tools"
+
+WORKDIR /workspace
+
+# Keep container alive for test command execution
+ENTRYPOINT ["tail", "-f", "/dev/null"]
