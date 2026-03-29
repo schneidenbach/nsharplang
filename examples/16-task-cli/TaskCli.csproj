@@ -1,6 +1,1 @@
-<Project Sdk="NSharpLang.Sdk/0.1.0">
-  <PropertyGroup>
-    <!-- Workaround: test SDK generates a Program.cs that conflicts with our entry point -->
-    <GenerateProgramFile>false</GenerateProgramFile>
-  </PropertyGroup>
-</Project>
+<Project Sdk="NSharpLang.Sdk/0.1.0" />

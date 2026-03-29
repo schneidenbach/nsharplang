@@ -9,19 +9,43 @@
 
     <!-- Enable by default -->
     <EnableNSharpCompilation Condition="'$(EnableNSharpCompilation)' == ''">true</EnableNSharpCompilation>
+
+    <!-- N# projects provide their own entry points via transpiled .nl files -->
+    <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
 
-  <!-- Import generated props from project.yml if it exists -->
-  <Import Project="$(MSBuildProjectDirectory)/obj/project.g.props" Condition="Exists('$(MSBuildProjectDirectory)/obj/project.g.props')" />
-
-  <!-- Set defaults if project.yml exists but hasn't been processed yet -->
-  <PropertyGroup Condition="Exists('$(NSharpProjectFile)') And '$(TargetFramework)' == ''">
-    <!-- Temporary defaults until project.g.props is generated -->
-    <TargetFramework>net9.0</TargetFramework>
-    <OutputType>Exe</OutputType>
+  <!-- Parse project.yml at evaluation time using MSBuild property functions.
+       This reads the YAML file and extracts key properties via regex BEFORE
+       any targets execute, eliminating the chicken-and-egg problem where
+       properties like OutputType and TargetFramework were unavailable on
+       first build or stale after project.yml edits. -->
+  <PropertyGroup Condition="Exists('$(NSharpProjectFile)')">
+    <_NSharpYamlContent>$([System.IO.File]::ReadAllText('$(NSharpProjectFile)'))</_NSharpYamlContent>
+    <_NSharpParsedOutputType>$([System.Text.RegularExpressions.Regex]::Match($(_NSharpYamlContent), 'outputType:\s*(\S+)').Groups[1].Value)</_NSharpParsedOutputType>
+    <_NSharpParsedTF>$([System.Text.RegularExpressions.Regex]::Match($(_NSharpYamlContent), 'targetFramework:\s*(\S+)').Groups[1].Value)</_NSharpParsedTF>
+    <_NSharpParsedSdk>$([System.Text.RegularExpressions.Regex]::Match($(_NSharpYamlContent), 'sdk:\s*(\S+)').Groups[1].Value)</_NSharpParsedSdk>
+    <_NSharpParsedName>$([System.Text.RegularExpressions.Regex]::Match($(_NSharpYamlContent), 'name:\s*(\S+)').Groups[1].Value)</_NSharpParsedName>
+    <_NSharpParsedTestFramework>$([System.Text.RegularExpressions.Regex]::Match($(_NSharpYamlContent), 'testFramework:\s*(\S+)').Groups[1].Value)</_NSharpParsedTestFramework>
   </PropertyGroup>
 
-  <!-- Import base SDK props -->
-  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <!-- Set properties from parsed YAML (only if not already set by .csproj) -->
+  <PropertyGroup Condition="Exists('$(NSharpProjectFile)')">
+    <TargetFramework Condition="'$(_NSharpParsedTF)' != '' And '$(TargetFramework)' == ''">$(_NSharpParsedTF)</TargetFramework>
+    <OutputType Condition="'$(_NSharpParsedOutputType)' == 'exe' And '$(OutputType)' == ''">Exe</OutputType>
+    <OutputType Condition="'$(_NSharpParsedOutputType)' == 'library' And '$(OutputType)' == ''">Library</OutputType>
+    <AssemblyName Condition="'$(_NSharpParsedName)' != '' And '$(AssemblyName)' == ''">$(_NSharpParsedName)</AssemblyName>
+    <NSharpTestFramework Condition="'$(_NSharpParsedTestFramework)' != ''">$(_NSharpParsedTestFramework)</NSharpTestFramework>
+    <_NSharpBaseSdk Condition="'$(_NSharpParsedSdk)' != ''">$(_NSharpParsedSdk)</_NSharpBaseSdk>
+  </PropertyGroup>
+
+  <!-- Defaults when project.yml doesn't exist or doesn't specify values -->
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
+    <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
+    <_NSharpBaseSdk Condition="'$(_NSharpBaseSdk)' == ''">Microsoft.NET.Sdk</_NSharpBaseSdk>
+  </PropertyGroup>
+
+  <!-- Import base SDK props (dynamic based on project.yml sdk field) -->
+  <Import Project="Sdk.props" Sdk="$(_NSharpBaseSdk)" />
 
 </Project>

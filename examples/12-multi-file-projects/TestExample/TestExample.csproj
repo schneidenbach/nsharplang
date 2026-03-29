@@ -1,7 +1,1 @@
-<Project Sdk="NSharpLang.Sdk">
-  <PropertyGroup>
-    <!-- Override default (Exe) for library projects -->
-    <!-- TODO: Read from project.yml when MSBuild supports early property evaluation -->
-    <OutputType>Library</OutputType>
-  </PropertyGroup>
-</Project>
+<Project Sdk="NSharpLang.Sdk" />
