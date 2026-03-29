@@ -2774,7 +2774,7 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseAssignmentExpression();
+            var right = ParseLambdaOrAssignmentExpression();
             return new AssignmentExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
