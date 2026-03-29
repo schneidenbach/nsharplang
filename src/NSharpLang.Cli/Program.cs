@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using NSharpLang.Compiler;
 using NSharpLang.Cli.Commands;
 
@@ -20,7 +21,12 @@ class Program
             return 0;
         }
 
-        var command = args[0].ToLower();
+        // Handle case-sensitive flags before lowercasing
+        var raw = args[0];
+        if (raw == "--version" || raw == "-V")
+            return ShowVersion();
+
+        var command = raw.ToLower();
 
         return command switch
         {
@@ -30,7 +36,7 @@ class Program
             "new" => NewCommand(args.Skip(1).ToArray()),
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
-            "lint" => LintCommand(args.Skip(1).ToArray()),
+            "lint" => Commands.LintCommand.Execute(args.Skip(1).ToArray()),
             "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
             "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
             "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
@@ -40,7 +46,8 @@ class Program
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
-            _ => Error($"Unknown command: {command}")
+            "--version" => ShowVersion(),
+            _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
         };
     }
 
@@ -263,7 +270,7 @@ Exit codes:
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory");
+                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or 'nlc build <file.nl>' to build a single file.");
             }
 
             // Load project config
@@ -429,9 +436,16 @@ Exit codes:
 Usage: nlc transpile <file.nl>
 
 Transpile a single N# source file to C# and print the generated code to stdout.
+Useful for debugging the compiler, inspecting generated C# for interop, or
+feeding the output into existing C# tooling.
+
+Options:
+  --help, -h    Show this help text
 
 Examples:
   nlc transpile Program.nl
+  nlc transpile Program.nl > Program.cs
+  nlc transpile Program.nl | grep 'class'
 
 Exit codes:
   0  Transpilation succeeded
@@ -902,7 +916,7 @@ Exit codes:
 
         if (Directory.Exists(projectDir))
         {
-            return Error($"Directory already exists: {projectDir}");
+            return Error($"Directory already exists: {projectDir}. Use a different name or remove the existing directory.");
         }
 
         try
@@ -1353,136 +1367,6 @@ Exit codes:
         }
     }
 
-    /// <summary>
-    /// Fast type-check without generating assemblies. The N# equivalent of `cargo check`.
-    /// Parse + analyze only — no transpile, no dotnet build.
-    /// Exit code 0 = clean, 1 = errors. Elm-style output to stderr.
-    /// </summary>
-    static int LintCommand(string[] args)
-    {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
-        {
-            Console.WriteLine(@"N# Lint
-
-Usage: nlc lint [files...]
-
-Run static analysis rules such as unused-variable and missing-import checks.
-
-Examples:
-  nlc lint
-  nlc lint Program.nl
-
-Exit codes:
-  0  No lint issues found
-  1  One or more lint issues were reported");
-            return 0;
-        }
-
-        try
-        {
-            string[] files;
-
-            if (args.Length == 0)
-            {
-                // Lint all .nl files in current directory (recursively)
-                files = Directory.GetFiles(".", "*.nl", SearchOption.AllDirectories);
-            }
-            else
-            {
-                // Lint specified files
-                files = args;
-            }
-
-            if (files.Length == 0)
-            {
-                Console.WriteLine("No .nl files found to lint");
-                return 0;
-            }
-
-            var totalDiagnostics = 0;
-
-            foreach (var file in files)
-            {
-                if (!File.Exists(file))
-                {
-                    Console.Error.WriteLine($"File not found: {file}");
-                    continue;
-                }
-
-                try
-                {
-                    var source = File.ReadAllText(file);
-
-                    // Lexical analysis
-                    var lexer = new Lexer(source, file);
-                    var tokens = lexer.Tokenize();
-
-                    // Parsing
-                    var parser = new Parser(tokens, file, source);  // Pass source code
-                    var parseResult = parser.ParseCompilationUnit();
-
-                    // Check for parse errors
-                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
-                    {
-                        throw new Exception($"Parse errors in {file}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
-                    }
-
-                    // Load linter config from .editorconfig
-                    var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Directory.GetCurrentDirectory();
-                    var linterConfig = LinterConfig.FromEditorConfig(fileDir);
-
-                    // Lint
-                    var linter = new Linter(linterConfig);
-                    var diagnostics = linter.Lint(parseResult.CompilationUnit!, file, source);
-
-                    if (diagnostics.Count > 0)
-                    {
-                        Console.WriteLine($"\n{file}:");
-                        foreach (var diag in diagnostics)
-                        {
-                            PrintDiagnostic(diag);
-                        }
-                        totalDiagnostics += diagnostics.Count;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Error linting {file}: {ex.Message}");
-                }
-            }
-
-            Console.WriteLine($"\nFound {totalDiagnostics} issue(s)");
-            return totalDiagnostics > 0 ? 1 : 0;
-        }
-        catch (Exception ex)
-        {
-            return Error($"Lint failed: {ex.Message}");
-        }
-    }
-
-    static void PrintDiagnostic(Diagnostic diag)
-    {
-        var color = diag.Severity switch
-        {
-            DiagnosticSeverity.Error => ConsoleColor.Red,
-            DiagnosticSeverity.Warning => ConsoleColor.Yellow,
-            _ => ConsoleColor.Gray
-        };
-
-        Console.ForegroundColor = color;
-        Console.Write($"  {diag.Severity.ToString().ToLower()}");
-        Console.ResetColor();
-        Console.WriteLine($" [{diag.Code}]: {diag.Message}");
-        Console.WriteLine($"    --> {diag.Location.FilePath}:{diag.Location.Line}:{diag.Location.Column}");
-
-        if (!string.IsNullOrEmpty(diag.Suggestion))
-        {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"    help: {diag.Suggestion}");
-            Console.ResetColor();
-        }
-    }
-
     static string GenerateTestCsProj(ProjectConfig? config, string? mainProjectDll = null)
     {
         config ??= ProjectFileParser.CreateDefault();
@@ -1585,39 +1469,65 @@ Exit codes:
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 
+    internal static string GetVersion()
+    {
+        return typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion
+            ?? typeof(Program).Assembly.GetName().Version?.ToString()
+            ?? "unknown";
+    }
+
+    static int ShowVersion()
+    {
+        Console.WriteLine($"nlc {GetVersion()}");
+        return 0;
+    }
+
     static int ShowHelp()
     {
-        Console.WriteLine("NewCLILang Compiler (nlc)");
-        Console.WriteLine();
-        Console.WriteLine("Usage: nlc <command> [options]");
-        Console.WriteLine();
-        Console.WriteLine("Commands:");
-        Console.WriteLine("  build <file.nl>      - Compile single .nl file to C#");
-        Console.WriteLine("  build                - Compile all .nl files in project (multi-file)");
-        Console.WriteLine("  transpile <file.nl>  - Transpile .nl file to C# and print to stdout");
-        Console.WriteLine("  run <file.nl>        - Compile and run single .nl file");
-        Console.WriteLine("  run                  - Compile and run all .nl files in project");
-        Console.WriteLine("  test                 - Run all .tests.nl files with XUnit");
-        Console.WriteLine("  format [files...]    - Format .nl files (all files if none specified)");
-        Console.WriteLine("  clean                - Remove build artifacts (bin/, obj/, nsharp/, .nlc/)");
-        Console.WriteLine("  watch                - Re-run check/build/test when files change");
-        Console.WriteLine("  doc                  - Generate HTML API documentation for a project");
-        Console.WriteLine("  completion           - Generate shell completion scripts");
-        Console.WriteLine("  check                - Fast type-check (JSON by default) — like cargo check");
-        Console.WriteLine("  fix                  - Auto-apply compiler suggestions (JSON by default)");
-        Console.WriteLine("  lint [files...]      - Lint .nl files and show diagnostics");
-        Console.WriteLine("  query                - Code intelligence commands for LLMs and terminals");
-        Console.WriteLine("  daemon               - Background analysis daemon commands");
-        Console.WriteLine("  new <project-name>   - Create a new N# project with project.yml");
-        Console.WriteLine("  help                 - Show this help message");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --keep-generated         - Keep generated .cs files for debugging (build command)");
-        Console.WriteLine("  --check                  - Verify files are formatted correctly (format command, for CI)");
-        Console.WriteLine("  --verify-no-changes      - Back-compat alias for --check");
-        Console.WriteLine("  --text                   - Human-readable output for check/fix/query");
-        Console.WriteLine("  --json                   - Structured JSON output (default for check/fix/query)");
-        Console.WriteLine();
+        Console.WriteLine($@"N# Compiler (nlc) {GetVersion()}
+
+Usage: nlc <command> [options]
+
+Build & Run:
+  build [file]         Compile a project or single .nl file
+  run [file]           Build and run a project or single file
+  transpile <file>     Transpile .nl to C# and print to stdout
+  clean                Remove build artifacts
+
+Analysis & Fix:
+  check                Fast type-check (JSON by default)
+  fix                  Auto-apply compiler suggestions
+  query <cmd>          Code intelligence for LLMs and terminals
+  daemon <cmd>         Background analysis daemon
+
+Code Quality:
+  format [files...]    Format .nl source files
+  lint [files...]      Run static analysis rules
+  test                 Run .tests.nl test suites
+
+Project:
+  new <name>           Create a new N# project
+  watch <cmd>          Re-run check/build/test on file changes
+  doc                  Generate HTML API documentation
+  completion <shell>   Generate shell completion scripts
+
+Options:
+  --version, -V        Show nlc version
+  --text               Human-readable output for check/fix/query/lint
+  --json               Structured JSON output (default for check/fix/query/lint)
+  --help, -h           Show this help message
+
+Common Workflows:
+  nlc new MyApp && cd MyApp    Create and enter a new project
+  nlc check                    Fast feedback loop
+  nlc fix && nlc check         Auto-fix then verify
+  nlc format --check           CI formatting gate
+  nlc test --filter AddPerson  Run specific tests
+  nlc watch check              Re-check on every save
+
+Run 'nlc <command> --help' for command-specific options.");
 
         return 0;
     }
