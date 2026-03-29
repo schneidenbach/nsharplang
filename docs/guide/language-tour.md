@@ -549,10 +549,14 @@ The compiler maps common assert patterns to XUnit's best assertion methods:
 | `assert x == 5` | `Assert.Equal(5, x)` |
 | `assert x != null` | `Assert.NotNull(x)` |
 | `assert x == null` | `Assert.Null(x)` |
+| `assert !isValid` | `Assert.False(isValid)` |
 | `assert list.Contains(x)` | `Assert.Contains(x, list)` |
+| `assert !list.Contains(x)` | `Assert.DoesNotContain(x, list)` |
 | `assert str.StartsWith("x")` | `Assert.StartsWith("x", str)` |
 | `assert str.EndsWith("x")` | `Assert.EndsWith("x", str)` |
 | `assert list.Count == 0` | `Assert.Empty(list)` |
+| `assert list.Count != 0` | `Assert.NotEmpty(list)` |
+| `assert list.Count == 1` | `Assert.Single(list)` |
 | `assert x is MyType` | `Assert.IsType<MyType>(x)` |
 
 ### Running Tests

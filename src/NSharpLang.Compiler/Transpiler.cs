@@ -1396,6 +1396,10 @@ public class Transpiler
                     WriteLine($"Assert.True({TranspileExpression(condition)});");
                 break;
 
+            case UnaryExpression { Operator: UnaryOperator.Not } unary:
+                TranspileNegatedAssert(unary.Operand);
+                break;
+
             default:
                 // Simple boolean expression: assert x → Assert.True(x)
                 WriteLine($"Assert.True({TranspileExpression(condition)});");
@@ -1429,6 +1433,33 @@ public class Transpiler
 
             default:
                 return false;
+        }
+    }
+
+    private void TranspileNegatedAssert(Expression inner)
+    {
+        switch (inner)
+        {
+            // assert !list.Contains(x) → Assert.DoesNotContain(x, list)
+            case CallExpression call when call.Callee is MemberAccessExpression ma:
+                var obj = TranspileExpression(ma.Object);
+                switch (ma.MemberName)
+                {
+                    case "Contains" when call.Arguments.Count == 1:
+                        var arg = TranspileExpression(call.Arguments[0].Value);
+                        WriteLine($"Assert.DoesNotContain({arg}, {obj});");
+                        return;
+                    default:
+                        break;
+                }
+                // Fall through to Assert.False
+                WriteLine($"Assert.False({TranspileExpression(inner)});");
+                break;
+
+            default:
+                // assert !x → Assert.False(x)
+                WriteLine($"Assert.False({TranspileExpression(inner)});");
+                break;
         }
     }
 
@@ -1481,6 +1512,13 @@ public class Transpiler
                 {
                     WriteLine($"Assert.Empty({TranspileExpression(ma.Object)});");
                 }
+                // assert list.Count == 1 → Assert.Single(list)
+                else if (binExpr.Left is MemberAccessExpression ma1
+                    && (ma1.MemberName == "Count" || ma1.MemberName == "Length")
+                    && binExpr.Right is IntLiteralExpression intLit1 && intLit1.Value == "1")
+                {
+                    WriteLine($"Assert.Single({TranspileExpression(ma1.Object)});");
+                }
                 else
                 {
                     // assert x == y → Assert.Equal(y, x) [XUnit expects expected first]
@@ -1497,6 +1535,13 @@ public class Transpiler
                 else if (binExpr.Left is NullLiteralExpression)
                 {
                     WriteLine($"Assert.NotNull({right});");
+                }
+                // assert list.Count != 0 / assert str.Length != 0 → Assert.NotEmpty(obj)
+                else if (binExpr.Left is MemberAccessExpression maNe
+                    && (maNe.MemberName == "Count" || maNe.MemberName == "Length")
+                    && binExpr.Right is IntLiteralExpression intLitNe && intLitNe.Value == "0")
+                {
+                    WriteLine($"Assert.NotEmpty({TranspileExpression(maNe.Object)});");
                 }
                 else
                 {

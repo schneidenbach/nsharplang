@@ -2066,6 +2066,54 @@ test ""test ends with"" {
     }
 
     [Fact]
+    public void TestAssertFalseTranspilation()
+    {
+        var source = @"
+test ""test false"" {
+    assert !isValid
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.False(isValid);", result);
+    }
+
+    [Fact]
+    public void TestAssertDoesNotContainTranspilation()
+    {
+        var source = @"
+test ""test does not contain"" {
+    assert !list.Contains(x)
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.DoesNotContain(x, list);", result);
+    }
+
+    [Fact]
+    public void TestAssertSingleTranspilation()
+    {
+        var source = @"
+test ""test single"" {
+    assert list.Count == 1
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Single(list);", result);
+    }
+
+    [Fact]
+    public void TestAssertNotEmptyTranspilation()
+    {
+        var source = @"
+test ""test not empty"" {
+    assert list.Count != 0
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.NotEmpty(list);", result);
+    }
+
+    [Fact]
     public void TestSetupBlockTranspilation()
     {
         var source = @"
