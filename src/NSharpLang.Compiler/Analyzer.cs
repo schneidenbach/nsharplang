@@ -137,6 +137,9 @@ public class Analyzer
             case TestDeclaration test:
                 AnalyzeTestDeclaration(test);
                 break;
+            case SetupDeclaration setup:
+                AnalyzeSetupDeclaration(setup);
+                break;
             case FunctionDeclaration func:
                 AnalyzeFunctionDeclaration(func);
                 break;
@@ -178,7 +181,44 @@ public class Analyzer
         // Tests are similar to functions - create scope and analyze body
         PushScope(new Scope(ScopeKind.Function));
 
+        // If table-driven, declare parameters in scope
+        if (test.TableParameters != null)
+        {
+            foreach (var param in test.TableParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, test.Line, test.Column);
+            }
+
+            // Validate test case row counts match parameter count
+            if (test.TableCases != null)
+            {
+                foreach (var row in test.TableCases)
+                {
+                    if (row.Count != test.TableParameters.Count)
+                    {
+                        Error(
+                            ErrorCode.TypeMismatch,
+                            $"Test case row has {row.Count} values but {test.TableParameters.Count} parameters were declared",
+                            test.Line, test.Column);
+                    }
+                }
+            }
+        }
+
         foreach (var stmt in test.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+
+        PopScope();
+    }
+
+    private void AnalyzeSetupDeclaration(SetupDeclaration setup)
+    {
+        PushScope(new Scope(ScopeKind.Function));
+
+        foreach (var stmt in setup.Body.Statements)
         {
             AnalyzeStatement(stmt);
         }
@@ -848,6 +888,9 @@ public class Analyzer
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
                 break;
+            case AssertThrowsStatement assertThrows:
+                AnalyzeAssertThrowsStatement(assertThrows);
+                break;
             case PreprocessorDirective:
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
@@ -862,8 +905,25 @@ public class Analyzer
         // Analyze the condition expression
         var condType = AnalyzeExpression(assertStmt.Condition);
 
+        // Analyze optional message expression
+        if (assertStmt.Message != null)
+        {
+            AnalyzeExpression(assertStmt.Message);
+        }
+
         // We don't strictly require boolean type because we support various comparison patterns
         // The transpiler will convert different expression types to appropriate Assert calls
+    }
+
+    private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
+    {
+        // Analyze the body block
+        PushScope(new Scope(ScopeKind.Block));
+        foreach (var stmt in assertThrows.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+        PopScope();
     }
 
     private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)

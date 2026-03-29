@@ -1587,6 +1587,7 @@ public class CodeIntelligenceService
         PropertyDeclaration pd => pd.Name,
         TypeAliasDeclaration ta => ta.Name,
         TestDeclaration td => td.Description,
+        SetupDeclaration => "setup",
         _ => null
     };
 
@@ -1604,6 +1605,7 @@ public class CodeIntelligenceService
         ConstructorDeclaration => "constructor",
         TypeAliasDeclaration => "typeAlias",
         TestDeclaration => "test",
+        SetupDeclaration => "setup",
         _ => "unknown"
     };
 

@@ -332,6 +332,73 @@ test "should add two numbers" {
 
 Same philosophy — tests live near code, named descriptively. Run with `nlc test`.
 
+### Table-Driven Tests (Go's Most Iconic Pattern)
+
+**Go:**
+```go
+func TestAdd(t *testing.T) {
+    tests := []struct {
+        a, b, expected int
+    }{
+        {1, 2, 3},
+        {0, 0, 0},
+        {-1, 1, 0},
+    }
+    for _, tt := range tests {
+        t.Run(fmt.Sprintf("%d+%d", tt.a, tt.b), func(t *testing.T) {
+            if got := Add(tt.a, tt.b); got != tt.expected {
+                t.Errorf("got %d, want %d", got, tt.expected)
+            }
+        })
+    }
+}
+```
+
+**N#:**
+```n#
+test "should add" with (a: int, b: int, expected: int) [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0)
+] {
+    assert Add(a, b) == expected
+}
+```
+
+Same data-driven philosophy, but with dedicated syntax instead of anonymous structs + loops. Transpiles to XUnit `[Theory]`/`[InlineData]`.
+
+### Assert Messages & Throws
+
+**Go:**
+```go
+t.Errorf("expected 5, got %d", result)  // custom messages
+```
+
+**N#:**
+```n#
+assert result == 5, "expected correct sum"
+assert throws DivideByZeroException {
+    Calculator.Divide(10, 0)
+}
+```
+
+### Setup & Skip
+
+```n#
+setup {
+    store := new TaskStore()
+    service := new TaskService(store)
+}
+
+test "should add task" {
+    assert service.AddTask("Test", Priority.High, tags, "") != null
+}
+
+test "needs network" skip "CI has no network" {
+    // skipped
+}
+```
+
 ## Formatting
 
 **Go:**
@@ -353,6 +420,9 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 | `go build` | `dotnet build` | Compile |
 | `go run` | `dotnet run` | Build + run |
 | `go test` | `nlc test` | Run tests |
+| `go test -run` | `nlc test --filter` | Filter tests |
+| `go test -cover` | `nlc test --coverage` | Code coverage |
+| `go test -json` | `nlc test --json` | Machine-readable output |
 | `go fmt` | `nlc format` | Format code |
 | `go vet` | `nlc lint` | Static analysis |
 | `go doc` | `nlc query symbols` | Code intelligence |
