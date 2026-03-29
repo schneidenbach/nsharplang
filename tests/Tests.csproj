@@ -22,6 +22,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Testcontainers" Version="4.3.0" />
     <!-- ASP.NET Core assemblies for analyzer tests -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>

@@ -2,6 +2,7 @@
 bin/
 obj/
 *.g.cs
+*.g.csproj
 
 # Debug/test files
 debug_*.cs
