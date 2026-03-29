@@ -2089,12 +2089,12 @@ public class Analyzer
             // Try property
             var property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
             if (property != null)
-                return ConvertReflectionType(property.PropertyType);
+                return SafeConvertReflectionType(() => property.PropertyType);
 
             // Try field
             var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
             if (field != null)
-                return ConvertReflectionType(field.FieldType);
+                return SafeConvertReflectionType(() => field.FieldType);
 
             // Try methods (get all matching methods to handle overloads)
             var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
@@ -2292,12 +2292,19 @@ public class Analyzer
                     if (method.Name != methodName || !method.IsDefined(typeof(ExtensionAttribute), false))
                         continue;
 
-                    var parameters = method.GetParameters();
-                    if (parameters.Length == 0)
+                    var parameters = SafeGetParameters(method);
+                    if (parameters == null || parameters.Length == 0)
                         continue;
 
-                    if (IsExtensionParameterCompatible(parameters[0].ParameterType, targetClrType))
-                        methods.Add(method);
+                    try
+                    {
+                        if (IsExtensionParameterCompatible(parameters[0].ParameterType, targetClrType))
+                            methods.Add(method);
+                    }
+                    catch (Exception ex) when (IsAssemblyMismatchException(ex))
+                    {
+                        // Skip extension methods whose parameter types can't be loaded
+                    }
                 }
             }
         }
@@ -2320,6 +2327,42 @@ public class Analyzer
             return Array.Empty<Type>();
         }
     }
+
+    /// <summary>
+    /// Safely get method parameters, returning null if the parameter types
+    /// can't be loaded due to assembly version mismatches (e.g., language server
+    /// hosting OmniSharp's Microsoft.Extensions.* 6.0 while analyzing ASP.NET Core 9.0).
+    /// </summary>
+    private static ParameterInfo[]? SafeGetParameters(MethodInfo method)
+    {
+        try
+        {
+            return method.GetParameters();
+        }
+        catch (Exception ex) when (IsAssemblyMismatchException(ex))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Safely access a reflection Type property (PropertyType, ReturnType, ParameterType, etc.)
+    /// and convert it to a TypeInfo, returning Unknown if the type can't be loaded.
+    /// </summary>
+    private TypeInfo SafeConvertReflectionType(Func<Type> typeAccessor)
+    {
+        try
+        {
+            return ConvertReflectionType(typeAccessor());
+        }
+        catch (Exception ex) when (IsAssemblyMismatchException(ex))
+        {
+            return BuiltInTypes.Unknown;
+        }
+    }
+
+    private static bool IsAssemblyMismatchException(Exception ex)
+        => ex is FileLoadException or MissingMethodException or TypeLoadException or FileNotFoundException;
 
     private bool IsExtensionParameterCompatible(Type parameterType, Type targetClrType)
     {
@@ -2443,12 +2486,16 @@ public class Analyzer
         if (invokeMethod == null)
             return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
 
+        var invokeParameters = SafeGetParameters(invokeMethod);
+        if (invokeParameters == null)
+            return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
+
         return new FunctionTypeInfo(null)
         {
-            ParameterTypes = invokeMethod.GetParameters()
-                .Select(parameter => ConvertReflectionType(parameter.ParameterType))
+            ParameterTypes = invokeParameters
+                .Select(parameter => SafeConvertReflectionType(() => parameter.ParameterType))
                 .ToList(),
-            ReturnType = ConvertReflectionType(invokeMethod.ReturnType)
+            ReturnType = SafeConvertReflectionType(() => invokeMethod.ReturnType)
         };
     }
 
@@ -2803,7 +2850,7 @@ public class Analyzer
             if (boundCall?.ReturnType != null)
                 return boundCall.ReturnType;
 
-            return ConvertReflectionType(methodInfo.Method.ReturnType);
+            return SafeConvertReflectionType(() => methodInfo.Method.ReturnType);
         }
 
         // Handle method group (overloaded methods)
@@ -2818,10 +2865,10 @@ public class Analyzer
                 .ToArray();
 
             if (compatibleMethods.Length > 0)
-                return ConvertReflectionType(compatibleMethods[0].ReturnType);
+                return SafeConvertReflectionType(() => compatibleMethods[0].ReturnType);
 
             if (methodGroup.Methods.Length > 0)
-                return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
+                return SafeConvertReflectionType(() => methodGroup.Methods[0].ReturnType);
         }
 
         // Handle N#-declared method group (overloaded N# methods)
@@ -3276,7 +3323,9 @@ public class Analyzer
         var bindings = new Dictionary<Type, Type>();
         var openMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
         var parameterOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
-        var parameters = openMethod.GetParameters();
+        var parameters = SafeGetParameters(openMethod);
+        if (parameters == null)
+            return null;
 
         if (parameterOffset == 1)
         {
@@ -3357,7 +3406,9 @@ public class Analyzer
     {
         var workingBindings = new Dictionary<Type, Type>(bindings);
         var parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
-        var parameters = method.GetParameters();
+        var parameters = SafeGetParameters(method);
+        if (parameters == null)
+            return null;
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
@@ -3399,7 +3450,9 @@ public class Analyzer
                 return null;
 
             method = method.MakeGenericMethod(genericArguments.Select(argument => workingBindings[argument]).ToArray());
-            parameters = method.GetParameters();
+            parameters = SafeGetParameters(method);
+            if (parameters == null)
+                return null;
             parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
         }
 
@@ -3439,7 +3492,7 @@ public class Analyzer
         return new FunctionTypeInfo(null)
         {
             ParameterTypes = parameterTypes,
-            ReturnType = ConvertReflectionType(method.ReturnType)
+            ReturnType = SafeConvertReflectionType(() => method.ReturnType)
         };
     }
 
@@ -3482,7 +3535,10 @@ public class Analyzer
 
     private static int GetCallParameterCount(MethodInfo method, CallExpression call)
     {
-        return Math.Max(0, method.GetParameters().Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
+        var parameters = SafeGetParameters(method);
+        if (parameters == null)
+            return -1;
+        return Math.Max(0, parameters.Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
     }
 
     private static int GetReflectionMatchScore(Type parameterType, Type argumentType)
