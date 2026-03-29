@@ -81,31 +81,30 @@ public class DocQuery
     /// </summary>
     public void LoadSystemAssemblies()
     {
-        AddAssembly(typeof(object).Assembly);
-        AddAssembly(typeof(Console).Assembly);
-        AddAssembly(typeof(Enumerable).Assembly);
-        AddAssembly(typeof(List<>).Assembly);
-        AddAssembly(typeof(File).Assembly);
-        AddAssembly(typeof(System.Threading.Tasks.Task).Assembly);
-        AddAssembly(typeof(System.Text.RegularExpressions.Regex).Assembly);
-        AddAssembly(typeof(System.Net.Http.HttpClient).Assembly);
-        AddAssembly(typeof(System.Text.Json.JsonSerializer).Assembly);
+        var seedAssemblies = new Assembly[]
+        {
+            typeof(object).Assembly,
+            typeof(Console).Assembly,
+            typeof(System.Linq.Enumerable).Assembly,
+            typeof(System.Collections.Generic.List<>).Assembly,
+            typeof(System.IO.File).Assembly,
+            typeof(System.Threading.Tasks.Task).Assembly,
+            typeof(System.Text.RegularExpressions.Regex).Assembly,
+            typeof(System.Net.Http.HttpClient).Assembly,
+            typeof(System.Text.Json.JsonSerializer).Assembly,
+        };
+
+        foreach (var assembly in seedAssemblies)
+            AddAssembly(assembly);
 
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic))
-        {
             AddAssembly(assembly);
-        }
 
-        foreach (var assemblyName in DiscoverReferencePackAssemblyNames())
+        // Discover additional assemblies from reference packs
+        foreach (var asmName in DiscoverReferencePackAssemblyNames())
         {
-            try
-            {
-                AddAssembly(Assembly.Load(new AssemblyName(assemblyName)));
-            }
-            catch
-            {
-                // Some ref-pack assemblies are not available at runtime. Skip them.
-            }
+            try { AddAssembly(Assembly.Load(asmName)); }
+            catch { /* not available at runtime */ }
         }
     }
 
@@ -503,7 +502,7 @@ public class DocQuery
     private string[] GetBaseTypes(Type type)
     {
         var result = new List<string>();
-        if (type.BaseType != null && type.BaseType != typeof(object) && type.BaseType != typeof(ValueType))
+        if (type.BaseType != null && type.BaseType.FullName != "System.Object" && type.BaseType.FullName != "System.ValueType")
             result.Add(FormatType(type.BaseType));
         foreach (var iface in type.GetInterfaces())
             result.Add(FormatType(iface));
@@ -513,16 +512,16 @@ public class DocQuery
     private static string FormatType(Type type)
     {
         if (type.IsGenericParameter) return type.Name;
-        if (type == typeof(void)) return "void";
-        if (type == typeof(int)) return "int";
-        if (type == typeof(long)) return "long";
-        if (type == typeof(float)) return "float";
-        if (type == typeof(double)) return "double";
-        if (type == typeof(bool)) return "bool";
-        if (type == typeof(string)) return "string";
-        if (type == typeof(char)) return "char";
-        if (type == typeof(byte)) return "byte";
-        if (type == typeof(object)) return "object";
+        if (type.FullName == "System.Void") return "void";
+        if (type.FullName == "System.Int32") return "int";
+        if (type.FullName == "System.Int64") return "long";
+        if (type.FullName == "System.Single") return "float";
+        if (type.FullName == "System.Double") return "double";
+        if (type.FullName == "System.Boolean") return "bool";
+        if (type.FullName == "System.String") return "string";
+        if (type.FullName == "System.Char") return "char";
+        if (type.FullName == "System.Byte") return "byte";
+        if (type.FullName == "System.Object") return "object";
 
         if (type.IsGenericType)
         {
@@ -876,8 +875,15 @@ public class DocQuery
         }
 
         var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        AddDotNetRootCandidate(roots, typeof(object).Assembly.Location);
-        AddDotNetRootCandidate(roots, typeof(Console).Assembly.Location);
+        // Discover dotnet root from loaded assemblies instead of runtime typeof()
+        foreach (var asm in _assemblies)
+        {
+            if (!string.IsNullOrWhiteSpace(asm.Location))
+            {
+                AddDotNetRootCandidate(roots, asm.Location);
+                break; // One good location is enough to find the SDK root
+            }
+        }
 
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
         if (!string.IsNullOrWhiteSpace(dotnetRoot))

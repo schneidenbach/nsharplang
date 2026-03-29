@@ -51,10 +51,17 @@ public class Transpiler
             WriteLine("using System;");
         }
 
-        // Add Xunit using if we have test declarations
+        // Add test framework using if we have test declarations
         if (hasTests)
         {
-            WriteLine("using Xunit;");
+            if (_projectConfig?.TestFramework == "nunit")
+            {
+                WriteLine("using NUnit.Framework;");
+            }
+            else
+            {
+                WriteLine("using Xunit;");
+            }
         }
 
         // Transpile import directives to C# using statements
@@ -204,6 +211,10 @@ public class Transpiler
                 ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
                 : "Tests";
 
+            if (_projectConfig?.TestFramework == "nunit")
+            {
+                WriteLine("[TestFixture]");
+            }
             WriteLine($"public class {className}");
             WriteLine("{");
             _indentLevel++;
@@ -306,8 +317,11 @@ public class Transpiler
         // Check if test contains await - if so, make it async
         var containsAwait = ContainsAwait(test.Body);
 
+        var isNUnit = _projectConfig?.TestFramework == "nunit";
+
         // Emit Trait for N# description mapping (used by nlc test --json)
-        WriteLine($"[Trait(\"NSharpDescription\", \"{test.Description.Replace("\"", "\\\"")}\")]");
+        if (!isNUnit)
+            WriteLine($"[Trait(\"NSharpDescription\", \"{test.Description.Replace("\"", "\\\"")}\")]");
 
         // Table-driven test (Theory) vs simple test (Fact)
         if (test.TableParameters != null && test.TableCases != null)
@@ -336,10 +350,20 @@ public class Transpiler
         }
         else
         {
-            // Emit [Fact] with optional Skip
-            var factAttr = test.SkipReason != null
-                ? $"[Fact(Skip = \"{test.SkipReason.Replace("\"", "\\\"")}\")]"
-                : "[Fact]";
+            // Emit [Fact] (XUnit) or [Test] (NUnit) with optional Skip
+            string factAttr;
+            if (isNUnit)
+            {
+                factAttr = test.SkipReason != null
+                    ? $"[Test, Ignore(\"{test.SkipReason.Replace("\"", "\\\"")}\")]"
+                    : "[Test]";
+            }
+            else
+            {
+                factAttr = test.SkipReason != null
+                    ? $"[Fact(Skip = \"{test.SkipReason.Replace("\"", "\\\"")}\")]"
+                    : "[Fact]";
+            }
             WriteLine(factAttr);
 
             if (containsAwait)
@@ -1376,19 +1400,28 @@ public class Transpiler
             return;
         }
 
-        // Smart assert transpilation - convert different patterns to appropriate XUnit asserts
         var condition = assertStmt.Condition;
+        var isNUnit = _projectConfig?.TestFramework == "nunit";
 
         switch (condition)
         {
             case BinaryExpression binExpr:
-                TranspileBinaryAssert(binExpr);
+                TranspileBinaryAssert(binExpr, isNUnit);
                 break;
 
             case IsExpression isExpr:
-                // assert x is Type → Assert.IsType<Type>(x)
                 var typeName = TranspileTypeReference(isExpr.Type);
-                WriteLine($"Assert.IsType<{typeName}>({TranspileExpression(isExpr.Expression)});");
+                var expr = TranspileExpression(isExpr.Expression);
+                if (isNUnit)
+                {
+                    // assert x is Type → Assert.That(x, Is.InstanceOf<Type>())
+                    WriteLine($"Assert.That({expr}, Is.InstanceOf<{typeName}>());");
+                }
+                else
+                {
+                    // assert x is Type → Assert.IsType<Type>(x)
+                    WriteLine($"Assert.IsType<{typeName}>({expr});");
+                }
                 break;
 
             case CallExpression callExpr when callExpr.Callee is MemberAccessExpression memberAccess:
@@ -1401,8 +1434,15 @@ public class Transpiler
                 break;
 
             default:
-                // Simple boolean expression: assert x → Assert.True(x)
-                WriteLine($"Assert.True({TranspileExpression(condition)});");
+                // Simple boolean expression: assert x
+                if (isNUnit)
+                {
+                    WriteLine($"Assert.That({TranspileExpression(condition)}, Is.True);");
+                }
+                else
+                {
+                    WriteLine($"Assert.True({TranspileExpression(condition)});");
+                }
                 break;
         }
     }
@@ -1488,11 +1528,23 @@ public class Transpiler
         WriteLine("});");
     }
 
-    private void TranspileBinaryAssert(BinaryExpression binExpr)
+    private void TranspileBinaryAssert(BinaryExpression binExpr, bool isNUnit)
     {
         var left = TranspileExpression(binExpr.Left);
         var right = TranspileExpression(binExpr.Right);
 
+        if (isNUnit)
+        {
+            TranspileBinaryAssertNUnit(binExpr, left, right);
+        }
+        else
+        {
+            TranspileBinaryAssertXUnit(binExpr, left, right);
+        }
+    }
+
+    private void TranspileBinaryAssertXUnit(BinaryExpression binExpr, string left, string right)
+    {
         switch (binExpr.Operator)
         {
             case BinaryOperator.Equal:
@@ -1576,6 +1628,68 @@ public class Transpiler
                     _ => "??"
                 };
                 WriteLine($"Assert.True({left} {defaultOp} {right});");
+                break;
+        }
+    }
+
+    private void TranspileBinaryAssertNUnit(BinaryExpression binExpr, string left, string right)
+    {
+        switch (binExpr.Operator)
+        {
+            case BinaryOperator.Equal:
+                // assert x == y → Assert.That(x, Is.EqualTo(y))
+                WriteLine($"Assert.That({left}, Is.EqualTo({right}));");
+                break;
+
+            case BinaryOperator.NotEqual:
+                if (binExpr.Right is NullLiteralExpression)
+                {
+                    // assert x != null → Assert.That(x, Is.Not.Null)
+                    WriteLine($"Assert.That({left}, Is.Not.Null);");
+                }
+                else if (binExpr.Left is NullLiteralExpression)
+                {
+                    // assert null != x → Assert.That(x, Is.Not.Null)
+                    WriteLine($"Assert.That({right}, Is.Not.Null);");
+                }
+                else
+                {
+                    // assert x != y → Assert.That(x, Is.Not.EqualTo(y))
+                    WriteLine($"Assert.That({left}, Is.Not.EqualTo({right}));");
+                }
+                break;
+
+            case BinaryOperator.Greater:
+                // assert x > y → Assert.That(x, Is.GreaterThan(y))
+                WriteLine($"Assert.That({left}, Is.GreaterThan({right}));");
+                break;
+
+            case BinaryOperator.Less:
+                // assert x < y → Assert.That(x, Is.LessThan(y))
+                WriteLine($"Assert.That({left}, Is.LessThan({right}));");
+                break;
+
+            case BinaryOperator.GreaterOrEqual:
+                // assert x >= y → Assert.That(x, Is.GreaterThanOrEqualTo(y))
+                WriteLine($"Assert.That({left}, Is.GreaterThanOrEqualTo({right}));");
+                break;
+
+            case BinaryOperator.LessOrEqual:
+                // assert x <= y → Assert.That(x, Is.LessThanOrEqualTo(y))
+                WriteLine($"Assert.That({left}, Is.LessThanOrEqualTo({right}));");
+                break;
+
+            default:
+                // Default to Assert.That(..., Is.True)
+                var defaultOp = binExpr.Operator switch
+                {
+                    BinaryOperator.Add => "+",
+                    BinaryOperator.Subtract => "-",
+                    BinaryOperator.And => "&&",
+                    BinaryOperator.Or => "||",
+                    _ => "??"
+                };
+                WriteLine($"Assert.That({left} {defaultOp} {right}, Is.True);");
                 break;
         }
     }

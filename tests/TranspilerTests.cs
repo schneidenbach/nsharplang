@@ -17,6 +17,16 @@ public class TranspilerTests
         return transpiler.Transpile();
     }
 
+    private static string TranspileWithConfig(string source, ProjectConfig config)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        var transpiler = new Transpiler(result.CompilationUnit!, config);
+        return transpiler.Transpile();
+    }
+
     [Fact]
     public void TestIndexerTranspilation()
     {
@@ -3618,5 +3628,133 @@ class TaskEntity {
         Assert.Contains("public Guid Id { get; set; }", result);
         Assert.Contains("public string Title { get; set; }", result);
         Assert.Contains("public DateTime CreatedAt { get; set; }", result);
+    }
+
+    // NUnit test framework transpilation tests
+
+    [Fact]
+    public void TestNUnitAssertEqualTranspilation()
+    {
+        var source = @"
+test ""test equals"" {
+    assert x == 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("using NUnit.Framework;", result);
+        Assert.Contains("[TestFixture]", result);
+        Assert.Contains("[Test]", result);
+        Assert.Contains("Assert.That(x, Is.EqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertNotEqualTranspilation()
+    {
+        var source = @"
+test ""test not equals"" {
+    assert x != 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.Not.EqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertNotNullTranspilation()
+    {
+        var source = @"
+test ""test not null"" {
+    assert value != null
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(value, Is.Not.Null);", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertGreaterThanTranspilation()
+    {
+        var source = @"
+test ""test greater than"" {
+    assert x > 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.GreaterThan(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertLessThanTranspilation()
+    {
+        var source = @"
+test ""test less than"" {
+    assert x < 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.LessThan(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertGreaterThanOrEqualTranspilation()
+    {
+        var source = @"
+test ""test gte"" {
+    assert x >= 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.GreaterThanOrEqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertLessThanOrEqualTranspilation()
+    {
+        var source = @"
+test ""test lte"" {
+    assert x <= 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.LessThanOrEqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertBooleanTranspilation()
+    {
+        var source = @"
+test ""test boolean"" {
+    assert isValid
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(isValid, Is.True);", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertIsTypeTranspilation()
+    {
+        var source = @"
+test ""test type check"" {
+    assert value is string
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(value, Is.InstanceOf<string>());", result);
+    }
+
+    [Fact]
+    public void TestXUnitIsDefaultWhenNoConfig()
+    {
+        var source = @"
+test ""test default"" {
+    assert x == 5
+}";
+        var result = Transpile(source);
+        Assert.Contains("using Xunit;", result);
+        Assert.Contains("[Fact]", result);
+        Assert.Contains("Assert.Equal(5, x);", result);
+        Assert.DoesNotContain("NUnit", result);
+        Assert.DoesNotContain("[TestFixture]", result);
     }
 }
