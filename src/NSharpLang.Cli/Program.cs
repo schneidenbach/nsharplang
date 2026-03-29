@@ -46,6 +46,15 @@ class Program
             "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
+            "add" => AddCommand.Execute(args.Skip(1).ToArray()),
+            "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
+            "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
+            "publish" => PublishCommand.Execute(args.Skip(1).ToArray()),
+            "init" => InitCommand.Execute(args.Skip(1).ToArray()),
+            "env" => EnvCommand.Execute(args.Skip(1).ToArray()),
+            "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
+            "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
+            "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
@@ -854,12 +863,21 @@ Exit codes:
     print ""Hello, N#!""
 }");
 
+            // Create minimal .csproj (MSBuild entry point — all config comes from project.yml)
+            var csprojPath = Path.Combine(projectDir, $"{projectName}.csproj");
+            File.WriteAllText(csprojPath, "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+
+            // Generate obj/project.g.props so dotnet build works immediately
+            RestoreCommand.Restore(projectDir, quiet: true);
+
             Console.WriteLine($"Created: {projectName}/project.yml");
             Console.WriteLine($"Created: {projectName}/Program.nl");
+            Console.WriteLine($"Created: {projectName}/{projectName}.csproj");
             Console.WriteLine();
             Console.WriteLine($"To build and run your project:");
             Console.WriteLine($"  cd {projectName}");
-            Console.WriteLine($"  nlc run Program.nl");
+            Console.WriteLine($"  nlc build");
+            Console.WriteLine($"  nlc run");
             Console.WriteLine();
 
             return 0;
@@ -1425,6 +1443,7 @@ Build & Run:
   build [file]         Compile a project or single .nl file
   run [file]           Build and run a project or single file
   restore              Generate build config from project.yml
+  publish              Publish project for deployment
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
 
@@ -1438,11 +1457,21 @@ Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
   test                 Run .tests.nl test suites
+  bench                Run benchmarks
+
+Dependencies:
+  add <package>        Add a NuGet dependency to project.yml
+  remove <package>     Remove a dependency from project.yml
+  update [package]     Update dependencies to latest versions
+  tree                 Show dependency tree
+  audit                Check for known vulnerabilities
 
 Project:
   new <name>           Create a new N# project
+  init                 Initialize N# in the current directory
   watch <cmd>          Re-run check/build/test on file changes
   doc                  Generate HTML API documentation
+  env                  Show environment and toolchain info
   completion <shell>   Generate shell completion scripts
 
 Options:
@@ -1453,11 +1482,13 @@ Options:
 
 Common Workflows:
   nlc new MyApp && cd MyApp    Create and enter a new project
+  nlc add Serilog@3.1.0        Add a dependency
   nlc check                    Fast feedback loop
   nlc fix && nlc check         Auto-fix then verify
   nlc format --check           CI formatting gate
   nlc test --filter AddPerson  Run specific tests
   nlc watch check              Re-check on every save
+  nlc publish -c Release       Publish for deployment
 
 Run 'nlc <command> --help' for command-specific options.");
 
