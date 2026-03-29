@@ -191,6 +191,27 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string LintToJson(List<DiagnosticResult> results, string? projectRoot, int lintedFiles)
+    {
+        var summary = new DiagnosticSummary(
+            Errors: results.Count(d => d.Severity == "error"),
+            Warnings: results.Count(d => d.Severity == "warning"),
+            Info: results.Count(d => d.Severity == "info")
+        );
+
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "lint",
+            projectRoot = NormalizePath(projectRoot),
+            lintedFiles,
+            ok = summary.Errors == 0 && summary.Warnings == 0,
+            results = results.Select(Normalize).ToList(),
+            summary
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string TypeToJson(TypeResult result, string file, int line, int col)
     {
         var envelope = new

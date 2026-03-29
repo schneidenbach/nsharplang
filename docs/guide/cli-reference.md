@@ -1,12 +1,13 @@
 # N# CLI Reference
 
-Updated: 2026-03-28
+Updated: 2026-03-29
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
 - Build and run loops are project-first.
-- `nlc check`, `nlc fix`, and `nlc query` default to structured JSON for automation.
+- `nlc check`, `nlc fix`, `nlc query`, and `nlc lint` default to structured JSON for automation.
 - `nlc format`, `nlc test`, `nlc clean`, and `nlc watch` support the fast inner-loop workflows developers expect from `gofmt`, `cargo test`, and `cargo watch`.
+- `nlc --version` prints the installed version.
 
 ## Top-Level Commands
 
@@ -18,7 +19,7 @@ Updated: 2026-03-28
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
-| `nlc lint [files...]` | Run static analysis rules | none | `nlc lint` |
+| `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
@@ -122,6 +123,44 @@ nlc completion bash > /etc/bash_completion.d/nlc
 }
 ```
 
+`nlc lint --json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "lint",
+  "ok": false,
+  "projectRoot": "/abs/path/project",
+  "lintedFiles": 3,
+  "results": [
+    {
+      "code": "NL001",
+      "severity": "warning",
+      "message": "Unused variable 'value'",
+      "file": "Program.nl",
+      "line": 2,
+      "column": 5
+    }
+  ],
+  "summary": {
+    "errors": 0,
+    "warnings": 1,
+    "info": 0
+  }
+}
+```
+
+## Lint Rules
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| NL001 | warning | Unused variable |
+| NL002 | error | Missing import |
+| NL003 | warning | Unnecessary null check on value type |
+| NL004 | warning | Async function without await |
+| NL005 | info | Use pattern matching |
+| NL006 | warning | Unreachable code |
+
 ## Inline Lint Suppression
 
 Specific lints can be suppressed on the next line or the current line:
@@ -181,7 +220,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` increases `dotnet test` verbosity |
 | Test coverage | `-cover` | external tools | `1` | Future work |
 | Benchmark | `-bench` | `cargo bench` | `1` | Future work |
-| Lint | `go vet` | `cargo clippy` | `4` | `nlc lint` plus lints inside `nlc check` |
+| Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
 | Shell completions | common | common | `5` | `nlc completion bash|zsh|fish` |

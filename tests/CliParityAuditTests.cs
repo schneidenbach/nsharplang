@@ -215,6 +215,268 @@ func Main() {
         Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL001");
     }
 
+    // ── Step 1: --version flag ──────────────────────────────────────────
+
+    [Fact]
+    public void Version_Flag_ReturnsVersionString()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("--version"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.StartsWith("nlc ", stdout.Trim());
+        // Version should contain a semver-like pattern
+        Assert.Matches(@"nlc \d+\.\d+\.\d+", stdout.Trim());
+    }
+
+    [Fact]
+    public void Version_ShortFlag_ReturnsVersionString()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("-V"));
+
+        Assert.Equal(0, exitCode);
+        Assert.StartsWith("nlc ", stdout.Trim());
+    }
+
+    // ── Step 2: Grouped help text ───────────────────────────────────────
+
+    [Fact]
+    public void Help_ShowsGroupedCommands()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Build & Run:", stdout);
+        Assert.Contains("Analysis & Fix:", stdout);
+        Assert.Contains("Code Quality:", stdout);
+        Assert.Contains("Project:", stdout);
+        Assert.Contains("Common Workflows:", stdout);
+        Assert.Contains("--version, -V", stdout);
+    }
+
+    [Fact]
+    public void Help_ShowsVersion_InHeader()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.Matches(@"N# Compiler \(nlc\) \d+\.\d+\.\d+", stdout);
+    }
+
+    [Fact]
+    public void Help_ShowsPerCommandHint()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("nlc <command> --help", stdout);
+    }
+
+    // ── Step 3: Lint command overhaul ────────────────────────────────────
+
+    [Fact]
+    public void LintCommand_Help_ShowsRulesAndFlags()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => LintCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("--json", stdout);
+        Assert.Contains("--text", stdout);
+        Assert.Contains("--project", stdout);
+        Assert.Contains("NL001", stdout);
+        Assert.Contains("NL006", stdout);
+        Assert.Contains("nlc:ignore", stdout);
+    }
+
+    [Fact]
+    public void LintCommand_Json_EmitsStructuredEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    value := 42
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("lint", root.GetProperty("command").GetString());
+            Assert.False(root.GetProperty("ok").GetBoolean());
+            Assert.True(root.GetProperty("lintedFiles").GetInt32() > 0);
+            Assert.True(root.GetProperty("results").GetArrayLength() > 0);
+            Assert.True(root.GetProperty("summary").GetProperty("warnings").GetInt32() > 0);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LintCommand_Text_ShowsDiagnostics()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    value := 42
+}
+""");
+
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, "--text" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("NL001", stderr);
+            Assert.Contains("value", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LintCommand_CleanProject_ReturnsZero()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "hello"
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LintCommand_MissingProject_ReturnsStructuredError()
+    {
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-nonexistent-{Guid.NewGuid():N}");
+
+        var (exitCode, stdout, _) = CaptureConsole(() =>
+            LintCommand.Execute(new[] { "--project", missingDir, "--json" }));
+
+        Assert.Equal(1, exitCode);
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("not found", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void LintCommand_Json_MissingFile_ReportsError()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, "NonExistent.nl" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.True(doc.RootElement.GetProperty("results").GetArrayLength() > 0);
+            var firstResult = doc.RootElement.GetProperty("results")[0];
+            Assert.Equal("error", firstResult.GetProperty("severity").GetString());
+            Assert.Contains("not found", firstResult.GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void LintCommand_Json_DefaultsToJsonWithFileArgs()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    value := 42
+}
+""");
+
+            // nlc lint Program.nl (no --json flag) should still default to JSON
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, "Program.nl" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("lint", doc.RootElement.GetProperty("command").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ── Step 4: Transpile help ──────────────────────────────────────────
+
+    [Fact]
+    public void TranspileCommand_Help_ShowsContextAndPipeExample()
+    {
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("transpile", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("debugging the compiler", stdout);
+        Assert.Contains("> Program.cs", stdout);
+    }
+
+    // ── Step 5: Error message suggestions ───────────────────────────────
+
+    [Fact]
+    public void UnknownCommand_SuggestsHelp()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("frobnicate"));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Unknown command: frobnicate", stderr);
+        Assert.Contains("nlc help", stderr);
+    }
+
+    [Fact]
+    public void NewCommand_DirectoryExists_SuggestsAlternative()
+    {
+        var tempDir = CreateTempDir();
+        var projectName = Path.GetFileName(tempDir);
+        try
+        {
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", tempDir));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("already exists", stderr);
+            Assert.Contains("different name", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");

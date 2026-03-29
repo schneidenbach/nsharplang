@@ -1,9 +1,9 @@
 # N# CLI Toolchain (`nlc`)
 
 **Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
-**Test count:** 944+ tests passing, 0 failures.
+**Test count:** 960+ tests passing, 0 failures.
 
-The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, and `nlc fix` all output structured JSON by default with a versioned envelope. `check` and `fix` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output.
+The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
 ---
 
@@ -54,8 +54,11 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc format --check` | Exit 1 if formatting would change files | `nlc format --check` |
 | `nlc format --diff` | Print unified diffs without writing files | `nlc format --diff` |
 | `nlc format --stdin` | Format stdin to stdout | `nlc format --stdin < Program.nl` |
-| `nlc lint` | Static analysis diagnostics | `nlc lint` |
+| `nlc lint` | Static analysis diagnostics (JSON by default) | `nlc lint` |
 | `nlc lint <files>` | Lint specific files | `nlc lint Program.nl` |
+| `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
+| `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
+| `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/15-dogfood-project` |
 | `nlc test` | Run .tests.nl files with XUnit | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
@@ -403,7 +406,7 @@ $ nlc query symbols
 
 ## JSON Schema Discipline
 
-All `nlc check` and `nlc fix` commands output JSON with a versioned envelope:
+All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned envelope:
 
 ```json
 {
@@ -436,6 +439,14 @@ All `nlc check` and `nlc fix` commands output JSON with a versioned envelope:
 - `filesModified`
 - `results`
 - `fixesApplied`
+
+`lint` envelope:
+- `command`
+- `projectRoot`
+- `lintedFiles`
+- `ok`
+- `results`
+- `summary`
 
 `query` expectations:
 - Success responses include `ok: true` and command-specific payloads
@@ -567,4 +578,4 @@ Protocol: JSON-RPC over Unix socket
 
 ---
 
-*Last Updated: 2026-03-25*
+*Last Updated: 2026-03-29*
