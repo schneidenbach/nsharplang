@@ -288,6 +288,57 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void BinaryArithmetic_DecimalPlusDouble_Error()
+    {
+        // ECMA-334 §12.4.7: decimal cannot mix with float/double
+        AssertHasError(@"
+            func getD(): decimal { return 0 as decimal }
+            func getF(): double { return 0.0 }
+            func Main() {
+                x := getD() + getF()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_DecimalPlusFloat_Error()
+    {
+        AssertHasError(@"
+            func getD(): decimal { return 0 as decimal }
+            func getF(): float { return 0 as float }
+            func Main() {
+                x := getD() + getF()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_UlongPlusInt_Error()
+    {
+        // ECMA-334 §12.4.7: ulong cannot mix with signed types
+        AssertHasError(@"
+            func getU(): ulong { return 0 as ulong }
+            func getI(): int { return 0 }
+            func Main() {
+                x := getU() + getI()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_DecimalPlusDecimal_Ok()
+    {
+        // decimal + decimal is valid
+        AssertNoErrors(@"
+            func getA(): decimal { return 0 as decimal }
+            func getB(): decimal { return 0 as decimal }
+            func Main() {
+                x := getA() + getB()
+            }
+        ");
+    }
+
+    [Fact]
     public void BinaryArithmetic_InvalidOperands()
     {
         AssertHasError(@"

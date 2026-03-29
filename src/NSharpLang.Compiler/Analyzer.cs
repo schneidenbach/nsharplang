@@ -2019,8 +2019,15 @@ public class Analyzer
             return BuiltInTypes.Unknown;
         }
 
-        // Return wider type
-        return GetWiderType(left, right);
+        // Return promoted type (null means invalid combination per ECMA-334)
+        var result = GetWiderType(left, right);
+        if (result == null)
+        {
+            Error($"Operator '{expr.Operator}' cannot be applied to '{left}' and '{right}'",
+                expr.Line, expr.Column);
+            return BuiltInTypes.Unknown;
+        }
+        return result;
     }
 
     private TypeInfo AnalyzeLogicalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
@@ -5226,25 +5233,36 @@ public class Analyzer
     /// NOTE: This is NOT the same as implicit numeric conversion (assignment context).
     /// C# promotes small types (byte, sbyte, short, ushort) to int for arithmetic.
     /// </summary>
-    private TypeInfo GetWiderType(TypeInfo left, TypeInfo right)
+    /// <summary>
+    /// C# binary numeric promotion rules (ECMA-334 §12.4.7).
+    /// Returns null for combinations that are compile-time errors in C#
+    /// (decimal+float/double, ulong+signed).
+    /// </summary>
+    private TypeInfo? GetWiderType(TypeInfo left, TypeInfo right)
     {
         var l = GetNumericName(left);
         var r = GetNumericName(right);
         if (l == null || r == null)
             return BuiltInTypes.Int; // fallback
 
-        // Same types: still apply promotion (byte + byte = int in C#)
-        // Follow C# binary numeric promotion order:
-        if (l == "decimal" || r == "decimal") return BuiltInTypes.Decimal;
+        // decimal cannot mix with float or double (ECMA-334 §12.4.7)
+        if (l == "decimal" || r == "decimal")
+        {
+            var other = l == "decimal" ? r : l;
+            if (other is "float" or "double")
+                return null; // compile-time error
+            return BuiltInTypes.Decimal;
+        }
+
         if (l == "double" || r == "double") return BuiltInTypes.Double;
         if (l == "float" || r == "float") return BuiltInTypes.Float;
 
-        // ulong: only valid if neither operand is a signed type
+        // ulong cannot mix with signed types (ECMA-334 §12.4.7)
         if (l == "ulong" || r == "ulong")
         {
             var other = l == "ulong" ? r : l;
             if (other is "sbyte" or "short" or "int" or "long")
-                return BuiltInTypes.Long; // C# would error, but we promote to long for diagnostics
+                return null; // compile-time error
             return BuiltInTypes.ULong;
         }
 
@@ -5273,7 +5291,7 @@ public class Analyzer
     private TypeInfo GetCommonType(TypeInfo left, TypeInfo right)
     {
         if (left == right) return left;
-        if (IsNumericType(left) && IsNumericType(right)) return GetWiderType(left, right);
+        if (IsNumericType(left) && IsNumericType(right)) return GetWiderType(left, right) ?? BuiltInTypes.Unknown;
         return BuiltInTypes.Unknown;
     }
 
