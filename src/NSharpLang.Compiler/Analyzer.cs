@@ -575,7 +575,7 @@ public class Analyzer
                 // Infer type from initializer
                 fieldType = AnalyzeExpression(field.Initializer);
 
-                if (fieldType == BuiltInTypes.Unknown)
+                if (BuiltInTypes.IsUnknown(fieldType))
                 {
                     Error($"Cannot infer type for property '{field.Name}' from initializer", field.Line, field.Column);
                 }
@@ -1028,7 +1028,7 @@ public class Analyzer
             {
                 if (name != "_")  // Skip discard
                 {
-                    DeclareSymbol(name, BuiltInTypes.Unknown, tupleDecl.Line, tupleDecl.Column);
+                    DeclareSymbol(name, BuiltInTypes.InferenceHole, tupleDecl.Line, tupleDecl.Column);
                 }
             }
         }
@@ -1038,7 +1038,10 @@ public class Analyzer
     {
         var condType = AnalyzeExpression(ifStmt.Condition);
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
-        if (!IsBoolType(condType) && condType != BuiltInTypes.Unknown)
+        // Extract null-check narrowings from the condition for flow-sensitive typing
+        var narrowings = ExtractNullCheckNarrowings(ifStmt.Condition);
+
+        if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType))
         {
             // Use ErrorMessageBuilder for better error message
             var sourceSnippet = _sourceLines != null && ifStmt.Line > 0 && ifStmt.Line <= _sourceLines.Length
@@ -1064,11 +1067,122 @@ public class Analyzer
             }
         }
 
-        AnalyzeStatement(ifStmt.ThenStatement);
+        // Apply null-check narrowings to then-branch scope
+        if (narrowings.Count > 0)
+        {
+            PushScope(new Scope(ScopeKind.Block));
+            foreach (var (name, narrowedType) in narrowings)
+            {
+                var currentScope = _scopes.Peek();
+                currentScope.Symbols[name] = narrowedType;
+            }
+            AnalyzeStatement(ifStmt.ThenStatement);
+            PopScope();
+        }
+        else
+        {
+            AnalyzeStatement(ifStmt.ThenStatement);
+        }
+
         if (ifStmt.ElseStatement != null)
         {
-            AnalyzeStatement(ifStmt.ElseStatement);
+            // Apply inverted narrowings to else-branch
+            var invertedNarrowings = InvertNarrowings(narrowings);
+            if (invertedNarrowings.Count > 0)
+            {
+                PushScope(new Scope(ScopeKind.Block));
+                foreach (var (name, narrowedType) in invertedNarrowings)
+                {
+                    var currentScope = _scopes.Peek();
+                    currentScope.Symbols[name] = narrowedType;
+                }
+                AnalyzeStatement(ifStmt.ElseStatement);
+                PopScope();
+            }
+            else
+            {
+                AnalyzeStatement(ifStmt.ElseStatement);
+            }
         }
+    }
+
+    /// <summary>
+    /// Extracts null-check narrowings from an if-condition.
+    /// e.g., "x != null" narrows x from T? to T in the then-branch.
+    /// </summary>
+    private List<(string Name, TypeInfo NarrowedType)> ExtractNullCheckNarrowings(Expression condition)
+    {
+        var narrowings = new List<(string, TypeInfo)>();
+
+        if (condition is BinaryExpression binary)
+        {
+            // x != null -> narrow x to non-nullable in then-branch
+            if (binary.Operator == BinaryOperator.NotEqual)
+            {
+                TryExtractNullNarrowing(binary.Left, binary.Right, narrowings);
+                TryExtractNullNarrowing(binary.Right, binary.Left, narrowings);
+            }
+            // x == null -> narrow x to non-nullable in else-branch (handled by InvertNarrowings)
+            else if (binary.Operator == BinaryOperator.Equal)
+            {
+                // For == null, we produce narrowings that will be inverted for the else branch
+                TryExtractNullNarrowingForEquality(binary.Left, binary.Right, narrowings);
+                TryExtractNullNarrowingForEquality(binary.Right, binary.Left, narrowings);
+            }
+        }
+
+        return narrowings;
+    }
+
+    private void TryExtractNullNarrowing(Expression expr, Expression other, List<(string, TypeInfo)> narrowings)
+    {
+        if (other is NullLiteralExpression && expr is IdentifierExpression ident)
+        {
+            var symbolType = LookupSymbol(ident.Name);
+            if (symbolType is NullableTypeInfo nullable)
+            {
+                narrowings.Add((ident.Name, nullable.InnerType));
+            }
+        }
+    }
+
+    private void TryExtractNullNarrowingForEquality(Expression expr, Expression other, List<(string, TypeInfo)> narrowings)
+    {
+        // For x == null, we mark the narrowing as "inverted" — the then-branch keeps T?,
+        // and the else-branch gets T. We encode this by NOT adding narrowings here;
+        // instead, InvertNarrowings will handle it.
+        // But we need to record which variables were null-checked so InvertNarrowings can work.
+        if (other is NullLiteralExpression && expr is IdentifierExpression ident)
+        {
+            var symbolType = LookupSymbol(ident.Name);
+            if (symbolType is NullableTypeInfo nullable)
+            {
+                // Tag: negative narrowing — the ELSE branch narrows, not the then branch
+                narrowings.Add((ident.Name, new NullableTypeInfo(nullable.InnerType)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Inverts narrowings for the else branch.
+    /// If then-branch narrowed x from T? to T (x != null), else-branch keeps T?.
+    /// If then-branch was for x == null (no narrowing in then), else-branch narrows to T.
+    /// </summary>
+    private List<(string Name, TypeInfo NarrowedType)> InvertNarrowings(List<(string Name, TypeInfo NarrowedType)> narrowings)
+    {
+        var inverted = new List<(string, TypeInfo)>();
+        foreach (var (name, type) in narrowings)
+        {
+            // If the narrowing was from != null (type is already non-nullable), invert means no narrowing for else
+            // If the narrowing was from == null (type is still nullable), invert means narrow to non-nullable
+            if (type is NullableTypeInfo nullable)
+            {
+                // This was an == null check; the else-branch should narrow to non-nullable
+                inverted.Add((name, nullable.InnerType));
+            }
+            // For != null narrowings, the else branch doesn't narrow (x could be null there)
+        }
+        return inverted;
     }
 
     private void AnalyzeForStatement(ForStatement forStmt)
@@ -1687,7 +1801,7 @@ public class Analyzer
         }
 
         // All range expressions return System.Range
-        return LookupType("System.Range") ?? BuiltInTypes.Unknown;
+        return LookupType("System.Range") ?? BuiltInTypes.DeferredExternal;
     }
 
     private TypeInfo AnalyzeOutVariableDeclaration(OutVariableDeclarationExpression outVar)
@@ -1808,7 +1922,7 @@ public class Analyzer
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
             BinaryOperator.And or BinaryOperator.Or => AnalyzeLogicalOp(leftType, rightType, binary),
             BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftType, rightType, binary),
-            BinaryOperator.Range => LookupType("System.Range") ?? BuiltInTypes.Unknown,
+            BinaryOperator.Range => LookupType("System.Range") ?? BuiltInTypes.DeferredExternal,
             _ => BuiltInTypes.Unknown
         };
     }
@@ -1836,7 +1950,7 @@ public class Analyzer
         }
 
         // If either operand is Unknown, we can't check but assume it's okay
-        if (left == BuiltInTypes.Unknown || right == BuiltInTypes.Unknown)
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
         {
             return BuiltInTypes.Unknown;
         }
@@ -1871,7 +1985,7 @@ public class Analyzer
             UnaryOperator.Not => BuiltInTypes.Bool,
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => operandType,
-            UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.Unknown,
+            UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.DeferredExternal,
             _ => BuiltInTypes.Unknown
         };
     }
@@ -2073,7 +2187,7 @@ public class Analyzer
     {
         // Convert built-in simple types to reflection types for full CLR member resolution.
         // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
-        if (objectType is SimpleTypeInfo && objectType != BuiltInTypes.Unknown
+        if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
             && objectType != BuiltInTypes.Null && objectType != BuiltInTypes.Never && objectType != BuiltInTypes.Void)
         {
             var clrType = TryConvertTypeInfoToClrType(objectType);
@@ -2123,7 +2237,7 @@ public class Analyzer
             {
                 var baseType = ResolveType(classType.Declaration.BaseClass);
                 var baseMember = ResolveMember(baseType, memberName);
-                if (baseMember != BuiltInTypes.Unknown)
+                if (!BuiltInTypes.IsUnknown(baseMember))
                     return baseMember;
             }
         }
@@ -2471,6 +2585,14 @@ public class Analyzer
             SimpleTypeInfo simple when simple == BuiltInTypes.Long => typeof(long),
             SimpleTypeInfo simple when simple == BuiltInTypes.Float => typeof(float),
             SimpleTypeInfo simple when simple == BuiltInTypes.Double => typeof(double),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => typeof(decimal),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => typeof(byte),
+            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => typeof(sbyte),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Short => typeof(short),
+            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => typeof(ushort),
+            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => typeof(uint),
+            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => typeof(ulong),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Char => typeof(char),
             SimpleTypeInfo simple when simple == BuiltInTypes.Bool => typeof(bool),
             SimpleTypeInfo simple when simple == BuiltInTypes.String => typeof(string),
             SimpleTypeInfo simple when simple == BuiltInTypes.Void => typeof(void),
@@ -2765,7 +2887,7 @@ public class Analyzer
                                         }
                                     }
                                     // If it's not an array type, it's an error
-                                    else if (argType != BuiltInTypes.Unknown)
+                                    else if (!BuiltInTypes.IsUnknown(argType))
                                     {
                                         Error($"Spread argument {i + 1} must be an array or collection type, but got '{argType}'",
                                             call.Line, call.Column);
@@ -3883,19 +4005,32 @@ public class Analyzer
             }
             else if (!IsAssignable(resultType, caseType) && !IsAssignable(caseType, resultType))
             {
-                Error($"Match case has incompatible type '{caseType}', expected '{resultType}'",
-                    matchCase.Expression.Line, matchCase.Expression.Column);
+                // Try to find a common base type (especially for reflection types like IActionResult subtypes)
+                var commonType = FindCommonBaseType(resultType, caseType);
+                if (commonType != null)
+                {
+                    resultType = commonType;
+                }
+                else
+                {
+                    Error($"Match case has incompatible type '{caseType}', expected '{resultType}'",
+                        matchCase.Expression.Line, matchCase.Expression.Column);
+                }
             }
 
             PopScope();
         }
 
-        // Check exhaustiveness for union types (after analyzing patterns to report specific errors first)
+        // Check exhaustiveness for union types and enum types
         // Guarded arms only partially cover their pattern, so unguarded arms (or a wildcard) are
         // still required for full coverage.
         if (valueType is UnionTypeInfo unionType)
         {
             CheckMatchExhaustiveness(match, unionType);
+        }
+        else if (valueType is EnumTypeInfo enumType)
+        {
+            CheckEnumMatchExhaustiveness(match, enumType);
         }
 
         return resultType ?? BuiltInTypes.Unknown;
@@ -3975,6 +4110,96 @@ public class Analyzer
         }
     }
 
+    /// <summary>
+    /// Checks exhaustiveness for enum types in match expressions.
+    /// Both string enums and int enums participate in exhaustiveness checking.
+    /// </summary>
+    private void CheckEnumMatchExhaustiveness(MatchExpression match, EnumTypeInfo enumType)
+    {
+        var coveredMembers = new HashSet<string>();
+
+        foreach (var matchCase in match.Cases)
+        {
+            // Skip guarded arms
+            if (matchCase.Guard != null)
+                continue;
+
+            if (matchCase.Pattern is IdentifierPattern identPattern)
+            {
+                if (identPattern.Name == "_")
+                    return; // Wildcard covers all
+
+                // Check for qualified enum member (e.g., Status.Active)
+                if (identPattern.Name.Contains('.'))
+                {
+                    var parts = identPattern.Name.Split('.');
+                    var qualifier = parts[0];
+                    var memberName = parts[^1];
+                    // Only count if the qualifier matches the enum type name
+                    if (qualifier == enumType.Declaration.Name &&
+                        enumType.Declaration.Members.Any(m => m.Name == memberName))
+                    {
+                        coveredMembers.Add(memberName);
+                    }
+                }
+                else
+                {
+                    // Unqualified non-wildcard identifier — catch-all binding
+                    return;
+                }
+            }
+            else if (matchCase.Pattern is LiteralPattern literalPattern)
+            {
+                // Check if literal matches an enum member value
+                foreach (var member in enumType.Declaration.Members)
+                {
+                    if (member.Value is StringLiteralExpression strLit &&
+                        literalPattern.Literal is StringLiteralExpression patternStr &&
+                        strLit.Value == patternStr.Value)
+                    {
+                        coveredMembers.Add(member.Name);
+                    }
+                    else if (member.Value is IntLiteralExpression intLit &&
+                             literalPattern.Literal is IntLiteralExpression patternInt &&
+                             intLit.Value == patternInt.Value)
+                    {
+                        coveredMembers.Add(member.Name);
+                    }
+                }
+            }
+        }
+
+        // Check if all enum members are covered
+        var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
+        var missingMembers = allMembers.Except(coveredMembers).ToList();
+
+        if (missingMembers.Any())
+        {
+            var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
+                ? _sourceLines[match.Line - 1]
+                : null;
+
+            if (sourceSnippet != null && _currentFilePath != null)
+            {
+                var error = ErrorMessageBuilder.NonExhaustiveMatch(
+                    _currentFilePath,
+                    match.Line,
+                    match.Column,
+                    sourceSnippet,
+                    5, // "match" keyword length
+                    missingMembers
+                );
+                _errors.Add(error);
+            }
+            else
+            {
+                var missingStr = string.Join(", ", missingMembers);
+                Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing enum members: {missingStr}",
+                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr));
+            }
+        }
+    }
+
     // Type resolution
     private TypeInfo ResolveType(TypeReference typeRef)
     {
@@ -3999,17 +4224,25 @@ public class Analyzer
     private TypeInfo ResolveSimpleType(string name, int line = 0, int column = 0)
     {
         // Check built-in types
-        var builtInType = name switch
+        TypeInfo? builtInType = name switch
         {
             "int" => BuiltInTypes.Int,
             "long" => BuiltInTypes.Long,
             "float" => BuiltInTypes.Float,
             "double" => BuiltInTypes.Double,
+            "decimal" => BuiltInTypes.Decimal,
+            "byte" => BuiltInTypes.Byte,
+            "sbyte" => BuiltInTypes.SByte,
+            "short" => BuiltInTypes.Short,
+            "ushort" => BuiltInTypes.UShort,
+            "uint" => BuiltInTypes.UInt,
+            "ulong" => BuiltInTypes.ULong,
+            "char" => BuiltInTypes.Char,
             "bool" => BuiltInTypes.Bool,
             "string" => BuiltInTypes.String,
             "void" => BuiltInTypes.Void,
             "object" => BuiltInTypes.Object,
-            "var" => BuiltInTypes.Unknown, // Treat 'var' as unknown for type inference
+            "var" => BuiltInTypes.InferenceHole, // Treat 'var' as inference hole
             _ => null
         };
 
@@ -4184,6 +4417,19 @@ public class Analyzer
         return null;
     }
 
+    /// <summary>
+    /// Looks up a symbol's type by walking the scope chain. Returns null if not found.
+    /// </summary>
+    private TypeInfo? LookupSymbol(string name)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.Symbols.TryGetValue(name, out var type))
+                return type;
+        }
+        return null;
+    }
+
     private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
     {
         // Check local symbols first
@@ -4225,7 +4471,7 @@ public class Analyzer
         if (currentType != null)
         {
             var memberType = ResolveMember(currentType, name);
-            if (memberType != BuiltInTypes.Unknown)
+            if (!BuiltInTypes.IsUnknown(memberType))
             {
                 type = memberType;
                 return true;
@@ -4320,16 +4566,61 @@ public class Analyzer
         if (resolvedTarget == resolvedSource) return true;
         if (resolvedSource == BuiltInTypes.Null && resolvedTarget is NullableTypeInfo) return true;
         if (resolvedSource == BuiltInTypes.Never) return true;
-        if (resolvedSource == BuiltInTypes.Unknown || resolvedTarget == BuiltInTypes.Unknown) return true;
 
-        // Handle external types (assume compatible if we can't resolve)
+        // Unknown type handling — distinguished by kind
+        // ErrorRecovery: suppress follow-on errors (an error was already reported upstream)
+        // InferenceHole/DeferredExternal: accept for now but distinguishable for future tightening
+        if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
+
+        // Everything is assignable to object
+        if (resolvedTarget == BuiltInTypes.Object) return true;
+
+        // Nullable widening: T -> T?
+        if (resolvedTarget is NullableTypeInfo nullableTarget)
+        {
+            return IsAssignable(nullableTarget.InnerType, resolvedSource);
+        }
+
+        // Handle external types that couldn't be fully resolved (placeholder names)
         if (resolvedSource is ExternalTypeInfo || resolvedTarget is ExternalTypeInfo) return true;
+
+        // Reflection-based type checking: use CLR semantics when both sides are reflection types
+        if (resolvedSource is ReflectionTypeInfo srcRefl && resolvedTarget is ReflectionTypeInfo tgtRefl)
+            return tgtRefl.Type.IsAssignableFrom(srcRefl.Type);
+        // Mixed: reflection target + built-in source — map built-in to CLR type
+        if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo srcSimple)
+        {
+            var clrType = MapBuiltInToClrType(srcSimple.Name);
+            if (clrType != null) return tgtRefl2.Type.IsAssignableFrom(clrType);
+        }
+        // Mixed: built-in target + reflection source
+        if (resolvedTarget is SimpleTypeInfo tgtSimple && resolvedSource is ReflectionTypeInfo srcRefl2)
+        {
+            var clrType = MapBuiltInToClrType(tgtSimple.Name);
+            if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
+        }
+        // One side is reflection, other is N#-declared — accept for now (C# compiler will verify)
         if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
+        // Method types are callable, not assignable in the normal sense
         if (resolvedSource is ReflectionMethodInfo || resolvedTarget is ReflectionMethodInfo) return true;
         if (resolvedSource is ReflectionMethodGroupInfo || resolvedTarget is ReflectionMethodGroupInfo) return true;
 
-        // Same type name
+        // Same type name (string comparison fallback for types we can't structurally compare)
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
+
+        // CLR implicit numeric conversions
+        if (IsImplicitNumericConversion(resolvedSource, resolvedTarget)) return true;
+
+        // Nominal subtyping: walk base class chain and interface lists for N#-declared types
+        if (IsSubtypeOf(resolvedSource, resolvedTarget)) return true;
+
+        // Enum to underlying type: enum value -> string/int is allowed
+        if (resolvedSource is EnumTypeInfo enumSrc)
+        {
+            var underlyingType = enumSrc.Declaration.Type == EnumType.String
+                ? BuiltInTypes.String : BuiltInTypes.Int;
+            if (IsAssignable(resolvedTarget, underlyingType)) return true;
+        }
 
         // Lambda function types (FunctionTypeInfo) are assignable to delegate types (Func/Action)
         if (resolvedSource is FunctionTypeInfo && resolvedTarget is GenericTypeInfo { Name: "Func" or "Action" })
@@ -4355,8 +4646,161 @@ public class Analyzer
             return true;
         }
 
-        // TODO: More sophisticated type compatibility checking
         return false;
+    }
+
+    /// <summary>
+    /// Finds a common base type between two types, if one exists.
+    /// For reflection types, walks the CLR type hierarchy and interface list.
+    /// </summary>
+    private TypeInfo? FindCommonBaseType(TypeInfo a, TypeInfo b)
+    {
+        if (a is ReflectionTypeInfo reflA && b is ReflectionTypeInfo reflB)
+        {
+            // Check if they share a common interface
+            var interfacesA = reflA.Type.GetInterfaces();
+            var interfacesB = new HashSet<Type>(reflB.Type.GetInterfaces());
+
+            foreach (var iface in interfacesA)
+            {
+                if (interfacesB.Contains(iface))
+                {
+                    return new ReflectionTypeInfo(iface);
+                }
+            }
+
+            // Check common base class
+            var baseA = reflA.Type.BaseType;
+            while (baseA != null && baseA != typeof(object))
+            {
+                if (baseA.IsAssignableFrom(reflB.Type))
+                    return new ReflectionTypeInfo(baseA);
+                baseA = baseA.BaseType;
+            }
+        }
+
+        // For N# types, check if they share a common interface or base class
+        // (more limited — would need to walk declaration chains)
+
+        return null;
+    }
+
+    /// <summary>
+    /// Maps a built-in N# type name to the corresponding CLR System.Type for reflection-based assignability.
+    /// </summary>
+    private static Type? MapBuiltInToClrType(string name) => name switch
+    {
+        "int" => typeof(int),
+        "long" => typeof(long),
+        "float" => typeof(float),
+        "double" => typeof(double),
+        "decimal" => typeof(decimal),
+        "bool" => typeof(bool),
+        "string" => typeof(string),
+        "char" => typeof(char),
+        "byte" => typeof(byte),
+        "sbyte" => typeof(sbyte),
+        "short" => typeof(short),
+        "ushort" => typeof(ushort),
+        "uint" => typeof(uint),
+        "ulong" => typeof(ulong),
+        "object" => typeof(object),
+        "void" => typeof(void),
+        _ => null
+    };
+
+    /// <summary>
+    /// Checks whether source is a subtype of target by walking base class chains and interface lists
+    /// for N#-declared types (nominal subtyping).
+    /// </summary>
+    private bool IsSubtypeOf(TypeInfo source, TypeInfo target)
+    {
+        // Class inheritance chain
+        if (source is ClassTypeInfo classSource)
+        {
+            // Walk base class chain
+            if (classSource.Declaration.BaseClass != null)
+            {
+                var baseType = ResolveType(classSource.Declaration.BaseClass);
+                if (IsAssignable(target, baseType)) return true;
+            }
+            // Check implemented interfaces
+            foreach (var iface in classSource.Declaration.Interfaces)
+            {
+                var ifaceType = ResolveType(iface);
+                if (IsAssignable(target, ifaceType)) return true;
+            }
+        }
+
+        // Struct interface implementation
+        if (source is StructTypeInfo structSource)
+        {
+            foreach (var iface in structSource.Declaration.Interfaces)
+            {
+                var ifaceType = ResolveType(iface);
+                if (IsAssignable(target, ifaceType)) return true;
+            }
+        }
+
+        // Record inheritance/interfaces
+        if (source is RecordTypeInfo recordSource)
+        {
+            foreach (var iface in recordSource.Declaration.Interfaces)
+            {
+                var ifaceType = ResolveType(iface);
+                if (IsAssignable(target, ifaceType)) return true;
+            }
+        }
+
+        // Interface inheritance
+        if (source is InterfaceTypeInfo ifaceSource)
+        {
+            foreach (var baseIface in ifaceSource.Declaration.BaseInterfaces)
+            {
+                var baseType = ResolveType(baseIface);
+                if (IsAssignable(target, baseType)) return true;
+            }
+        }
+
+        // Union cases: a union case is assignable to its parent union type
+        // (handled via name matching above, but also check inheritance)
+
+        return false;
+    }
+
+    /// <summary>
+    /// CLR implicit numeric conversion table. Returns true if source can be implicitly converted to target
+    /// without data loss (widening conversions only).
+    /// </summary>
+    private static bool IsImplicitNumericConversion(TypeInfo source, TypeInfo target)
+    {
+        if (source is not SimpleTypeInfo srcSimple || target is not SimpleTypeInfo tgtSimple)
+            return false;
+
+        return (srcSimple.Name, tgtSimple.Name) switch
+        {
+            // byte -> short, ushort, int, uint, long, ulong, float, double, decimal
+            ("byte", "short" or "ushort" or "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
+            // sbyte -> short, int, long, float, double, decimal
+            ("sbyte", "short" or "int" or "long" or "float" or "double" or "decimal") => true,
+            // short -> int, long, float, double, decimal
+            ("short", "int" or "long" or "float" or "double" or "decimal") => true,
+            // ushort -> int, uint, long, ulong, float, double, decimal
+            ("ushort", "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
+            // int -> long, float, double, decimal
+            ("int", "long" or "float" or "double" or "decimal") => true,
+            // uint -> long, ulong, float, double, decimal
+            ("uint", "long" or "ulong" or "float" or "double" or "decimal") => true,
+            // long -> float, double, decimal
+            ("long", "float" or "double" or "decimal") => true,
+            // ulong -> float, double, decimal
+            ("ulong", "float" or "double" or "decimal") => true,
+            // char -> ushort, int, uint, long, ulong, float, double, decimal
+            ("char", "ushort" or "int" or "uint" or "long" or "ulong" or "float" or "double" or "decimal") => true,
+            // float -> double
+            ("float", "double") => true,
+            _ => false
+        };
     }
 
     private bool HasImplicitConversion(TypeInfo source, TypeInfo target)
@@ -4570,7 +5014,11 @@ public class Analyzer
     private bool IsNumericType(TypeInfo type)
     {
         return type == BuiltInTypes.Int || type == BuiltInTypes.Long
-            || type == BuiltInTypes.Float || type == BuiltInTypes.Double;
+            || type == BuiltInTypes.Float || type == BuiltInTypes.Double
+            || type == BuiltInTypes.Decimal || type == BuiltInTypes.Byte
+            || type == BuiltInTypes.SByte || type == BuiltInTypes.Short
+            || type == BuiltInTypes.UShort || type == BuiltInTypes.UInt
+            || type == BuiltInTypes.ULong || type == BuiltInTypes.Char;
     }
 
     private bool IsBoolType(TypeInfo type)
@@ -4590,6 +5038,12 @@ public class Analyzer
 
     private TypeInfo GetWiderType(TypeInfo left, TypeInfo right)
     {
+        // Use the CLR implicit numeric conversion rules to find the wider type
+        if (IsImplicitNumericConversion(left, right)) return right;
+        if (IsImplicitNumericConversion(right, left)) return left;
+        // Same types
+        if (left == right) return left;
+        // Fallback: only use common promotions that CLR actually supports
         if (left == BuiltInTypes.Double || right == BuiltInTypes.Double) return BuiltInTypes.Double;
         if (left == BuiltInTypes.Float || right == BuiltInTypes.Float) return BuiltInTypes.Float;
         if (left == BuiltInTypes.Long || right == BuiltInTypes.Long) return BuiltInTypes.Long;
@@ -6254,6 +6708,21 @@ public abstract record TypeInfo
     public override string ToString() => GetType().Name;
 }
 
+public enum UnknownKind
+{
+    /// <summary>Type is unknown because an earlier error already reported the issue. Suppresses follow-on errors.</summary>
+    ErrorRecovery,
+    /// <summary>Type needs to be inferred but inference hasn't resolved it yet.</summary>
+    InferenceHole,
+    /// <summary>Type comes from an external assembly that hasn't been loaded.</summary>
+    DeferredExternal
+}
+
+public record UnknownTypeInfo(UnknownKind Kind) : TypeInfo
+{
+    public override string ToString() => "unknown";
+}
+
 public record SimpleTypeInfo(string Name) : TypeInfo
 {
     public override string ToString() => Name;
@@ -6360,11 +6829,24 @@ public static class BuiltInTypes
     public static readonly SimpleTypeInfo Long = new("long");
     public static readonly SimpleTypeInfo Float = new("float");
     public static readonly SimpleTypeInfo Double = new("double");
+    public static readonly SimpleTypeInfo Decimal = new("decimal");
+    public static readonly SimpleTypeInfo Byte = new("byte");
+    public static readonly SimpleTypeInfo SByte = new("sbyte");
+    public static readonly SimpleTypeInfo Short = new("short");
+    public static readonly SimpleTypeInfo UShort = new("ushort");
+    public static readonly SimpleTypeInfo UInt = new("uint");
+    public static readonly SimpleTypeInfo ULong = new("ulong");
+    public static readonly SimpleTypeInfo Char = new("char");
     public static readonly SimpleTypeInfo Bool = new("bool");
     public static readonly SimpleTypeInfo String = new("string");
     public static readonly SimpleTypeInfo Void = new("void");
     public static readonly SimpleTypeInfo Object = new("object");
     public static readonly SimpleTypeInfo Null = new("null");
     public static readonly SimpleTypeInfo Never = new("never");
-    public static readonly SimpleTypeInfo Unknown = new("unknown");
+    public static readonly UnknownTypeInfo Unknown = new(UnknownKind.ErrorRecovery);
+    public static readonly UnknownTypeInfo InferenceHole = new(UnknownKind.InferenceHole);
+    public static readonly UnknownTypeInfo DeferredExternal = new(UnknownKind.DeferredExternal);
+
+    /// <summary>Check if a TypeInfo is any kind of Unknown.</summary>
+    public static bool IsUnknown(TypeInfo type) => type is UnknownTypeInfo;
 }
