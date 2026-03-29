@@ -358,7 +358,7 @@ public class CompletionEngine
 
         // Methods
         var methods = type.GetMethods(bindingFlags)
-            .Where(m => !m.IsSpecialName && m.DeclaringType != typeof(object))
+            .Where(m => !m.IsSpecialName && m.DeclaringType?.FullName != "System.Object")
             .GroupBy(m => m.Name)
             .ToList();
 
@@ -380,7 +380,7 @@ public class CompletionEngine
         // Properties
         foreach (var prop in type.GetProperties(bindingFlags))
         {
-            if (prop.DeclaringType == typeof(object)) continue;
+            if (prop.DeclaringType?.FullName == "System.Object") continue;
             items.Add(new CompletionItem(
                 prop.Name,
                 "property",
@@ -393,7 +393,7 @@ public class CompletionEngine
         // Fields
         foreach (var field in type.GetFields(bindingFlags))
         {
-            if (field.DeclaringType == typeof(object)) continue;
+            if (field.DeclaringType?.FullName == "System.Object") continue;
             items.Add(new CompletionItem(
                 field.Name,
                 "field",
@@ -601,20 +601,12 @@ public class CompletionEngine
 
         try
         {
-            // Load core assemblies
-            _loadedAssemblies.Add(typeof(object).Assembly); // System.Private.CoreLib
-            _loadedAssemblies.Add(typeof(Console).Assembly); // System.Console
-            _loadedAssemblies.Add(typeof(Enumerable).Assembly); // System.Linq
-
-            // Try to load System.Runtime
-            try
-            {
-                var runtime = Assembly.Load("System.Runtime");
-                _loadedAssemblies.Add(runtime);
-            }
-            catch { }
+            _loadedAssemblies.Add(typeof(object).Assembly);
+            _loadedAssemblies.Add(typeof(Console).Assembly);
+            _loadedAssemblies.Add(typeof(System.Linq.Enumerable).Assembly);
+            _loadedAssemblies.Add(Assembly.Load("System.Runtime"));
         }
-        catch { }
+        catch { /* assemblies not available */ }
     }
 
     private static CompletionItem? DeclarationToCompletionItem(Declaration decl) => decl switch
@@ -653,14 +645,14 @@ public class CompletionEngine
 
     private static string FormatClrType(Type type)
     {
-        if (type == typeof(void)) return "void";
-        if (type == typeof(int)) return "int";
-        if (type == typeof(long)) return "long";
-        if (type == typeof(string)) return "string";
-        if (type == typeof(bool)) return "bool";
-        if (type == typeof(double)) return "double";
-        if (type == typeof(float)) return "float";
-        if (type == typeof(object)) return "object";
+        if (type.FullName == "System.Void") return "void";
+        if (type.FullName == "System.Int32") return "int";
+        if (type.FullName == "System.Int64") return "long";
+        if (type.FullName == "System.String") return "string";
+        if (type.FullName == "System.Boolean") return "bool";
+        if (type.FullName == "System.Double") return "double";
+        if (type.FullName == "System.Single") return "float";
+        if (type.FullName == "System.Object") return "object";
         if (type.IsGenericType)
         {
             var baseName = type.Name.Split('`')[0];
