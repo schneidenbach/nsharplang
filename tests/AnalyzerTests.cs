@@ -3548,6 +3548,157 @@ func Hello(): string {
 
     #endregion
 
+    #region Flow Narrowing: Or-Chain
+
+    [Fact]
+    public void FlowNarrowing_OrChain_NarrowsInElseBranch()
+    {
+        // if x == null || y == null → both non-null in else branch
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x == null || y == null {
+                    // can't narrow here — one or the other failed
+                } else {
+                    a: string = x
+                    b: int = y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_NoThenNarrowing()
+    {
+        // then-branch of || cannot narrow (only one side needs to be true)
+        AssertHasError(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x == null || y == null {
+                    a: string = x
+                }
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_TripleNullCheck()
+    {
+        // Three null checks combined with || — all narrow in else
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""a""
+                y: string? = ""b""
+                z: string? = ""c""
+                if x == null || y == null || z == null {
+                    // can't narrow
+                } else {
+                    a: string = x
+                    b: string = y
+                    c: string = z
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_RhsSeesLeftElseNarrowing()
+    {
+        // x == null || x.Length > 0 — RHS should see x as non-nullable (short-circuit: left was false → x != null)
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x == null || x.Length > 0 {
+                    // can narrow x in then body only if both sides hold,
+                    // but the important thing is no error on x.Length
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: And-Chain RHS Narrowing
+
+    [Fact]
+    public void FlowNarrowing_AndChain_RhsSeesLeftNarrowing()
+    {
+        // x != null && x.Length > 0 — the RHS should see x as non-nullable
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null && x.Length > 0 {
+                    s: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_RhsSeesIsPatternNarrowing()
+    {
+        // a is Dog && a.Breed == "poodle" — RHS should see a as Dog (accessing Dog.Breed)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog && a.Breed == ""poodle"" {
+                    breed: string = a.Breed
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: Same-Symbol Intersection
+
+    [Fact]
+    public void FlowNarrowing_SameSymbol_KeepsMostSpecific()
+    {
+        // if a is Dog && a is Animal → should keep Dog (more specific), not Animal
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog && a is Animal {
+                    d: Dog = a
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_SameSymbol_ReversedOrder_KeepsMostSpecific()
+    {
+        // if a is Animal && a is Dog → should still keep Dog (more specific)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Animal && a is Dog {
+                    d: Dog = a
+                }
+            }
+        ");
+    }
+
+    #endregion
+
     #region Lambda-Delegate Structural Validation
 
     [Fact]
