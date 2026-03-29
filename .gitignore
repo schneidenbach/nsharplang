@@ -32,3 +32,6 @@ test-output.log
 
 # Build task debug logs
 compile-debug.log
+
+# Node.js
+node_modules/
