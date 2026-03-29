@@ -113,5 +113,14 @@
     "filesModified",
     "results",
     "fixesApplied"
+  ],
+  "lint": [
+    "schemaVersion",
+    "command",
+    "projectRoot",
+    "lintedFiles",
+    "ok",
+    "results",
+    "summary"
   ]
 }
