@@ -40,13 +40,10 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         var create = await Bash($"dotnet new nsharp-console -o {dir}");
         AssertSuccess(create, "dotnet new nsharp-console");
 
-        // Verify expected files exist (the .csproj is renamed to match the output dir name)
-        var dirName = dir.Split('/')[^1];
+        // Verify expected files exist — no .csproj (nlc generates it on build)
         var check = await Bash(
             $"test -f {dir}/project.yml && " +
-            $"test -f {dir}/Program.nl && " +
-            $"test -f {dir}/{dirName}.csproj && " +
-            $"test -f {dir}/global.json");
+            $"test -f {dir}/Program.nl");
         AssertSuccess(check, "expected files exist");
     }
 
@@ -55,10 +52,11 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     {
         var dir = UniqueDir("console-build");
         await InstallTemplates();
+        await InstallCli();
         await Bash($"dotnet new nsharp-console -o {dir}");
 
-        var build = await Bash($"cd {dir} && dotnet build");
-        AssertSuccess(build, "dotnet build (console)");
+        var build = await Bash($"cd {dir} && nlc build");
+        AssertSuccess(build, "nlc build (console)");
     }
 
     [Fact]
@@ -66,10 +64,11 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     {
         var dir = UniqueDir("console-run");
         await InstallTemplates();
+        await InstallCli();
         await Bash($"dotnet new nsharp-console -o {dir}");
 
-        var run = await Bash($"cd {dir} && dotnet run");
-        AssertSuccess(run, "dotnet run (console)");
+        var run = await Bash($"cd {dir} && nlc run");
+        AssertSuccess(run, "nlc run (console)");
         Assert.Contains("Hello, N#!", run.Stdout);
     }
 
@@ -78,10 +77,11 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     {
         var dir = UniqueDir("webapi-build");
         await InstallTemplates();
+        await InstallCli();
         await Bash($"dotnet new nsharp-webapi -o {dir}");
 
-        var build = await Bash($"cd {dir} && dotnet build");
-        AssertSuccess(build, "dotnet build (webapi)");
+        var build = await Bash($"cd {dir} && nlc build");
+        AssertSuccess(build, "nlc build (webapi)");
     }
 
     [Fact]
@@ -115,6 +115,14 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     {
         var result = await Bash("dotnet new install NSharpLang.Templates --force");
         AssertSuccess(result, "template installation");
+    }
+
+    private async Task InstallCli()
+    {
+        // Install nlc as a global tool (idempotent — update if already installed)
+        var result = await Bash(
+            "dotnet tool install -g NSharpLang.Cli 2>/dev/null || dotnet tool update -g NSharpLang.Cli");
+        AssertSuccess(result, "CLI tool installation");
     }
 
     private static string UniqueDir(string prefix) =>
