@@ -479,6 +479,13 @@ public class Transpiler
             bases.Add(TranspileTypeReference(cls.BaseClass));
         bases.AddRange(cls.Interfaces.Select(TranspileTypeReference));
 
+        // Auto-implement duck interfaces — add to bases list if the class structurally matches
+        foreach (var duckIface in GetMatchingDuckInterfaces(cls.Members))
+        {
+            if (!bases.Contains(duckIface))
+                bases.Add(duckIface);
+        }
+
         if (bases.Count > 0)
         {
             _output.Append($" : {string.Join(", ", bases)}");
@@ -541,6 +548,13 @@ public class Transpiler
 
         var bases = new List<string>();
         bases.AddRange(str.Interfaces.Select(TranspileTypeReference));
+
+        // Auto-implement duck interfaces for structs
+        foreach (var duckIface in GetMatchingDuckInterfaces(str.Members))
+        {
+            if (!bases.Contains(duckIface))
+                bases.Add(duckIface);
+        }
 
         if (bases.Count > 0)
         {
@@ -607,6 +621,13 @@ public class Transpiler
         var bases = new List<string>();
         bases.AddRange(rec.Interfaces.Select(TranspileTypeReference));
 
+        // Auto-implement duck interfaces for records
+        foreach (var duckIface in GetMatchingDuckInterfaces(rec.Members))
+        {
+            if (!bases.Contains(duckIface))
+                bases.Add(duckIface);
+        }
+
         if (bases.Count > 0)
         {
             _output.Append($" : {string.Join(", ", bases)}");
@@ -631,9 +652,12 @@ public class Transpiler
 
     private void TranspileInterfaceDeclaration(InterfaceDeclaration iface)
     {
-        // Duck interfaces are type-erased - skip entirely
+        // Duck interfaces emit as internal interfaces — not erased, but hidden from public API
         if (iface.IsDuckInterface)
+        {
+            TranspileDuckInterfaceDeclaration(iface);
             return;
+        }
 
         TranspileAttributes(iface.Attributes);
 
@@ -2251,17 +2275,8 @@ public class Transpiler
 
     private string TranspileSimpleTypeReference(SimpleTypeReference simple)
     {
-        // Check if this references a duck interface - if so, type-erase to dynamic
-        var duckInterface = _compilationUnit.Declarations
-            .OfType<InterfaceDeclaration>()
-            .FirstOrDefault(i => i.IsDuckInterface && i.Name == simple.Name);
-
-        if (duckInterface != null)
-        {
-            // Duck interfaces are type-erased to dynamic in C#
-            // This allows method calls to work at runtime with duck typing
-            return "dynamic";
-        }
+        // Duck interfaces are now emitted as internal interfaces — use the actual interface name
+        // instead of erasing to dynamic. This preserves type safety at runtime.
 
         return simple.Name;
     }
@@ -2308,6 +2323,113 @@ public class Transpiler
                 : "";
             WriteLine($"[{attr.Name}{args}]");
         }
+    }
+
+    /// <summary>
+    /// Transpiles a duck interface as an internal C# interface.
+    /// </summary>
+    private void TranspileDuckInterfaceDeclaration(InterfaceDeclaration iface)
+    {
+        var typeParams = iface.TypeParameters != null && iface.TypeParameters.Count > 0
+            ? $"<{string.Join(", ", iface.TypeParameters.Select(tp => tp.Name))}>"
+            : "";
+
+        // Use public if any implementing type is public (PascalCase convention),
+        // otherwise internal. C# forbids public types implementing less-accessible interfaces.
+        var hasPublicImplementor = _compilationUnit.Declarations.Any(d =>
+            d is ClassDeclaration cls && StructurallyMatchesDuckInterface(cls.Members, iface) && char.IsUpper(cls.Name[0]) ||
+            d is StructDeclaration str && StructurallyMatchesDuckInterface(str.Members, iface) && char.IsUpper(str.Name[0]) ||
+            d is RecordDeclaration rec && StructurallyMatchesDuckInterface(rec.Members, iface) && char.IsUpper(rec.Name[0]));
+        var accessibility = hasPublicImplementor ? "public" : "internal";
+
+        WriteLine($"{accessibility} interface {iface.Name}{typeParams}");
+        WriteLine("{");
+        _indentLevel++;
+
+        foreach (var member in iface.Members)
+        {
+            if (member is FunctionDeclaration func)
+            {
+                var returnType = func.ReturnType != null ? TranspileTypeReference(func.ReturnType) : "void";
+                var parms = string.Join(", ", func.Parameters.Select(TranspileParameter));
+                WriteLine($"{returnType} {func.Name}({parms});");
+            }
+        }
+
+        _indentLevel--;
+        WriteLine("}");
+    }
+
+    /// <summary>
+    /// Checks which duck interfaces a type's members structurally match.
+    /// Returns the names of matching duck interfaces to add to the type's base list.
+    /// </summary>
+    private List<string> GetMatchingDuckInterfaces(List<Declaration> typeMembers)
+    {
+        var matches = new List<string>();
+
+        foreach (var decl in _compilationUnit.Declarations)
+        {
+            if (decl is not InterfaceDeclaration iface || !iface.IsDuckInterface)
+                continue;
+
+            if (StructurallyMatchesDuckInterface(typeMembers, iface))
+            {
+                matches.Add(iface.Name);
+            }
+        }
+
+        return matches;
+    }
+
+    /// <summary>
+    /// Checks if the given type members structurally satisfy a duck interface
+    /// (all interface methods are present with matching signatures).
+    /// </summary>
+    private bool StructurallyMatchesDuckInterface(List<Declaration> typeMembers, InterfaceDeclaration duckInterface)
+    {
+        foreach (var ifaceMember in duckInterface.Members)
+        {
+            if (ifaceMember is not FunctionDeclaration ifaceFunc)
+                continue;
+
+            var hasMatch = false;
+            foreach (var typeMember in typeMembers)
+            {
+                if (typeMember is FunctionDeclaration typeFunc &&
+                    typeFunc.Name == ifaceFunc.Name &&
+                    typeFunc.Parameters.Count == ifaceFunc.Parameters.Count &&
+                    ParameterTypesMatch(typeFunc.Parameters, ifaceFunc.Parameters) &&
+                    ReturnTypesMatch(typeFunc.ReturnType, ifaceFunc.ReturnType))
+                {
+                    hasMatch = true;
+                    break;
+                }
+            }
+
+            if (!hasMatch)
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool ParameterTypesMatch(List<Parameter> a, List<Parameter> b)
+    {
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (a[i].Type == null && b[i].Type == null) continue;
+            if (a[i].Type == null || b[i].Type == null) return false;
+            if (TranspileTypeReference(a[i].Type) != TranspileTypeReference(b[i].Type)) return false;
+        }
+        return true;
+    }
+
+    private bool ReturnTypesMatch(TypeReference? a, TypeReference? b)
+    {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return TranspileTypeReference(a) == TranspileTypeReference(b);
     }
 
     private string GetModifierString(Modifiers modifiers)

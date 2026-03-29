@@ -3183,4 +3183,251 @@ func Hello(): string {
             }
         ");
     }
+
+    // ===================================================================
+    // Type System Hardening Tests
+    // ===================================================================
+
+    #region Nominal Subtyping
+
+    [Fact]
+    public void NominalSubtyping_ClassInheritance_Assignable()
+    {
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func Main() {
+                dog := new Dog()
+                animal: Animal = dog
+            }
+        ");
+    }
+
+    [Fact]
+    public void NominalSubtyping_InterfaceImplementation_Assignable()
+    {
+        AssertNoErrors(@"
+            interface IGreetable {
+                func Greet(): string
+            }
+            class Person : IGreetable {
+                func Greet(): string {
+                    return ""Hello""
+                }
+            }
+            func Main() {
+                p := new Person()
+                g: IGreetable = p
+            }
+        ");
+    }
+
+    [Fact]
+    public void NominalSubtyping_EverythingAssignableToObject()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: object = 42
+                y: object = ""hello""
+                z: object = true
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Numeric Widening
+
+    [Fact]
+    public void NumericWidening_IntToLong()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_IntToDouble()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_IntToFloat()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_FloatToDouble()
+    {
+        // Note: float literal would need 3.14f in C#, but we use int -> float -> double chain
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: float = x
+                z: double = y
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Nullable Widening
+
+    [Fact]
+    public void NullableWidening_NonNullableToNullable()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string = ""hello""
+                y: string? = x
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow-Sensitive Null Narrowing
+
+    [Fact]
+    public void FlowNarrowing_NullCheckNarrowsToNonNullable()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null {
+                    y: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_EqualNullNarrowsInElse()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x == null {
+                    // x is still string? here
+                } else {
+                    y: string = x
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Enum Exhaustiveness
+
+    [Fact]
+    public void EnumExhaustiveness_AllCasesCovered_NoError()
+    {
+        AssertNoErrors(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    Status.Inactive => ""off""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void EnumExhaustiveness_WildcardCovers_NoError()
+    {
+        AssertNoErrors(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1,
+                Pending = 2
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    _ => ""other""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void EnumExhaustiveness_MissingCase_Error()
+    {
+        AssertHasError(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1,
+                Pending = 2
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    Status.Inactive => ""off""
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void EnumToInt_ImplicitlyAssignable()
+    {
+        AssertNoErrors(@"
+            enum Priority {
+                Low = 0,
+                High = 1
+            }
+            func Main() {
+                p := Priority.Low
+                n: int = p
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Unknown Type Kinds
+
+    [Fact]
+    public void UnknownKind_ErrorRecovery_SuppressesCascading()
+    {
+        // Using an undefined function should produce ONE error, not cascading errors
+        var result = Analyze(@"
+            func Main() {
+                x := undefinedFunction()
+                y: int = x
+            }
+        ");
+        // Should have error for undefined function but NOT for x assignment
+        Assert.True(result.HasErrors);
+        Assert.DoesNotContain(result.Errors, e => e.Message.Contains("Cannot assign"));
+    }
+
+    #endregion
 }
