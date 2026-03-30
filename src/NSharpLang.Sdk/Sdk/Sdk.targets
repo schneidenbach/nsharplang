@@ -1,7 +1,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
-  <!-- Import base SDK targets first -->
-  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <!-- Import base SDK targets (dynamic based on project.yml sdk field, set in Sdk.props) -->
+  <Import Project="Sdk.targets" Sdk="$(_NSharpBaseSdk)" />
 
   <PropertyGroup>
     <!-- Output path for generated C# files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
@@ -18,32 +18,11 @@
   <UsingTask TaskName="NSharpLang.Build.Tasks.TranspileTests"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
-  <!-- Generate project.g.props from project.yml early in the build -->
-  <Target Name="_GenerateProjectPropsFromYml" BeforeTargets="BeforeBuild;BeforeRebuild;Restore" Condition="Exists('$(NSharpProjectFile)')">
-    <MakeDir Directories="$(MSBuildProjectDirectory)/obj" />
-
-    <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
-      <Output TaskParameter="TargetFramework" PropertyName="_NSharpTargetFramework" />
-      <Output TaskParameter="OutputType" PropertyName="_NSharpOutputType" />
-      <Output TaskParameter="AssemblyName" PropertyName="_NSharpAssemblyName" />
-      <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
-    </LoadProjectConfig>
-
-    <PropertyGroup>
-      <_GeneratedPropsContent><![CDATA[<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <TargetFramework>$(_NSharpTargetFramework)</TargetFramework>
-    <OutputType>$(_NSharpOutputType)</OutputType>
-    <AssemblyName>$(_NSharpAssemblyName)</AssemblyName>
-    <NSharpTestFramework>$(NSharpTestFramework)</NSharpTestFramework>
-  </PropertyGroup>
-</Project>]]></_GeneratedPropsContent>
-    </PropertyGroup>
-
-    <WriteLinesToFile File="$(MSBuildProjectDirectory)/obj/project.g.props"
-                      Lines="$(_GeneratedPropsContent)"
-                      Overwrite="true"
-                      Encoding="UTF-8" />
+  <!-- Fail fast if project.yml exists but nlc restore hasn't been run -->
+  <Target Name="_ValidateNSharpProjectConfig"
+          BeforeTargets="Build;Rebuild;Restore"
+          Condition="Exists('$(NSharpProjectFile)') And !Exists('$(MSBuildProjectDirectory)/obj/project.g.props')">
+    <Error Text="project.yml found but build configuration is missing. Run 'nlc restore' to generate it, then retry. (Expected: obj/project.g.props)" />
   </Target>
 
   <!-- Auto-discover all .nl files (excluding tests) -->
