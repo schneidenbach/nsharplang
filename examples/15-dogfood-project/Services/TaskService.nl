@@ -1,6 +1,7 @@
 namespace DogfoodProject.Services
 
 import System
+import System.Collections.Generic
 import DogfoodProject
 
 union TaskResult {
@@ -8,7 +9,7 @@ union TaskResult {
     Error { message: string }
 }
 
-record Task {
+record TodoItem {
     Id: int
     Title: string
     Priority: int
@@ -16,11 +17,11 @@ record Task {
 }
 
 class TaskService {
-    tasks: List<Task> = []
+    tasks: List<TodoItem> = []
     nextId: int = 1
 
     func CreateTask(title: string, priority: int): TaskResult {
-        task := new Task {
+        task := new TodoItem {
             Id: nextId,
             Title: title,
             Priority: priority,
@@ -28,10 +29,10 @@ class TaskService {
         }
         nextId = nextId + 1
         tasks.Add(task)
-        return new TaskResult.Success { task: title }
+        return new TaskResult.Success(title)
     }
 
-    func GetAllTasks(): List<Task> {
+    func GetAllTasks(): List<TodoItem> {
         return tasks
     }
 
@@ -39,8 +40,8 @@ class TaskService {
         return tasks.Count
     }
 
-    func GetUrgentTasks(): List<Task> {
-        result: List<Task> = []
+    func GetUrgentTasks(): List<TodoItem> {
+        result: List<TodoItem> = []
         for task in tasks {
             if task.Priority >= 2 {
                 if !task.IsCompleted {
@@ -79,7 +80,7 @@ class TaskService {
         return count
     }
 
-    func FindTaskById(id: int): Task? {
+    func FindTaskById(id: int): TodoItem? {
         for task in tasks {
             if task.Id == id {
                 return task

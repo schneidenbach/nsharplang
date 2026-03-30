@@ -5,35 +5,35 @@ import System
 
 // Classify a number with guards
 func ClassifyNumber(n: int): string {
-    return n match {
-        x when x > 100 => "very large"
-        x when x > 50 => "large"
-        x when x > 10 => "medium"
-        x when x > 0 => "small"
-        0 => "zero"
-        x when x > -10 => "small negative"
+    return match n {
+        x when x > 100 => "very large",
+        x when x > 50 => "large",
+        x when x > 10 => "medium",
+        x when x > 0 => "small",
+        0 => "zero",
+        x when x > -10 => "small negative",
         _ => "very negative"
     }
 }
 
 // Fizzbuzz with pattern matching and guards
 func FizzBuzz(n: int): string {
-    return n match {
-        x when x % 15 == 0 => "FizzBuzz"
-        x when x % 3 == 0 => "Fizz"
-        x when x % 5 == 0 => "Buzz"
+    return match n {
+        x when x % 15 == 0 => "FizzBuzz",
+        x when x % 3 == 0 => "Fizz",
+        x when x % 5 == 0 => "Buzz",
         x => x.ToString()
     }
 }
 
 // Grade calculator with guards
 func GetGrade(score: int): string {
-    return score match {
-        x when x >= 90 => "A"
-        x when x >= 80 => "B"
-        x when x >= 70 => "C"
-        x when x >= 60 => "D"
-        x when x >= 0 => "F"
+    return match score {
+        x when x >= 90 => "A",
+        x when x >= 80 => "B",
+        x when x >= 70 => "C",
+        x when x >= 60 => "D",
+        x when x >= 0 => "F",
         _ => "Invalid score"
     }
 }
@@ -55,7 +55,7 @@ func Main() {
 
     // FizzBuzz
     print "FizzBuzz (1-20):"
-    for i = 1; i <= 20; i++ {
+    for i := 1; i <= 20; i++ {
         Console.Write($"{FizzBuzz(i)} ")
     }
 

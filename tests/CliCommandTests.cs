@@ -99,7 +99,7 @@ public class CliCommandTests
             "definition",
             "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
             "--file", "Service.nl",
-            "--pos", "68:10"
+            "--pos", "64:10"
         }));
 
         Assert.Equal(0, exitCode);
@@ -139,14 +139,14 @@ public class CliCommandTests
     public void InspectSummary_Contract_UsesCompactEnvelope()
     {
         var examplesDir = FindExamplesDir();
-        // Service.nl line 15: store: IssueStore (field)
+        // Service.nl line 11: store: IssueStore (field)
         var (_, json, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "inspect",
             "--summary",
             "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
             "--file", "Service.nl",
-            "--pos", "15:5"
+            "--pos", "11:5"
         }));
 
         AssertJsonContract("inspectSummary", json);
@@ -171,7 +171,7 @@ public class CliCommandTests
   {
     "command": "inspect",
     "file": "Service.nl",
-    "pos": "15:5",
+    "pos": "11:5",
     "summary": true
   },
   {
@@ -398,7 +398,7 @@ func Main() {
                 "type",
                 "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -421,7 +421,7 @@ func Main() {
                 "definition",
                 "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--file", "Service.nl",
-                "--pos", "26:10"
+                "--pos", "22:10"
             }
         };
 
@@ -433,7 +433,7 @@ func Main() {
                 "references",
                 "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--file", "Service.nl",
-                "--pos", "14:7"
+                "--pos", "10:7"
             }
         };
 
@@ -445,7 +445,7 @@ func Main() {
                 "completions",
                 "--project", Path.Combine(examplesDir, "12-multi-file-projects", "MultiFileProject"),
                 "--file", "Services/PersonService.nl",
-                "--pos", "15:15"
+                "--pos", "14:15"
             }
         };
 
@@ -457,7 +457,7 @@ func Main() {
                 "inspect",
                 "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -470,7 +470,7 @@ func Main() {
                 "--summary",
                 "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
     }
