@@ -272,8 +272,8 @@ rm -rf "$TEMP_DIR"
 section "Step 8: Build Example Projects (via nlc build)"
 echo "Using up to $MAX_JOBS parallel workers for project verification..."
 
-# Find all example projects with project.yml
-EXAMPLE_PROJECTS=$(find examples -name "project.yml" -type f | sort)
+# Find all example projects and test fixture projects with project.yml
+EXAMPLE_PROJECTS=$(find examples tests/fixtures -name "project.yml" -type f 2>/dev/null | sort)
 
 if [ -z "$EXAMPLE_PROJECTS" ]; then
     echo "No example projects found with project.yml"
@@ -430,6 +430,9 @@ CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
 # Sub-projects in 12-multi-file-projects need individual checking
 CHECK_DIRS="$CHECK_DIRS
 $(find examples/12-multi-file-projects -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
+# Test fixture projects
+CHECK_DIRS="$CHECK_DIRS
+$(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
 
 # Known check failures:
 #   02-variables-and-types  - contains TestErrors.nl (intentionally broken)
