@@ -3876,8 +3876,277 @@ func Hello(): string {
 
     #endregion
 
-    #region Numeric Widening
+    #region Numeric Widening — Comprehensive Assignability Matrix
 
+    // ===== byte widening =====
+    [Fact]
+    public void NumericWidening_ByteToShort()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: short = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ByteToInt()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: int = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ByteToLong()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ByteToFloat()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ByteToDouble()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ByteToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetByte(): byte { return 0 as byte }
+            func Main() {
+                x: byte = GetByte()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== sbyte widening =====
+    [Fact]
+    public void NumericWidening_SByteToShort()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: short = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_SByteToInt()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: int = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_SByteToLong()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_SByteToFloat()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_SByteToDouble()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_SByteToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetSByte(): sbyte { return 0 as sbyte }
+            func Main() {
+                x: sbyte = GetSByte()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== short widening =====
+    [Fact]
+    public void NumericWidening_ShortToInt()
+    {
+        AssertNoErrors(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: int = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ShortToLong()
+    {
+        AssertNoErrors(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ShortToFloat()
+    {
+        AssertNoErrors(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ShortToDouble()
+    {
+        AssertNoErrors(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ShortToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== ushort widening =====
+    [Fact]
+    public void NumericWidening_UShortToInt()
+    {
+        AssertNoErrors(@"
+            func GetUShort(): ushort { return 0 as ushort }
+            func Main() {
+                x: ushort = GetUShort()
+                y: int = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UShortToLong()
+    {
+        AssertNoErrors(@"
+            func GetUShort(): ushort { return 0 as ushort }
+            func Main() {
+                x: ushort = GetUShort()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UShortToFloat()
+    {
+        AssertNoErrors(@"
+            func GetUShort(): ushort { return 0 as ushort }
+            func Main() {
+                x: ushort = GetUShort()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UShortToDouble()
+    {
+        AssertNoErrors(@"
+            func GetUShort(): ushort { return 0 as ushort }
+            func Main() {
+                x: ushort = GetUShort()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UShortToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetUShort(): ushort { return 0 as ushort }
+            func Main() {
+                x: ushort = GetUShort()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== int widening =====
     [Fact]
     public void NumericWidening_IntToLong()
     {
@@ -3885,17 +4154,6 @@ func Hello(): string {
             func Main() {
                 x: int = 42
                 y: long = x
-            }
-        ");
-    }
-
-    [Fact]
-    public void NumericWidening_IntToDouble()
-    {
-        AssertNoErrors(@"
-            func Main() {
-                x: int = 42
-                y: double = x
             }
         ");
     }
@@ -3912,9 +4170,215 @@ func Hello(): string {
     }
 
     [Fact]
+    public void NumericWidening_IntToDouble()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_IntToDecimal()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== uint widening =====
+    [Fact]
+    public void NumericWidening_UIntToLong()
+    {
+        AssertNoErrors(@"
+            func GetUInt(): uint { return 0 as uint }
+            func Main() {
+                x: uint = GetUInt()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UIntToFloat()
+    {
+        AssertNoErrors(@"
+            func GetUInt(): uint { return 0 as uint }
+            func Main() {
+                x: uint = GetUInt()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UIntToDouble()
+    {
+        AssertNoErrors(@"
+            func GetUInt(): uint { return 0 as uint }
+            func Main() {
+                x: uint = GetUInt()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_UIntToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetUInt(): uint { return 0 as uint }
+            func Main() {
+                x: uint = GetUInt()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== long widening =====
+    [Fact]
+    public void NumericWidening_LongToFloat()
+    {
+        AssertNoErrors(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_LongToDouble()
+    {
+        AssertNoErrors(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_LongToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== ulong widening =====
+    [Fact]
+    public void NumericWidening_ULongToFloat()
+    {
+        AssertNoErrors(@"
+            func GetULong(): ulong { return 0 as ulong }
+            func Main() {
+                x: ulong = GetULong()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ULongToDouble()
+    {
+        AssertNoErrors(@"
+            func GetULong(): ulong { return 0 as ulong }
+            func Main() {
+                x: ulong = GetULong()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_ULongToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetULong(): ulong { return 0 as ulong }
+            func Main() {
+                x: ulong = GetULong()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== char widening =====
+    [Fact]
+    public void NumericWidening_CharToInt()
+    {
+        AssertNoErrors(@"
+            func GetChar(): char { return 65 as char }
+            func Main() {
+                x: char = GetChar()
+                y: int = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_CharToLong()
+    {
+        AssertNoErrors(@"
+            func GetChar(): char { return 65 as char }
+            func Main() {
+                x: char = GetChar()
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_CharToFloat()
+    {
+        AssertNoErrors(@"
+            func GetChar(): char { return 65 as char }
+            func Main() {
+                x: char = GetChar()
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_CharToDouble()
+    {
+        AssertNoErrors(@"
+            func GetChar(): char { return 65 as char }
+            func Main() {
+                x: char = GetChar()
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_CharToDecimal()
+    {
+        AssertNoErrors(@"
+            func GetChar(): char { return 65 as char }
+            func Main() {
+                x: char = GetChar()
+                y: decimal = x
+            }
+        ");
+    }
+
+    // ===== float widening =====
+    [Fact]
     public void NumericWidening_FloatToDouble()
     {
-        // Note: float literal would need 3.14f in C#, but we use int -> float -> double chain
         AssertNoErrors(@"
             func Main() {
                 x: int = 42
@@ -3924,17 +4388,229 @@ func Hello(): string {
         ");
     }
 
-    #endregion
-
-    #region Nullable Widening
+    // ===== Narrowing conversions — must be REJECTED =====
+    [Fact]
+    public void NumericNarrowing_IntToByte_Rejected()
+    {
+        AssertHasError(@"
+            func Main() {
+                x: int = 42
+                y: byte = x
+            }
+        ", "Cannot assign");
+    }
 
     [Fact]
-    public void NullableWidening_NonNullableToNullable()
+    public void NumericNarrowing_ShortToByte_Rejected()
+    {
+        AssertHasError(@"
+            func GetShort(): short { return 0 as short }
+            func Main() {
+                x: short = GetShort()
+                y: byte = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_LongToInt_Rejected()
+    {
+        AssertHasError(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: int = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_DoubleToFloat_Rejected()
+    {
+        AssertHasError(@"
+            func Main() {
+                x: double = 3.14
+                y: float = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_DecimalToDouble_Rejected()
+    {
+        AssertHasError(@"
+            func GetDecimal(): decimal { return 0 as decimal }
+            func Main() {
+                x: decimal = GetDecimal()
+                y: double = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_IntToShort_Rejected()
+    {
+        AssertHasError(@"
+            func Main() {
+                x: int = 42
+                y: short = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_DoubleToInt_Rejected()
+    {
+        AssertHasError(@"
+            func Main() {
+                x: double = 3.14
+                y: int = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_FloatToInt_Rejected()
+    {
+        AssertHasError(@"
+            func GetFloat(): float { return 0 as float }
+            func Main() {
+                x: float = GetFloat()
+                y: int = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_DecimalToInt_Rejected()
+    {
+        AssertHasError(@"
+            func GetDecimal(): decimal { return 0 as decimal }
+            func Main() {
+                x: decimal = GetDecimal()
+                y: int = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NumericNarrowing_LongToShort_Rejected()
+    {
+        AssertHasError(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: short = x
+            }
+        ", "Cannot assign");
+    }
+
+    #endregion
+
+    #region Nullable Assignability — Comprehensive Matrix
+
+    // T -> T? (widening) — should work
+    [Fact]
+    public void NullableWidening_IntToNullableInt()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: int? = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableWidening_StringToNullableString()
     {
         AssertNoErrors(@"
             func Main() {
                 x: string = ""hello""
                 y: string? = x
+            }
+        ");
+    }
+
+    // null -> T? (should work)
+    [Fact]
+    public void NullableAssignment_NullToNullableInt()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int? = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableAssignment_NullToNullableString()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = null
+            }
+        ");
+    }
+
+    // null -> reference type (should work — string is a reference type)
+    [Fact]
+    public void NullAssignment_NullToString()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string = null
+            }
+        ");
+    }
+
+    // null -> value type (should fail)
+    [Fact]
+    public void NullAssignment_NullToInt_Rejected()
+    {
+        AssertHasError(@"
+            func Main() {
+                x: int = null
+            }
+        ", "Cannot assign");
+    }
+
+    // Inner type widening: int? -> long? (should work)
+    [Fact]
+    public void NullableWidening_NullableIntToNullableLong()
+    {
+        AssertNoErrors(@"
+            func GetNullableInt(): int? { return null }
+            func Main() {
+                x: int? = GetNullableInt()
+                y: long? = x
+            }
+        ");
+    }
+
+    // T? -> object (boxing — should work)
+    [Fact]
+    public void NullableWidening_NullableIntToObject()
+    {
+        AssertNoErrors(@"
+            func GetNullableInt(): int? { return null }
+            func Main() {
+                x: int? = GetNullableInt()
+                y: object = x
+            }
+        ");
+    }
+
+    // null -> class type (should work — classes are reference types)
+    [Fact]
+    public void NullAssignment_NullToClassType()
+    {
+        AssertNoErrors(@"
+            class Foo {
+                x: int = 0
+            }
+            func Main() {
+                f: Foo = null
             }
         ");
     }
@@ -4513,4 +5189,269 @@ func Hello(): string {
             }
         ");
     }
+
+    #region Overload Resolution — Betterness Rules
+
+    [Fact]
+    public void OverloadResolution_IntBeatsLong_WithIntArg()
+    {
+        // C# spec 12.6.4: Exact match beats implicit conversion
+        AssertNoErrors(@"
+            func Foo(x: int): int { return x }
+            func Foo(x: long): long { return x }
+            func Main() {
+                r := Foo(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_IntBeatsObject_WithIntArg()
+    {
+        // More specific type beats less specific
+        AssertNoErrors(@"
+            func Foo(x: int): int { return x }
+            func Foo(x: object) { }
+            func Main() {
+                Foo(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_TwoParams_FirstExactWins()
+    {
+        // Foo(int, int) beats Foo(int, long) when both args are int
+        AssertNoErrors(@"
+            func Foo(x: int, y: int): int { return x }
+            func Foo(x: int, y: long): long { return x as long }
+            func Main() {
+                r := Foo(1, 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_NonParamsBeatsParams()
+    {
+        // Non-params overload wins when both match for single argument
+        AssertNoErrors(@"
+            func Foo(x: int): int { return x }
+            func Foo(params x: int[]): int { return 0 }
+            func Main() {
+                r := Foo(1)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToLong_Works()
+    {
+        // When only long overload exists, int should implicitly widen
+        AssertNoErrors(@"
+            func Process(x: long): long { return x }
+            func Main() {
+                r := Process(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToDouble_Works()
+    {
+        // When only double overload exists, int should implicitly widen
+        AssertNoErrors(@"
+            func Process(x: double): double { return x }
+            func Main() {
+                r := Process(42)
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Missing Diagnostics — Type System Edge Cases
+
+    [Fact]
+    public void VoidUsedAsValue_Rejected()
+    {
+        // Assigning the result of a void function to a variable should be an error
+        AssertHasError(@"
+            func DoStuff() { }
+            func Main() {
+                x := DoStuff()
+            }
+        ", "void");
+    }
+
+    [Fact]
+    public void DuplicateParameterNames_Rejected()
+    {
+        // Two parameters with the same name should be an error
+        AssertHasError(@"
+            func Dup(x: int, x: string): int {
+                return 0
+            }
+        ", "already declared");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToInterfaceType()
+    {
+        // null should be assignable to interface types (reference types)
+        AssertNoErrors(@"
+            interface IFoo {
+                func Bar(): int
+            }
+            func Main() {
+                x: IFoo = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToArrayType()
+    {
+        // null should be assignable to array types (reference types)
+        AssertNoErrors(@"
+            func Main() {
+                x: int[] = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToBool_Rejected()
+    {
+        // null should NOT be assignable to value types
+        AssertHasError(@"
+            func Main() {
+                x: bool = null
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToDouble_Rejected()
+    {
+        // null should NOT be assignable to numeric value types
+        AssertHasError(@"
+            func Main() {
+                x: double = null
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullableWidening_IntNullableToLongNullable()
+    {
+        // int? -> long? via inner type widening should work
+        AssertNoErrors(@"
+            func GetNullableInt(): int? { return null }
+            func Main() {
+                x: int? = GetNullableInt()
+                y: long? = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableWidening_ByteNullableToIntNullable()
+    {
+        // byte? -> int? via inner type widening
+        AssertNoErrors(@"
+            func GetNullableByte(): byte? { return null }
+            func Main() {
+                x: byte? = GetNullableByte()
+                y: int? = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableWidening_FloatNullableToDoubleNullable()
+    {
+        // float? -> double? via inner type widening
+        AssertNoErrors(@"
+            func GetNullableFloat(): float? { return null }
+            func Main() {
+                x: float? = GetNullableFloat()
+                y: double? = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableNarrowing_LongNullableToIntNullable_Rejected()
+    {
+        // long? -> int? should fail (narrowing)
+        AssertHasError(@"
+            func GetNullableLong(): long? { return null }
+            func Main() {
+                x: long? = GetNullableLong()
+                y: int? = x
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToRecordStruct_Rejected()
+    {
+        // record struct is a value type — null should NOT be assignable
+        AssertHasError(@"
+            record struct Point {
+                x: int = 0
+                y: int = 0
+            }
+            func Main() {
+                p: Point = null
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToRecord_Allowed()
+    {
+        // record (not struct) is a reference type — null should be assignable
+        AssertNoErrors(@"
+            record Person {
+                name: string = ""unknown""
+            }
+            func Main() {
+                p: Person = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToStruct_Rejected()
+    {
+        // struct is a value type — null should NOT be assignable
+        AssertHasError(@"
+            struct Point {
+                x: int = 0
+                y: int = 0
+            }
+            func Main() {
+                p: Point = null
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullAssignment_NullToUnionType()
+    {
+        // union types are reference types — null should be assignable
+        AssertNoErrors(@"
+            union Shape {
+                Circle { radius: double }
+                Rectangle { width: double, height: double }
+            }
+            func Main() {
+                s: Shape = null
+            }
+        ");
+    }
+
+    #endregion
 }

@@ -1131,8 +1131,18 @@ public class Analyzer : IDisposable
         }
         else if (inferredType != null)
         {
-            // Inferred from initializer
-            finalType = inferredType;
+            // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
+            if (inferredType == BuiltInTypes.Void)
+            {
+                Error(ErrorCode.TypeMismatch, "Cannot assign void to a variable — the expression does not return a value",
+                    varDecl.Line, varDecl.Column);
+                finalType = BuiltInTypes.Unknown;
+            }
+            else
+            {
+                // Inferred from initializer
+                finalType = inferredType;
+            }
         }
         else
         {
@@ -5060,6 +5070,8 @@ public class Analyzer : IDisposable
 
         if (resolvedTarget == resolvedSource) return true;
         if (resolvedSource == BuiltInTypes.Null && resolvedTarget is NullableTypeInfo) return true;
+        // null is assignable to any reference type (string, classes, interfaces, arrays, delegates)
+        if (resolvedSource == BuiltInTypes.Null && IsReferenceType(resolvedTarget)) return true;
         if (resolvedSource == BuiltInTypes.Never) return true;
 
         // Unknown type handling — distinguished by kind
@@ -5070,9 +5082,13 @@ public class Analyzer : IDisposable
         // Everything is assignable to object
         if (resolvedTarget == BuiltInTypes.Object) return true;
 
-        // Nullable widening: T -> T?
+        // Nullable widening: T -> T? and T? -> U? (inner type widening)
         if (resolvedTarget is NullableTypeInfo nullableTarget)
         {
+            // Nullable<T> → Nullable<U>: check if inner types are compatible (e.g., int? → long?)
+            if (resolvedSource is NullableTypeInfo nullableSource)
+                return IsAssignable(nullableTarget.InnerType, nullableSource.InnerType);
+            // T → T?: widening non-nullable to nullable
             return IsAssignable(nullableTarget.InnerType, resolvedSource);
         }
 
@@ -5444,6 +5460,47 @@ public class Analyzer : IDisposable
             return ResolveTypeAlias(resolved);
         }
         return type;
+    }
+
+    /// <summary>
+    /// Returns true if the type is a reference type (can be assigned null).
+    /// Value types (numeric primitives, bool, char, structs, enums) return false.
+    /// </summary>
+    private static bool IsReferenceType(TypeInfo type)
+    {
+        // Known value types: all numeric built-ins, bool, char
+        if (type is SimpleTypeInfo simple)
+        {
+            return simple.Name switch
+            {
+                "int" or "long" or "float" or "double" or "decimal"
+                    or "byte" or "sbyte" or "short" or "ushort"
+                    or "uint" or "ulong" or "char" or "bool"
+                    or "void" or "null" or "never" => false,
+                // string, object, and any other named types are reference types
+                _ => true
+            };
+        }
+        // Classes, interfaces, arrays, delegates, unions are reference types
+        if (type is ClassTypeInfo or InterfaceTypeInfo or ArrayTypeInfo
+            or FunctionTypeInfo or UnionTypeInfo)
+            return true;
+        // Records: reference types by default, but record struct is a value type
+        if (type is RecordTypeInfo recordType)
+            return !recordType.Declaration.IsStruct;
+        // Structs and enums are value types
+        if (type is StructTypeInfo or EnumTypeInfo)
+            return false;
+        // GenericTypeInfo could be a reference or value type — be conservative (don't claim reference)
+        // This avoids incorrectly allowing null → Span<T>, Nullable<T>, etc.
+        if (type is GenericTypeInfo)
+            return false;
+        // Reflection types: check the CLR type
+        if (type is ReflectionTypeInfo refl)
+            return !refl.Type.IsValueType;
+        // Nullable wrapper is already handled before this check
+        // External/unknown: be conservative, don't claim reference type
+        return false;
     }
 
     // Check if a type is a known generic collection type (List<T>, HashSet<T>, etc.)
