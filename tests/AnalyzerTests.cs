@@ -248,6 +248,97 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void BinaryArithmetic_BytePlusByte_ProducesInt()
+    {
+        // C# binary numeric promotion: byte + byte = int
+        // getA/getB return byte, so a+b should be int, not assignable back to byte
+        AssertHasError(@"
+            func getA(): byte { return 0 as byte }
+            func getB(): byte { return 0 as byte }
+            func Main() {
+                c: byte = getA() + getB()
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_ShortPlusShort_ProducesInt()
+    {
+        // C# binary numeric promotion: short + short = int
+        AssertHasError(@"
+            func getA(): short { return 0 as short }
+            func getB(): short { return 0 as short }
+            func Main() {
+                c: short = getA() + getB()
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_SmallTypes_AssignableToInt()
+    {
+        // byte + byte = int, which should be assignable to int
+        AssertNoErrors(@"
+            func getA(): byte { return 0 as byte }
+            func getB(): byte { return 0 as byte }
+            func Main() {
+                c: int = getA() + getB()
+            }
+        ");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_DecimalPlusDouble_Error()
+    {
+        // ECMA-334 §12.4.7: decimal cannot mix with float/double
+        AssertHasError(@"
+            func getD(): decimal { return 0 as decimal }
+            func getF(): double { return 0.0 }
+            func Main() {
+                x := getD() + getF()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_DecimalPlusFloat_Error()
+    {
+        AssertHasError(@"
+            func getD(): decimal { return 0 as decimal }
+            func getF(): float { return 0 as float }
+            func Main() {
+                x := getD() + getF()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_UlongPlusInt_Error()
+    {
+        // ECMA-334 §12.4.7: ulong cannot mix with signed types
+        AssertHasError(@"
+            func getU(): ulong { return 0 as ulong }
+            func getI(): int { return 0 }
+            func Main() {
+                x := getU() + getI()
+            }
+        ", "cannot be applied");
+    }
+
+    [Fact]
+    public void BinaryArithmetic_DecimalPlusDecimal_Ok()
+    {
+        // decimal + decimal is valid
+        AssertNoErrors(@"
+            func getA(): decimal { return 0 as decimal }
+            func getB(): decimal { return 0 as decimal }
+            func Main() {
+                x := getA() + getB()
+            }
+        ");
+    }
+
+    [Fact]
     public void BinaryArithmetic_InvalidOperands()
     {
         AssertHasError(@"
@@ -3262,6 +3353,685 @@ func Hello(): string {
             }
         ");
     }
+
+    // ===================================================================
+    // Type System Hardening Tests
+    // ===================================================================
+
+    #region Nominal Subtyping
+
+    [Fact]
+    public void NominalSubtyping_ClassInheritance_Assignable()
+    {
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func Main() {
+                dog := new Dog()
+                animal: Animal = dog
+            }
+        ");
+    }
+
+    [Fact]
+    public void NominalSubtyping_InterfaceImplementation_Assignable()
+    {
+        AssertNoErrors(@"
+            interface IGreetable {
+                func Greet(): string
+            }
+            class Person : IGreetable {
+                func Greet(): string {
+                    return ""Hello""
+                }
+            }
+            func Main() {
+                p := new Person()
+                g: IGreetable = p
+            }
+        ");
+    }
+
+    [Fact]
+    public void NominalSubtyping_EverythingAssignableToObject()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: object = 42
+                y: object = ""hello""
+                z: object = true
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Numeric Widening
+
+    [Fact]
+    public void NumericWidening_IntToLong()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: long = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_IntToDouble()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: double = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_IntToFloat()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: float = x
+            }
+        ");
+    }
+
+    [Fact]
+    public void NumericWidening_FloatToDouble()
+    {
+        // Note: float literal would need 3.14f in C#, but we use int -> float -> double chain
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+                y: float = x
+                z: double = y
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Nullable Widening
+
+    [Fact]
+    public void NullableWidening_NonNullableToNullable()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string = ""hello""
+                y: string? = x
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow-Sensitive Null Narrowing
+
+    [Fact]
+    public void FlowNarrowing_NullCheckNarrowsToNonNullable()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null {
+                    y: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_EqualNullNarrowsInElse()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x == null {
+                    // x is still string? here
+                } else {
+                    y: string = x
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Enum Exhaustiveness
+
+    [Fact]
+    public void EnumExhaustiveness_AllCasesCovered_NoError()
+    {
+        AssertNoErrors(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    Status.Inactive => ""off""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void EnumExhaustiveness_WildcardCovers_NoError()
+    {
+        AssertNoErrors(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1,
+                Pending = 2
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    _ => ""other""
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void EnumExhaustiveness_MissingCase_Error()
+    {
+        AssertHasError(@"
+            enum Status {
+                Active = 0,
+                Inactive = 1,
+                Pending = 2
+            }
+            func Main() {
+                s: Status = Status.Active
+                result := match s {
+                    Status.Active => ""on"",
+                    Status.Inactive => ""off""
+                }
+            }
+        ", "not exhaustive");
+    }
+
+    [Fact]
+    public void EnumToInt_ImplicitlyAssignable()
+    {
+        AssertNoErrors(@"
+            enum Priority {
+                Low = 0,
+                High = 1
+            }
+            func Main() {
+                p := Priority.Low
+                n: int = p
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Unknown Type Kinds
+
+    [Fact]
+    public void UnknownKind_ErrorRecovery_SuppressesCascading()
+    {
+        // Using an undefined function should produce ONE error, not cascading errors
+        var result = Analyze(@"
+            func Main() {
+                x := undefinedFunction()
+                y: int = x
+            }
+        ");
+        // Should have error for undefined function but NOT for x assignment
+        Assert.True(result.HasErrors);
+        Assert.DoesNotContain(result.Errors, e => e.Message.Contains("Cannot assign"));
+    }
+
+    #endregion
+
+    // ===================================================================
+    // Type System Hardening: Phase 2 — Flow Typing, Structural Delegates,
+    // Constraint Validation, Enum Nominality
+    // ===================================================================
+
+    #region Flow Narrowing: && Chaining
+
+    [Fact]
+    public void FlowNarrowing_AndChain_BothNullChecks()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x != null && y != null {
+                    a: string = x
+                    b: int = y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_NullCheckWithCondition()
+    {
+        // x != null narrows x; the second operand doesn't produce narrowings but shouldn't break
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null && true {
+                    a: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_NoElseNarrowing()
+    {
+        // else of && is !a || !b — can't narrow either variable
+        AssertHasError(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x != null && y != null {
+                    a: string = x
+                } else {
+                    b: string = x
+                }
+            }
+        ", "Cannot assign");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: Is-Type Patterns
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_BindsVariable()
+    {
+        // if x is Dog d — should declare d with type Dog in then-branch
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog d {
+                    name: string = d.Name
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_NarrowsWithoutBinding()
+    {
+        // if x is Dog — should narrow x to Dog in then-branch (no new variable)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog {
+                    dog: Dog = a
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_IsPattern_WithAndChain()
+    {
+        // Combine is-pattern with && null check on separate variables
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal, x: string?) {
+                if a is Dog && x != null {
+                    dog: Dog = a
+                    s: string = x
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: Or-Chain
+
+    [Fact]
+    public void FlowNarrowing_OrChain_NarrowsInElseBranch()
+    {
+        // if x == null || y == null → both non-null in else branch
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x == null || y == null {
+                    // can't narrow here — one or the other failed
+                } else {
+                    a: string = x
+                    b: int = y
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_NoThenNarrowing()
+    {
+        // then-branch of || cannot narrow (only one side needs to be true)
+        AssertHasError(@"
+            func Main() {
+                x: string? = ""hello""
+                y: int? = 42
+                if x == null || y == null {
+                    a: string = x
+                }
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_TripleNullCheck()
+    {
+        // Three null checks combined with || — all narrow in else
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""a""
+                y: string? = ""b""
+                z: string? = ""c""
+                if x == null || y == null || z == null {
+                    // can't narrow
+                } else {
+                    a: string = x
+                    b: string = y
+                    c: string = z
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_OrChain_RhsSeesLeftElseNarrowing()
+    {
+        // x == null || x.Length > 0 — RHS should see x as non-nullable (short-circuit: left was false → x != null)
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x == null || x.Length > 0 {
+                    // can narrow x in then body only if both sides hold,
+                    // but the important thing is no error on x.Length
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: And-Chain RHS Narrowing
+
+    [Fact]
+    public void FlowNarrowing_AndChain_RhsSeesLeftNarrowing()
+    {
+        // x != null && x.Length > 0 — the RHS should see x as non-nullable
+        AssertNoErrors(@"
+            func Main() {
+                x: string? = ""hello""
+                if x != null && x.Length > 0 {
+                    s: string = x
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_AndChain_RhsSeesIsPatternNarrowing()
+    {
+        // a is Dog && a.Breed == "poodle" — RHS should see a as Dog (accessing Dog.Breed)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog && a.Breed == ""poodle"" {
+                    breed: string = a.Breed
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Flow Narrowing: Same-Symbol Intersection
+
+    [Fact]
+    public void FlowNarrowing_SameSymbol_KeepsMostSpecific()
+    {
+        // if a is Dog && a is Animal → should keep Dog (more specific), not Animal
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Dog && a is Animal {
+                    d: Dog = a
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void FlowNarrowing_SameSymbol_ReversedOrder_KeepsMostSpecific()
+    {
+        // if a is Animal && a is Dog → should still keep Dog (more specific)
+        AssertNoErrors(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func TakeAnimal(a: Animal) {
+                if a is Animal && a is Dog {
+                    d: Dog = a
+                }
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Lambda-Delegate Structural Validation
+
+    [Fact]
+    public void Lambda_Delegate_CorrectParamCount_NoError()
+    {
+        AssertNoErrors(@"
+            func Apply(f: Func<int, string>, x: int): string {
+                return f(x)
+            }
+            func Main() {
+                result := Apply((x) => ""hello"", 42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Lambda_Delegate_WrongParamCount_Error()
+    {
+        // Lambda with 2 params assigned to Func<int, string> (1 param + return type)
+        AssertHasError(@"
+            func Main() {
+                let f: Func<int, string> = (x, y) => ""hello""
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void Lambda_Delegate_ZeroParams_MatchesFunc()
+    {
+        AssertNoErrors(@"
+            func RunIt(f: Func<int>): int {
+                return f()
+            }
+            func Main() {
+                result := RunIt(() => 42)
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Generic Constraint Validation
+
+    [Fact]
+    public void GenericConstraint_Satisfied_NoError()
+    {
+        AssertNoErrors(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class MyInt : IComparable {
+                func CompareTo(other: object): int {
+                    return 0
+                }
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new MyInt(), new MyInt())
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericConstraint_Violated_Error()
+    {
+        AssertHasError(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class Plain {
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new Plain(), new Plain())
+            }
+        ", "does not satisfy constraint");
+    }
+
+    #endregion
+
+    #region String-to-Enum Rejection
+
+    [Fact]
+    public void StringToEnum_Rejected()
+    {
+        // Assigning a string literal to an enum type should be rejected
+        AssertHasError(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c: Color = ""red""
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void IntToEnum_Rejected()
+    {
+        // Assigning an int literal to an enum type should be rejected
+        AssertHasError(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c: Color = 0
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void EnumToString_Allowed()
+    {
+        // Enum to its underlying type is allowed
+        AssertNoErrors(@"
+            enum Color {
+                Red = 0,
+                Blue = 1
+            }
+            func Main() {
+                c := Color.Red
+                n: int = c
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringEnumToString_Allowed()
+    {
+        // String enums are inferred from the first member value being a string literal
+        AssertNoErrors(@"
+            enum Color {
+                Red = ""red"",
+                Blue = ""blue""
+            }
+            func Main() {
+                c := Color.Red
+                s: string = c
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringToStringEnum_Rejected()
+    {
+        AssertHasError(@"
+            enum Color {
+                Red = ""red"",
+                Blue = ""blue""
+            }
+            func Main() {
+                c: Color = ""red""
+            }
+        ", "Cannot assign");
+    }
+
+    #endregion
 
     [Fact]
     public void SetupSymbols_VisibleInTestBodies()
