@@ -209,14 +209,13 @@ public class MultiFileCompiler
     /// Parse and analyze all files without transpiling.
     /// This is the fast path for code intelligence queries — skips the transpile phase
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
+    /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
+    /// so we can report both syntax and semantic diagnostics in a single pass.
     /// </summary>
     public void CompileForAnalysis()
     {
         ParseAllFiles();
-        if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-        {
-            AnalyzeAllFiles();
-        }
+        AnalyzeAllFiles();
     }
 
     /// <summary>
@@ -231,26 +230,17 @@ public class MultiFileCompiler
         ParseAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END");
 
-        // Stop if parse errors
-        if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-        {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Parse errors found, returning");
-            return new MultiFileCompilationResult(
-                false,
-                _allErrors,
-                new Dictionary<string, string>()
-            );
-        }
-
-        // Pass 2: Analyze
+        // Pass 2: Analyze — always run, even if some files had parse errors.
+        // Files that parsed successfully are analyzed so we can report both
+        // syntax and semantic diagnostics in a single compilation pass.
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
         AnalyzeAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
 
-        // Stop if analysis errors
+        // Stop before transpilation if there are any errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Analysis errors found, returning");
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Errors found, returning before transpile");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -258,7 +248,7 @@ public class MultiFileCompiler
             );
         }
 
-        // Pass 2: Transpile
+        // Pass 3: Transpile
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START");
         TranspileAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END");
