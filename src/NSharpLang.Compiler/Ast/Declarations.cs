@@ -291,5 +291,14 @@ public record FunctionTypeReference(
 public record TestDeclaration(
     string Description,
     BlockStatement Body,
+    List<Parameter>? TableParameters,
+    List<List<Expression>>? TableCases,
+    string? SkipReason,
+    int Line,
+    int Column) : Declaration(Line, Column);
+
+// Setup block declaration (for .tests.nl files) - shared setup for all tests in a file
+public record SetupDeclaration(
+    BlockStatement Body,
     int Line,
     int Column) : Declaration(Line, Column);

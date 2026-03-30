@@ -13,13 +13,14 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| `nlc build` | Compile all .nl files via MSBuild | `nlc build` |
+| `nlc build` | Compile project (generates .g.csproj, no user .csproj needed) | `nlc build` |
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc build --release` | Build with Release configuration | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
-| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`) | `nlc clean` |
+| `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
+| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
@@ -63,6 +64,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/15-dogfood-project` |
 | `nlc test` | Run .tests.nl files (xUnit or NUnit per project.yml) | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
+| `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 | `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
 

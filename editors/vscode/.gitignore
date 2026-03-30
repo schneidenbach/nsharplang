@@ -11,3 +11,10 @@ server/
 
 # npm
 package-lock.json
+
+# VS Code test runner
+.vscode-test/
+
+# Temp files from regression tests
+test/fixtures/simple/_reg_*.nl
+test/fixtures/simple/_test_*.nl

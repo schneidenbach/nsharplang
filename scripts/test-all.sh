@@ -64,9 +64,10 @@ CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll"
 section "Step 1: Clean Previous Build Artifacts"
 echo "Cleaning bin/ and obj/ directories..."
 find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
-    if [[ "$dir" != "./node_modules"* ]]; then
-        rm -rf "$dir"
+    if [[ "$dir" == "./node_modules"* ]] || [[ "$dir" == *".vscode-test"* ]] || [[ "$dir" == *"node_modules"* ]]; then
+        continue
     fi
+    rm -rf "$dir"
 done
 handle_success "Cleaned build artifacts"
 
@@ -92,6 +93,37 @@ else
     handle_error "Unit tests"
 fi
 rm -f "$TEST_OUTPUT"
+
+section "Step 3b: VS Code Integration Tests (MANDATORY)"
+# VS Code integration tests are REQUIRED — they catch parser/LSP regressions
+# that unit tests miss (e.g., false-positive NL101 errors on valid syntax).
+# If prerequisites are missing, this is a FAILURE, not a skip.
+VSCODE_SKIP_REASON=""
+if ! command -v code >/dev/null 2>&1; then
+    VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
+fi
+if ! command -v node >/dev/null 2>&1; then
+    VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
+fi
+
+if [ -n "$VSCODE_SKIP_REASON" ]; then
+    echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
+    echo "VS Code integration tests are mandatory. Install prerequisites:"
+    echo "  - VS Code: https://code.visualstudio.com/"
+    echo "  - Node.js: https://nodejs.org/"
+    echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
+    handle_error "VS Code integration tests (missing prerequisites)"
+else
+    echo "Running VS Code integration tests..."
+    VSCODE_OUTPUT=$(mktemp)
+    if "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1; then
+        handle_success "VS Code integration tests"
+    else
+        cat "$VSCODE_OUTPUT"
+        handle_error "VS Code integration tests"
+    fi
+    rm -f "$VSCODE_OUTPUT"
+fi
 
 section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing SDK to local NuGet feed..."
@@ -152,20 +184,28 @@ else
     handle_error "project.yml missing"
 fi
 
+# Verify NO .csproj was created by template (csproj-free workflow)
+CSPROJ_COUNT=$(find "$TEMP_DIR/TestConsoleApp" -name "*.csproj" -type f 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CSPROJ_COUNT" = "0" ]; then
+    handle_success "No .csproj in template output (csproj-free)"
+else
+    handle_error "Template should not create .csproj files"
+fi
+
 if [ -f "$TEMP_DIR/TestWebApiApp/project.yml" ]; then
     handle_success "webapi project.yml exists"
 else
     handle_error "webapi project.yml missing"
 fi
 
-section "Step 7: Build Template-Generated Project"
+section "Step 7: Build Template-Generated Project (via nlc build)"
 if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
     cd "$TEMP_DIR/TestConsoleApp"
-    echo "Building template-generated project..."
-    if dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
-        handle_success "Template project builds"
+    echo "Building template-generated project with nlc build..."
+    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+        handle_success "Template project builds (nlc build)"
     else
-        handle_error "Template project build"
+        handle_error "Template project build (nlc build)"
     fi
 else
     handle_error "Template project missing"
@@ -173,11 +213,11 @@ fi
 
 if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
     cd "$TEMP_DIR/TestWebApiApp"
-    echo "Building web API template-generated project..."
-    if dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
-        handle_success "Web API template project builds"
+    echo "Building web API template-generated project with nlc build..."
+    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+        handle_success "Web API template project builds (nlc build)"
     else
-        handle_error "Web API template project build"
+        handle_error "Web API template project build (nlc build)"
     fi
 else
     handle_error "Web API template project missing"
@@ -186,7 +226,7 @@ fi
 cd "$REPO_ROOT"
 rm -rf "$TEMP_DIR"
 
-section "Step 8: Build Example Projects"
+section "Step 8: Build Example Projects (via nlc build)"
 echo "Using up to $MAX_JOBS parallel workers for project verification..."
 
 # Find all example projects with project.yml
@@ -195,6 +235,14 @@ EXAMPLE_PROJECTS=$(find examples -name "project.yml" -type f | sort)
 if [ -z "$EXAMPLE_PROJECTS" ]; then
     echo "No example projects found with project.yml"
 else
+    # Pre-build one example to populate the NuGet cache, avoiding parallel restore races
+    FIRST_PROJECT=$(echo "$EXAMPLE_PROJECTS" | head -1)
+    FIRST_DIR=$(dirname "$FIRST_PROJECT")
+    echo "Warming NuGet cache with $FIRST_DIR..."
+    rm -rf "$FIRST_DIR/bin" "$FIRST_DIR/obj" "$FIRST_DIR/nsharp" 2>/dev/null || true
+    rm -f "$FIRST_DIR"/*.g.csproj 2>/dev/null || true
+    (cd "$REPO_ROOT/$FIRST_DIR" && dotnet "$CLI_DLL" build > /dev/null 2>&1) || true
+
     EXAMPLE_RESULTS_DIR=$(mktemp -d)
     EXAMPLE_LIST="$EXAMPLE_RESULTS_DIR/items.txt"
     i=0
@@ -207,6 +255,7 @@ else
         entry="$1"
         repo_root="$2"
         results_dir="$3"
+        cli_dll="$4"
         idx="${entry%%|*}"
         project_file="${entry#*|}"
         project_dir=$(dirname "$project_file")
@@ -216,19 +265,10 @@ else
         work_dir="$repo_root/$project_dir"
 
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
+        # Remove any stale generated .g.csproj files
+        rm -f "$work_dir"/*.g.csproj 2>/dev/null || true
 
-        shopt -s nullglob
-        csproj_files=("$work_dir"/*.csproj)
-        shopt -u nullglob
-
-        if [ "${#csproj_files[@]}" -gt 0 ]; then
-            project_file="${csproj_files[0]}"
-            if (cd "$work_dir" && dotnet restore --disable-build-servers "$project_file" > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore "$project_file" > "$log_file" 2>&1); then
-                printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
-            else
-                printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
-            fi
-        elif (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
+        if (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
             printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
         else
             printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
@@ -249,7 +289,7 @@ else
             handle_success "Example: $project_name"
         else
             handle_error "Example: $project_name"
-            echo "  Run manually: cd $project_dir && dotnet build"
+            echo "  Run manually: cd $project_dir && dotnet \"$CLI_DLL\" build"
         fi
     done < "$EXAMPLE_LIST"
 

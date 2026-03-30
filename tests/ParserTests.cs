@@ -443,6 +443,48 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestEnumDeclarationWithExplicitStringType()
+    {
+        var source = @"
+            enum Status: string {
+                Pending = ""pending"",
+                Active = ""active"",
+                Done = ""done""
+            }
+        ";
+
+        var cu = Parse(source);
+        var enumDecl = cu.Declarations[0] as EnumDeclaration;
+
+        Assert.NotNull(enumDecl);
+        Assert.Equal("Status", enumDecl!.Name);
+        Assert.Equal(3, enumDecl!.Members.Count);
+        Assert.Equal(EnumType.String, enumDecl!.Type);
+        Assert.Equal("Pending", enumDecl!.Members[0].Name);
+        Assert.IsType<StringLiteralExpression>(enumDecl!.Members[0].Value);
+    }
+
+    [Fact]
+    public void TestEnumDeclarationWithExplicitIntType()
+    {
+        var source = @"
+            enum Priority: int {
+                Low = 0,
+                Medium = 1,
+                High = 2
+            }
+        ";
+
+        var cu = Parse(source);
+        var enumDecl = cu.Declarations[0] as EnumDeclaration;
+
+        Assert.NotNull(enumDecl);
+        Assert.Equal("Priority", enumDecl!.Name);
+        Assert.Equal(3, enumDecl!.Members.Count);
+        Assert.Equal(EnumType.Int, enumDecl!.Type);
+    }
+
+    [Fact]
     public void TestUnionDeclaration()
     {
         var source = @"
@@ -3261,6 +3303,159 @@ func TestFunc() {
         Assert.NotNull(binExpr2);
         // Use binExpr2! for all following references
         Assert.Equal(BinaryOperator.NotEqual, binExpr2!.Operator);
+    }
+
+    [Fact]
+    public void TestAssertWithMessage()
+    {
+        var source = @"
+test ""should add"" {
+    result := Add(2, 3)
+    assert result == 5, ""addition should work""
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        var assertStmt = testDecl!.Body.Statements[1] as AssertStatement;
+        Assert.NotNull(assertStmt);
+        Assert.NotNull(assertStmt!.Message);
+        var msgExpr = assertStmt.Message as StringLiteralExpression;
+        Assert.NotNull(msgExpr);
+        Assert.Equal("\"addition should work\"", msgExpr!.Value);
+    }
+
+    [Fact]
+    public void TestAssertThrows()
+    {
+        var source = @"
+test ""should throw on divide by zero"" {
+    assert throws DivideByZeroException {
+        Calculator.Divide(10, 0)
+    }
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        var assertThrows = testDecl!.Body.Statements[0] as AssertThrowsStatement;
+        Assert.NotNull(assertThrows);
+        var exType = assertThrows!.ExceptionType as SimpleTypeReference;
+        Assert.NotNull(exType);
+        Assert.Equal("DivideByZeroException", exType!.Name);
+        Assert.Single(assertThrows.Body.Statements);
+    }
+
+    [Fact]
+    public void TestTableDrivenTest()
+    {
+        var source = @"
+test ""should add correctly"" with (a: int, b: int, expected: int) [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0)
+] {
+    result := Add(a, b)
+    assert result == expected
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        Assert.Equal("should add correctly", testDecl!.Description);
+        Assert.NotNull(testDecl.TableParameters);
+        Assert.Equal(3, testDecl.TableParameters!.Count);
+        Assert.Equal("a", testDecl.TableParameters[0].Name);
+        Assert.Equal("b", testDecl.TableParameters[1].Name);
+        Assert.Equal("expected", testDecl.TableParameters[2].Name);
+        Assert.NotNull(testDecl.TableCases);
+        Assert.Equal(3, testDecl.TableCases!.Count);
+        Assert.Equal(3, testDecl.TableCases[0].Count);
+        Assert.Equal(3, testDecl.TableCases[1].Count);
+        Assert.Equal(3, testDecl.TableCases[2].Count);
+    }
+
+    [Fact]
+    public void TestSkipTest()
+    {
+        var source = @"
+test ""needs network"" skip ""CI has no network"" {
+    assert true
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        Assert.Equal("needs network", testDecl!.Description);
+        Assert.Equal("CI has no network", testDecl.SkipReason);
+    }
+
+    [Fact]
+    public void TestSetupBlock()
+    {
+        var source = @"
+setup {
+    store := new TaskStore()
+}
+
+test ""should add task"" {
+    assert store != null
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        Assert.Equal(2, unit.Declarations.Count);
+        var setup = unit.Declarations[0] as SetupDeclaration;
+        Assert.NotNull(setup);
+        Assert.Single(setup!.Body.Statements);
+        var testDecl = unit.Declarations[1] as TestDeclaration;
+        Assert.NotNull(testDecl);
+    }
+
+    [Fact]
+    public void TestTableDrivenWithSkip()
+    {
+        var source = @"
+test ""should add"" with (a: int, b: int, expected: int) [
+    (1, 2, 3)
+] skip ""disabled"" {
+    assert Add(a, b) == expected
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        var testDecl = unit.Declarations[0] as TestDeclaration;
+        Assert.NotNull(testDecl);
+        Assert.NotNull(testDecl!.TableParameters);
+        Assert.Equal("disabled", testDecl.SkipReason);
     }
 
     [Fact]

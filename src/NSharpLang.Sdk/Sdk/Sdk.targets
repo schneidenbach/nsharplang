@@ -51,8 +51,8 @@
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Auto-discover all .tests.nl files -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+  <!-- Auto-discover all .tests.nl files (unless excluded for production builds) -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true'">
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
 
