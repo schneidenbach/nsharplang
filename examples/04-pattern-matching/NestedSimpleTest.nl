@@ -10,8 +10,8 @@ class Person {
 }
 
 func Test(p: Person): string {
-    return p match {
-        { Addr: { City: "NYC" } } => "New Yorker"
+    return match p {
+        { Addr: { City: "NYC" } } => "New Yorker",
         _ => "Other"
     }
 }
