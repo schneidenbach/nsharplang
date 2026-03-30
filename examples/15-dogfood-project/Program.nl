@@ -2,9 +2,9 @@ namespace DogfoodProject
 
 import System
 import DogfoodProject.Services
+import "Services/TaskService"
 
 // Dogfood Project — exercises cross-file refs, unions, records
-
 enum Priority {
     Low = 0,
     Medium = 1,

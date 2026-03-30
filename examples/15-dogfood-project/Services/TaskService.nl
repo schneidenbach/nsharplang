@@ -114,7 +114,7 @@ record TaskStats {
         }
         return ((Completed * 100)) / Total
     }
-
+    func HasTasks(): bool { return Total > 0 }
     func IsHealthy(): bool {
         return ((Completed * 100)) / Total > 50
     }
