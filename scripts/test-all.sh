@@ -152,20 +152,28 @@ else
     handle_error "project.yml missing"
 fi
 
+# Verify NO .csproj was created by template (csproj-free workflow)
+CSPROJ_COUNT=$(find "$TEMP_DIR/TestConsoleApp" -name "*.csproj" -type f 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CSPROJ_COUNT" = "0" ]; then
+    handle_success "No .csproj in template output (csproj-free)"
+else
+    handle_error "Template should not create .csproj files"
+fi
+
 if [ -f "$TEMP_DIR/TestWebApiApp/project.yml" ]; then
     handle_success "webapi project.yml exists"
 else
     handle_error "webapi project.yml missing"
 fi
 
-section "Step 7: Build Template-Generated Project"
+section "Step 7: Build Template-Generated Project (via nlc build)"
 if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
     cd "$TEMP_DIR/TestConsoleApp"
-    echo "Building template-generated project..."
-    if dotnet exec "$CLI_DLL" restore > /dev/null 2>&1 && dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
-        handle_success "Template project builds"
+    echo "Building template-generated project with nlc build..."
+    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+        handle_success "Template project builds (nlc build)"
     else
-        handle_error "Template project build"
+        handle_error "Template project build (nlc build)"
     fi
 else
     handle_error "Template project missing"
@@ -173,11 +181,11 @@ fi
 
 if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
     cd "$TEMP_DIR/TestWebApiApp"
-    echo "Building web API template-generated project..."
-    if dotnet exec "$CLI_DLL" restore > /dev/null 2>&1 && dotnet restore $DOTNET_STABLE_FLAGS > /dev/null 2>&1 && dotnet build $DOTNET_STABLE_FLAGS > /dev/null 2>&1; then
-        handle_success "Web API template project builds"
+    echo "Building web API template-generated project with nlc build..."
+    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+        handle_success "Web API template project builds (nlc build)"
     else
-        handle_error "Web API template project build"
+        handle_error "Web API template project build (nlc build)"
     fi
 else
     handle_error "Web API template project missing"
@@ -186,7 +194,7 @@ fi
 cd "$REPO_ROOT"
 rm -rf "$TEMP_DIR"
 
-section "Step 8: Build Example Projects"
+section "Step 8: Build Example Projects (via nlc build)"
 echo "Using up to $MAX_JOBS parallel workers for project verification..."
 
 # Find all example projects with project.yml
@@ -195,6 +203,14 @@ EXAMPLE_PROJECTS=$(find examples -name "project.yml" -type f | sort)
 if [ -z "$EXAMPLE_PROJECTS" ]; then
     echo "No example projects found with project.yml"
 else
+    # Pre-build one example to populate the NuGet cache, avoiding parallel restore races
+    FIRST_PROJECT=$(echo "$EXAMPLE_PROJECTS" | head -1)
+    FIRST_DIR=$(dirname "$FIRST_PROJECT")
+    echo "Warming NuGet cache with $FIRST_DIR..."
+    rm -rf "$FIRST_DIR/bin" "$FIRST_DIR/obj" "$FIRST_DIR/nsharp" 2>/dev/null || true
+    rm -f "$FIRST_DIR"/*.g.csproj 2>/dev/null || true
+    (cd "$REPO_ROOT/$FIRST_DIR" && dotnet "$CLI_DLL" build > /dev/null 2>&1) || true
+
     EXAMPLE_RESULTS_DIR=$(mktemp -d)
     EXAMPLE_LIST="$EXAMPLE_RESULTS_DIR/items.txt"
     i=0
@@ -207,6 +223,7 @@ else
         entry="$1"
         repo_root="$2"
         results_dir="$3"
+        cli_dll="$4"
         idx="${entry%%|*}"
         project_file="${entry#*|}"
         project_dir=$(dirname "$project_file")
@@ -216,13 +233,15 @@ else
         work_dir="$repo_root/$project_dir"
 
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
+        # Remove any stale generated .g.csproj files
+        rm -f "$work_dir"/*.g.csproj 2>/dev/null || true
 
-        if (cd "$work_dir" && dotnet exec "$repo_root/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll" restore > /dev/null 2>&1 && dotnet restore --disable-build-servers > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore > "$log_file" 2>&1); then
+        if (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
             printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
         else
             printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
         fi
-    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" < "$EXAMPLE_LIST"
+    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" "$CLI_DLL" < "$EXAMPLE_LIST"
 
     while IFS='|' read -r idx project_file; do
         result_file="$EXAMPLE_RESULTS_DIR/$idx.result"
@@ -238,7 +257,7 @@ else
             handle_success "Example: $project_name"
         else
             handle_error "Example: $project_name"
-            echo "  Run manually: cd $project_dir && dotnet build"
+            echo "  Run manually: cd $project_dir && dotnet \"$CLI_DLL\" build"
         fi
     done < "$EXAMPLE_LIST"
 

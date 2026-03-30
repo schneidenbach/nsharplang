@@ -461,44 +461,113 @@ func main() {
 Tests live in `.tests.nl` files next to the code they test. Use the `test` keyword and `assert` statements.
 
 ```n#
-// Calculator.nl
-namespace MyApp
-
-class Calculator {
-    static func Add(a: int, b: int): int {
-        return a + b
-    }
-
-    static func Divide(a: int, b: int): int {
-        if b == 0 {
-            throw new System.DivideByZeroException("Cannot divide by zero")
-        }
-        return a / b
-    }
-}
-```
-
-```n#
 // Calculator.tests.nl
 namespace MyApp
-
-import "Calculator"
 
 test "should add two numbers" {
     result := Calculator.Add(2, 3)
     assert result == 5
 }
+```
 
-test "should handle division by zero" {
-    _, err := Calculator.Divide(10, 0)
-    assert err != null
+### Custom Assert Messages
+
+Add a message after a comma to explain what the assertion checks:
+
+```n#
+test "should compute tax" {
+    tax := Calculator.Tax(100)
+    assert tax == 10, "tax on 100 should be 10"
 }
 ```
 
-Run tests with:
+### Assert Throws
+
+Verify that code throws a specific exception:
+
+```n#
+test "should throw on divide by zero" {
+    assert throws DivideByZeroException {
+        Calculator.Divide(10, 0)
+    }
+}
+```
+
+### Table-Driven Tests
+
+Run the same test body with multiple sets of inputs (Go-style):
+
+```n#
+test "should add correctly" with (a: int, b: int, expected: int) [
+    (1, 2, 3),
+    (0, 0, 0),
+    (-1, 1, 0),
+    (100, -100, 0)
+] {
+    assert Calculator.Add(a, b) == expected
+}
+```
+
+### Skip Tests
+
+Mark a test as skipped with a reason:
+
+```n#
+test "needs network" skip "CI has no network" {
+    response := HttpClient.Get("https://api.example.com")
+    assert response.StatusCode == 200
+}
+```
+
+### Setup Blocks
+
+Share setup code across all tests in a file. One `setup` block per file — runs before each test:
+
+```n#
+setup {
+    store := new TaskStore()
+    service := new TaskService(store)
+}
+
+test "should add task" {
+    result := service.AddTask("Write tests", Priority.High, tags, "")
+    assert result != null
+}
+
+test "should list tasks" {
+    service.AddTask("Task 1", Priority.Low, tags, "")
+    assert service.GetTasks().Count == 1
+}
+```
+
+### Smart Assert Patterns
+
+The compiler maps common assert patterns to XUnit's best assertion methods:
+
+| N# | XUnit |
+|----|-------|
+| `assert x == 5` | `Assert.Equal(5, x)` |
+| `assert x != null` | `Assert.NotNull(x)` |
+| `assert x == null` | `Assert.Null(x)` |
+| `assert !isValid` | `Assert.False(isValid)` |
+| `assert list.Contains(x)` | `Assert.Contains(x, list)` |
+| `assert !list.Contains(x)` | `Assert.DoesNotContain(x, list)` |
+| `assert str.StartsWith("x")` | `Assert.StartsWith("x", str)` |
+| `assert str.EndsWith("x")` | `Assert.EndsWith("x", str)` |
+| `assert list.Count == 0` | `Assert.Empty(list)` |
+| `assert list.Count != 0` | `Assert.NotEmpty(list)` |
+| `assert list.Count == 1` | `Assert.Single(list)` |
+| `assert x is MyType` | `Assert.IsType<MyType>(x)` |
+
+### Running Tests
 
 ```bash
-nlc test
+nlc test                         # Run all tests
+nlc test --filter "should add"   # Run matching tests
+nlc test --json                  # Structured JSON output
+nlc test --coverage              # Code coverage summary
+nlc test --coverage --coverage-report  # HTML coverage report
+nlc watch test                   # Re-run on file changes
 ```
 
 ## Extension Methods

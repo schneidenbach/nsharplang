@@ -73,12 +73,14 @@ public class Transpiler
         // File imports are handled separately (their symbols are inlined)
         // FileImports in _compilationUnit.FileImports are not emitted as using statements
 
-        // Separate top-level functions, tests, and type aliases from other declarations
+        // Separate top-level functions, tests, setup blocks, and type aliases from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
+        var setupDeclaration = _compilationUnit.Declarations.OfType<SetupDeclaration>().FirstOrDefault();
         var typeAliases = _compilationUnit.Declarations.OfType<TypeAliasDeclaration>().ToList();
         var otherDeclarations = _compilationUnit.Declarations
-            .Where(d => d is not FunctionDeclaration && d is not TestDeclaration && d is not TypeAliasDeclaration)
+            .Where(d => d is not FunctionDeclaration && d is not TestDeclaration
+                && d is not SetupDeclaration && d is not TypeAliasDeclaration)
             .ToList();
 
         // Separate main function from other top-level functions (main goes in Program class)
@@ -217,6 +219,12 @@ public class Transpiler
             WriteLine("{");
             _indentLevel++;
 
+            // Emit setup block as fields + constructor
+            if (setupDeclaration != null)
+            {
+                TranspileSetupDeclaration(setupDeclaration);
+            }
+
             foreach (var test in testDeclarations)
             {
                 EmitLineDirective(test.Line);
@@ -293,6 +301,9 @@ public class Transpiler
             case IndexerDeclaration indexer:
                 TranspileIndexerDeclaration(indexer);
                 break;
+            case SetupDeclaration:
+                // Setup declarations are handled in the test class generation
+                break;
             default:
                 throw new Exception($"Unsupported declaration type: {declaration.GetType().Name}");
         }
@@ -307,19 +318,129 @@ public class Transpiler
         var containsAwait = ContainsAwait(test.Body);
 
         var isNUnit = _projectConfig?.TestFramework == "nunit";
-        WriteLine(isNUnit ? "[Test]" : "[Fact]");
-        if (containsAwait)
+
+        // Emit Trait for N# description mapping (used by nlc test --json)
+        if (!isNUnit)
+            WriteLine($"[Trait(\"NSharpDescription\", \"{test.Description.Replace("\"", "\\\"")}\")]");
+
+        // Table-driven test (Theory) vs simple test (Fact)
+        if (test.TableParameters != null && test.TableCases != null)
         {
-            WriteLine($"public async Task {methodName}()");
+            // Emit [Theory] with optional Skip
+            var theoryAttr = test.SkipReason != null
+                ? $"[Theory(Skip = \"{test.SkipReason.Replace("\"", "\\\"")}\")]"
+                : "[Theory]";
+            WriteLine(theoryAttr);
+
+            // Emit [InlineData(...)] for each test case row
+            foreach (var row in test.TableCases)
+            {
+                var args = string.Join(", ", row.Select(TranspileExpression));
+                WriteLine($"[InlineData({args})]");
+            }
+
+            // Emit method with typed parameters
+            var paramList = string.Join(", ",
+                test.TableParameters.Select(p => $"{TranspileTypeReference(p.Type)} {p.Name}"));
+
+            if (containsAwait)
+                WriteLine($"public async Task {methodName}({paramList})");
+            else
+                WriteLine($"public void {methodName}({paramList})");
         }
         else
         {
-            WriteLine($"public void {methodName}()");
+            // Emit [Fact] (XUnit) or [Test] (NUnit) with optional Skip
+            string factAttr;
+            if (isNUnit)
+            {
+                factAttr = test.SkipReason != null
+                    ? $"[Test, Ignore(\"{test.SkipReason.Replace("\"", "\\\"")}\")]"
+                    : "[Test]";
+            }
+            else
+            {
+                factAttr = test.SkipReason != null
+                    ? $"[Fact(Skip = \"{test.SkipReason.Replace("\"", "\\\"")}\")]"
+                    : "[Fact]";
+            }
+            WriteLine(factAttr);
+
+            if (containsAwait)
+                WriteLine($"public async Task {methodName}()");
+            else
+                WriteLine($"public void {methodName}()");
         }
+
         WriteLine("{");
         _indentLevel++;
 
         foreach (var stmt in test.Body.Statements)
+        {
+            TranspileStatement(stmt);
+        }
+
+        _indentLevel--;
+        WriteLine("}");
+        WriteLine();
+    }
+
+    private void TranspileSetupDeclaration(SetupDeclaration setup)
+    {
+        // Extract variable declarations from setup body as class fields
+        var varDecls = new List<VariableDeclarationStatement>();
+        var otherStatements = new List<Statement>();
+
+        foreach (var stmt in setup.Body.Statements)
+        {
+            if (stmt is VariableDeclarationStatement varDecl)
+                varDecls.Add(varDecl);
+            else
+                otherStatements.Add(stmt);
+        }
+
+        // Emit fields for each variable declaration
+        foreach (var varDecl in varDecls)
+        {
+            var typeName = varDecl.Type != null
+                ? TranspileTypeReference(varDecl.Type)
+                : "var";
+
+            // For fields, we need an explicit type (can't use 'var')
+            // If type is inferred, try to use the initializer to determine the type
+            if (typeName == "var" && varDecl.Initializer != null)
+            {
+                // Use 'object' as fallback since we don't have type inference in the transpiler
+                // The C# compiler will catch type mismatches
+                typeName = "dynamic";
+            }
+
+            WriteLine($"private {typeName} {varDecl.Name};");
+        }
+
+        if (varDecls.Count > 0)
+            WriteLine();
+
+        // Emit constructor
+        var className = _compilationUnit.Namespace != null
+            ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
+            : "Tests";
+
+        WriteLine($"public {className}()");
+        WriteLine("{");
+        _indentLevel++;
+
+        // Emit variable initializations
+        foreach (var varDecl in varDecls)
+        {
+            if (varDecl.Initializer != null)
+            {
+                WriteLine($"{varDecl.Name} = {TranspileExpression(varDecl.Initializer)};");
+            }
+        }
+
+        // Emit other statements
+        foreach (var stmt in otherStatements)
         {
             TranspileStatement(stmt);
         }
@@ -1250,6 +1371,9 @@ public class Transpiler
             case AssertStatement assertStmt:
                 TranspileAssertStatement(assertStmt);
                 break;
+            case AssertThrowsStatement assertThrows:
+                TranspileAssertThrowsStatement(assertThrows);
+                break;
             case PreprocessorDirective preprocessor:
                 WriteLine(preprocessor.Directive);
                 break;
@@ -1266,6 +1390,16 @@ public class Transpiler
 
     private void TranspileAssertStatement(AssertStatement assertStmt)
     {
+        // If a custom message is present, use Assert.True wrapping for everything
+        // (XUnit's Assert.Equal doesn't support custom messages)
+        if (assertStmt.Message != null)
+        {
+            var msg = TranspileExpression(assertStmt.Message);
+            var cond = TranspileExpression(assertStmt.Condition);
+            WriteLine($"Assert.True({cond}, {msg});");
+            return;
+        }
+
         var condition = assertStmt.Condition;
         var isNUnit = _projectConfig?.TestFramework == "nunit";
 
@@ -1290,6 +1424,15 @@ public class Transpiler
                 }
                 break;
 
+            case CallExpression callExpr when callExpr.Callee is MemberAccessExpression memberAccess:
+                if (!TryTranspileMethodCallAssert(callExpr, memberAccess))
+                    WriteLine($"Assert.True({TranspileExpression(condition)});");
+                break;
+
+            case UnaryExpression { Operator: UnaryOperator.Not } unary:
+                TranspileNegatedAssert(unary.Operand);
+                break;
+
             default:
                 // Simple boolean expression: assert x
                 if (isNUnit)
@@ -1302,6 +1445,87 @@ public class Transpiler
                 }
                 break;
         }
+    }
+
+    private bool TryTranspileMethodCallAssert(CallExpression call, MemberAccessExpression memberAccess)
+    {
+        var obj = TranspileExpression(memberAccess.Object);
+
+        switch (memberAccess.MemberName)
+        {
+            case "Contains" when call.Arguments.Count == 1:
+                // assert list.Contains(x) → Assert.Contains(x, list)
+                var containsArg = TranspileExpression(call.Arguments[0].Value);
+                WriteLine($"Assert.Contains({containsArg}, {obj});");
+                return true;
+
+            case "StartsWith" when call.Arguments.Count == 1:
+                // assert str.StartsWith("x") → Assert.StartsWith("x", str)
+                var startsArg = TranspileExpression(call.Arguments[0].Value);
+                WriteLine($"Assert.StartsWith({startsArg}, {obj});");
+                return true;
+
+            case "EndsWith" when call.Arguments.Count == 1:
+                // assert str.EndsWith("x") → Assert.EndsWith("x", str)
+                var endsArg = TranspileExpression(call.Arguments[0].Value);
+                WriteLine($"Assert.EndsWith({endsArg}, {obj});");
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private void TranspileNegatedAssert(Expression inner)
+    {
+        switch (inner)
+        {
+            // assert !list.Contains(x) → Assert.DoesNotContain(x, list)
+            case CallExpression call when call.Callee is MemberAccessExpression ma:
+                var obj = TranspileExpression(ma.Object);
+                switch (ma.MemberName)
+                {
+                    case "Contains" when call.Arguments.Count == 1:
+                        var arg = TranspileExpression(call.Arguments[0].Value);
+                        WriteLine($"Assert.DoesNotContain({arg}, {obj});");
+                        return;
+                    default:
+                        break;
+                }
+                // Fall through to Assert.False
+                WriteLine($"Assert.False({TranspileExpression(inner)});");
+                break;
+
+            default:
+                // assert !x → Assert.False(x)
+                WriteLine($"Assert.False({TranspileExpression(inner)});");
+                break;
+        }
+    }
+
+    private void TranspileAssertThrowsStatement(AssertThrowsStatement assertThrows)
+    {
+        var exceptionType = TranspileTypeReference(assertThrows.ExceptionType);
+        var containsAwait = ContainsAwait(assertThrows.Body);
+
+        if (containsAwait)
+        {
+            WriteLine($"await Assert.ThrowsAsync<{exceptionType}>(async () =>");
+        }
+        else
+        {
+            WriteLine($"Assert.Throws<{exceptionType}>(() =>");
+        }
+        WriteLine("{");
+        _indentLevel++;
+
+        foreach (var stmt in assertThrows.Body.Statements)
+        {
+            TranspileStatement(stmt);
+        }
+
+        _indentLevel--;
+        WriteLine("});");
     }
 
     private void TranspileBinaryAssert(BinaryExpression binExpr, bool isNUnit)
@@ -1324,8 +1548,34 @@ public class Transpiler
         switch (binExpr.Operator)
         {
             case BinaryOperator.Equal:
-                // assert x == y → Assert.Equal(y, x) [XUnit expects expected first]
-                WriteLine($"Assert.Equal({right}, {left});");
+                // assert x == null → Assert.Null(x)
+                if (binExpr.Right is NullLiteralExpression)
+                {
+                    WriteLine($"Assert.Null({left});");
+                }
+                else if (binExpr.Left is NullLiteralExpression)
+                {
+                    WriteLine($"Assert.Null({right});");
+                }
+                // assert list.Count == 0 / assert str.Length == 0 → Assert.Empty(obj)
+                else if (binExpr.Left is MemberAccessExpression ma
+                    && (ma.MemberName == "Count" || ma.MemberName == "Length")
+                    && binExpr.Right is IntLiteralExpression intLit && intLit.Value == "0")
+                {
+                    WriteLine($"Assert.Empty({TranspileExpression(ma.Object)});");
+                }
+                // assert list.Count == 1 → Assert.Single(list)
+                else if (binExpr.Left is MemberAccessExpression ma1
+                    && (ma1.MemberName == "Count" || ma1.MemberName == "Length")
+                    && binExpr.Right is IntLiteralExpression intLit1 && intLit1.Value == "1")
+                {
+                    WriteLine($"Assert.Single({TranspileExpression(ma1.Object)});");
+                }
+                else
+                {
+                    // assert x == y → Assert.Equal(y, x) [XUnit expects expected first]
+                    WriteLine($"Assert.Equal({right}, {left});");
+                }
                 break;
 
             case BinaryOperator.NotEqual:
@@ -1337,6 +1587,13 @@ public class Transpiler
                 else if (binExpr.Left is NullLiteralExpression)
                 {
                     WriteLine($"Assert.NotNull({right});");
+                }
+                // assert list.Count != 0 / assert str.Length != 0 → Assert.NotEmpty(obj)
+                else if (binExpr.Left is MemberAccessExpression maNe
+                    && (maNe.MemberName == "Count" || maNe.MemberName == "Length")
+                    && binExpr.Right is IntLiteralExpression intLitNe && intLitNe.Value == "0")
+                {
+                    WriteLine($"Assert.NotEmpty({TranspileExpression(maNe.Object)});");
                 }
                 else
                 {

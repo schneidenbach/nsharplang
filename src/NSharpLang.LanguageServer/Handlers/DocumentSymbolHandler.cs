@@ -118,6 +118,10 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
                 td.Description, LspSymbolKind.Method, td.Line,
                 EstimateEndLine(td, sourceLines), sourceLines, "test"),
 
+            SetupDeclaration sd => MakeSymbol(
+                "setup", LspSymbolKind.Constructor, sd.Line,
+                EstimateEndLine(sd, sourceLines), sourceLines, "setup"),
+
             _ => null
         };
     }

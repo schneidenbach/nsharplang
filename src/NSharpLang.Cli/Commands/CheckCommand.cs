@@ -22,6 +22,7 @@ public static class CheckCommand
             return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
         }
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var service = new CodeIntelligenceService();
@@ -43,11 +44,12 @@ public static class CheckCommand
                 if (errors == 0 && warnings == 0)
                 {
                     var fileCount = snapshot.SourceFiles.Count;
-                    Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors.");
+                    Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors. [{FormatElapsed(sw.Elapsed)}]");
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
+                    Console.Error.WriteLine($"  Checked in {FormatElapsed(sw.Elapsed)}");
                 }
             }
             else
@@ -59,6 +61,8 @@ public static class CheckCommand
         }
         catch (Exception ex)
         {
+            if (useText)
+                Console.Error.WriteLine($"  Check failed in {FormatElapsed(sw.Elapsed)}");
             return EmitError(useText, $"Check failed: {ex.Message}", projectDir);
         }
     }
@@ -191,6 +195,13 @@ Examples:
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
+        return $"{elapsed.TotalSeconds:F1}s";
+    }
 
     private static string? ExtractSourceLine(string source, int line)
     {
