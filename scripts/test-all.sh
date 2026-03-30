@@ -117,6 +117,16 @@ else
     echo "Running VS Code integration tests..."
     VSCODE_OUTPUT=$(mktemp)
     if "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1; then
+        # Show test summary even on success so you can see what ran
+        PASS_COUNT=$(grep -c '✔' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
+        SKIP_COUNT=$(grep -c 'pending' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
+        SUMMARY_LINE=$(grep -E '[0-9]+ passing' "$VSCODE_OUTPUT" || echo "")
+        if [ -n "$SUMMARY_LINE" ]; then
+            echo "  $SUMMARY_LINE"
+        fi
+        if [ "$SKIP_COUNT" != "0" ]; then
+            echo "  ($SKIP_COUNT pending/skipped)"
+        fi
         handle_success "VS Code integration tests"
     else
         cat "$VSCODE_OUTPUT"
