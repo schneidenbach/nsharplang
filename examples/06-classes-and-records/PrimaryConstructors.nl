@@ -15,7 +15,7 @@ class Logger(name: string) {
 }
 
 // 2. Struct with Primary Constructor - Clean Value Types
-struct Point {
+struct Point(x: double, y: double) {
     func GetDistance(): double {
         return Math.Sqrt(x * x + y * y)
     }
