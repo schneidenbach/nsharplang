@@ -339,22 +339,41 @@ else
     rm -rf "$EXAMPLE_RESULTS_DIR"
 fi
 
-section "Step 9: Build Legacy Examples (CLI-based)"
+section "Step 9: Build Single-File Examples (CLI-based)"
 
-# Find examples with .nl files but no project.yml
-LEGACY_EXAMPLES=$(find examples -maxdepth 2 -name "*.nl" -type f | grep -v "project.yml" | sort)
+# Known failures that are NOT example bugs:
+#   TestErrors.nl              - intentionally broken (demonstrates error messages)
+#   PrintNameofTypeof.nl       - compiler bug: nameof(instance.Property) transpiles incorrectly
+#   ConstructorChaining.nl     - compiler bug: interface accessibility in transpiled C#
+# Multi-file examples that cannot be built as single files:
+#   12-multi-file-projects/imports/  - requires multi-file compilation
+KNOWN_FAILURES="TestErrors.nl|PrintNameofTypeof.nl|ConstructorChaining.nl|12-multi-file-projects/imports/"
+
+# Find single .nl files outside of project.yml directories.
+# Skip files inside project-based directories (they're tested in Step 8).
+LEGACY_EXAMPLES=""
+while IFS= read -r nl_file; do
+    dir=$(dirname "$nl_file")
+    # Skip if this file or its parent dir has a project.yml
+    [ -f "$dir/project.yml" ] && continue
+    parent=$(dirname "$dir")
+    [ -f "$parent/project.yml" ] && continue
+    LEGACY_EXAMPLES="${LEGACY_EXAMPLES}${nl_file}
+"
+done < <(find examples -name "*.nl" -type f | sort)
 
 if [ -z "$LEGACY_EXAMPLES" ]; then
-    echo "No legacy examples found"
+    echo "No single-file examples found"
 else
-    echo "Note: Legacy examples use direct CLI compilation (not dotnet build)"
+    echo "Building single-file examples with nlc build..."
     if [ ! -f "$CLI_DLL" ]; then
         handle_error "CLI build artifact missing"
     else
         LEGACY_RESULTS_DIR=$(mktemp -d)
         LEGACY_LIST="$LEGACY_RESULTS_DIR/items.txt"
         i=0
-        printf '%s\n' "$LEGACY_EXAMPLES" | while IFS= read -r nl_file; do
+        printf '%s' "$LEGACY_EXAMPLES" | while IFS= read -r nl_file; do
+            [ -z "$nl_file" ] && continue
             i=$((i + 1))
             printf '%04d|%s\n' "$i" "$nl_file"
         done > "$LEGACY_LIST"
@@ -373,24 +392,28 @@ else
             if dotnet "$cli_dll" build "$nl_file" > "$log_file" 2>&1; then
                 printf "OK|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
             else
-                printf "SKIP|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
+                printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
             fi
         ' _ {} "$REPO_ROOT" "$LEGACY_RESULTS_DIR" "$CLI_DLL" < "$LEGACY_LIST"
 
         while IFS='|' read -r idx nl_file; do
             result_file="$LEGACY_RESULTS_DIR/$idx.result"
+            [ ! -f "$result_file" ] && continue
             status=$(cut -d'|' -f1 "$result_file")
             example_name=$(cut -d'|' -f2 "$result_file")
             example_path=$(cut -d'|' -f3 "$result_file")
 
             echo
-            echo "Compiling legacy example: $example_name"
+            echo "Building single-file example: $example_name"
             echo "  Location: $example_path"
 
             if [ "$status" = "OK" ]; then
-                handle_success "Legacy example: $example_name"
+                handle_success "Single-file example: $example_name"
+            elif echo "$example_path" | grep -qE "$KNOWN_FAILURES"; then
+                echo -e "${YELLOW}  Known failure (compiler bug or intentional): $example_name${NC}"
             else
-                echo -e "${YELLOW}  Skipped (may require special setup)${NC}"
+                handle_error "Single-file example: $example_name"
+                echo "  Run manually: dotnet \"$CLI_DLL\" build \"$example_path\""
             fi
         done < "$LEGACY_LIST"
 
@@ -398,7 +421,47 @@ else
     fi
 fi
 
-section "Step 10: Summary"
+section "Step 10: Check Examples (nlc check)"
+echo "Running nlc check on all example directories..."
+echo "This verifies the Language Server won't report false errors."
+
+# Directories to check individually (each is a self-contained project scope)
+CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
+# Sub-projects in 12-multi-file-projects need individual checking
+CHECK_DIRS="$CHECK_DIRS
+$(find examples/12-multi-file-projects -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
+
+# Known check failures:
+#   02-variables-and-types  - contains TestErrors.nl (intentionally broken)
+#   12-multi-file-projects  - parent dir has cross-project symbol conflicts (sub-dirs pass individually)
+CHECK_KNOWN_FAILURES="02-variables-and-types$|12-multi-file-projects$"
+
+CHECK_OUTPUT=$(mktemp)
+CHECK_FAIL=0
+while IFS= read -r check_dir; do
+    [ -z "$check_dir" ] && continue
+    dir_name=$(echo "$check_dir" | sed 's|examples/||')
+    result=$(dotnet "$CLI_DLL" check "$check_dir/" 2>&1 || true)
+    errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['summary']['errors'])" 2>/dev/null || echo "?")
+
+    if [ "$errors" = "0" ]; then
+        echo -e "  ${GREEN}✓${NC} $dir_name"
+    elif echo "$dir_name" | grep -qE "$CHECK_KNOWN_FAILURES"; then
+        echo -e "  ${YELLOW}⚠${NC} $dir_name (known: $errors errors)"
+    else
+        echo -e "  ${RED}✗${NC} $dir_name ($errors errors)"
+        CHECK_FAIL=1
+    fi
+done <<< "$CHECK_DIRS"
+rm -f "$CHECK_OUTPUT"
+
+if [ "$CHECK_FAIL" = "0" ]; then
+    handle_success "nlc check on examples"
+else
+    handle_error "nlc check on examples (unexpected errors found)"
+fi
+
+section "Step 11: Summary"
 echo
 if [ $FAILURES -eq 0 ]; then
     echo -e "${GREEN}=========================================${NC}"

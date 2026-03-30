@@ -29,7 +29,7 @@ class TaskService {
         }
         nextId = nextId + 1
         tasks.Add(task)
-        return new TaskResult.Success { task: title }
+        return new TaskResult.Success(title)
     }
 
     func GetAllTasks(): List<TodoItem> {

@@ -81,34 +81,34 @@ func Main() {
 
     // HTTP response processing
     print "HTTP Response Processing:"
-    ok200 := new HttpResponse.Ok { statusCode: 200, body: "Data loaded" }
+    ok200 := new HttpResponse.Ok(200, "Data loaded")
     print ProcessResponse(ok200)
 
-    ok201 := new HttpResponse.Ok { statusCode: 201, body: "Resource created" }
+    ok201 := new HttpResponse.Ok(201, "Resource created")
     print ProcessResponse(ok201)
 
-    redirect := new HttpResponse.Redirect { location: "/new-url", permanent: true }
+    redirect := new HttpResponse.Redirect("/new-url", true)
     print ProcessResponse(redirect)
 
-    notFound := new HttpResponse.ClientError { statusCode: 404, message: "Page not found" }
+    notFound := new HttpResponse.ClientError(404, "Page not found")
     print ProcessResponse(notFound)
 
-    serverError := new HttpResponse.ServerError { statusCode: 500, details: "Internal error" }
+    serverError := new HttpResponse.ServerError(500, "Internal error")
     print ProcessResponse(serverError)
     print ""
 
     // Age validation
     print "Age Validation:"
-    validAge := new IntOption.Some { value: 25 }
+    validAge := new IntOption.Some(25)
     print ValidateAge(validAge)
 
-    minorAge := new IntOption.Some { value: 16 }
+    minorAge := new IntOption.Some(16)
     print ValidateAge(minorAge)
 
-    negativeAge := new IntOption.Some { value: -5 }
+    negativeAge := new IntOption.Some(-5)
     print ValidateAge(negativeAge)
 
-    unrealisticAge := new IntOption.Some { value: 200 }
+    unrealisticAge := new IntOption.Some(200)
     print ValidateAge(unrealisticAge)
 
     noAge := new IntOption.None {}

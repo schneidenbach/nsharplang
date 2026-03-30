@@ -112,11 +112,11 @@ func Main() {
     // Test API response
     responseData := new ResponseData() { UserId: 42, UserName: "Alice", IsActive: true }
 
-    response := new ApiResponse.Success { data: responseData }
+    response := new ApiResponse.Success(responseData)
     print $"API Response: {HandleResponse(response)}"
 
     // Test error response
-    errorResponse := new ApiResponse.Error { message: "User not found", code: 404 }
+    errorResponse := new ApiResponse.Error("User not found", 404)
 
     print $"Error Response: {HandleResponse(errorResponse)}"
 }

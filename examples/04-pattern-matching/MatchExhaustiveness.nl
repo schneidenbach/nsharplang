@@ -50,16 +50,16 @@ func Main() {
 
     // Test all HttpResponse cases
     print "1. Exhaustive matching on HttpResponse:"
-    successResp := new HttpResponse.Success { statusCode: 200, body: "OK" }
+    successResp := new HttpResponse.Success(200, "OK")
     print HandleResponse(successResp)
 
-    redirectResp := new HttpResponse.Redirect { location: "/new-page" }
+    redirectResp := new HttpResponse.Redirect("/new-page")
     print HandleResponse(redirectResp)
 
-    clientErr := new HttpResponse.ClientError { code: 404, message: "Not Found" }
+    clientErr := new HttpResponse.ClientError(404, "Not Found")
     print HandleResponse(clientErr)
 
-    serverErr := new HttpResponse.ServerError { code: 500, details: "Internal error" }
+    serverErr := new HttpResponse.ServerError(500, "Internal error")
     print HandleResponse(serverErr)
 
     // Test wildcard pattern
@@ -69,13 +69,13 @@ func Main() {
 
     // Test FileOperation
     print "\n3. File operation matching:"
-    readOp := new FileOperation.Read { path: "/data.txt" }
+    readOp := new FileOperation.Read("/data.txt")
     print DescribeOperation(readOp)
 
-    writeOp := new FileOperation.Write { path: "/output.txt", content: "Hello, World!" }
+    writeOp := new FileOperation.Write("/output.txt", "Hello, World!")
     print DescribeOperation(writeOp)
 
-    deleteOp := new FileOperation.Delete { path: "/temp.log" }
+    deleteOp := new FileOperation.Delete("/temp.log")
     print DescribeOperation(deleteOp)
 
     print "\n=== Demo Complete ==="

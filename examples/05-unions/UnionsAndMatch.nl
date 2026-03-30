@@ -56,12 +56,12 @@ func Main() {
 
     // Test success case
     print "\n1. Success case:"
-    successResult := new Result.Success { value: 42 }
+    successResult := new Result.Success(42)
     print ProcessResult(successResult)
 
     // Test failure case
     print "\n2. Failure case:"
-    failureResult := new Result.Failure { error: "File not found", code: 404 }
+    failureResult := new Result.Failure("File not found", 404)
     print ProcessResult(failureResult)
 
     // Test string values (enum simulation)
