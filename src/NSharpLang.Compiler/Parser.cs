@@ -922,9 +922,30 @@ public class Parser
 
         var name = ConsumeIdentifier("Expected enum name");
 
+        // Parse optional `: type` annotation (e.g., `enum Status: string { ... }`)
+        var enumType = EnumType.Int; // Default to int
+        var hasExplicitType = false;
+        if (Check(TokenType.Colon))
+        {
+            Advance();
+            var typeTokenLine = Current.Line;
+            var typeTokenColumn = Current.Column;
+            var typeName = ConsumeIdentifier("Expected enum backing type ('int' or 'string')");
+            hasExplicitType = true;
+            if (typeName == "string")
+            {
+                enumType = EnumType.String;
+            }
+            else if (typeName != "int")
+            {
+                ReportError(ErrorCode.UnexpectedToken,
+                    $"Unsupported enum backing type '{typeName}'. Only 'int' and 'string' are supported.",
+                    typeTokenLine, typeTokenColumn);
+            }
+        }
+
         Consume(TokenType.LeftBrace, "Expected '{'");
         var members = new List<EnumMember>();
-        var enumType = EnumType.Int; // Default to int, will infer from first value
 
         if (!Check(TokenType.RightBrace))
         {
@@ -941,8 +962,8 @@ public class Parser
                     Advance();
                     value = ParseExpression();
 
-                    // Infer enum type from first assigned value
-                    if (members.Count == 0 && value is StringLiteralExpression)
+                    // Infer enum type from first assigned value (only if no explicit type annotation)
+                    if (!hasExplicitType && members.Count == 0 && value is StringLiteralExpression)
                     {
                         enumType = EnumType.String;
                     }
