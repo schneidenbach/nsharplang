@@ -95,8 +95,21 @@
       "[nsharp]": {
         "editor.formatOnSave": true
       }
-    }
+    },
+    "breakpoints": [
+      {
+        "language": "nsharp"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "nsharp"
+      }
+    ]
   },
+  "extensionDependencies": [
+    "ms-dotnettools.csharp"
+  ],
   "scripts": {
     "build-server": "dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false",
     "vscode:prepublish": "npm run build-server && npm run compile",

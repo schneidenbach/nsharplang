@@ -192,12 +192,13 @@ import "Models/Person"
 
 **Future:** LSP Phase 3+ implementation.
 
-### 15. Debugger Support
-**Current:** Debug generated C# code, not N# source.
-
-**Why:** No source maps yet.
-
-**Future:** Source map generation for N# debugging.
+### 15. Debugger Support (RESOLVED)
+**Current:** Full debugging support in VS Code and any IDE with coreclr debugger.
+- Breakpoints in `.nl` files work directly
+- Step through, step over, step into
+- Variable inspection and watch window
+- Call stack shows N# source files
+- Generated scaffolding hidden from debugger via `#line hidden` directives
 
 ## ASP.NET Core Support
 

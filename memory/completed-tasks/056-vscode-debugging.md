@@ -71,7 +71,7 @@ vscode.commands.registerCommand('nsharp.generateDebugConfig', () => {
 
 ## Done When
 
-- [ ] Breakpoints work
-- [ ] Step through works (F10/F11)
-- [ ] Watch window shows variables
-- [ ] Call stack visible
+- [x] Breakpoints work
+- [x] Step through works (F10/F11)
+- [x] Watch window shows variables
+- [x] Call stack visible

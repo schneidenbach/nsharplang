@@ -2268,6 +2268,8 @@ public class Parser
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             Pattern? pattern = null;
+            var caseLine = Current.Line;
+            var caseColumn = Current.Column;
 
             if (Check(TokenType.Case))
             {
@@ -2317,7 +2319,7 @@ public class Parser
                 statements.Add(ParseStatement());
             }
 
-            cases.Add(new SwitchCase(pattern, statements));
+            cases.Add(new SwitchCase(pattern, statements, caseLine, caseColumn));
         }
 
         Consume(TokenType.RightBrace, "Expected '}'");
