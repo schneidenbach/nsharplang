@@ -61,7 +61,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint <files>` | Lint specific files | `nlc lint Program.nl` |
 | `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
 | `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
-| `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/15-dogfood-project` |
+| `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/17-issue-tracker/backend` |
 | `nlc test` | Run .tests.nl files (xUnit or NUnit per project.yml) | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
@@ -270,7 +270,7 @@ $ nlc query batch --requests requests.json
   "schemaVersion": 1,
   "command": "batch",
   "ok": false,
-  "projectRoot": "/repo/examples/15-dogfood-project",
+  "projectRoot": "/repo/examples/17-issue-tracker/backend",
   "requestCount": 3,
   "successCount": 2,
   "failureCount": 1,
