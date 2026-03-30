@@ -46,6 +46,8 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
+    private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
+    private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _disposed;
 
     public AnalysisResult Analyze(CompilationUnit unit)
@@ -65,6 +67,8 @@ public class Analyzer : IDisposable
         _extensionMethods.Clear();
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
+        _semanticScopeIds.Clear();
+        _currentLine = 0;
         _currentReturnType = null;
         _inLoop = false;
         _inConstructor = false;
@@ -87,7 +91,7 @@ public class Analyzer : IDisposable
         }
 
         // Create global scope first (needed for adding imported symbols)
-        PushScope(new Scope(ScopeKind.Global));
+        PushScope(new Scope(ScopeKind.Global), 1, 1);
 
         // Process file imports (adds symbols to global scope)
         if (unit.FileImports.Count > 0)
@@ -136,8 +140,13 @@ public class Analyzer : IDisposable
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
         {
+            _currentLine = decl.Line;
             AnalyzeDeclaration(decl);
         }
+
+        // Set end line for global scope (use source line count or last declaration)
+        if (_sourceLines != null)
+            _currentLine = _sourceLines.Length;
 
         PopScope();
 
@@ -193,12 +202,13 @@ public class Analyzer : IDisposable
     private void AnalyzeTestDeclaration(TestDeclaration test)
     {
         // Tests are similar to functions - create scope and analyze body
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), test.Line, test.Column);
 
         // Inject setup symbols so tests can reference setup-declared variables
         foreach (var (name, type, line, column) in _setupSymbols)
         {
             DeclareSymbol(name, type, line, column);
+            RecordVariableInCurrentScope(name, type);
         }
 
         // If table-driven, declare parameters in scope
@@ -208,6 +218,7 @@ public class Analyzer : IDisposable
             {
                 var paramType = ResolveType(param.Type);
                 DeclareSymbol(param.Name, paramType, test.Line, test.Column);
+                RecordVariableInCurrentScope(param.Name, paramType);
             }
 
             // Validate test case row counts match parameter count
@@ -238,7 +249,7 @@ public class Analyzer : IDisposable
     {
         // Analyze setup body in its own scope (validates the code),
         // but symbols are already collected via CollectSetupSymbols
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
 
         foreach (var stmt in setup.Body.Statements)
         {
@@ -301,7 +312,7 @@ public class Analyzer : IDisposable
             CheckVisibilityConvention(func.Name, func.Modifiers, func.Line, func.Column);
         }
 
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), func.Line, func.Column);
 
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
@@ -315,15 +326,15 @@ public class Analyzer : IDisposable
             var paramType = ResolveType(param.Type);
             DeclareSymbol(param.Name, paramType, func.Line, func.Column);
 
-            // Record parameter in semantic model for IDE features
-            _semanticModel.RecordVariable(param.Name, paramType);
+            // Record parameter in semantic model for IDE features (scoped)
+            RecordVariableInCurrentScope(param.Name, paramType);
         }
 
         // Set expected return type
         _currentReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
 
-        // Record function return type in semantic model for IDE features
-        _semanticModel.RecordFunction(func.Name, _currentReturnType);
+        // Record function return type in semantic model for IDE features (scoped)
+        RecordFunctionInCurrentScope(func.Name, _currentReturnType);
 
         // Analyze body
         if (func.Body != null)
@@ -435,7 +446,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(classDecl.Name, classDecl.Modifiers, classDecl.Line, classDecl.Column);
 
-        PushScope(new Scope(ScopeKind.Class));
+        PushScope(new Scope(ScopeKind.Class), classDecl.Line, classDecl.Column);
 
         // Add 'this' to scope
         var classType = new ClassTypeInfo(classDecl);
@@ -448,6 +459,7 @@ public class Analyzer : IDisposable
             {
                 var paramType = ResolveType(param.Type);
                 DeclareSymbol(param.Name, paramType, classDecl.Line, classDecl.Column);
+                RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
 
@@ -486,7 +498,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(structDecl.Name, structDecl.Modifiers, structDecl.Line, structDecl.Column);
 
-        PushScope(new Scope(ScopeKind.Struct));
+        PushScope(new Scope(ScopeKind.Struct), structDecl.Line, structDecl.Column);
 
         var structType = new StructTypeInfo(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
@@ -498,6 +510,7 @@ public class Analyzer : IDisposable
             {
                 var paramType = ResolveType(param.Type);
                 DeclareSymbol(param.Name, paramType, structDecl.Line, structDecl.Column);
+                RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
 
@@ -517,7 +530,7 @@ public class Analyzer : IDisposable
 
         CheckVisibilityConvention(recordDecl.Name, recordDecl.Modifiers, recordDecl.Line, recordDecl.Column);
 
-        PushScope(new Scope(ScopeKind.Record));
+        PushScope(new Scope(ScopeKind.Record), recordDecl.Line, recordDecl.Column);
 
         var recordType = new RecordTypeInfo(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
@@ -529,6 +542,7 @@ public class Analyzer : IDisposable
             {
                 var paramType = ResolveType(param.Type);
                 DeclareSymbol(param.Name, paramType, recordDecl.Line, recordDecl.Column);
+                RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
 
@@ -545,7 +559,7 @@ public class Analyzer : IDisposable
     {
         CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
 
-        PushScope(new Scope(ScopeKind.Interface));
+        PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
 
         foreach (var member in interfaceDecl.Members)
         {
@@ -712,6 +726,9 @@ public class Analyzer : IDisposable
         {
             _semanticModel.RecordTypeMember(_currentTypeName, field.Name, fieldType);
         }
+
+        // Also record in top-level Fields dict so LookupIdentifier can find it
+        _semanticModel.RecordField(field.Name, fieldType);
     }
 
     private void AnalyzePropertyDeclaration(PropertyDeclaration prop)
@@ -726,6 +743,9 @@ public class Analyzer : IDisposable
         {
             _semanticModel.RecordTypeMember(_currentTypeName, prop.Name, propType);
         }
+
+        // Also record in top-level Properties dict so LookupIdentifier can find it
+        _semanticModel.RecordProperty(prop.Name, propType);
 
         // Expression-bodied property: validate expression type matches property type
         if (prop.ExpressionBody != null)
@@ -760,7 +780,7 @@ public class Analyzer : IDisposable
         // Analyze getter
         if (prop.GetBody != null)
         {
-            PushScope(new Scope(ScopeKind.Function));
+            PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
             var prevReturnType = _currentReturnType;
             _currentReturnType = propType; // Getter should return the property type
             AnalyzeStatement(prop.GetBody);
@@ -771,11 +791,12 @@ public class Analyzer : IDisposable
         // Analyze setter
         if (prop.SetBody != null)
         {
-            PushScope(new Scope(ScopeKind.Function));
+            PushScope(new Scope(ScopeKind.Function), prop.Line, prop.Column);
             var prevReturnType = _currentReturnType;
             _currentReturnType = BuiltInTypes.Void; // Setter returns void
             // Implicitly declare 'value' parameter
             DeclareSymbol("value", propType, prop.Line, prop.Column);
+            RecordVariableInCurrentScope("value", propType);
             AnalyzeStatement(prop.SetBody);
             _currentReturnType = prevReturnType;
             PopScope();
@@ -785,13 +806,14 @@ public class Analyzer : IDisposable
     private void AnalyzeConstructorDeclaration(ConstructorDeclaration ctor)
     {
         _inConstructor = true;
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), ctor.Line, ctor.Column);
 
         // Add parameters to scope
         foreach (var param in ctor.Parameters)
         {
             var paramType = ResolveType(param.Type);
             DeclareSymbol(param.Name, paramType, ctor.Line, ctor.Column);
+            RecordVariableInCurrentScope(param.Name, paramType);
         }
 
         // Analyze initializer if present
@@ -862,6 +884,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeStatement(Statement stmt)
     {
+        _currentLine = stmt.Line;
         switch (stmt)
         {
             case ExpressionStatement exprStmt:
@@ -874,7 +897,7 @@ public class Analyzer : IDisposable
                 AnalyzeTupleDeconstruction(tupleDecl);
                 break;
             case BlockStatement block:
-                PushScope(new Scope(ScopeKind.Block));
+                PushScope(new Scope(ScopeKind.Block), block.Line, block.Column);
                 foreach (var s in block.Statements)
                     AnalyzeStatement(s);
                 PopScope();
@@ -968,7 +991,7 @@ public class Analyzer : IDisposable
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
     {
         // Analyze the body block
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), assertThrows.Line, assertThrows.Column);
         foreach (var stmt in assertThrows.Body.Statements)
         {
             AnalyzeStatement(stmt);
@@ -986,13 +1009,14 @@ public class Analyzer : IDisposable
         DeclareSymbol(func.Name, funcType, localFunc.Line, localFunc.Column);
 
         // Analyze the local function body in a new scope
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), localFunc.Line, localFunc.Column);
 
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
             var paramType = ResolveType(param.Type);
             DeclareSymbol(param.Name, paramType, localFunc.Line, localFunc.Column);
+            RecordVariableInCurrentScope(param.Name, paramType);
         }
 
         // Save current function context
@@ -1095,8 +1119,8 @@ public class Analyzer : IDisposable
 
         DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column);
 
-        // Record in semantic model for IDE features
-        _semanticModel.RecordVariable(varDecl.Name, finalType);
+        // Record in semantic model for IDE features (scoped)
+        RecordVariableInCurrentScope(varDecl.Name, finalType);
     }
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
@@ -1117,6 +1141,7 @@ public class Analyzer : IDisposable
             if (resultVar != "_")
             {
                 DeclareSymbol(resultVar, initType, tupleDecl.Line, tupleDecl.Column);
+                RecordVariableInCurrentScope(resultVar, initType);
             }
 
             // Declare err variable as nullable Exception
@@ -1124,6 +1149,7 @@ public class Analyzer : IDisposable
             {
                 var exceptionType = new ExternalTypeInfo("Exception?");
                 DeclareSymbol(errVar, exceptionType, tupleDecl.Line, tupleDecl.Column);
+                RecordVariableInCurrentScope(errVar, exceptionType);
             }
         }
         else
@@ -1139,6 +1165,7 @@ public class Analyzer : IDisposable
                 if (name != "_")  // Skip discard
                 {
                     DeclareSymbol(name, BuiltInTypes.InferenceHole, tupleDecl.Line, tupleDecl.Column);
+                    RecordVariableInCurrentScope(name, BuiltInTypes.InferenceHole);
                 }
             }
         }
@@ -1180,7 +1207,7 @@ public class Analyzer : IDisposable
         // Apply then-branch narrowings (null checks, is-patterns, && chains)
         if (thenNarrowings.Count > 0)
         {
-            PushScope(new Scope(ScopeKind.Block));
+            PushScope(new Scope(ScopeKind.Block), ifStmt.ThenStatement.Line, ifStmt.ThenStatement.Column);
             ApplyNarrowingsToScope(thenNarrowings);
             AnalyzeStatement(ifStmt.ThenStatement);
             PopScope();
@@ -1195,7 +1222,7 @@ public class Analyzer : IDisposable
             // Apply else-branch narrowings (from == null checks, || chains)
             if (elseNarrowings.Count > 0)
             {
-                PushScope(new Scope(ScopeKind.Block));
+                PushScope(new Scope(ScopeKind.Block), ifStmt.ElseStatement.Line, ifStmt.ElseStatement.Column);
                 ApplyNarrowingsToScope(elseNarrowings);
                 AnalyzeStatement(ifStmt.ElseStatement);
                 PopScope();
@@ -1311,7 +1338,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeForStatement(ForStatement forStmt)
     {
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), forStmt.Line, forStmt.Column);
 
         if (forStmt.Initializer != null)
             AnalyzeStatement(forStmt.Initializer);
@@ -1344,15 +1371,15 @@ public class Analyzer : IDisposable
         // For now, just check if it's an array or has a known collection type
         // TODO: More sophisticated enumerable checking
 
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), foreachStmt.Line, foreachStmt.Column);
 
         // Infer element type
         TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(foreachStmt.VariableName, elementType, foreachStmt.Line, foreachStmt.Column);
 
-        // Record in semantic model for IDE features (hover, completion)
-        _semanticModel.RecordVariable(foreachStmt.VariableName, elementType);
+        // Record in semantic model for IDE features (hover, completion, scoped)
+        RecordVariableInCurrentScope(foreachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
         _inLoop = true;
@@ -1370,15 +1397,15 @@ public class Analyzer : IDisposable
         // For now, similar to regular foreach, we'll check for async enumerable types
         // TODO: More sophisticated async enumerable checking
 
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), awaitForeachStmt.Line, awaitForeachStmt.Column);
 
         // Infer element type
         TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(awaitForeachStmt.VariableName, elementType, awaitForeachStmt.Line, awaitForeachStmt.Column);
 
-        // Record in semantic model for IDE features (hover, completion)
-        _semanticModel.RecordVariable(awaitForeachStmt.VariableName, elementType);
+        // Record in semantic model for IDE features (hover, completion, scoped)
+        RecordVariableInCurrentScope(awaitForeachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
         _inLoop = true;
@@ -1511,7 +1538,7 @@ public class Analyzer : IDisposable
 
         foreach (var catchClause in tryStmt.CatchClauses)
         {
-            PushScope(new Scope(ScopeKind.Block));
+            PushScope(new Scope(ScopeKind.Block), tryStmt.Line, tryStmt.Column);
 
             if (catchClause.VariableName != null)
             {
@@ -1519,6 +1546,7 @@ public class Analyzer : IDisposable
                     ? ResolveType(catchClause.ExceptionType)
                     : new SimpleTypeInfo("Exception");
                 DeclareSymbol(catchClause.VariableName, exceptionType, tryStmt.Line, tryStmt.Column);
+                RecordVariableInCurrentScope(catchClause.VariableName, exceptionType);
             }
 
             AnalyzeStatement(catchClause.Block);
@@ -1533,7 +1561,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeUsingStatement(UsingStatement usingStmt)
     {
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), usingStmt.Line, usingStmt.Column);
 
         if (usingStmt.Declaration != null)
         {
@@ -1560,7 +1588,7 @@ public class Analyzer : IDisposable
         AnalyzeExpression(lockStmt.LockObject);
 
         // Analyze the body with a new scope
-        PushScope(new Scope(ScopeKind.Block));
+        PushScope(new Scope(ScopeKind.Block), lockStmt.Line, lockStmt.Column);
         AnalyzeStatement(lockStmt.Body);
         PopScope();
     }
@@ -1571,7 +1599,7 @@ public class Analyzer : IDisposable
 
         foreach (var switchCase in switchStmt.Cases)
         {
-            PushScope(new Scope(ScopeKind.Block));
+            PushScope(new Scope(ScopeKind.Block), switchStmt.Line, switchStmt.Column);
 
             // Analyze pattern if present
             if (switchCase.Pattern != null)
@@ -1950,6 +1978,7 @@ public class Analyzer : IDisposable
 
         // Declare the variable in the current scope
         DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
+        RecordVariableInCurrentScope(outVar.VariableName, varType);
 
         return varType;
     }
@@ -2048,7 +2077,7 @@ public class Analyzer : IDisposable
             TypeInfo rightType;
             if (leftThenNarrowings.Count > 0)
             {
-                PushScope(new Scope(ScopeKind.Block));
+                PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
                 ApplyNarrowingsToScope(leftThenNarrowings);
                 rightType = AnalyzeExpression(binary.Right);
                 PopScope();
@@ -2070,7 +2099,7 @@ public class Analyzer : IDisposable
             TypeInfo rightType;
             if (leftElseNarrowings.Count > 0)
             {
-                PushScope(new Scope(ScopeKind.Block));
+                PushScope(new Scope(ScopeKind.Block), binary.Right.Line, binary.Right.Column);
                 ApplyNarrowingsToScope(leftElseNarrowings);
                 rightType = AnalyzeExpression(binary.Right);
                 PopScope();
@@ -3985,7 +4014,7 @@ public class Analyzer : IDisposable
     private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null)
     {
         var expectedSignature = GetFunctionSignature(expectedType);
-        PushScope(new Scope(ScopeKind.Function));
+        PushScope(new Scope(ScopeKind.Function), lambda.Line, lambda.Column);
         var parameterTypes = new List<TypeInfo>();
 
         foreach (var param in lambda.Parameters)
@@ -4002,6 +4031,7 @@ public class Analyzer : IDisposable
                     ? expectedSignature.ParameterTypes[paramIndex]
                     : BuiltInTypes.Unknown;
             DeclareSymbol(param.Name, paramType, lambda.Line, lambda.Column);
+            RecordVariableInCurrentScope(param.Name, paramType);
             parameterTypes.Add(paramType);
         }
 
@@ -4199,7 +4229,7 @@ public class Analyzer : IDisposable
         foreach (var matchCase in match.Cases)
         {
             // Create new scope for pattern bindings
-            PushScope(new Scope(ScopeKind.Block));
+            PushScope(new Scope(ScopeKind.Block), matchCase.Pattern.Line, matchCase.Pattern.Column);
 
             // Analyze pattern and bind variables
             AnalyzePattern(matchCase.Pattern, valueType);
@@ -5365,12 +5395,55 @@ public class Analyzer : IDisposable
     // Scope management
     private void PushScope(Scope scope)
     {
+        PushScope(scope, 0, 0);
+    }
+
+    private void PushScope(Scope scope, int startLine, int startColumn)
+    {
         _scopes.Push(scope);
+        var parentId = _semanticScopeIds.Count > 0 ? _semanticScopeIds.Peek() : -1;
+        var scopeId = _semanticModel.OpenScope(parentId, startLine, startColumn);
+        _semanticScopeIds.Push(scopeId);
     }
 
     private void PopScope()
     {
         _scopes.Pop();
+        if (_semanticScopeIds.Count > 0)
+        {
+            var scopeId = _semanticScopeIds.Pop();
+            _semanticModel.CloseScope(scopeId, _currentLine, int.MaxValue);
+        }
+    }
+
+    /// <summary>
+    /// Record a variable in the current semantic scope (for position-aware lookups).
+    /// </summary>
+    private void RecordVariableInCurrentScope(string name, TypeInfo type)
+    {
+        if (_semanticScopeIds.Count > 0)
+        {
+            _semanticModel.RecordScopedVariable(_semanticScopeIds.Peek(), name, type);
+        }
+        else
+        {
+            _semanticModel.RecordVariable(name, type);
+        }
+    }
+
+    /// <summary>
+    /// Record a function in the current semantic scope (for position-aware lookups).
+    /// </summary>
+    private void RecordFunctionInCurrentScope(string name, TypeInfo type)
+    {
+        if (_semanticScopeIds.Count > 0)
+        {
+            _semanticModel.RecordScopedFunction(_semanticScopeIds.Peek(), name, type);
+        }
+        else
+        {
+            _semanticModel.RecordFunction(name, type);
+        }
     }
 
     private void DeclareSymbol(string name, TypeInfo type, int line, int column)
