@@ -11,9 +11,11 @@ public static class CompletionCommand
         "run",
         "transpile",
         "new",
+        "init",
         "test",
         "format",
         "lint",
+        "bench",
         "clean",
         "watch",
         "doc",
@@ -22,6 +24,14 @@ public static class CompletionCommand
         "fix",
         "query",
         "daemon",
+        "add",
+        "remove",
+        "update",
+        "publish",
+        "tree",
+        "audit",
+        "env",
+        "restore",
         "help"
     };
 

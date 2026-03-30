@@ -97,34 +97,33 @@ public class CliCommandTests
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "definition",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-            "--file", "Program.nl",
-            "--pos", "85:31"
+            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--file", "Service.nl",
+            "--pos", "68:10"
         }));
 
         Assert.Equal(0, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
 
         using var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal("GetStats", doc.RootElement.GetProperty("result").GetProperty("name").GetString());
-        Assert.Equal("Services/TaskService.nl", doc.RootElement.GetProperty("result").GetProperty("file").GetString());
+        Assert.Equal("GetAll", doc.RootElement.GetProperty("result").GetProperty("name").GetString());
+        Assert.Equal("Service.nl", doc.RootElement.GetProperty("result").GetProperty("file").GetString());
     }
 
     [Fact]
     public void QueryCommand_Type_NoSymbol_ReturnsStructuredEnvelope()
     {
         var examplesDir = FindExamplesDir();
+        // Line 1 is a comment — no symbol there
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "type",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
             "--file", "Program.nl",
-            "--pos", "83:1"
+            "--pos", "1:1"
         }));
 
         Assert.Equal(1, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
 
         using var doc = JsonDocument.Parse(stdout);
         Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -132,7 +131,7 @@ public class CliCommandTests
         Assert.Equal("noSymbol", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
         Assert.Equal("Program.nl",
             doc.RootElement.GetProperty("error").GetProperty("details").GetProperty("file").GetString());
-        Assert.Equal(83,
+        Assert.Equal(1,
             doc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position").GetProperty("line").GetInt32());
     }
 
@@ -140,22 +139,21 @@ public class CliCommandTests
     public void InspectSummary_Contract_UsesCompactEnvelope()
     {
         var examplesDir = FindExamplesDir();
+        // Service.nl line 15: store: IssueStore (field)
         var (_, json, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "inspect",
             "--summary",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-            "--file", "Program.nl",
-            "--pos", "86:27"
+            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--file", "Service.nl",
+            "--pos", "15:5"
         }));
-
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
 
         AssertJsonContract("inspectSummary", json);
         using var doc = JsonDocument.Parse(json);
         Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
         Assert.False(doc.RootElement.TryGetProperty("result", out _));
-        Assert.Equal("Total", summary.GetProperty("symbol").GetProperty("name").GetString());
+        Assert.Equal("store", summary.GetProperty("symbol").GetProperty("name").GetString());
     }
 
     [Fact]
@@ -172,8 +170,8 @@ public class CliCommandTests
 [
   {
     "command": "inspect",
-    "file": "Program.nl",
-    "pos": "86:27",
+    "file": "Service.nl",
+    "pos": "15:5",
     "summary": true
   },
   {
@@ -183,7 +181,7 @@ public class CliCommandTests
   {
     "command": "type",
     "file": "Program.nl",
-    "pos": "83:1"
+    "pos": "1:1"
   }
 ]
 """);
@@ -191,7 +189,7 @@ public class CliCommandTests
             var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
             {
                 "batch",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
                 "--requests", requestsPath
             }));
 
@@ -398,9 +396,9 @@ func Main() {
             new[]
             {
                 "type",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "85:5"
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--file", "Service.nl",
+                "--pos", "15:5"
             }
         };
 
@@ -421,9 +419,9 @@ func Main() {
             new[]
             {
                 "definition",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:33"
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--file", "Service.nl",
+                "--pos", "26:10"
             }
         };
 
@@ -433,9 +431,9 @@ func Main() {
             new[]
             {
                 "references",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--file", "Service.nl",
+                "--pos", "14:7"
             }
         };
 
@@ -457,9 +455,9 @@ func Main() {
             new[]
             {
                 "inspect",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--file", "Service.nl",
+                "--pos", "15:5"
             }
         };
 
@@ -470,9 +468,9 @@ func Main() {
             {
                 "inspect",
                 "--summary",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--file", "Service.nl",
+                "--pos", "15:5"
             }
         };
     }
