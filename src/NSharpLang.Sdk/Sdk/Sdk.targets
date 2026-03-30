@@ -26,6 +26,7 @@
       <Output TaskParameter="TargetFramework" PropertyName="_NSharpTargetFramework" />
       <Output TaskParameter="OutputType" PropertyName="_NSharpOutputType" />
       <Output TaskParameter="AssemblyName" PropertyName="_NSharpAssemblyName" />
+      <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
     </LoadProjectConfig>
 
     <PropertyGroup>
@@ -34,6 +35,7 @@
     <TargetFramework>$(_NSharpTargetFramework)</TargetFramework>
     <OutputType>$(_NSharpOutputType)</OutputType>
     <AssemblyName>$(_NSharpAssemblyName)</AssemblyName>
+    <NSharpTestFramework>$(NSharpTestFramework)</NSharpTestFramework>
   </PropertyGroup>
 </Project>]]></_GeneratedPropsContent>
     </PropertyGroup>
@@ -49,20 +51,36 @@
     <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Auto-discover all .tests.nl files -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true'">
+  <!-- Auto-discover all .tests.nl files (unless excluded for production builds) -->
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpExcludeTests)' != 'true'">
     <NSharpTestFiles Include="**/*.tests.nl" Exclude="**/obj/**;**/bin/**" />
   </ItemGroup>
 
-  <!-- Add xUnit dependencies when test files exist (done in a target so NuGet restore sees them) -->
+  <!-- Add test framework dependencies when test files exist (done in a target so NuGet restore sees them) -->
   <Target Name="AddNSharpTestDependencies" BeforeTargets="CollectPackageReferences" Condition="'$(EnableNSharpCompilation)' == 'true'">
     <PropertyGroup>
       <_NSharpTestFiles>@(NSharpTestFiles)</_NSharpTestFiles>
+      <NSharpTestFramework Condition="'$(NSharpTestFramework)' == ''">xunit</NSharpTestFramework>
     </PropertyGroup>
 
-    <ItemGroup Condition="'$(_NSharpTestFiles)' != ''">
+    <!-- xUnit dependencies -->
+    <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'xunit'">
       <PackageReference Include="xunit" Version="2.9.2" />
       <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      </PackageReference>
+      <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+      <PackageReference Include="coverlet.msbuild" Version="6.0.2">
+        <PrivateAssets>all</PrivateAssets>
+        <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+      </PackageReference>
+    </ItemGroup>
+
+    <!-- NUnit dependencies -->
+    <ItemGroup Condition="'$(_NSharpTestFiles)' != '' And '$(NSharpTestFramework)' == 'nunit'">
+      <PackageReference Include="NUnit" Version="4.3.2" />
+      <PackageReference Include="NUnit3TestAdapter" Version="4.6.0">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
@@ -114,7 +132,7 @@
     <Message Importance="High" Text="N# compilation complete. Generated files added to C# compilation." />
   </Target>
 
-  <!-- Transpile N# test files to xUnit tests before C# compilation -->
+  <!-- Transpile N# test files before C# compilation -->
   <Target Name="TranspileNSharpTests"
           BeforeTargets="CoreCompile"
           Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''"

@@ -2,6 +2,7 @@
 bin/
 obj/
 *.g.cs
+*.g.csproj
 
 # Debug/test files
 debug_*.cs
@@ -29,6 +30,10 @@ local-packages/
 TestResults/
 test-sdk-project/
 test-output.log
+coverage-report/
 
 # Build task debug logs
 compile-debug.log
+
+# Node.js
+node_modules/
