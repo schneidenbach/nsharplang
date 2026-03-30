@@ -18,6 +18,7 @@ public class MultiFileCompiler
     private readonly List<string> _sourceFiles;
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new();
     private readonly Dictionary<string, SemanticModel> _semanticModels = new();
+    private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
     private readonly Dictionary<string, string> _transpiledFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
@@ -126,14 +127,48 @@ public class MultiFileCompiler
     }
 
     /// <summary>
+    /// Build the project-level symbol table from all parsed compilation units.
+    /// Maps symbol names to their ProjectSymbolInfo (including source file and namespace).
+    /// This enables automatic cross-file symbol resolution without explicit imports.
+    /// </summary>
+    private Dictionary<string, List<ProjectSymbolInfo>> BuildProjectSymbolTable()
+    {
+        var table = new Dictionary<string, List<ProjectSymbolInfo>>();
+
+        foreach (var kvp in _compilationUnits)
+        {
+            var sourceFile = kvp.Key;
+            var compilationUnit = kvp.Value;
+
+            var symbols = Analyzer.ExtractProjectSymbols(compilationUnit, sourceFile);
+            foreach (var symbol in symbols)
+            {
+                if (!table.TryGetValue(symbol.Name, out var list))
+                {
+                    list = new List<ProjectSymbolInfo>();
+                    table[symbol.Name] = list;
+                }
+                list.Add(symbol);
+            }
+        }
+
+        return table;
+    }
+
+    /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
     /// This prevents the performance issue of reloading assemblies for each file.
     /// </summary>
     private void AnalyzeAllFiles()
     {
+        // Build project symbol table for auto-discovery and set it on the shared analyzer
+        var projectSymbols = BuildProjectSymbolTable();
+        _sharedAnalyzer.SetProjectSymbols(projectSymbols);
+
         // Analyze each file using the shared analyzer instance
         // The Analyzer's import system handles cross-file references via proper import statements
+        // Project symbols provide fallback auto-discovery for unimported cross-file types
         foreach (var kvp in _compilationUnits)
         {
             var sourceFile = kvp.Key;
@@ -146,6 +181,13 @@ public class MultiFileCompiler
 
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
+
+                // Capture auto-resolved namespaces for transpiler using-directive generation
+                var autoNs = _sharedAnalyzer.GetAutoResolvedNamespaces();
+                if (autoNs.Count > 0)
+                {
+                    _autoResolvedNamespaces[sourceFile] = autoNs;
+                }
 
                 // Merge binding map for cross-file semantic references
                 if (result.Bindings != null)
@@ -187,7 +229,10 @@ public class MultiFileCompiler
                 // Get the semantic model for this file (if available)
                 _semanticModels.TryGetValue(sourceFile, out var semanticModel);
 
-                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile);
+                // Get auto-resolved namespaces for this file (if any)
+                _autoResolvedNamespaces.TryGetValue(sourceFile, out var autoNamespaces);
+
+                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;
@@ -209,14 +254,13 @@ public class MultiFileCompiler
     /// Parse and analyze all files without transpiling.
     /// This is the fast path for code intelligence queries — skips the transpile phase
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
+    /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
+    /// so we can report both syntax and semantic diagnostics in a single pass.
     /// </summary>
     public void CompileForAnalysis()
     {
         ParseAllFiles();
-        if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-        {
-            AnalyzeAllFiles();
-        }
+        AnalyzeAllFiles();
     }
 
     /// <summary>
@@ -231,26 +275,17 @@ public class MultiFileCompiler
         ParseAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles END");
 
-        // Stop if parse errors
-        if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
-        {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Parse errors found, returning");
-            return new MultiFileCompilationResult(
-                false,
-                _allErrors,
-                new Dictionary<string, string>()
-            );
-        }
-
-        // Pass 2: Analyze
+        // Pass 2: Analyze — always run, even if some files had parse errors.
+        // Files that parsed successfully are analyzed so we can report both
+        // syntax and semantic diagnostics in a single compilation pass.
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
         AnalyzeAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
 
-        // Stop if analysis errors
+        // Stop before transpilation if there are any errors
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Analysis errors found, returning");
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Errors found, returning before transpile");
             return new MultiFileCompilationResult(
                 false,
                 _allErrors,
@@ -258,7 +293,7 @@ public class MultiFileCompiler
             );
         }
 
-        // Pass 2: Transpile
+        // Pass 3: Transpile
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START");
         TranspileAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END");

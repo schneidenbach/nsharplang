@@ -52,13 +52,29 @@ public class CodeIntelligenceService
         var errors = new List<CompilerError>(parseResult.Errors);
         SemanticModel? semanticModel = null;
 
-        if (parseResult.CompilationUnit != null && !errors.Any(e => e.Severity == ErrorSeverity.Error))
+        // Run analysis even when there are parse errors, as long as we have an AST.
+        // This lets us report both syntax and semantic diagnostics in a single pass.
+        if (parseResult.CompilationUnit != null)
         {
-            var analyzer = new Analyzer();
-            analyzer.LoadSystemAssemblies();
-            var analysisResult = analyzer.Analyze(parseResult.CompilationUnit, filePath, Path.GetDirectoryName(filePath), source);
-            semanticModel = analysisResult.SemanticModel;
-            errors.AddRange(analysisResult.Errors);
+            try
+            {
+                var analyzer = new Analyzer();
+                analyzer.LoadSystemAssemblies();
+                var analysisResult = analyzer.Analyze(parseResult.CompilationUnit, filePath, Path.GetDirectoryName(filePath), source);
+                semanticModel = analysisResult.SemanticModel;
+                errors.AddRange(analysisResult.Errors);
+            }
+            catch (Exception ex)
+            {
+                // Analyzer may fail on severely malformed ASTs — report that
+                // analysis was incomplete so callers know semantic info is missing.
+                errors.Add(CompilerError.Create(
+                    ErrorCode.InvalidSyntax,
+                    $"Semantic analysis incomplete: {ex.Message}",
+                    1, 1,
+                    ErrorSeverity.Warning
+                ) with { FileName = filePath });
+            }
         }
 
         return new SingleFileSnapshot(filePath, source, parseResult.CompilationUnit, semanticModel, errors);
