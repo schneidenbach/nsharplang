@@ -94,45 +94,78 @@ else
 fi
 rm -f "$TEST_OUTPUT"
 
-section "Step 3b: VS Code Integration Tests (MANDATORY)"
-# VS Code integration tests are REQUIRED — they catch parser/LSP regressions
-# that unit tests miss (e.g., false-positive NL101 errors on valid syntax).
-# If prerequisites are missing, this is a FAILURE, not a skip.
-VSCODE_SKIP_REASON=""
-if ! command -v code >/dev/null 2>&1; then
-    VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
-fi
-if ! command -v node >/dev/null 2>&1; then
-    VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
+section "Step 3b: VS Code Integration Tests"
+# Determine whether to run full VS Code tests or just the smoke suite.
+# Full tests run when:
+#   - VSCODE_TESTS=full is explicitly set
+#   - Changes touch editors/vscode/** or src/NSharpLang.LanguageServer/**
+# Otherwise, run the smoke suite (extension, diagnostics, hover, completion).
+VSCODE_TEST_MODE="${VSCODE_TESTS:-auto}"
+
+if [ "$VSCODE_TEST_MODE" = "auto" ]; then
+    # Check what changed relative to main. Default to full if diff can't be computed
+    # (on main itself, shallow clones, detached HEAD, etc.) — fail-safe, not fail-open.
+    CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null) || CHANGED_FILES=""
+    if [ -z "$CHANGED_FILES" ]; then
+        VSCODE_TEST_MODE="full"
+        echo "On main or cannot determine changed files — running full VS Code test suite"
+    elif echo "$CHANGED_FILES" | grep -qE '^(editors/vscode/|src/NSharpLang\.LanguageServer/)'; then
+        VSCODE_TEST_MODE="full"
+        echo "LSP or extension changes detected — running full VS Code test suite"
+    else
+        VSCODE_TEST_MODE="smoke"
+        echo "No LSP/extension changes — running smoke tests only"
+        echo "  (set VSCODE_TESTS=full to force full suite)"
+    fi
 fi
 
-if [ -n "$VSCODE_SKIP_REASON" ]; then
-    echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
-    echo "VS Code integration tests are mandatory. Install prerequisites:"
-    echo "  - VS Code: https://code.visualstudio.com/"
-    echo "  - Node.js: https://nodejs.org/"
-    echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
-    handle_error "VS Code integration tests (missing prerequisites)"
+if [ "$VSCODE_TEST_MODE" = "skip" ]; then
+    echo -e "${YELLOW}Skipping VS Code tests (VSCODE_TESTS=skip)${NC}"
 else
-    echo "Running VS Code integration tests..."
-    VSCODE_OUTPUT=$(mktemp)
-    if "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1; then
-        # Show test summary even on success so you can see what ran
-        PASS_COUNT=$(grep -c '✔' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
-        SKIP_COUNT=$(grep -c 'pending' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
-        SUMMARY_LINE=$(grep -E '[0-9]+ passing' "$VSCODE_OUTPUT" || echo "")
-        if [ -n "$SUMMARY_LINE" ]; then
-            echo "  $SUMMARY_LINE"
-        fi
-        if [ "$SKIP_COUNT" != "0" ]; then
-            echo "  ($SKIP_COUNT pending/skipped)"
-        fi
-        handle_success "VS Code integration tests"
-    else
-        cat "$VSCODE_OUTPUT"
-        handle_error "VS Code integration tests"
+    # Check prerequisites
+    VSCODE_SKIP_REASON=""
+    if ! command -v code >/dev/null 2>&1; then
+        VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
     fi
-    rm -f "$VSCODE_OUTPUT"
+    if ! command -v node >/dev/null 2>&1; then
+        VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
+    fi
+
+    if [ -n "$VSCODE_SKIP_REASON" ]; then
+        echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
+        echo "VS Code integration tests require:"
+        echo "  - VS Code: https://code.visualstudio.com/"
+        echo "  - Node.js: https://nodejs.org/"
+        echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
+        handle_error "VS Code integration tests (missing prerequisites)"
+    else
+        VSCODE_OUTPUT=$(mktemp)
+        if [ "$VSCODE_TEST_MODE" = "smoke" ]; then
+            echo "Running VS Code smoke tests (extension, diagnostics, hover, completion)..."
+            TEST_SUITE="extension,diagnostics,hover,completion" \
+                "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
+        else
+            echo "Running full VS Code integration tests..."
+            "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
+        fi
+
+        if [ "$VSCODE_OK" = "1" ]; then
+            PASS_COUNT=$(grep -c '✔' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
+            SKIP_COUNT=$(grep -c 'pending' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
+            SUMMARY_LINE=$(grep -E '[0-9]+ passing' "$VSCODE_OUTPUT" || echo "")
+            if [ -n "$SUMMARY_LINE" ]; then
+                echo "  $SUMMARY_LINE"
+            fi
+            if [ "$SKIP_COUNT" != "0" ]; then
+                echo "  ($SKIP_COUNT pending/skipped)"
+            fi
+            handle_success "VS Code integration tests ($VSCODE_TEST_MODE)"
+        else
+            cat "$VSCODE_OUTPUT"
+            handle_error "VS Code integration tests ($VSCODE_TEST_MODE)"
+        fi
+        rm -f "$VSCODE_OUTPUT"
+    fi
 fi
 
 section "Step 4: Pack and Install MSBuild SDK"
