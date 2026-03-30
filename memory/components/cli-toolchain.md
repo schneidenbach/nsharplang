@@ -17,13 +17,14 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc build --release` | Build with Release configuration | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
+| `nlc build --output <path>` | Build to specific output directory (-o shorthand) | `nlc build -o ./dist` |
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
-| `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
+| `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check (JSON by default) | `nlc check` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
@@ -67,6 +68,8 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 | `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
+| `nlc test --timeout <dur>` | Set test timeout (e.g., 30s, 5m, 1h) | `nlc test --timeout 5m` |
+| `nlc test --no-cache` | Force clean rebuild before running tests | `nlc test --no-cache` |
 
 ### Project Management
 
@@ -325,11 +328,15 @@ nlc format --stdin < Program.nl
 nlc test --filter "should add"
 nlc test --verbose
 nlc test --coverage
+nlc test --timeout 5m
+nlc test --no-cache
 ```
 
 - `--filter` matches both test display names and fully-qualified test names
 - `--verbose` increases `dotnet test` output detail without changing the underlying test pipeline
 - `--coverage` collects code coverage via coverlet.msbuild, generates `coverage.opencover.xml` in the project root
+- `--timeout <duration>` sets the test session timeout (e.g., `30s`, `5m`, `1h`)
+- `--no-cache` forces a clean rebuild before running tests (bypass incremental build)
 
 ### `nlc build` — Release Builds and Verbose Output
 
@@ -339,12 +346,14 @@ Build supports Go/Rust-style configuration flags:
 nlc build                # debug build (default)
 nlc build --release      # release (optimized) build
 nlc build --verbose      # detailed MSBuild output
+nlc build -o ./dist      # build to specific output directory
 nlc build --release --verbose
 ```
 
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `--release` passes `-c Release` to `dotnet build`
 - `--verbose` increases MSBuild verbosity to `detailed`
+- `--output <path>` / `-o <path>` sets the output directory for build artifacts
 
 ### `nlc clean` — Build Artifact Cleanup
 
@@ -366,6 +375,8 @@ Watch the project tree and re-run a command after a debounce window:
 nlc watch check
 nlc watch build
 nlc watch test --filter "should add"
+nlc watch lint
+nlc watch format --check
 ```
 
 - Watches `.nl`, `project.yml`, and `.editorconfig`
@@ -584,6 +595,7 @@ nlc query inspect --file Program.nl --pos 5:4
 
 Socket: `{projectRoot}/.nlc/daemon.sock`
 Protocol: JSON-RPC over Unix socket
+File watching: `*.nl`, `project.yml`, `.editorconfig` (cache invalidated on change)
 
 ---
 
@@ -604,4 +616,4 @@ Protocol: JSON-RPC over Unix socket
 
 ---
 
-*Last Updated: 2026-03-29*
+*Last Updated: 2026-03-30*

@@ -77,6 +77,7 @@ invokes MSBuild via the NSharpLang.Sdk. No user-authored .csproj is needed.
 Options:
   --release          Build with Release configuration (default: Debug)
   --verbose          Show detailed build output
+  --output <path>    Output directory for build artifacts (-o shorthand)
   --keep-generated   Keep generated temporary files for debugging (single-file mode)
   --help, -h         Show this help text
 
@@ -84,6 +85,7 @@ Examples:
   nlc build              Build the current project
   nlc build --release    Optimized release build
   nlc build --verbose    Show detailed build output
+  nlc build -o ./dist    Build to a specific output directory
   nlc build Program.nl   Build a single file
 
 Exit codes:
@@ -96,14 +98,18 @@ Exit codes:
         var keepGenerated = args.Contains("--keep-generated");
         var release = args.Contains("--release");
         var verbose = args.Contains("--verbose");
+        var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose").ToArray();
+        // Strip --output/-o and its value from positional args
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
 
         // Support both single-file and multi-file builds
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
             // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
-            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose);
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose, outputDir: outputDir);
         }
 
         var sourceFile = args[0];
@@ -135,6 +141,7 @@ Exit codes:
             // Build
             var buildArgs = $"build \"{projectFile}\"";
             if (release) buildArgs += " -c Release";
+            if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
             buildArgs += verbose ? " -v normal" : " -v q";
 
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -254,7 +261,7 @@ Exit codes:
         return csprojPath;
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false, string? outputDir = null)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -278,6 +285,8 @@ Exit codes:
             if (excludeTests) buildArgs += " -p:NSharpExcludeTests=true";
             if (release) buildArgs += " -c Release";
             if (verbose) buildArgs += " -v detailed";
+            if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
+
 
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
@@ -866,6 +875,8 @@ Options:
   --filter <name>       Run only tests whose display name or fully-qualified name matches
   --verbose             Use more detailed `dotnet test` output
   --json                Output results as structured JSON (schemaVersion 1 envelope)
+  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
+  --no-cache            Force clean rebuild before running tests (bypass incremental build)
   --coverage            Collect code coverage using Coverlet and print a summary
   --coverage-report     Also generate an HTML coverage report (implies --coverage)
   --help, -h            Show this help text
@@ -895,6 +906,17 @@ Exit codes:
         var jsonOutput = args.Contains("--json");
         var coverageReport = args.Contains("--coverage-report");
         var collectCoverage = args.Contains("--coverage") || coverageReport;
+        var timeoutStr = GetOptionValue(args, "--timeout");
+        var noCache = args.Contains("--no-cache");
+
+        // Parse timeout to milliseconds
+        int? timeoutMs = null;
+        if (timeoutStr != null)
+        {
+            timeoutMs = ParseDurationToMs(timeoutStr);
+            if (timeoutMs == null)
+                return Error($"Invalid timeout format '{timeoutStr}'. Expected a duration like 30s, 5m, or 1h.");
+        }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -1086,10 +1108,13 @@ Exit codes:
             }
 
             // Build tests
+            var testBuildArgs = $"build \"{projectFile}\" -v q";
+            if (noCache) testBuildArgs += " --no-incremental";
+
             var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
+                Arguments = testBuildArgs,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false
@@ -1134,15 +1159,25 @@ Exit codes:
                 testArguments.Add(QuoteArgument($"trx;LogFileName={trxFile}"));
             }
 
-            // Add Coverlet properties for coverage
-            if (collectCoverage)
+            // Pass-through arguments (after --)
+            var needsPassThrough = collectCoverage || timeoutMs.HasValue;
+            if (needsPassThrough)
             {
-                var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
                 testArguments.Add("--");
-                testArguments.Add("/p:CollectCoverage=true");
-                testArguments.Add("/p:CoverletOutputFormat=opencover");
-                testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
-                testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
+
+                // Add timeout
+                if (timeoutMs.HasValue)
+                    testArguments.Add($"RunConfiguration.TestSessionTimeout={timeoutMs.Value}");
+
+                // Add Coverlet properties for coverage
+                if (collectCoverage)
+                {
+                    var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
+                    testArguments.Add("/p:CollectCoverage=true");
+                    testArguments.Add("/p:CoverletOutputFormat=opencover");
+                    testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
+                    testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
+                }
             }
 
             var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -1663,6 +1698,41 @@ Exit codes:
         return positional.ToArray();
     }
 
+    static int? ParseDurationToMs(string duration)
+    {
+        if (string.IsNullOrWhiteSpace(duration)) return null;
+
+        var trimmed = duration.Trim();
+        if (trimmed.Length < 2) return null;
+
+        var unit = trimmed[^1];
+        if (!int.TryParse(trimmed[..^1], out var value) || value <= 0)
+            return null;
+
+        return unit switch
+        {
+            's' => value * 1000,
+            'm' => value * 60 * 1000,
+            'h' => value * 60 * 60 * 1000,
+            _ => null
+        };
+    }
+
+    static string[] StripOptionWithValue(string[] args, string flag)
+    {
+        var result = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag && i + 1 < args.Length)
+            {
+                i++; // Skip the value too
+                continue;
+            }
+            result.Add(args[i]);
+        }
+        return result.ToArray();
+    }
+
     static string QuoteArgument(string value)
         => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 
@@ -1726,7 +1796,7 @@ Dependencies:
 Project:
   new <name>           Create a new N# project
   init                 Initialize N# in the current directory
-  watch <cmd>          Re-run check/build/test on file changes
+  watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info
   completion <shell>   Generate shell completion scripts

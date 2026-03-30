@@ -438,7 +438,7 @@ public class DaemonServer
     {
         try
         {
-            _fileWatcher = new FileSystemWatcher(_projectRoot, "*.nl")
+            _fileWatcher = new FileSystemWatcher(_projectRoot)
             {
                 IncludeSubdirectories = true,
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.CreationTime
@@ -450,7 +450,7 @@ public class DaemonServer
             _fileWatcher.Renamed += (_, e) => OnFileChanged(null, e);
 
             _fileWatcher.EnableRaisingEvents = true;
-            Console.Error.WriteLine("[daemon] File watcher started for *.nl files");
+            Console.Error.WriteLine("[daemon] File watcher started for *.nl, project.yml, .editorconfig");
         }
         catch (Exception ex)
         {
@@ -463,7 +463,16 @@ public class DaemonServer
         // Skip .nlc directory changes
         if (e.FullPath.Contains($"{Path.DirectorySeparatorChar}.nlc{Path.DirectorySeparatorChar}")) return;
 
-        Console.Error.WriteLine($"[daemon] File changed: {Path.GetFileName(e.FullPath)} — cache invalidated");
+        var fileName = Path.GetFileName(e.FullPath);
+        var extension = Path.GetExtension(e.FullPath);
+
+        // Only invalidate on relevant files: .nl sources, project.yml, .editorconfig
+        if (!extension.Equals(".nl", StringComparison.OrdinalIgnoreCase) &&
+            !fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) &&
+            !fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        Console.Error.WriteLine($"[daemon] File changed: {fileName} — cache invalidated");
         _cacheInvalid = true;
     }
 

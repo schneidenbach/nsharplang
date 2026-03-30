@@ -8,7 +8,7 @@ namespace NSharpLang.Cli.Commands;
 
 public static class WatchCommand
 {
-    private static readonly string[] SupportedCommands = { "check", "build", "test" };
+    private static readonly string[] SupportedCommands = { "check", "build", "test", "lint", "format" };
     private static readonly string[] WatchOptionsWithValues = { "--project", "--debounce-ms", "--max-runs" };
 
     public static int Execute(string[] args)
@@ -18,7 +18,7 @@ public static class WatchCommand
 
         var watchedCommand = args[0].ToLowerInvariant();
         if (!SupportedCommands.Contains(watchedCommand, StringComparer.Ordinal))
-            return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, or test.");
+            return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, test, lint, or format.");
 
         var forwardedArgs = GetForwardedArgs(args.Skip(1).ToArray());
         var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
@@ -192,7 +192,7 @@ public static class WatchCommand
     {
         Console.WriteLine(@"N# Watch
 
-Usage: nlc watch <check|build|test> [command-options]
+Usage: nlc watch <check|build|test|lint|format> [command-options]
 
 Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.
 
@@ -206,6 +206,8 @@ Examples:
   nlc watch check
   nlc watch build
   nlc watch test --filter AddPerson
+  nlc watch lint
+  nlc watch format --check
   nlc watch check --project examples/16-task-cli --max-runs 2
 
 Exit codes:
