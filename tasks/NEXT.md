@@ -182,10 +182,7 @@ These matter, but they are not above the tooling foundation.
 ### 28. Better nested union matching
 - Improves expressiveness, but not above tooling correctness.
 
-### 29. Source maps / debugging
-- Important long-term, but below semantic correctness and editor trust.
-
-### 30. REPL / doc generation
+### 29. REPL / doc generation
 - Ecosystem-level polish, not near-term blockers.
 
 ---
@@ -221,5 +218,7 @@ These matter, but they are not above the tooling foundation.
 - first-pass auto-import completion landed.
 - first-pass project-scope workspace diagnostics landed.
 - full-test-suite hang work was resolved.
+
+- Source maps / debugging -- complete. Zero-config F5 debugging with `#line` directives and PDB mapping.
 
 Only put something back above if it regresses or turns out not to be product-grade.

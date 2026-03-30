@@ -142,7 +142,9 @@ public record SwitchStatement(
 
 public record SwitchCase(
     Pattern? Pattern, // null for default case
-    List<Statement> Statements);
+    List<Statement> Statements,
+    int Line,
+    int Column);
 
 // Empty statement
 public record EmptyStatement(int Line, int Column) : Statement(Line, Column);
