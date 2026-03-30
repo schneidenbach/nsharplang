@@ -22,20 +22,29 @@ f := x => x * 2  // x is Unknown — no declared type to infer from
 
 **Status:** Fully implemented. Contextual type flows through variable declarations, assignments, return statements, field initializers, function call arguments, and LINQ methods.
 
-### 2. Generic Type Inference
-**Current:** Generic type parameters must be explicit.
+### 2. Generic Type Inference (RESOLVED)
+**Current:** ✅ Generic type parameters are inferred from argument types.
 
 ```
-// Must specify type
-let result := Identity<int>(42)
+// Type inference — no explicit type args needed:
+let result := Identity(42)              // T inferred as int
+let pair := Pair(1, "hello")            // A=int, B=string inferred
+let first := First(myList)              // T inferred from List<T> arg
+let nums := CreateList(1, 2, 3)        // T=int inferred from params args
 
-// Can't infer:
-// let result := Identity(42)  // Error
+// Explicit type args still work when needed:
+let cast := items.Cast<object>()        // Can't infer — must be explicit
+let result := Identity<int>(42)         // Explicit still accepted
 ```
 
-**Why:** Generic constraint solving not implemented.
-
-**Future:** Implement full generic type inference algorithm.
+**Status:** Fully implemented. Constraint-solving algorithm infers type parameters from:
+- Direct argument types (T from argument)
+- Generic container arguments (List&lt;T&gt; from List&lt;int&gt;)
+- Array arguments (T[] from int[])
+- Nullable arguments (T? matching)
+- Params array elements
+- Multiple arguments constraining the same type param (LUB computation)
+- Partial inference (some explicit, some inferred)
 
 ### 3. Property Type Inference (RESOLVED - Task 025)
 **Current:** ✅ Properties support type inference with `:=` syntax.
@@ -52,22 +61,20 @@ class Person {
 
 ## Method Resolution
 
-### 4. Overload Resolution by Type
-**Current:** Method overloads resolved by argument COUNT only.
+### 4. Overload Resolution by Type (RESOLVED)
+**Current:** ✅ Method overloads resolved by argument type with scoring system.
 
 ```
-// Can distinguish:
+// All of these now work correctly:
 func Process(x: int)
-func Process(x: int, y: int)  // Different count ✅
-
-// Can't distinguish:
-func Process(x: int)
-func Process(x: string)  // Same count, different types ❌
+func Process(x: string)       // Same count, different types ✅
+func Handle(x: int)
+func Handle(x: long)          // Exact match preferred over implicit widening ✅
+5.Format("pre")               // Extension method overload resolution ✅
+5.Format(3)                   // Selects correct overload by arg type ✅
 ```
 
-**Why:** Type-based overload resolution not implemented.
-
-**Future:** Implement full overload resolution with type matching.
+**Status:** Fully implemented. Scoring: exact match (8), implicit numeric (6), assignable (4). Tie-breaking: non-generic > generic, non-params > params.
 
 ## Pattern Matching
 
@@ -110,19 +117,19 @@ union Error {
 
 ## Extension Methods
 
-### 7. Extension Methods on Literals
-**Current:** Extension methods work on variables, not literals.
+### 7. Extension Methods on Literals (RESOLVED)
+**Current:** ✅ Extension methods work on all expressions including literals.
 
 ```
-let count := 5
-result := count.Times(() => print "hi")  // ✅ Works
-
-// result := 5.Times(() => print "hi")   // ❌ Doesn't work
+5.Double()                    // ✅ Extension on int literal
+"hello".IsEmpty()             // ✅ Extension on string literal
+3.14.Negate()                 // ✅ Extension on double literal
+true.Toggle()                 // ✅ Extension on bool literal
+5.ToString().Length            // ✅ Chained member access on literal
+let s: string = 5.Double()   // ✅ Return type properly checked (errors if wrong type)
 ```
 
-**Why:** Literal handling in member access resolution incomplete.
-
-**Future:** Support extension methods on all expressions.
+**Status:** Fully implemented. Fixed cross-assembly type comparison bug in IsAssignable (MLC types vs runtime types). Extension method overload groups now return NSharpMethodGroupInfo for proper resolution.
 
 ## Import System
 
@@ -151,12 +158,15 @@ import "Models/Person"
 
 ## Error Recovery
 
-### 10. Single Error Reporting
-**Current:** Parser stops on first error in some cases.
+### 10. Multi-Error Reporting (RESOLVED)
+**Current:** ✅ Parser uses panic-mode error recovery to report multiple diagnostics per file.
+Synchronization at declaration, statement, and member boundaries allows parsing to continue
+after errors. The analyzer collects all semantic errors without stopping. Both syntax and
+semantic diagnostics are reported in a single compilation pass, even when some files have
+parse errors.
 
-**Why:** Error recovery not fully implemented.
-
-**Future:** Continue parsing after errors to report multiple issues.
+**Status:** Fully implemented (PR #20, dbdcfe4). Panic-mode recovery, cascading error
+suppression, and statement/declaration-level synchronization all working.
 
 ## Transpiler
 
@@ -268,25 +278,24 @@ length := (name ?? "").Length  // ✅ Works
 Most limitations have workarounds:
 
 1. **Lambda types**: Use explicit type annotations
-2. **Generic inference**: Specify type parameters explicitly
-3. **Overload resolution**: Use unique method names or param counts
-4. **Extension on literals**: Assign to variable first
+2. ~~**Generic inference**: Specify type parameters explicitly~~ (RESOLVED)
+3. ~~**Overload resolution**: Use unique method names or param counts~~ (RESOLVED)
+4. ~~**Extension on literals**: Assign to variable first~~ (RESOLVED)
 5. **Circular imports**: Refactor to eliminate cycles
 6. **Type aliases**: Use `using` statements where needed
 
 ## Priority for Fixes
 
 **High Priority:**
-- Method overload resolution by type
-- Extension methods on literals
-- SemanticModel field/property recording (completions use AST fallback currently)
+- ~~Method overload resolution by type~~ (RESOLVED)
+- ~~Extension methods on literals~~ (RESOLVED)
+- ✅ SemanticModel field/property recording (fields and properties now recorded in top-level dicts AND TypeMembers)
 - BindingMap for cross-file type references (import path doesn't record bindings)
 
 **Medium Priority:**
-- Generic type inference
 - Exhaustiveness with guards
 - Circular import detection
-- Position-aware SemanticModel (for shadowing, scope-correct lookups)
+- ✅ Position-aware SemanticModel (scope tracking with LookupIdentifierAtPosition and GetVisibleVariablesAtPosition)
 
 **Low Priority:**
 - REPL

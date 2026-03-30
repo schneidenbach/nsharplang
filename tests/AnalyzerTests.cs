@@ -3316,6 +3316,209 @@ func Hello(): string {
     }
 
     [Fact]
+    public void GenericInference_ReturnsGenericType()
+    {
+        // Inference should work when return type uses the inferred type parameter
+        AssertNoErrors(@"
+            func MakeList<T>(x: T): List<T> {
+                items := new List<T>()
+                items.Add(x)
+                return items
+            }
+            func Main() {
+                result := MakeList(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_FromNestedGenericArg()
+    {
+        // T should be inferred from List<T> argument
+        AssertNoErrors(@"
+            func First<T>(items: List<T>): T {
+                return items[0]
+            }
+            func Main() {
+                list := new List<int>()
+                list.Add(1)
+                result := First(list)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_FromArrayArg()
+    {
+        // T should be inferred from T[] argument
+        AssertNoErrors(@"
+            func First<T>(items: T[]): T {
+                return items[0]
+            }
+            func Main() {
+                arr := [1, 2, 3]
+                result := First(arr)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_SameTypeParamMultipleArgs()
+    {
+        // T is constrained by both arguments; they must agree
+        AssertNoErrors(@"
+            func Max<T>(a: T, b: T): T {
+                return a
+            }
+            func Main() {
+                result := Max(1, 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_NumericWidening()
+    {
+        // When T appears for both int and double args, LUB should pick double
+        AssertNoErrors(@"
+            func Max<T>(a: T, b: T): T {
+                return a
+            }
+            func Main() {
+                result := Max(1, 2.5)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ThreeTypeParams()
+    {
+        // Triple type parameter inference
+        AssertNoErrors(@"
+            func Triple<A, B, C>(a: A, b: B, c: C): A {
+                return a
+            }
+            func Main() {
+                result := Triple(1, ""hello"", true)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_WithConstraint_Satisfied()
+    {
+        // Inference + constraint validation
+        AssertNoErrors(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class MyNum : IComparable {
+                func CompareTo(other: object): int {
+                    return 0
+                }
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new MyNum(), new MyNum())
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_WithConstraint_Violated()
+    {
+        // Inference works but constraint should fail
+        AssertHasError(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class Plain {
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable {
+                return a
+            }
+            func Main() {
+                result := Max(new Plain(), new Plain())
+            }
+        ", "does not satisfy constraint");
+    }
+
+    [Fact]
+    public void GenericInference_ExtensionMethod()
+    {
+        // Inference on extension method (first param is this)
+        AssertNoErrors(@"
+            func Identity<T>(this x: T): T {
+                return x
+            }
+            func Main() {
+                result := 42.Identity()
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ExtensionMethod_ReturnType()
+    {
+        // Extension method inference should correctly bind return type via receiver
+        AssertNoErrors(@"
+            func Double<T>(this x: T): T {
+                return x
+            }
+            func Process(x: int): int {
+                return x
+            }
+            func Main() {
+                result := Process(42.Double())
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_NullableParam()
+    {
+        // Infer T from non-nullable parameter when T? is also present
+        AssertNoErrors(@"
+            func ValueOrDefault<T>(fallback: T, x: T?): T {
+                return fallback
+            }
+            func Main() {
+                result := ValueOrDefault(42, null)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ParamsCollection()
+    {
+        // Inference with params collection (non-array) parameter
+        AssertNoErrors(@"
+            func Enumerate<T>(params items: List<T>): int {
+                return 0
+            }
+            func Main() {
+                result := Enumerate(1, 2, 3)
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInference_ParamsArray()
+    {
+        // Inference with params parameter
+        AssertNoErrors(@"
+            func CreateList<T>(params items: T[]): int {
+                return 0
+            }
+            func Main() {
+                result := CreateList(1, 2, 3)
+            }
+        ");
+    }
+
+    [Fact]
     public void OverloadResolution_AmbiguousCall_Error()
     {
         AssertHasError(@"
@@ -3350,6 +3553,269 @@ func Hello(): string {
                 f := new Formatter()
                 f.Format(""hello"")
                 f.Format(""hello"", 1, 2, 3)
+            }
+        ");
+    }
+
+    // ================================================================
+    // Type-based overload resolution — same arity, different types
+    // ================================================================
+
+    [Fact]
+    public void OverloadResolution_SameArity_IntVsString_SelectsInt()
+    {
+        AssertNoErrors(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                r := Process(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_SameArity_IntVsString_SelectsString()
+    {
+        AssertNoErrors(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                r := Process(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToLong()
+    {
+        AssertNoErrors(@"
+            func Handle(x: long): long { return x }
+            func Handle(x: string): string { return x }
+            func Main() {
+                r := Handle(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToDouble()
+    {
+        AssertNoErrors(@"
+            func Calc(x: double): double { return x }
+            func Calc(x: string): string { return x }
+            func Main() {
+                r := Calc(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_PreferExactOverImplicit()
+    {
+        // When both int and long overloads exist, int literal should prefer int
+        AssertNoErrors(@"
+            func Handle(x: int): int { return x }
+            func Handle(x: long): long { return x }
+            func Main() {
+                r := Handle(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_SameArity_BoolVsInt_Error()
+    {
+        AssertHasError(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                Process(true)
+            }
+        ", "No matching overload");
+    }
+
+    [Fact]
+    public void OverloadResolution_ExtensionOverload_SameThis_DifferentParams()
+    {
+        AssertNoErrors(@"
+            func Format(this x: int, prefix: string): string { return prefix }
+            func Format(this x: int, decimals: int): int { return decimals }
+            func Main() {
+                r1 := 5.Format(""pre"")
+                r2 := 5.Format(3)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ExtensionOverload_NoMatch_Error()
+    {
+        AssertHasError(@"
+            func Format(this x: int, prefix: string): string { return prefix }
+            func Format(this x: int, decimals: int): int { return decimals }
+            func Main() {
+                5.Format(true)
+            }
+        ", "No matching overload");
+    }
+
+    // ================================================================
+    // Extension methods on literal receivers — type safety
+    // ================================================================
+
+    [Fact]
+    public void Extension_LiteralReceiver_ReturnTypeChecked()
+    {
+        // Extension returns int; assigning to string must error
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                let s: string = 5.Double()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_VariableReceiver_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                let x: int = 5
+                let s: string = x.Double()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_BoolLiteral_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Toggle(this b: bool): bool { return b }
+            func Main() {
+                let n: int = true.Toggle()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_StringLiteral_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Upper(this s: string): string { return s }
+            func Main() {
+                let n: int = ""hello"".Upper()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_LiteralReceiver_InExpression()
+    {
+        // Extension return used in binary expression
+        AssertNoErrors(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                r := 5.Double() + 3
+            }
+        ");
+    }
+
+    [Fact]
+    public void Extension_LiteralReceiver_AsArgument()
+    {
+        // Extension return passed to function expecting different type should error
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func TakesString(s: string) {}
+            func Main() {
+                TakesString(5.Double())
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void Extension_ChainedOnLiteral()
+    {
+        // 5.ToString().Length should work (CLR methods)
+        AssertNoErrors(@"
+            func Main() {
+                r := 5.ToString().Length
+            }
+        ");
+    }
+
+    [Fact]
+    public void Extension_DoubleLiteral_Receiver()
+    {
+        AssertNoErrors(@"
+            func Negate(this d: double): double { return 0.0 - d }
+            func Main() {
+                r := 3.14.Negate()
+            }
+        ");
+    }
+
+    // ================================================================
+    // .NET BCL interop — overloaded static methods
+    // ================================================================
+
+    [Fact]
+    public void BCL_ConsoleWrite_IntOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_ConsoleWrite_StringOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_ConsoleWrite_BoolOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(true)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_MathMax_IntOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                r := Math.Max(1, 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_IntegerParse()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                n := Int32.Parse(""42"")
             }
         ");
     }
