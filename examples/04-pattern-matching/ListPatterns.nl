@@ -6,8 +6,8 @@ import System.Collections.Generic
 
 // Example 1: Empty list check
 func IsEmpty(numbers: int[]): bool {
-    result := numbers match {
-        [] => true
+    result := match numbers {
+        [] => true,
         _ => false
     }
 
@@ -16,9 +16,9 @@ func IsEmpty(numbers: int[]): bool {
 
 // Example 2: Single element
 func ProcessSingle(items: string[]): string {
-    result := items match {
-        [] => "No items"
-        [single] => $"One item: {single}"
+    result := match items {
+        [] => "No items",
+        [single] => $"One item: {single}",
         _ => "Multiple items"
     }
 
@@ -27,9 +27,9 @@ func ProcessSingle(items: string[]): string {
 
 // Example 3: First and rest
 func GetFirst(numbers: int[]): string {
-    result := numbers match {
-        [] => "Empty array"
-        [first, ..] => $"First: {first}"
+    result := match numbers {
+        [] => "Empty array",
+        [first, ..] => $"First: {first}",
         _ => "Unreachable"
     }
 
@@ -38,9 +38,9 @@ func GetFirst(numbers: int[]): string {
 
 // Example 4: Last element
 func GetLast(numbers: int[]): string {
-    result := numbers match {
-        [] => "Empty array"
-        [.., last] => $"Last: {last}"
+    result := match numbers {
+        [] => "Empty array",
+        [.., last] => $"Last: {last}",
         _ => "Unreachable"
     }
 
@@ -49,10 +49,10 @@ func GetLast(numbers: int[]): string {
 
 // Example 5: First and last
 func GetFirstAndLast(numbers: int[]): string {
-    result := numbers match {
-        [] => "Empty array"
-        [single] => $"Only one: {single}"
-        [first, .., last] => $"First: {first}, Last: {last}"
+    result := match numbers {
+        [] => "Empty array",
+        [single] => $"Only one: {single}",
+        [first, .., last] => $"First: {first}, Last: {last}",
         _ => "Unreachable"
     }
 
@@ -61,10 +61,10 @@ func GetFirstAndLast(numbers: int[]): string {
 
 // Example 6: Named slice capture
 func CaptureMiddle(numbers: int[]): string {
-    result := numbers match {
-        [] => "Empty"
-        [first, .. middle, last] => $"First: {first}, Middle has {middle.Length} items, Last: {last}"
-        [single] => $"Only: {single}"
+    result := match numbers {
+        [] => "Empty",
+        [first, .. middle, last] => $"First: {first}, Middle has {middle.Length} items, Last: {last}",
+        [single] => $"Only: {single}",
         _ => "Unreachable"
     }
 
@@ -73,9 +73,9 @@ func CaptureMiddle(numbers: int[]): string {
 
 // Example 7: Exact match
 func IsSpecificSequence(numbers: int[]): bool {
-    result := numbers match {
-        [1, 2, 3] => true
-        [4, 5, 6] => true
+    result := match numbers {
+        [1, 2, 3] => true,
+        [4, 5, 6] => true,
         _ => false
     }
 
@@ -84,14 +84,14 @@ func IsSpecificSequence(numbers: int[]): bool {
 
 // Example 8: Pattern with literals and bindings
 func DescribeList(numbers: int[]): string {
-    result := numbers match {
-        [] => "Empty list"
-        [0] => "Single zero"
-        [0, ..] => "Starts with zero"
-        [.., 0] => "Ends with zero"
-        [first, second, ..] when first == second => "Starts with duplicates"
-        [x, y] => $"Pair: {x} and {y}"
-        [x, y, z] => $"Triple: {x}, {y}, {z}"
+    result := match numbers {
+        [] => "Empty list",
+        [0] => "Single zero",
+        [0, ..] => "Starts with zero",
+        [.., 0] => "Ends with zero",
+        [first, second, ..] when first == second => "Starts with duplicates",
+        [x, y] => $"Pair: {x} and {y}",
+        [x, y, z] => $"Triple: {x}, {y}, {z}",
         _ => "Longer list"
     }
 
@@ -100,14 +100,14 @@ func DescribeList(numbers: int[]): string {
 
 // Example 9: Real-world use case - processing structured data
 func ProcessData(items: int[]): string {
-    result := items match {
-        [] => "No data"
-        [single] => $"Single value: {single}"
-        [a, b] when a > b => "First is larger"
-        [a, b] when a < b => "Second is larger"
-        [a, b] => "Equal values"
-        [first, .. rest] when first == 0 => $"Starts with zero, has {rest.Length} more items"
-        [first, second, .. rest] => $"Pair: ({first}, {second}), plus {rest.Length} more"
+    result := match items {
+        [] => "No data",
+        [single] => $"Single value: {single}",
+        [a, b] when a > b => "First is larger",
+        [a, b] when a < b => "Second is larger",
+        [a, b] => "Equal values",
+        [first, .. rest] when first == 0 => $"Starts with zero, has {rest.Length} more items",
+        [first, second, .. rest] => $"Pair: ({first}, {second}), plus {rest.Length} more",
         _ => "Unreachable"
     }
 
@@ -116,12 +116,12 @@ func ProcessData(items: int[]): string {
 
 // Example 10: Stack-like operations
 func AnalyzeStack(stack: int[]): string {
-    result := stack match {
-        [] => "Stack is empty"
-        [top] => $"Single element on stack: {top}"
-        [top, ..] when top > 100 => "Top element is large"
-        [top, second, ..] when top == second => "Top two elements are equal"
-        [top, .. rest] => $"Stack top: {top}, depth: {rest.Length + 1}"
+    result := match stack {
+        [] => "Stack is empty",
+        [top] => $"Single element on stack: {top}",
+        [top, ..] when top > 100 => "Top element is large",
+        [top, second, ..] when top == second => "Top two elements are equal",
+        [top, .. rest] => $"Stack top: {top}, depth: {rest.Length + 1}",
         _ => "Unreachable"
     }
 

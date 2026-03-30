@@ -211,7 +211,7 @@ When a `.tests.nl` file exists in an `exe` project, the test SDK generates a con
 <Project Sdk="NSharpLang.Sdk/0.1.0" />
 ```
 
-This is inconsistent with other examples (e.g., 15-dogfood-project) that use the bare SDK name and work because they have cached restore info.
+This is inconsistent with other examples (e.g., 17-issue-tracker) that use the bare SDK name and work because they have cached restore info.
 
 **Expected**: Either use a `global.json` to pin the SDK version, or document that the version must be specified.
 
