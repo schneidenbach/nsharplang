@@ -5839,7 +5839,6 @@ public class Analyzer : IDisposable
             case ReferenceType.Framework:
                 // Framework references like Microsoft.AspNetCore.App are implicit
                 // Just record them, they're provided by the runtime
-                Console.Error.WriteLine($"Framework reference: {reference.Framework}");
                 break;
         }
     }
