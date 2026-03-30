@@ -981,28 +981,15 @@ public class Analyzer : IDisposable
                     // to catch assignments that happen unconditionally inside
                     break;
 
-                case TryStatement tryStmt:
-                    CollectAssignedFields(tryStmt.TryBlock.Statements, assigned);
-                    break;
-
-                case ForStatement forStmt:
-                    CollectAssignedFields(new[] { forStmt.Body }, assigned);
-                    break;
-
-                case ForeachStatement foreachStmt:
-                    CollectAssignedFields(new[] { foreachStmt.Body }, assigned);
-                    break;
-
-                case WhileStatement whileStmt:
-                    CollectAssignedFields(new[] { whileStmt.Body }, assigned);
-                    break;
-
-                case UsingStatement usingStmt when usingStmt.Body != null:
-                    CollectAssignedFields(new[] { usingStmt.Body }, assigned);
-                    break;
-
-                case LockStatement lockStmt:
-                    CollectAssignedFields(lockStmt.Body.Statements, assigned);
+                // try, for, foreach, while, using, lock bodies are NOT guaranteed
+                // to execute (loop may run 0 times, try may throw before assignment),
+                // so assignments inside them do NOT count as definite assignment.
+                case TryStatement:
+                case ForStatement:
+                case ForeachStatement:
+                case WhileStatement:
+                case UsingStatement:
+                case LockStatement:
                     break;
             }
         }
