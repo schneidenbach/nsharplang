@@ -32,6 +32,7 @@ public class Analyzer : IDisposable
     private string? _currentTypeName;
     private string? _currentFilePath;
     private string? _projectRoot;
+    private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string[]? _sourceLines;  // Source code lines for error snippets
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
@@ -47,6 +48,26 @@ public class Analyzer : IDisposable
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private bool _disposed;
+
+    // Project-level auto-discovered symbols (set once by MultiFileCompiler, persists across Analyze calls)
+    private Dictionary<string, List<ProjectSymbolInfo>> _projectSymbols = new();
+    private readonly HashSet<string> _autoResolvedNamespaces = new(); // Namespaces used via auto-resolution
+
+    /// <summary>
+    /// Set project-level symbols for auto-discovery across files.
+    /// Called once by MultiFileCompiler after parsing all files.
+    /// These symbols persist across Analyze() calls.
+    /// </summary>
+    public void SetProjectSymbols(Dictionary<string, List<ProjectSymbolInfo>> symbols)
+    {
+        _projectSymbols = symbols;
+    }
+
+    /// <summary>
+    /// Get the set of namespaces that were auto-resolved during the most recent Analyze() call.
+    /// The transpiler uses this to emit the necessary using directives.
+    /// </summary>
+    public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -70,9 +91,11 @@ public class Analyzer : IDisposable
         _inConstructor = false;
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
+        _compilationUnit = unit;
         _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
+        _autoResolvedNamespaces.Clear(); // Reset per-file; _projectSymbols persists
 
         // Process import directives
         foreach (var importDirective in unit.Imports)
@@ -4495,6 +4518,12 @@ public class Analyzer : IDisposable
         if (externalType != null)
             return externalType;
 
+        // Fall back to project-level auto-discovered types
+        if (TryResolveProjectSymbol(name, line, column, out var projectType))
+        {
+            return projectType;
+        }
+
         // Return unknown type (not an error - might be from C# library)
         return new ExternalTypeInfo(name);
     }
@@ -4637,6 +4666,12 @@ public class Analyzer : IDisposable
                 type = memberType;
                 return true;
             }
+        }
+
+        // Fall back to project-level auto-discovered symbols
+        if (TryResolveProjectSymbol(name, line, column, out type!))
+        {
+            return true;
         }
 
         type = BuiltInTypes.Unknown;
@@ -6014,6 +6049,57 @@ public class Analyzer : IDisposable
         RegisterNamespaceImport(import.Namespace, import.Alias, import.Line, import.Column);
     }
 
+    /// <summary>
+    /// Try to resolve a symbol from the project-level auto-discovered symbols.
+    /// This is the last-resort fallback after local scope, explicit imports, and external types.
+    /// </summary>
+    private bool TryResolveProjectSymbol(string name, int line, int column, out TypeInfo type)
+    {
+        type = BuiltInTypes.Unknown;
+
+        if (!_projectSymbols.TryGetValue(name, out var candidates))
+            return false;
+
+        // Filter out symbols from the current file (already in scope from local declarations)
+        var externalCandidates = _currentFilePath != null
+            ? candidates.Where(c => !string.Equals(c.SourceFile, _currentFilePath, StringComparison.OrdinalIgnoreCase)).ToList()
+            : candidates;
+
+        if (externalCandidates.Count == 0)
+            return false;
+
+        if (externalCandidates.Count > 1)
+        {
+            // Multiple candidates from different files — ambiguous
+            var sources = string.Join(", ", externalCandidates.Select(c => Path.GetFileName(c.SourceFile)));
+            Error($"Ambiguous symbol '{name}' found in multiple project files: {sources}. Use an explicit file import to disambiguate.", line, column);
+            return false;
+        }
+
+        var resolved = externalCandidates[0];
+        type = resolved.Type;
+
+        // Track the namespace for transpiler using-directive generation
+        if (resolved.Namespace != null)
+        {
+            // Get the current file's namespace to compare
+            var currentNs = _compilationUnit?.Namespace?.Name ?? _compilationUnit?.Package?.Name;
+            if (currentNs == null || !string.Equals(resolved.Namespace, currentNs, StringComparison.Ordinal))
+            {
+                _autoResolvedNamespaces.Add(resolved.Namespace);
+            }
+        }
+
+        // Record binding for semantic features (def/refs)
+        _bindingMap.RecordDeclaration(resolved.Declaration);
+        if (line > 0)
+        {
+            _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, resolved.Declaration);
+        }
+
+        return true;
+    }
+
     private void RegisterNamespaceImport(string namespaceName, string? alias, int line, int column)
     {
         var importDirective = new ImportDirective(namespaceName, alias, line, column);
@@ -6298,6 +6384,64 @@ public class Analyzer : IDisposable
 
     private static bool IsTypeDeclarationKind(string kind) =>
         kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias";
+
+    /// <summary>
+    /// Extract all public (PascalCase) symbols from a compilation unit for project-level auto-discovery.
+    /// Static method that doesn't require analyzer state — used by MultiFileCompiler.
+    /// </summary>
+    public static List<ProjectSymbolInfo> ExtractProjectSymbols(CompilationUnit unit, string filePath)
+    {
+        var symbols = new List<ProjectSymbolInfo>();
+        var ns = unit.Namespace?.Name ?? unit.Package?.Name;
+
+        foreach (var decl in unit.Declarations)
+        {
+            var name = decl switch
+            {
+                ClassDeclaration c => c.Name,
+                StructDeclaration s => s.Name,
+                RecordDeclaration r => r.Name,
+                InterfaceDeclaration i => i.Name,
+                UnionDeclaration u => u.Name,
+                EnumDeclaration e => e.Name,
+                TypeAliasDeclaration a => a.Name,
+                FunctionDeclaration f => f.Name,
+                _ => null
+            };
+
+            if (name != null && !string.IsNullOrEmpty(name) && char.IsUpper(name[0]))
+            {
+                var typeInfo = decl switch
+                {
+                    ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
+                    StructDeclaration s => new StructTypeInfo(s),
+                    RecordDeclaration r => new RecordTypeInfo(r),
+                    InterfaceDeclaration i => new InterfaceTypeInfo(i),
+                    UnionDeclaration u => new UnionTypeInfo(u),
+                    EnumDeclaration e => new EnumTypeInfo(e),
+                    TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
+                    FunctionDeclaration f => new FunctionTypeInfo(f)
+                    {
+                        ParameterTypes = new List<TypeInfo>(), // Resolved during analysis
+                        ReturnType = BuiltInTypes.Void
+                    },
+                    _ => null
+                };
+
+                if (typeInfo != null)
+                {
+                    symbols.Add(new ProjectSymbolInfo(
+                        name,
+                        typeInfo,
+                        new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl)),
+                        filePath,
+                        ns));
+                }
+            }
+        }
+
+        return symbols;
+    }
 
     private void CheckImportCollisions()
     {
@@ -7013,6 +7157,18 @@ public enum ScopeKind
 }
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
+
+/// <summary>
+/// A symbol discovered from another file in the same project.
+/// Used for automatic cross-file symbol resolution (Go-style package visibility).
+/// </summary>
+public sealed record ProjectSymbolInfo(
+    string Name,
+    TypeInfo Type,
+    SymbolDeclaration Declaration,
+    string SourceFile,
+    string? Namespace // The namespace the symbol is declared in (for using-directive generation)
+);
 
 // Type system
 public abstract record TypeInfo
