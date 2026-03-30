@@ -501,7 +501,7 @@ public class QueryIntegrationTests : IDisposable
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
         // Main() is declared on line 13
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 1);
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 6);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
