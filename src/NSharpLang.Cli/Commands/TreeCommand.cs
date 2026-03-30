@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -31,19 +30,14 @@ public static class TreeCommand
 
         try
         {
-            var psi = new ProcessStartInfo("dotnet", $"list \"{csproj}\" package --include-transitive --format json")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                WorkingDirectory = projectRoot
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd() ?? "";
-            process?.WaitForExit();
+            var result = DotnetRunner.Run(
+                $"list \"{csproj}\" package --include-transitive --format json",
+                workingDirectory: projectRoot);
 
-            if (process?.ExitCode != 0)
+            if (result.ExitCode != 0)
                 return Error("Failed to list packages. Run 'dotnet restore' first.");
+
+            var output = result.Stdout;
 
             if (json)
             {

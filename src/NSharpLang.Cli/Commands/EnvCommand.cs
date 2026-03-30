@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -18,7 +17,7 @@ public static class EnvCommand
         var json = args.Contains("--json");
 
         var nlcVersion = Program.GetVersion();
-        var dotnetVersion = RunCapture("dotnet", "--version")?.Trim() ?? "unknown";
+        var dotnetVersion = RunCapture("--version")?.Trim() ?? "unknown";
         var runtime = RuntimeInformation.FrameworkDescription;
         var os = RuntimeInformation.OSDescription;
         var arch = RuntimeInformation.OSArchitecture.ToString();
@@ -99,20 +98,12 @@ public static class EnvCommand
         return 0;
     }
 
-    static string? RunCapture(string command, string arguments)
+    static string? RunCapture(string arguments)
     {
         try
         {
-            var psi = new ProcessStartInfo(command, arguments)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd();
-            process?.WaitForExit();
-            return process?.ExitCode == 0 ? output : null;
+            var result = DotnetRunner.Run(arguments);
+            return result.ExitCode == 0 ? result.Stdout : null;
         }
         catch
         {

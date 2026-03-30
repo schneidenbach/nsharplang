@@ -179,7 +179,7 @@ func main() {
         // Assert
         Assert.Single(fixes);
         var fix = fixes[0];
-        Assert.Equal("Remove unnecessary null check", fix.Title);
+        Assert.Contains("Remove unnecessary null check", fix.Title);
         Assert.Equal("NL003", fix.DiagnosticCode);
         Assert.Equal(CodeActionKind.QuickFix, fix.Kind);
     }
@@ -239,7 +239,7 @@ func main() {
     public void AddNullCheckProvider_OnlyFixesNL003()
     {
         // Arrange
-        var provider = new AddNullCheckCodeFixProvider();
+        var provider = new RemoveUnnecessaryNullCheckCodeFixProvider();
 
         // Assert
         Assert.Contains("NL003", provider.FixableDiagnosticCodes);

@@ -6439,6 +6439,14 @@ public class Analyzer : IDisposable
             _bindingMap.RecordBinding(_currentFilePath, line, column, name.Length, resolved.Declaration);
         }
 
+        // Ensure the type declaration file is tracked so that subsequent member access
+        // (e.g. service.GetPeople()) can resolve the member to the correct source file.
+        // This must happen unconditionally — not only when a namespace is present.
+        if (resolved.Declaration.File != null && IsTypeDeclarationKind(resolved.Declaration.Kind))
+        {
+            _typeDeclarationFiles[name] = resolved.Declaration.File;
+        }
+
         return true;
     }
 

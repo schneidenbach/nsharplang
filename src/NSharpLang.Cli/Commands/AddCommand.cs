@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -119,19 +118,11 @@ public static class AddCommand
             var searchArgs = $"package search {packageName} --exact-match --take 1 --format json";
             if (includePrerelease) searchArgs += " --prerelease";
 
-            var psi = new ProcessStartInfo("dotnet", searchArgs)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd();
-            process?.WaitForExit();
+            var result = DotnetRunner.Run(searchArgs);
 
-            if (process?.ExitCode == 0 && output != null)
+            if (result.ExitCode == 0 && result.Stdout.Length > 0)
             {
-                using var doc = JsonDocument.Parse(output);
+                using var doc = JsonDocument.Parse(result.Stdout);
                 var results = doc.RootElement.GetProperty("searchResult");
                 foreach (var source in results.EnumerateArray())
                 {

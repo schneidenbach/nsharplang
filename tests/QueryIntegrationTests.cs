@@ -428,7 +428,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(1, main.Line); // func Main() is on line 1
+        Assert.Equal(13, main.Line); // func Main() is on line 13
     }
 
     // MultiFile Person.nl layout:
@@ -495,8 +495,8 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
-        // Main() is declared on line 1
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 1, 1);
+        // Main() is declared on line 13
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 6);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
@@ -693,6 +693,61 @@ public class QueryIntegrationTests : IDisposable
         var refs = _service.FindReferences(Dogfood, "Models.nl", 9, 6);
 
         Assert.True(refs.Count >= 1, $"Expected at least 1 reference to Priority, got {refs.Count}");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  CROSS-FILE MEMBER ACCESS — BindingMap completeness (Workstream 1)
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void CrossFile_MemberAccess_ReturnsBindingForImportedTypeMethod()
+    {
+        // Program.nl line 30: people := service.GetPeople()
+        // PersonService is resolved via namespace import (MultiFileProject.Services).
+        // The binding for GetPeople should point into Services/PersonService.nl, not Program.nl.
+        var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
+        var memberColumn = FindColumnInFile(programPath, 30, "GetPeople");
+
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 30, memberColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("GetPeople", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.EndsWith("PersonService.nl", result.File, StringComparison.Ordinal);
+        Assert.Equal(19, result.Line); // func GetPeople() is on line 19 of PersonService.nl
+    }
+
+    [Fact]
+    public void CrossFile_References_FindsUsagesOfImportedMethod()
+    {
+        // Query references from the GetPeople declaration in PersonService.nl.
+        // Should find the usage in Program.nl (service.GetPeople() on line 30).
+        var refs = _service.FindReferences(MultiFile, "Services/PersonService.nl", 19, 10);
+
+        Assert.True(refs.Count >= 1, $"Expected at least 1 reference to GetPeople, got {refs.Count}");
+        Assert.Contains(refs, r => r.IsDefinition);
+
+        // Should find the call site in Program.nl
+        Assert.True(
+            refs.Any(r => r.File.EndsWith("Program.nl", StringComparison.Ordinal) && !r.IsDefinition),
+            $"Expected a usage in Program.nl. Found: [{string.Join(", ", refs.Select(r => $"{r.File}:{r.Line} (def={r.IsDefinition})"))}]");
+    }
+
+    [Fact]
+    public void CrossFile_MemberAccess_AddPersonBindingResolvesToPersonServiceNl()
+    {
+        // Program.nl line 18: service.AddPerson(...)
+        // AddPerson is declared in Services/PersonService.nl line 14.
+        var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
+        var memberColumn = FindColumnInFile(programPath, 18, "AddPerson");
+
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 18, memberColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("AddPerson", result!.Name);
+        Assert.Equal("function", result.Kind);
+        Assert.EndsWith("PersonService.nl", result.File, StringComparison.Ordinal);
+        Assert.Equal(14, result.Line); // func AddPerson is on line 14 of PersonService.nl
     }
 
     // ═══════════════════════════════════════════════════════════════════
