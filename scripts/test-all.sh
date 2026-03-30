@@ -217,12 +217,23 @@ else
 
         rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
 
-        if (cd "$work_dir" && dotnet restore --disable-build-servers > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore > "$log_file" 2>&1); then
+        shopt -s nullglob
+        csproj_files=("$work_dir"/*.csproj)
+        shopt -u nullglob
+
+        if [ "${#csproj_files[@]}" -gt 0 ]; then
+            project_file="${csproj_files[0]}"
+            if (cd "$work_dir" && dotnet restore --disable-build-servers "$project_file" > /dev/null 2>&1 && dotnet build --disable-build-servers --no-restore "$project_file" > "$log_file" 2>&1); then
+                printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
+            else
+                printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
+            fi
+        elif (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
             printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
         else
             printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
         fi
-    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" < "$EXAMPLE_LIST"
+    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" "$CLI_DLL" < "$EXAMPLE_LIST"
 
     while IFS='|' read -r idx project_file; do
         result_file="$EXAMPLE_RESULTS_DIR/$idx.result"

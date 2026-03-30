@@ -52,15 +52,21 @@ Production-quality ASP.NET Core Web API built with N#.
 
 ## Running Examples
 
-Project-based examples can be run with the normal .NET workflow:
+Pure N# examples can be run directly with the CLI:
 ```bash
 cd examples/01-hello-world
-dotnet run
+nlc run
 ```
 
-Single-file examples can be run with the CLI from source:
+From the repo root, you can also drive examples through the local CLI project:
 ```bash
 dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-matching/ListPatterns.nl
+```
+
+SDK-backed examples that include a checked-in `.csproj` can still use the normal .NET workflow:
+```bash
+cd examples/14-minimal-api
+dotnet run
 ```
 
 ## Learning Path

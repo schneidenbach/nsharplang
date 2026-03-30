@@ -100,14 +100,16 @@
   "scripts": {
     "build-server": "dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false",
     "vscode:prepublish": "npm run build-server && npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "package": "npm run build-server && vsce package"
+    "compile": "node ./node_modules/typescript/lib/tsc.js -p ./",
+    "watch": "node ./node_modules/typescript/lib/tsc.js -watch -p ./",
+    "package": "npm run build-server && vsce package",
+    "test:headless": "node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^2.32.0",
