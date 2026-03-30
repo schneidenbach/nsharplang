@@ -579,5 +579,105 @@ func other() {
             $"Expected 5 or fewer errors (cascading suppression), got {result.Errors.Count}");
     }
 
+    [Fact]
+    public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
+    {
+        // Multiple distinct bad statements inside a single function body
+        var source = @"
+func test() {
+    let a: int = @@
+    let b: int = @@
+    let c: int = @@
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.True(result.Errors.Count >= 3,
+            $"Expected at least 3 errors (one per bad statement), got {result.Errors.Count}");
+
+        // Each error should be on its own line
+        var distinctLines = result.Errors.Select(e => e.Line).Distinct().ToList();
+        Assert.True(distinctLines.Count >= 3,
+            $"Expected errors on at least 3 distinct lines, got {distinctLines.Count}");
+    }
+
+    [Fact]
+    public void Parser_MixedErrorTypes_AllReported()
+    {
+        // Incomplete member access + invalid token + missing brace — different error kinds
+        var source = @"
+func test1() {
+    x.
+}
+
+func test2() {
+    let a: int = @@
+}
+
+func test3() {
+    Console.WriteLine(""hi""
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.True(result.Errors.Count >= 3,
+            $"Expected at least 3 errors, got {result.Errors.Count}");
+
+        // Errors should span multiple functions
+        var distinctLines = result.Errors.Select(e => e.Line).Distinct().OrderBy(l => l).ToList();
+        Assert.True(distinctLines.Count >= 3,
+            $"Expected errors on at least 3 distinct lines, got {distinctLines.Count}");
+    }
+
+    [Fact]
+    public void Parser_ErrorInClassMember_NextMemberStillParsed()
+    {
+        var source = @"
+class Foo {
+    Name: string = @@
+    Age: int
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+        Assert.False(result.Success);
+        Assert.NotEmpty(result.Errors);
+
+        // The class should still be parsed
+        var classDecl = result.CompilationUnit!.Declarations
+            .OfType<ClassDeclaration>()
+            .FirstOrDefault(c => c.Name == "Foo");
+        Assert.NotNull(classDecl);
+    }
+
+    [Fact]
+    public void Parser_ErrorsInMultipleClassMembers_AllReported()
+    {
+        var source = @"
+class Foo {
+    Name: string = @@
+    Age: int = @@
+}
+
+class Bar {
+    Value: int
+}";
+
+        var result = Parse(source);
+
+        Assert.NotNull(result.CompilationUnit);
+        Assert.True(result.Errors.Count >= 2,
+            $"Expected at least 2 errors from 2 bad members, got {result.Errors.Count}");
+
+        // Both classes should be parsed
+        var classes = result.CompilationUnit!.Declarations
+            .OfType<ClassDeclaration>()
+            .ToList();
+        Assert.True(classes.Count >= 2, $"Expected 2 classes parsed, got {classes.Count}");
+    }
+
     #endregion
 }

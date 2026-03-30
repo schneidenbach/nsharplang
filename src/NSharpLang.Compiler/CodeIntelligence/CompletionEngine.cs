@@ -109,7 +109,7 @@ public class CompletionEngine
         }
 
         // General identifier context
-        return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords);
+        return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords, line, col);
     }
 
     // ── Member Access Completions ───────────────────────────────────────
@@ -146,10 +146,11 @@ public class CompletionEngine
                 completions);
         }
 
-        // Try to resolve receiver as a variable from semantic model
+        // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
         if (semanticModel != null)
         {
-            var typeInfo = semanticModel.LookupIdentifier(receiver);
+            var typeInfo = semanticModel.LookupIdentifierAtPosition(receiver, line, col)
+                          ?? semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
                 var memberResult = ResolveMemberCompletionsFromTypeInfo(typeInfo, receiver, snapshot, completions);
@@ -185,16 +186,21 @@ public class CompletionEngine
     // ── General Identifier Completions ──────────────────────────────────
 
     private CompletionResult GetIdentifierCompletions(CompilationUnit cu, SemanticModel? semanticModel,
-        string beforeCursor, ProjectSnapshot snapshot, bool includeKeywords = false)
+        string beforeCursor, ProjectSnapshot snapshot, bool includeKeywords = false, int line = 0, int col = 0)
     {
         var completions = new Dictionary<string, List<CompletionItem>>();
 
-        // Variables and parameters from semantic model
+        // Variables and parameters from semantic model (position-aware when possible)
         if (semanticModel != null)
         {
+            var visibleVars = (line > 0 && semanticModel.Scopes.Count > 0)
+                ? semanticModel.GetVisibleVariablesAtPosition(line, col)
+                : new Dictionary<string, TypeInfo>(semanticModel.Variables);
+
             var variables = new List<CompletionItem>();
-            foreach (var (name, typeInfo) in semanticModel.Variables)
+            foreach (var (name, typeInfo) in visibleVars)
             {
+                if (semanticModel.Functions.ContainsKey(name)) continue; // shown as functions
                 variables.Add(new CompletionItem(name, "variable", FormatTypeInfo(typeInfo), null, null, false));
             }
             if (variables.Count > 0)
