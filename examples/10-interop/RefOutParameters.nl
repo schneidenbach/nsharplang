@@ -42,8 +42,6 @@ func ProcessNumbers(ref input: int, out doubled: int, out tripled: int) {
     input = input + 1
 }
 
-// Modify input
-
 // Main demonstration
 func Main() {
     print "=== Ref Parameters Example ==="
@@ -67,27 +65,23 @@ func Main() {
     print "=== Out Parameters Example ==="
     print ""
 
-    // TryParse pattern (custom)
-    result1: int
-    success1 := TryParseInt("123", out result1)
+    // TryParse pattern using inline out var
+    success1 := TryParseInt("123", out var result1)
     print $"Parse success: {success1}, result: {result1}"
 
-    result2: int
-    success2 := TryParseInt("", out result2)
+    success2 := TryParseInt("", out var result2)
     print $"Parse empty string: {success2}, result: {result2}"
     print ""
 
     // Dictionary TryGetValue pattern (custom implementation)
     dict := new Dictionary<string, int>()
 
-    value1: int
-    found1 := TryGetValue(dict, "test", out value1)
+    found1 := TryGetValue(dict, "test", out var value1)
     if found1 {
         print $"Found 'test': {value1}"
     }
 
-    value2: int
-    found2 := TryGetValue(dict, "missing", out value2)
+    found2 := TryGetValue(dict, "missing", out var value2)
     if found2 {
         print $"Found 'missing': {value2}"
     } else {
@@ -101,9 +95,7 @@ func Main() {
 
     // Example: A function demonstrates mixing ref and out parameters
     n := 10
-    d: int
-    t: int
     print $"Before: n = {n}"
-    ProcessNumbers(ref n, out d, out t)
+    ProcessNumbers(ref n, out var d, out var t)
     print $"After: n = {n}, doubled = {d}, tripled = {t}"
 }

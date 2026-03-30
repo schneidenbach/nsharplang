@@ -118,7 +118,8 @@
     "package": "npm run build-server && vsce package",
     "pretest": "npm run build-server && npm run compile",
     "test": "node ./out/test/runTest.js",
-    "test:headless": "node ./out/test/runTest.js"
+    "test:headless": "node ./out/test/runTest.js",
+    "test:smoke": "TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

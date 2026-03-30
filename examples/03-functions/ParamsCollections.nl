@@ -17,7 +17,7 @@ func SumArray(params numbers: int[]): int {
 // 2. Params with ReadOnlySpan<T> - more efficient, no heap allocation
 func SumReadOnlySpan(params numbers: ReadOnlySpan<int>): int {
     total := 0
-    for i = 0; i < numbers.Length; i++ {
+    for i := 0; i < numbers.Length; i++ {
         total = total + numbers[i]
     }
 
@@ -26,7 +26,7 @@ func SumReadOnlySpan(params numbers: ReadOnlySpan<int>): int {
 
 // 3. Params with Span<T> - mutable span
 func ModifyValues(params values: Span<int>) {
-    for i = 0; i < values.Length; i++ {
+    for i := 0; i < values.Length; i++ {
         values[i] = values[i] * 2
     }
 }
@@ -55,7 +55,7 @@ func FormatItems(separator: string, params items: IReadOnlyList<string>): string
     }
 
     result := items[0]
-    for i = 1; i < items.Count; i++ {
+    for i := 1; i < items.Count; i++ {
         result = result + separator + items[i]
     }
 
@@ -63,10 +63,10 @@ func FormatItems(separator: string, params items: IReadOnlyList<string>): string
 }
 
 // 7. Generic params with collection type
-func Transform<T>(transformer: (T) => T, params items: IEnumerable<T>): T[] {
-    result := new List<T>()
-    for item in items {
-        result.Add(transformer(item))
+func TransformAll(params numbers: int[]): int[] {
+    result := new List<int>()
+    for num in numbers {
+        result.Add(num * 2)
     }
 
     return result.ToArray()
@@ -101,8 +101,8 @@ func Main() {
     print ""
 
     // Generic params with transform
-    print "5. Generic transform with IEnumerable<T> params:"
-    doubled := Transform(x => x * 2, 1, 2, 3, 4, 5)
+    print "5. Transform with params:"
+    doubled := TransformAll(1, 2, 3, 4, 5)
     doubledStr := String.Join(", ", doubled)
     print $"   Doubled: [{doubledStr}]"
     print ""
@@ -114,9 +114,9 @@ func Main() {
     print ""
 
     print "=== Benefits of Params Collections (C# 13) ==="
-    print "  • ReadOnlySpan/Span: Zero heap allocation, better performance"
-    print "  • IEnumerable: Works with LINQ and any collection type"
-    print "  • IReadOnlyList: Indexed access with read-only guarantee"
-    print "  • List/Collection types: More flexibility than arrays"
-    print "  • All with the same convenient params syntax!"
+    print "  - ReadOnlySpan/Span: Zero heap allocation, better performance"
+    print "  - IEnumerable: Works with LINQ and any collection type"
+    print "  - IReadOnlyList: Indexed access with read-only guarantee"
+    print "  - List/Collection types: More flexibility than arrays"
+    print "  - All with the same convenient params syntax!"
 }

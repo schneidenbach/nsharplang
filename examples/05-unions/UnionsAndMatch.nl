@@ -5,8 +5,8 @@ import System
 
 // Discriminated union example
 union Result {
-    Success(value: int)
-    Failure(error: string, code: int)
+    Success { value: int }
+    Failure { error: string, code: int }
 }
 
 // String enum example
@@ -28,9 +28,9 @@ type UserId = int
 type ErrorCode = int
 
 func ProcessResult(r: Result): string {
-    return r match {
-        Result.Success(value: ) => $"Success: {value}"
-        Result.Failure(error: , code: ) => $"Error {code}: {error}"
+    return match r {
+        Result.Success { value } => $"Success: {value}",
+        Result.Failure { error, code } => $"Error {code}: {error}"
     }
 }
 
