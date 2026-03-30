@@ -21,8 +21,9 @@ public class Transpiler
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
     private readonly string? _sourceFilePath; // Source .nl file path for #line directives
     private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
+    private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
 
-    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null)
     {
         _compilationUnit = compilationUnit;
         _projectConfig = projectConfig;
@@ -31,6 +32,7 @@ public class Transpiler
         _output = new StringBuilder();
         _indentLevel = 0;
         _sourceFilePath = sourceFilePath;
+        _autoResolvedNamespaces = autoResolvedNamespaces;
     }
 
     public string Transpile()
@@ -75,6 +77,29 @@ public class Transpiler
 
         // File imports are handled separately (their symbols are inlined)
         // FileImports in _compilationUnit.FileImports are not emitted as using statements
+
+        // Emit using directives for namespaces auto-resolved from project symbols
+        if (_autoResolvedNamespaces != null)
+        {
+            // Collect already-imported namespaces to avoid duplicates
+            // Only non-aliased imports count — an aliased import (import Foo as F) emits "using F = Foo;"
+            // which does NOT bring unqualified names into scope like "using Foo;" does
+            var existingNamespaces = new HashSet<string>(
+                _compilationUnit.Imports.Where(i => i.Alias == null).Select(i => i.Namespace));
+            existingNamespaces.Add("System"); // Always present
+            // Also exclude the current file's own namespace
+            var currentNs = _compilationUnit.Namespace?.Name ?? _compilationUnit.Package?.Name;
+            if (currentNs != null)
+                existingNamespaces.Add(currentNs);
+
+            foreach (var ns in _autoResolvedNamespaces.OrderBy(n => n))
+            {
+                if (!existingNamespaces.Contains(ns))
+                {
+                    WriteLine($"using {ns};");
+                }
+            }
+        }
 
         // Separate top-level functions, tests, setup blocks, and type aliases from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
