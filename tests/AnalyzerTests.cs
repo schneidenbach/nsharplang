@@ -4513,4 +4513,141 @@ func Hello(): string {
             }
         ");
     }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Compiler audit regression tests
+    // ════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void NullAssignableToString()
+    {
+        // null should be assignable to string (reference type)
+        AssertNoErrors(@"
+            func Main() {
+                name: string = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullNotAssignableToInt()
+    {
+        // null should NOT be assignable to int (value type)
+        AssertHasError(@"
+            func Main() {
+                x: int = null
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void NullAssignableToNullableInt()
+    {
+        // null should be assignable to int? (nullable value type)
+        AssertNoErrors(@"
+            func Main() {
+                x: int? = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullAssignableToClassType()
+    {
+        // null should be assignable to a class type
+        AssertNoErrors(@"
+            class Person
+                Name: string
+
+            func Main() {
+                p: Person = null
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericTypeParameter_VisibleInFunctionBody()
+    {
+        // Generic type parameters should be usable as types inside function body
+        AssertNoErrors(@"
+            func Identity<T>(value: T): T {
+                return value
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericTypeParameter_VisibleInClassBody()
+    {
+        // Generic type parameters should be usable inside class members
+        AssertNoErrors(@"
+            class Container<T> {
+                Value: T
+            }
+        ");
+    }
+
+    [Fact]
+    public void RecursiveTypeDefinition()
+    {
+        // Recursive type: Node references itself
+        AssertNoErrors(@"
+            class Node {
+                Value: int
+                Next: Node?
+            }
+        ");
+    }
+
+    [Fact]
+    public void MutualRecursion_Functions()
+    {
+        // Mutual recursion between functions
+        AssertNoErrors(@"
+            func IsEven(n: int): bool {
+                if n == 0 { return true }
+                return IsOdd(n - 1)
+            }
+            func IsOdd(n: int): bool {
+                if n == 0 { return false }
+                return IsEven(n - 1)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefiniteAssignment_IfElse_BothBranchesAssign()
+    {
+        // Both branches assign — should satisfy definite assignment
+        AssertNoErrors(@"
+            class Foo {
+                Name: string
+
+                constructor() {
+                    if true {
+                        this.Name = ""hello""
+                    } else {
+                        this.Name = ""world""
+                    }
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefiniteAssignment_NestedBlock()
+    {
+        // Assignment inside a nested block should be detected
+        AssertNoErrors(@"
+            class Foo {
+                Name: string
+
+                constructor() {
+                    {
+                        this.Name = ""hello""
+                    }
+                }
+            }
+        ");
+    }
 }

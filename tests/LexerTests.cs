@@ -629,4 +629,176 @@ World
         Assert.Equal(TokenType.Explicit, tokens[0].Type);
         Assert.Equal("explicit", tokens[0].Value);
     }
+
+    // ════════════════════════════════════════════════════════════════════
+    //  Number literal edge cases (hex, binary, exponent, suffixes)
+    // ════════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void TestHexLiteral()
+    {
+        var tokens = Tokenize("0xFF");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("0xFF", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestHexLiteralUppercase()
+    {
+        var tokens = Tokenize("0X1A2B");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("0X1A2B", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestHexLiteralWithUnderscores()
+    {
+        var tokens = Tokenize("0xFF_FF");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("0xFFFF", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestBinaryLiteral()
+    {
+        var tokens = Tokenize("0b1010");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("0b1010", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestBinaryLiteralUppercase()
+    {
+        var tokens = Tokenize("0B1100_0011");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("0B11000011", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestExponentNotation()
+    {
+        var tokens = Tokenize("1.5e10");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("1.5e10", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestExponentNotationNegative()
+    {
+        var tokens = Tokenize("2.5E-3");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("2.5E-3", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestExponentNotationPositive()
+    {
+        var tokens = Tokenize("1e+5");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("1e+5", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestFloatSuffix()
+    {
+        var tokens = Tokenize("1.5f");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("1.5f", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestDecimalSuffix()
+    {
+        var tokens = Tokenize("1.5m");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("1.5m", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestDoubleSuffix()
+    {
+        var tokens = Tokenize("1.5d");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("1.5d", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestLongSuffix()
+    {
+        var tokens = Tokenize("42L");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("42L", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestUnsignedLongSuffix()
+    {
+        var tokens = Tokenize("100UL");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("100UL", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestUnsignedSuffix()
+    {
+        var tokens = Tokenize("42u");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("42u", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestInvalidHexLiteral_ProducesErrorToken()
+    {
+        // 0x without hex digits should produce Unknown token, not crash
+        var tokens = Tokenize("0x ");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestInvalidHexLiteral_LeadingUnderscore_ProducesErrorToken()
+    {
+        // 0x_ with only underscore and no hex digits should produce Unknown token
+        var tokens = Tokenize("0x_ ");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestInvalidBinaryLiteral_ProducesErrorToken()
+    {
+        // 0b without binary digits should produce Unknown token
+        var tokens = Tokenize("0b ");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestInvalidBinaryLiteral_LeadingUnderscore_ProducesErrorToken()
+    {
+        // 0b_ with only underscore and no binary digits should produce Unknown token
+        var tokens = Tokenize("0b_ ");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestInvalidExponent_ProducesErrorToken()
+    {
+        // 1e without digits should produce Unknown token
+        var tokens = Tokenize("1e ");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestMultipleDecimalPoints_ProducesErrorToken()
+    {
+        // Multiple decimal points should produce Unknown token, not throw
+        var tokens = Tokenize("1.2.3");
+        Assert.Equal(TokenType.Unknown, tokens[0].Type);
+    }
+
+    [Fact]
+    public void TestUnderscoresInLargeNumber()
+    {
+        var tokens = Tokenize("1_000_000");
+        Assert.Equal(TokenType.IntLiteral, tokens[0].Type);
+        Assert.Equal("1000000", tokens[0].Value);
+    }
 }
