@@ -18,6 +18,7 @@ public class MultiFileCompiler
     private readonly List<string> _sourceFiles;
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new();
     private readonly Dictionary<string, SemanticModel> _semanticModels = new();
+    private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
     private readonly Dictionary<string, string> _transpiledFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
@@ -126,14 +127,48 @@ public class MultiFileCompiler
     }
 
     /// <summary>
+    /// Build the project-level symbol table from all parsed compilation units.
+    /// Maps symbol names to their ProjectSymbolInfo (including source file and namespace).
+    /// This enables automatic cross-file symbol resolution without explicit imports.
+    /// </summary>
+    private Dictionary<string, List<ProjectSymbolInfo>> BuildProjectSymbolTable()
+    {
+        var table = new Dictionary<string, List<ProjectSymbolInfo>>();
+
+        foreach (var kvp in _compilationUnits)
+        {
+            var sourceFile = kvp.Key;
+            var compilationUnit = kvp.Value;
+
+            var symbols = Analyzer.ExtractProjectSymbols(compilationUnit, sourceFile);
+            foreach (var symbol in symbols)
+            {
+                if (!table.TryGetValue(symbol.Name, out var list))
+                {
+                    list = new List<ProjectSymbolInfo>();
+                    table[symbol.Name] = list;
+                }
+                list.Add(symbol);
+            }
+        }
+
+        return table;
+    }
+
+    /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
     /// This prevents the performance issue of reloading assemblies for each file.
     /// </summary>
     private void AnalyzeAllFiles()
     {
+        // Build project symbol table for auto-discovery and set it on the shared analyzer
+        var projectSymbols = BuildProjectSymbolTable();
+        _sharedAnalyzer.SetProjectSymbols(projectSymbols);
+
         // Analyze each file using the shared analyzer instance
         // The Analyzer's import system handles cross-file references via proper import statements
+        // Project symbols provide fallback auto-discovery for unimported cross-file types
         foreach (var kvp in _compilationUnits)
         {
             var sourceFile = kvp.Key;
@@ -146,6 +181,13 @@ public class MultiFileCompiler
 
                 // Save semantic model for transpilation phase
                 _semanticModels[sourceFile] = result.SemanticModel;
+
+                // Capture auto-resolved namespaces for transpiler using-directive generation
+                var autoNs = _sharedAnalyzer.GetAutoResolvedNamespaces();
+                if (autoNs.Count > 0)
+                {
+                    _autoResolvedNamespaces[sourceFile] = autoNs;
+                }
 
                 // Merge binding map for cross-file semantic references
                 if (result.Bindings != null)
@@ -187,7 +229,10 @@ public class MultiFileCompiler
                 // Get the semantic model for this file (if available)
                 _semanticModels.TryGetValue(sourceFile, out var semanticModel);
 
-                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile);
+                // Get auto-resolved namespaces for this file (if any)
+                _autoResolvedNamespaces.TryGetValue(sourceFile, out var autoNamespaces);
+
+                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;
