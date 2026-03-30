@@ -128,6 +128,119 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // Register zero-config debug configuration provider for F5
+    context.subscriptions.push(
+        vscode.debug.registerDebugConfigurationProvider('coreclr', {
+            provideDebugConfigurations(
+                _folder: vscode.WorkspaceFolder | undefined
+            ): vscode.ProviderResult<vscode.DebugConfiguration[]> {
+                return [];
+            },
+            resolveDebugConfiguration(
+                folder: vscode.WorkspaceFolder | undefined,
+                config: vscode.DebugConfiguration,
+                _token?: vscode.CancellationToken
+            ): vscode.ProviderResult<vscode.DebugConfiguration> {
+                // Only intervene when there's no launch.json (config will be nearly empty)
+                if (config.request) {
+                    return config;
+                }
+
+                // Only trigger for active .nl files
+                const activeEditor = vscode.window.activeTextEditor;
+                if (!activeEditor || activeEditor.document.languageId !== 'nsharp') {
+                    return config;
+                }
+
+                if (!folder) {
+                    return config;
+                }
+
+                const workspacePath = folder.uri.fsPath;
+                const projectYmlPath = path.join(workspacePath, 'project.yml');
+
+                let projectName = path.basename(workspacePath);
+                let targetFramework = 'net9.0';
+                let outputType = 'exe';
+
+                if (fs.existsSync(projectYmlPath)) {
+                    try {
+                        const projectYml = fs.readFileSync(projectYmlPath, 'utf-8');
+                        const nameMatch = projectYml.match(/^name:\s*(.+)$/m);
+                        const frameworkMatch = projectYml.match(/^targetFramework:\s*(.+)$/m);
+                        const outputTypeMatch = projectYml.match(/^outputType:\s*(.+)$/m);
+
+                        if (nameMatch) projectName = nameMatch[1].trim();
+                        if (frameworkMatch) targetFramework = frameworkMatch[1].trim();
+                        if (outputTypeMatch) outputType = outputTypeMatch[1].trim();
+                    } catch (error) {
+                        console.error('Failed to parse project.yml:', error);
+                    }
+                }
+
+                // Don't launch libraries
+                if (outputType.toLowerCase() === 'library') {
+                    return undefined;
+                }
+
+                return {
+                    name: 'Launch N#',
+                    type: 'coreclr',
+                    request: 'launch',
+                    preLaunchTask: 'build',
+                    program: path.join(workspacePath, 'bin', 'Debug', targetFramework, `${projectName}.dll`),
+                    args: [],
+                    cwd: workspacePath,
+                    console: 'internalConsole',
+                    stopAtEntry: false
+                };
+            }
+        })
+    );
+
+    // Register task provider for nsharp build task
+    context.subscriptions.push(
+        vscode.tasks.registerTaskProvider('nsharp', {
+            provideTasks(): vscode.Task[] {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (!workspaceFolder) {
+                    return [];
+                }
+
+                const buildTask = new vscode.Task(
+                    { type: 'nsharp' },
+                    workspaceFolder,
+                    'build',
+                    'nsharp',
+                    new vscode.ShellExecution('dotnet', ['build']),
+                    '$msCompile'
+                );
+                buildTask.group = vscode.TaskGroup.Build;
+
+                return [buildTask];
+            },
+            resolveTask(_task: vscode.Task): vscode.Task | undefined {
+                return undefined;
+            }
+        })
+    );
+
+    // Check for C# extension dependency
+    const csharpExtension = vscode.extensions.getExtension('ms-dotnettools.csharp');
+    if (!csharpExtension) {
+        vscode.window.showWarningMessage(
+            'The C# extension (ms-dotnettools.csharp) is not installed. N# debugging requires it for CoreCLR support.',
+            'Install'
+        ).then(selection => {
+            if (selection === 'Install') {
+                vscode.commands.executeCommand(
+                    'workbench.extensions.installExtension',
+                    'ms-dotnettools.csharp'
+                );
+            }
+        });
+    }
+
     // Start the client (this will also launch the server)
     client.start();
 

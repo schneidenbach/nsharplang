@@ -33,11 +33,12 @@ Complete language support for N# (`.nl` files) featuring IntelliSense, diagnosti
 - More quick fixes coming soon!
 
 ### 🐛 Debugging Support
-- **Built-in debug configuration generator** - Command: `N#: Generate Debug Configuration`
-- **Breakpoints** - Set and hit breakpoints in `.nl` files
-- **Step debugging** - Step through, step over, step into
-- **Watch variables** - Inspect variable values
-- **Call stack** - Full stack trace support
+- **Zero-config debugging** - Press F5 to start debugging -- no configuration needed
+- **C# extension auto-installed** as a dependency (provides the coreclr debugger)
+- **Breakpoints** work directly in `.nl` files
+- **Full stepping** - Step over (F10), step into (F11), step out (Shift+F11)
+- **Variable inspection** - Hover, Watch window, and Debug Console
+- **Call stack** shows `.nl` file references, not generated C# code
 
 ### ⚡ Tasks & Build Integration
 Automatic task generation for:
@@ -94,10 +95,8 @@ code --install-extension nsharp-0.6.0.vsix
    ```bash
    code .
    ```
-5. **Generate debug configuration**:
-   - Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
-   - Type "N#: Generate Debug Configuration"
-6. **Start coding!** Open `Program.nl` and start writing N# code
+5. **Start coding!** Open `Program.nl` and start writing N# code
+6. **Debug with F5** -- set a breakpoint and press F5 to start debugging (zero config needed)
 
 ## 📖 Example Code
 
@@ -178,7 +177,7 @@ Configure the extension via VS Code settings:
 
 ## 🎯 Commands
 
-- **N#: Generate Debug Configuration** - Creates `.vscode/launch.json` and `.vscode/tasks.json`
+- **Debug: F5** - Start debugging with zero configuration (launch.json generated automatically)
 
 ## 🔧 Troubleshooting
 
@@ -193,9 +192,9 @@ Configure the extension via VS Code settings:
 3. Reload VS Code window
 
 ### Debugging Not Working
-1. Generate debug configuration: `N#: Generate Debug Configuration`
-2. Install C# extension for .NET debugging
-3. Ensure project builds successfully
+1. Ensure the project builds successfully: `dotnet build`
+2. Verify the C# extension is installed (should be auto-installed as a dependency)
+3. Reload the VS Code window if breakpoints are not binding
 
 ## 🤝 Contributing
 
