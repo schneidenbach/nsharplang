@@ -15,23 +15,24 @@ import {
     formatDiagnosticErrors,
     waitForDiagnosticsToSettle,
     sleep,
-    assertOrSkip
+    extractHoverText,
+    completionLabel,
+    assertSymbolExists,
+    flattenSymbolNames,
+    assertLocationContains
 } from './helpers';
 
 /**
- * Complex scenario integration tests.
+ * Complex scenario integration tests — multi-step workflows.
  *
- * These test realistic, multi-step, and cross-file workflows:
- * - Cross-file definition navigation
- * - Cross-file find-references
- * - Multiple classes interacting across files
- * - LSP features after document edits
- * - Rename refactoring across scopes
- * - Completions with multiple candidate types
- * - Diagnostics consistency across file boundaries
+ * These test realistic developer workflows that combine multiple LSP features:
+ * - Cross-file navigation with position pinning
+ * - LSP features after document edits (completions, hover, diagnostics)
+ * - Variable scope and shadowing
+ * - Enum member navigation
+ * - Multi-edit diagnostic consistency
  *
- * These mirror what a real developer does — not just opening a file
- * and checking if one feature works in isolation.
+ * ALL assertions are hard — no assertOrSkip. These handlers are implemented.
  */
 suite('Complex Scenarios — Multi-file & Workflows', () => {
     suiteSetup(async function () {
@@ -47,73 +48,34 @@ suite('Complex Scenarios — Multi-file & Workflows', () => {
     // CROSS-FILE NAVIGATION
     // ================================================================
 
-    test('go to definition on function defined in another file', async function () {
+    test('cross-file definition navigates to correct file', async function () {
         this.timeout(60_000);
-        // Create two files in the same namespace — helper defines the function,
-        // main calls it. This tests true cross-file definition navigation.
         const { doc: helperDoc, cleanup: cleanupHelper } = await createTempNlFile(`
-namespace CrossDefTest
-func crossHelper(): string {
-    return "from another file"
-}
-`, '_crossdef_helper.nl');
-
-        const { doc: mainDoc, cleanup: cleanupMain } = await createTempNlFile(`
-namespace CrossDefTest
-func Main() {
-    result := crossHelper()
-    print result
-}
-`, '_crossdef_main.nl');
-
-        try {
-            await getDiagnostics(helperDoc);
-            await getDiagnostics(mainDoc);
-
-            const pos = positionOf(mainDoc, 'crossHelper()');
-            const defs = await getDefinitions(mainDoc, pos);
-
-            assertOrSkip(defs.length > 0,
-                'Cross-file definition navigation not available', this);
-
-            const def = defs[0];
-            assert.ok(def.uri.fsPath.endsWith('.nl'),
-                `Definition should be in an .nl file, got ${def.uri.fsPath}`);
-        } finally {
-            await closeAllEditors();
-            cleanupHelper();
-            cleanupMain();
-        }
-    });
-
-    test('go to definition on cross-file function call', async function () {
-        this.timeout(60_000);
-        // Create two files that reference each other
-        const { doc: helperDoc, cleanup: cleanupHelper } = await createTempNlFile(`
-namespace CrossFileTest
-func helperFunc(): string {
+namespace CrossNavTest
+func crossNavHelper(): string {
     return "from helper"
 }
-`, '_cross_helper.nl');
+`, '_complex_cross_helper.nl');
 
         const { doc: mainDoc, cleanup: cleanupMain } = await createTempNlFile(`
-namespace CrossFileTest
+namespace CrossNavTest
 func Main() {
-    result := helperFunc()
+    result := crossNavHelper()
     print result
 }
-`, '_cross_main.nl');
+`, '_complex_cross_main.nl');
 
         try {
             await getDiagnostics(helperDoc);
             await getDiagnostics(mainDoc);
 
-            // Try to navigate to helperFunc definition from main
-            const pos = positionOf(mainDoc, 'helperFunc()');
+            const pos = positionOf(mainDoc, 'crossNavHelper()');
             const defs = await getDefinitions(mainDoc, pos);
 
-            assertOrSkip(defs.length > 0,
-                'Cross-file function definition not available', this);
+            assert.ok(defs.length > 0,
+                'Cross-file definition should return results');
+            assert.ok(defs[0].uri.fsPath.endsWith('.nl'),
+                `Definition should be in .nl file, got ${defs[0].uri.fsPath}`);
         } finally {
             await closeAllEditors();
             cleanupHelper();
@@ -129,15 +91,14 @@ func Main() {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Find references on 'greet' function definition
+        // "greet" — defined at line 5, called at line 39
         const pos = positionOf(doc, 'func greet(', { at: 'start' });
         const greetPos = new vscode.Position(pos.line, pos.character + 5);
         const refs = await getReferences(doc, greetPos);
 
-        assertOrSkip(refs.length >= 2,
-            `Expected at least 2 references (def + usage) but got ${refs.length}`, this);
+        assert.ok(refs.length >= 2,
+            `Expected at least 2 references (def + usage) for "greet", got ${refs.length}`);
 
-        // All references should be in .nl files
         for (const ref of refs) {
             assert.ok(ref.uri.fsPath.endsWith('.nl'),
                 `Reference should be in .nl file, got ${ref.uri.fsPath}`);
@@ -145,120 +106,110 @@ func Main() {
     });
 
     // ================================================================
-    // MULTI-CLASS INTERACTION
+    // MEMBER COMPLETIONS
     // ================================================================
 
-    test('class member completions work for locally defined class', async function () {
+    test('class member completions return methods and properties', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // After person. we should get GetInfo, Name, Age
+        // After "person." in "person.GetInfo()"
         const pos = positionOf(doc, 'person.GetInfo()', { at: 'start' });
-        const dotPos = new vscode.Position(pos.line, pos.character + 7); // after 'person.'
+        const dotPos = new vscode.Position(pos.line, pos.character + 7);
         const completions = await getCompletions(doc, dotPos);
 
-        const labels = completions.items.map(i =>
-            typeof i.label === 'string' ? i.label : i.label.label
-        );
+        assert.ok(completions.items.length > 0,
+            'Member completions should return results after dot');
 
-        assertOrSkip(labels.length > 0,
-            'Member completions not available after dot', this);
-
-        // Check for expected members
-        if (labels.includes('GetInfo')) {
-            assert.ok(true, 'GetInfo member found in completions');
-        }
+        const labels = completions.items.map(i => completionLabel(i));
+        assert.ok(labels.includes('GetInfo'),
+            `Member completions should include "GetInfo". Got: ${labels.slice(0, 20).join(', ')}`);
     });
 
-    test('hover on class member shows type info', async function () {
+    // ================================================================
+    // HOVER CONTENT VALIDATION
+    // ================================================================
+
+    test('hover on class member shows method/property info', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('ClassesAndRecords.nl');
 
-        // Hover on a property declaration
         const pos = positionOf(doc, 'Make: string', { at: 'start' });
         const hovers = await getHover(doc, pos);
 
-        assertOrSkip(hovers.length > 0,
-            'Hover not available on class property', this);
+        assert.ok(hovers.length > 0,
+            'Hover on class property should return results');
 
-        if (hovers.length > 0) {
-            const contents = hovers.flatMap(h => h.contents).map(c => {
-                if (typeof c === 'string') return c;
-                if (c instanceof vscode.MarkdownString) return c.value;
-                return (c as { value: string }).value || '';
-            }).join(' ');
-            assert.ok(contents.length > 0, 'Hover on class property should have content');
-        }
+        const text = extractHoverText(hovers);
+        assert.ok(text.length > 0,
+            'Hover on class property should have content');
+        assert.ok(
+            text.includes('Make') || text.includes('string') || text.includes('property') || text.includes('field'),
+            `Hover on "Make" property should mention the property. Got:\n${text}`
+        );
     });
 
     // ================================================================
-    // DOCUMENT SYMBOLS — COMPLEX STRUCTURES
+    // DOCUMENT SYMBOLS — COMPLEX FILES
     // ================================================================
 
-    test('document symbols include nested class members', async function () {
+    test('document symbols for classes include correct hierarchy', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('ClassesAndRecords.nl');
         const symbols = await getDocumentSymbols(doc);
 
-        assertOrSkip(symbols.length > 0,
-            'No document symbols returned', this);
+        assert.ok(symbols.length > 0,
+            'Should return symbols for ClassesAndRecords.nl');
 
-        // Should have Vehicle and Point classes
-        const symbolNames = flattenSymbolNames(symbols);
-        assert.ok(symbolNames.length >= 2,
-            `Expected at least 2 symbols but got ${symbolNames.length}: ${symbolNames.join(', ')}`);
+        assertSymbolExists(symbols, 'Vehicle', vscode.SymbolKind.Class);
+        assertSymbolExists(symbols, 'Point', vscode.SymbolKind.Class);
     });
 
-    test('document symbols for file with enums', async function () {
+    test('document symbols for enum files list all enums', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('EnumVariants.nl');
         const symbols = await getDocumentSymbols(doc);
 
-        assertOrSkip(symbols.length > 0,
-            'No document symbols for enum file', this);
+        assert.ok(symbols.length > 0,
+            'Should return symbols for EnumVariants.nl');
 
-        const symbolNames = flattenSymbolNames(symbols);
-        // Should include at least one enum
-        assert.ok(symbolNames.length > 0,
-            `Expected symbols for enum file but got: ${symbolNames.join(', ')}`);
+        assertSymbolExists(symbols, 'Direction', vscode.SymbolKind.Enum);
+        assertSymbolExists(symbols, 'Priority', vscode.SymbolKind.Enum);
+        assertSymbolExists(symbols, 'DayOfWeek', vscode.SymbolKind.Enum);
     });
 
     // ================================================================
-    // LSP AFTER EDITS — Features should still work after document changes
+    // LSP AFTER EDITS — Features must work after document changes
     // ================================================================
 
-    test('completions work correctly after editing a file', async function () {
+    test('completions work after editing a file', async function () {
         this.timeout(45_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace EditTest
+namespace EditCompTest
 func Main() {
     x := 42
     print x
 }
-`, '_complex_edit.nl');
+`, '_complex_edit_comp.nl');
 
         try {
             await getDiagnostics(doc);
 
-            // Record position before edit
-            const pos = positionOf(doc, 'print x', { at: 'start' });
-
             // Edit the file — add a new variable
             const editor = vscode.window.activeTextEditor!;
+            const pos = positionOf(doc, 'print x', { at: 'start' });
             await editor.edit(editBuilder => {
-                const insertPos = positionOf(doc, 'print x', { at: 'start' });
-                editBuilder.insert(insertPos, 'y := "hello"\n    ');
+                editBuilder.insert(pos, 'y := "hello"\n    ');
             });
 
             await waitForDiagnosticsToSettle(doc.uri, 10_000);
 
             // Completions should still work
-            const newPos = new vscode.Position(pos.line + 1, 0);
-            const afterCompletions = await getCompletions(doc, newPos);
-            assert.ok(Array.isArray(afterCompletions.items),
-                'Completions should still work after document edit');
+            const newPos = new vscode.Position(pos.line + 1, 4);
+            const completions = await getCompletions(doc, newPos);
+            assert.ok(completions.items.length > 0,
+                'Completions should work after document edit');
 
-            // Undo
             await vscode.commands.executeCommand('undo');
             await sleep(500);
         } finally {
@@ -270,31 +221,31 @@ func Main() {
     test('hover works after editing a file', async function () {
         this.timeout(45_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace HoverEdit
+namespace EditHoverTest
 func Main() {
     x := 42
     print x
 }
-`, '_complex_hover_edit.nl');
+`, '_complex_edit_hover.nl');
 
         try {
             await getDiagnostics(doc);
 
-            // Edit the file
+            // Edit: add a variable
             const editor = vscode.window.activeTextEditor!;
+            const insertPos = positionOf(doc, 'print x', { at: 'start' });
             await editor.edit(editBuilder => {
-                const insertPos = positionOf(doc, 'print x', { at: 'start' });
                 editBuilder.insert(insertPos, 'name := "world"\n    ');
             });
 
             await waitForDiagnosticsToSettle(doc.uri, 10_000);
 
-            // Hover should still work — search for the inserted variable declaration
-            const pos = positionOf(doc, 'name :=', { at: 'start' });
-            const hovers = await getHover(doc, pos);
-            assert.ok(Array.isArray(hovers), 'Hover should work after document edit');
+            // Hover on the newly added variable
+            const namePos = positionOf(doc, 'name :=', { at: 'start' });
+            const hovers = await getHover(doc, namePos);
+            assert.ok(Array.isArray(hovers),
+                'Hover should work after document edit');
 
-            // Undo
             await vscode.commands.executeCommand('undo');
             await sleep(500);
         } finally {
@@ -324,15 +275,13 @@ func Main() {
         try {
             await getDiagnostics(doc);
 
-            // Target the 'x' on the 'print x' line inside the if block (2nd occurrence of 'print x')
+            // Target the "x" on the inner "print x" line
             const innerPrintPos = positionOf(doc, 'print x', { at: 'start', occurrence: 1 });
-            // Position on the 'x' after 'print '
             const xPos = new vscode.Position(innerPrintPos.line, innerPrintPos.character + 6);
             const defs = await getDefinitions(doc, xPos);
 
-            // Should get something back — testing that scoped vars are handled
-            assertOrSkip(defs.length > 0,
-                'Definition provider did not return results for scoped variable', this);
+            assert.ok(defs.length > 0,
+                'Definition should return results for scoped variable');
         } finally {
             await closeAllEditors();
             cleanup();
@@ -340,36 +289,10 @@ func Main() {
     });
 
     // ================================================================
-    // COMPLETIONS WITH MULTIPLE TYPES IN SCOPE
-    // ================================================================
-
-    test('completions include both local and imported symbols', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-
-        // Get completions inside Main function
-        const pos = positionOf(doc, 'message := greet', { at: 'start' });
-        const completions = await getCompletions(doc, pos);
-
-        const labels = completions.items.map(i =>
-            typeof i.label === 'string' ? i.label : i.label.label
-        );
-
-        assertOrSkip(labels.length > 0,
-            'No completions available', this);
-
-        // Should include locally defined functions
-        const hasLocalFunctions = labels.includes('greet') || labels.includes('add');
-        if (hasLocalFunctions) {
-            assert.ok(true, 'Local function completions present');
-        }
-    });
-
-    // ================================================================
     // ENUM MEMBER NAVIGATION
     // ================================================================
 
-    test('go to definition on enum member usage works', async function () {
+    test('definition on enum usage navigates to enum declaration', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
 namespace EnumNavTest
@@ -387,12 +310,11 @@ func Main() {
 
         try {
             await getDiagnostics(doc);
-            // Position on 'Color' in 'Color.Red' usage — not the enum declaration
             const pos = positionOf(doc, 'Color.Red', { at: 'start' });
             const defs = await getDefinitions(doc, pos);
 
-            assertOrSkip(defs.length > 0,
-                'Definition not available for enum usage', this);
+            assert.ok(defs.length > 0,
+                'Definition should return results for enum usage');
         } finally {
             await closeAllEditors();
             cleanup();
@@ -400,13 +322,32 @@ func Main() {
     });
 
     // ================================================================
-    // STRING INTERPOLATION COMPLETIONS
+    // COMPLETIONS WITH MULTIPLE TYPES IN SCOPE
     // ================================================================
 
-    test('completions work inside string interpolation', async function () {
+    test('completions include locally defined functions', async function () {
+        this.timeout(60_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        const pos = positionOf(doc, 'message := greet', { at: 'start' });
+        const completions = await getCompletions(doc, pos);
+
+        assert.ok(completions.items.length > 0,
+            'Completions should be available');
+
+        const labels = completions.items.map(i => completionLabel(i));
+        assert.ok(labels.includes('greet') || labels.includes('add'),
+            `Completions should include local functions. Got: ${labels.slice(0, 20).join(', ')}`);
+    });
+
+    // ================================================================
+    // STRING INTERPOLATION
+    // ================================================================
+
+    test('completions inside string interpolation do not crash', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace InterpComp
+namespace InterpTest
 func Main() {
     name := "World"
     print $"Hello, {name.}"
@@ -415,15 +356,12 @@ func Main() {
 
         try {
             await getDiagnostics(doc);
-            // Position after 'name.' inside interpolation
             const pos = positionOf(doc, 'name.}', { at: 'start' });
             const dotPos = new vscode.Position(pos.line, pos.character + 5);
             const completions = await getCompletions(doc, dotPos);
 
-            // Should at least not crash — may or may not provide completions
-            // depending on interpolation parsing support
             assert.ok(Array.isArray(completions.items),
-                'Completions inside string interpolation should not crash');
+                'Completions inside interpolation should return an array');
         } finally {
             await closeAllEditors();
             cleanup();
@@ -431,39 +369,31 @@ func Main() {
     });
 
     // ================================================================
-    // DOCUMENT SYMBOLS HIERARCHY
+    // DOCUMENT SYMBOLS — KIND VALIDATION
     // ================================================================
 
-    test('document symbols for file with functions and classes have correct kinds', async function () {
+    test('Program.nl symbols have correct kinds', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
         const symbols = await getDocumentSymbols(doc);
 
-        assertOrSkip(symbols.length > 0,
-            'No symbols returned for Program.nl', this);
+        assert.ok(symbols.length > 0, 'Should have symbols');
 
-        // Check that we have at least some function and class symbols
-        const allSymbols = flattenSymbolsWithKind(symbols);
-
-        const hasFunctions = allSymbols.some(s =>
-            s.kind === vscode.SymbolKind.Function || s.kind === vscode.SymbolKind.Method
-        );
-        const hasClasses = allSymbols.some(s =>
-            s.kind === vscode.SymbolKind.Class || s.kind === vscode.SymbolKind.Struct
-        );
-
-        assert.ok(hasFunctions, 'Program.nl should have function symbols');
-        assert.ok(hasClasses, 'Program.nl should have class symbols');
+        // Check specific symbol kinds
+        assertSymbolExists(symbols, 'Main', vscode.SymbolKind.Function);
+        assertSymbolExists(symbols, 'greet', vscode.SymbolKind.Function);
+        assertSymbolExists(symbols, 'Person', vscode.SymbolKind.Class);
+        assertSymbolExists(symbols, 'Color', vscode.SymbolKind.Enum);
     });
 
     // ================================================================
-    // DIAGNOSTICS AFTER MULTIPLE EDITS
+    // MULTI-EDIT DIAGNOSTIC CONSISTENCY
     // ================================================================
 
-    test('diagnostics correctly update after multiple sequential edits', async function () {
+    test('diagnostics stay clean after adding valid code', async function () {
         this.timeout(60_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace MultiEdit
+namespace MultiEditTest
 func Main() {
     x := 1
     print x
@@ -471,14 +401,12 @@ func Main() {
 `, '_complex_multi_edit.nl');
 
         try {
-            // Start clean
             let diagnostics = await getDiagnostics(doc);
             let errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
-            assert.strictEqual(errors.length, 0, 'Should start with 0 errors');
+            assert.strictEqual(errors.length, 0,
+                `Should start with 0 errors:\n${formatDiagnosticErrors(errors)}`);
 
             const editor = vscode.window.activeTextEditor!;
-
-            // Edit 1: Add valid code
             await editor.edit(editBuilder => {
                 const lastLine = doc.lineCount - 1;
                 const pos = new vscode.Position(lastLine, doc.lineAt(lastLine).text.length);
@@ -487,9 +415,9 @@ func Main() {
 
             diagnostics = await waitForDiagnosticsToSettle(doc.uri, 10_000);
             errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
-            assert.strictEqual(errors.length, 0, 'Adding valid code should not introduce errors');
+            assert.strictEqual(errors.length, 0,
+                `Adding valid code should not introduce errors:\n${formatDiagnosticErrors(errors)}`);
 
-            // Undo to restore
             await vscode.commands.executeCommand('undo');
             await sleep(500);
         } finally {
@@ -498,29 +426,3 @@ func Main() {
         }
     });
 });
-
-// ================================================================
-// HELPER UTILITIES
-// ================================================================
-
-function flattenSymbolNames(symbols: vscode.DocumentSymbol[]): string[] {
-    const names: string[] = [];
-    for (const sym of symbols) {
-        names.push(sym.name);
-        if (sym.children) {
-            names.push(...flattenSymbolNames(sym.children));
-        }
-    }
-    return names;
-}
-
-function flattenSymbolsWithKind(symbols: vscode.DocumentSymbol[]): Array<{ name: string; kind: vscode.SymbolKind }> {
-    const result: Array<{ name: string; kind: vscode.SymbolKind }> = [];
-    for (const sym of symbols) {
-        result.push({ name: sym.name, kind: sym.kind });
-        if (sym.children) {
-            result.push(...flattenSymbolsWithKind(sym.children));
-        }
-    }
-    return result;
-}

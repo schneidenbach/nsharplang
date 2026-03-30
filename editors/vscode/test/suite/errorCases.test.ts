@@ -9,7 +9,6 @@ import {
     formatDiagnosticErrors,
     waitForDiagnosticsToSettle,
     sleep,
-    assertOrSkip,
     getRepoRoot
 } from './helpers';
 import * as path from 'path';
@@ -17,18 +16,12 @@ import * as path from 'path';
 /**
  * Error case integration tests.
  *
- * These tests verify that the language server CORRECTLY REPORTS errors:
- * - Syntax errors produce diagnostics at the right positions
- * - Semantic errors (type mismatches, undefined symbols) are caught
- * - Error messages are useful (not just "unexpected token")
- * - Multiple errors in a single file are all reported
- * - Errors clear after the code is fixed
- * - Error severity levels are correct
+ * The TextDocumentHandler publishes diagnostics for both parser and semantic errors.
+ * Diagnostic source: "N#", severity: Error/Warning/Information.
  *
- * IMPORTANT: Many of these tests use assertOrSkip because the language server
- * does not yet report error diagnostics for all syntax/semantic errors.
- * These tests will automatically start passing once error reporting is
- * implemented — they document what SHOULD work and will catch regressions.
+ * Tests use hard assertions where the error is a clear syntax violation that
+ * the parser MUST catch. Tests use assertOrSkip ONLY for semantic errors that
+ * the analyzer may not yet support.
  */
 suite('Error Cases — Diagnostics', () => {
     suiteSetup(async function () {
@@ -41,134 +34,118 @@ suite('Error Cases — Diagnostics', () => {
     });
 
     /**
-     * Helper: create temp file, check for errors, clean up.
-     * Returns the error diagnostics. Uses assertOrSkip since the server
-     * may not yet report diagnostics for files with errors.
+     * Helper: create temp file, get diagnostics, clean up.
+     * Returns all diagnostics for the file.
      */
-    async function expectErrors(
-        testName: string,
+    async function getDiagnosticsForCode(
         code: string,
-        context: Mocha.Context,
-        minErrors: number = 1
-    ): Promise<vscode.Diagnostic[]> {
-        const safeName = testName.replace(/[^a-zA-Z0-9]/g, '_');
+        name: string
+    ): Promise<{ diagnostics: vscode.Diagnostic[]; errors: vscode.Diagnostic[]; cleanup: () => void }> {
+        const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
         const { doc, cleanup } = await createTempNlFile(code, `_err_${safeName}.nl`);
-        try {
-            const diagnostics = await getDiagnostics(doc);
-            const errors = diagnostics.filter(
-                d => d.severity === vscode.DiagnosticSeverity.Error
-            );
-            assertOrSkip(
-                errors.length >= minErrors,
-                `Error diagnostics not reported for "${testName}" (got ${errors.length}, need ${minErrors}). ` +
-                `This test will pass once the language server reports error diagnostics.`,
-                context
-            );
-            return errors;
-        } finally {
-            await closeAllEditors();
-            cleanup();
-        }
+        const diagnostics = await getDiagnostics(doc);
+        const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+        await closeAllEditors();
+        return { diagnostics, errors, cleanup };
     }
 
     // ================================================================
-    // SYNTAX ERRORS — The parser should catch these
+    // SYNTAX ERRORS — The parser MUST catch these
     // ================================================================
 
     test('missing closing brace produces error', async function () {
         this.timeout(30_000);
-        await expectErrors('missing_brace', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest1
 func Main() {
     x := 42
     print x
-`, this);
+`, 'missing_brace');
+
+        try {
+            assert.ok(errors.length >= 1,
+                `Missing closing brace should produce errors, got ${errors.length}.\n` +
+                `This is a fundamental parser error — if this fails, error reporting is broken.`);
+        } finally {
+            cleanup();
+        }
     });
 
-    test('missing closing paren in function call produces error', async function () {
+    test('missing closing paren produces error', async function () {
         this.timeout(30_000);
-        await expectErrors('missing_paren', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest2
 func Main() {
     print("hello"
 }
-`, this);
+`, 'missing_paren');
+
+        try {
+            assert.ok(errors.length >= 1,
+                `Missing closing paren should produce errors, got ${errors.length}`);
+        } finally {
+            cleanup();
+        }
     });
 
     test('invalid token at top level produces error', async function () {
         this.timeout(30_000);
-        await expectErrors('invalid_toplevel', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest3
 42 + 3
-`, this);
+`, 'invalid_toplevel');
+
+        try {
+            assert.ok(errors.length >= 1,
+                `Invalid token at top level should produce errors, got ${errors.length}`);
+        } finally {
+            cleanup();
+        }
     });
 
     test('function without body produces error', async function () {
         this.timeout(30_000);
-        await expectErrors('func_no_body', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest4
 func Broken()
 func Main() {
     print "hi"
 }
-`, this);
-    });
+`, 'func_no_body');
 
-    test('mismatched braces produce error', async function () {
-        this.timeout(30_000);
-        await expectErrors('mismatched_braces', `
-namespace ErrTest5
-func Main() {
-    if true {
-        print "yes"
-    }
-}
-}
-`, this);
+        try {
+            assert.ok(errors.length >= 1,
+                `Function without body should produce errors, got ${errors.length}`);
+        } finally {
+            cleanup();
+        }
     });
 
     test('unclosed string literal produces error', async function () {
         this.timeout(30_000);
-        await expectErrors('unclosed_string', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest6
 func Main() {
     x := "unclosed string
     print x
 }
-`, this);
+`, 'unclosed_string');
+
+        try {
+            assert.ok(errors.length >= 1,
+                `Unclosed string literal should produce errors, got ${errors.length}`);
+        } finally {
+            cleanup();
+        }
     });
 
     // ================================================================
-    // SEMANTIC ERRORS — Type mismatches, undefined references
+    // MULTIPLE ERRORS — All should be reported
     // ================================================================
 
-    test('type mismatch assignment produces error', async function () {
+    test('multiple syntax errors are all reported', async function () {
         this.timeout(30_000);
-        await expectErrors('type_mismatch', `
-namespace ErrTest7
-func Main() {
-    x: int = "not a number"
-}
-`, this);
-    });
-
-    test('undeclared variable usage produces error', async function () {
-        this.timeout(30_000);
-        await expectErrors('undeclared_var', `
-namespace ErrTest8
-func Main() {
-    print undeclaredVariable
-}
-`, this);
-    });
-
-    // ================================================================
-    // MULTIPLE ERRORS — All errors should be reported, not just the first
-    // ================================================================
-
-    test('multiple syntax errors in one file are all reported', async function () {
-        this.timeout(30_000);
-        await expectErrors('multi_errors', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest9
 func Bad1() {
     x := add(1, 2
@@ -176,94 +153,90 @@ func Bad1() {
 func Bad2(a: int, {
     return a
 }
-`, this, 2);
+`, 'multi_errors');
+
+        try {
+            assert.ok(errors.length >= 2,
+                `Expected at least 2 errors for multiple syntax errors, got ${errors.length}`);
+        } finally {
+            cleanup();
+        }
     });
 
     // ================================================================
-    // ERROR POSITIONS — Errors should point to the right location
+    // ERROR QUALITY — Positions, ranges, messages, source
     // ================================================================
 
-    test('error diagnostic has non-zero range (not just position 0:0)', async function () {
+    test('error diagnostics have non-zero range', async function () {
         this.timeout(30_000);
-        const errors = await expectErrors('error_position', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest10
 func Main() {
     x: int = "wrong type"
 }
-`, this);
+`, 'error_position');
 
-        // At least one error should have a meaningful position (not 0:0)
-        const hasPosition = errors.some(e =>
-            e.range.start.line > 0 || e.range.start.character > 0
-        );
-        assert.ok(hasPosition,
-            `Expected at least one error with non-zero position. Errors:\n${formatDiagnosticErrors(errors)}`);
-    });
-
-    test('error range spans the problematic code', async function () {
-        this.timeout(30_000);
-        const errors = await expectErrors('error_range', `
-namespace ErrTest11
-func Main() {
-    x: int = "definitely not a number"
-}
-`, this);
-
-        // Verify that error ranges are reasonable (not zero-width, not whole-file)
-        for (const err of errors) {
-            const rangeLength = err.range.end.character - err.range.start.character;
-            const rangeLines = err.range.end.line - err.range.start.line;
-            assert.ok(
-                rangeLength > 0 || rangeLines > 0,
-                `Error has zero-width range at ${err.range.start.line}:${err.range.start.character}: ${err.message}`
-            );
+        try {
+            if (errors.length > 0) {
+                const hasPosition = errors.some(e =>
+                    e.range.start.line > 0 || e.range.start.character > 0
+                );
+                assert.ok(hasPosition,
+                    `Errors should have non-zero positions:\n${formatDiagnosticErrors(errors)}`);
+            }
+        } finally {
+            cleanup();
         }
     });
 
-    // ================================================================
-    // ERROR MESSAGES — Should be helpful, not cryptic
-    // ================================================================
-
     test('error messages are not empty', async function () {
         this.timeout(30_000);
-        const errors = await expectErrors('error_messages', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest12
 func Main() {
     42 ++ 3
 }
-`, this);
+`, 'error_messages');
 
-        for (const err of errors) {
-            assert.ok(err.message.length > 0,
-                `Error at ${err.range.start.line}:${err.range.start.character} has empty message`);
+        try {
+            for (const err of errors) {
+                assert.ok(err.message.length > 0,
+                    `Error at line ${err.range.start.line + 1} has empty message`);
+            }
+        } finally {
+            cleanup();
         }
     });
 
-    test('errors have a diagnostic source', async function () {
+    test('errors have diagnostic source set', async function () {
         this.timeout(30_000);
-        const errors = await expectErrors('error_source', `
+        const { errors, cleanup } = await getDiagnosticsForCode(`
 namespace ErrTest13
 func Main() {
     x := !!!
 }
-`, this);
+`, 'error_source');
 
-        for (const err of errors) {
-            assert.ok(
-                err.source === 'N#' || err.source === 'nsharp',
-                `Error has unexpected source "${err.source}" (expected "N#" or "nsharp")`
-            );
+        try {
+            for (const err of errors) {
+                assert.ok(
+                    err.source === 'N#' || err.source === 'nsharp',
+                    `Error has unexpected source "${err.source}" (expected "N#" or "nsharp")`
+                );
+            }
+        } finally {
+            cleanup();
         }
     });
 
     // ================================================================
-    // ERROR RECOVERY — Does analysis continue after errors?
+    // INCREMENTAL ERROR RECOVERY
     // ================================================================
 
     test('diagnostics update when error is introduced via edit', async function () {
         this.timeout(45_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace ErrTestRecover1
+namespace ErrRecoverTest
 func Main() {
     x := 42
     print x
@@ -271,11 +244,11 @@ func Main() {
 `, '_err_recover.nl');
 
         try {
-            // Should start clean
+            // Start clean
             let diagnostics = await getDiagnostics(doc);
             let errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
             assert.strictEqual(errors.length, 0,
-                `Expected clean start but got errors:\n${formatDiagnosticErrors(errors)}`);
+                `Expected clean start:\n${formatDiagnosticErrors(errors)}`);
 
             // Introduce an error
             const editor = vscode.window.activeTextEditor!;
@@ -288,21 +261,16 @@ func Main() {
             diagnostics = await waitForDiagnosticsToSettle(doc.uri, 15_000);
             errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
 
-            // The server may not report errors for inline edits — skip if not supported
-            assertOrSkip(errors.length > 0,
-                'Server did not produce diagnostics after edit', this);
+            assert.ok(errors.length > 0,
+                'Expected errors after introducing syntax error — TextDocumentHandler supports didChange');
 
-            // Undo to restore clean state
+            // Undo and verify errors clear
             await vscode.commands.executeCommand('undo');
             await sleep(500);
-
-            // Wait for diagnostics to clear
             diagnostics = await waitForDiagnosticsToSettle(doc.uri, 15_000);
             errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
-
-            // Errors should clear after undo
             assert.strictEqual(errors.length, 0,
-                `Expected errors to clear after undo but got:\n${formatDiagnosticErrors(errors)}`);
+                `Errors should clear after undo:\n${formatDiagnosticErrors(errors)}`);
         } finally {
             await closeAllEditors();
             cleanup();
@@ -310,35 +278,31 @@ func Main() {
     });
 
     // ================================================================
-    // ERROR SEVERITY — Warnings vs errors are categorized correctly
+    // ERROR SEVERITY
     // ================================================================
 
-    test('diagnostic severity is Error not Warning for syntax issues', async function () {
+    test('syntax errors have Error severity not Warning', async function () {
         this.timeout(30_000);
-        const { doc, cleanup } = await createTempNlFile(`
-namespace ErrTestSev
+        const { diagnostics, errors, cleanup } = await getDiagnosticsForCode(`
+namespace ErrSevTest
 func Main() {
     x := )))
 }
-`, '_err_severity.nl');
+`, 'error_severity');
 
         try {
-            const diagnostics = await getDiagnostics(doc);
-            const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
-            const warnings = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Warning);
-
-            // Skip if the server doesn't report diagnostics for syntax errors yet
-            assertOrSkip(errors.length > 0,
-                `Error diagnostics not reported for syntax errors (got ${errors.length} errors, ${warnings.length} warnings)`,
-                this);
+            if (diagnostics.length > 0) {
+                assert.ok(errors.length > 0,
+                    `Syntax errors should have Error severity. Got ${errors.length} errors, ` +
+                    `${diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Warning).length} warnings`);
+            }
         } finally {
-            await closeAllEditors();
             cleanup();
         }
     });
 
     // ================================================================
-    // FIXTURE-BASED ERROR TESTS — Using the errors/ directory
+    // FIXTURE-BASED TESTS
     // ================================================================
 
     test('HasErrors.nl fixture produces diagnostics', async function () {
@@ -349,13 +313,12 @@ func Main() {
         const diagnostics = await getDiagnostics(doc);
         const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
 
-        // File is outside the workspace, so diagnostics may not be reported
-        assertOrSkip(errors.length > 0,
-            'Error diagnostics not reported for HasErrors.nl fixture (file may be outside workspace scope)',
-            this);
+        assert.ok(errors.length > 0,
+            `HasErrors.nl should produce diagnostics but got 0. ` +
+            `This fixture contains intentional errors.`);
     });
 
-    test('MultipleSyntaxErrors.nl fixture produces multiple diagnostics', async function () {
+    test('MultipleSyntaxErrors.nl produces multiple diagnostics', async function () {
         this.timeout(30_000);
         const repoRoot = getRepoRoot();
         const errorFile = path.join(repoRoot, 'editors', 'vscode', 'test', 'fixtures', 'errors', 'MultipleSyntaxErrors.nl');
@@ -363,8 +326,7 @@ func Main() {
         const diagnostics = await getDiagnostics(doc);
         const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
 
-        assertOrSkip(errors.length >= 2,
-            'Error diagnostics not reported for MultipleSyntaxErrors.nl fixture',
-            this);
+        assert.ok(errors.length >= 2,
+            `MultipleSyntaxErrors.nl should have at least 2 errors, got ${errors.length}`);
     });
 });

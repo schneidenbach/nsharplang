@@ -16,20 +16,20 @@ import {
 } from './helpers';
 
 /**
- * Edge case and negative path integration tests.
+ * Edge case tests — resilience and boundary conditions.
  *
- * These test what happens when inputs are unusual, malformed, or at boundaries:
- * - Empty files, files with only comments
- * - LSP queries at invalid/boundary positions
- * - Hover/definition/references on whitespace/non-symbols
- * - Completions in broken files
- * - Very deeply nested code
- * - Unicode identifiers and content
+ * These test that the language server handles degenerate inputs gracefully:
+ * - Empty files, comment-only files
+ * - Positions at file boundaries (0:0, end of file)
+ * - Non-symbol positions (whitespace, string literals)
+ * - Files with errors still provide partial results
+ * - Unicode content
+ * - Rapid file switching
  *
- * The language server should degrade gracefully — return empty results,
- * not crash, not produce spurious errors.
+ * These are genuine crash/resilience tests — they validate the server
+ * doesn't throw exceptions on unusual inputs.
  */
-suite('Edge Cases — LSP Resilience', () => {
+suite('Edge Cases — Resilience', () => {
     suiteSetup(async function () {
         this.timeout(90_000);
         await waitForLanguageServer();
@@ -40,50 +40,65 @@ suite('Edge Cases — LSP Resilience', () => {
     });
 
     // ================================================================
-    // EMPTY / MINIMAL FILES — Server should not crash
+    // EMPTY / MINIMAL FILES
     // ================================================================
 
-    test('empty file does not crash the language server', async function () {
+    test('empty file does not crash any LSP feature', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile('', '_edge_empty.nl');
+
         try {
-            const diagnostics = await getDiagnostics(doc);
-            // It's fine to have errors (missing namespace), but server should not crash
+            await getDiagnostics(doc);
+
             const symbols = await getDocumentSymbols(doc);
-            assert.ok(Array.isArray(symbols), 'Document symbols should return an array for empty file');
+            assert.ok(Array.isArray(symbols), 'Symbols on empty file should return array');
+
+            const completions = await getCompletions(doc, new vscode.Position(0, 0));
+            assert.ok(Array.isArray(completions.items), 'Completions on empty file should return array');
+
+            const hovers = await getHover(doc, new vscode.Position(0, 0));
+            assert.ok(Array.isArray(hovers), 'Hover on empty file should return array');
+
+            const defs = await getDefinitions(doc, new vscode.Position(0, 0));
+            assert.ok(Array.isArray(defs), 'Definitions on empty file should return array');
+
+            const refs = await getReferences(doc, new vscode.Position(0, 0));
+            assert.ok(Array.isArray(refs), 'References on empty file should return array');
         } finally {
             await closeAllEditors();
             cleanup();
         }
     });
 
-    test('file with only comments produces no crash', async function () {
+    test('comment-only file does not crash', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-// This file has only comments
-// Nothing else
-// No namespace, no functions, no code
+// This is a comment
+// Another comment
+/* Block comment */
 `, '_edge_comments.nl');
+
         try {
-            const diagnostics = await getDiagnostics(doc);
+            await getDiagnostics(doc);
             const symbols = await getDocumentSymbols(doc);
-            assert.ok(Array.isArray(symbols), 'Document symbols should return an array for comment-only file');
+            assert.ok(Array.isArray(symbols), 'Symbols on comment-only file should return array');
         } finally {
             await closeAllEditors();
             cleanup();
         }
     });
 
-    test('file with only namespace produces no errors', async function () {
+    test('namespace-only file produces zero errors', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace JustNamespace
-`, '_edge_namespace.nl');
+namespace EdgeTest
+`, '_edge_ns_only.nl');
+
         try {
             const diagnostics = await getDiagnostics(doc);
             const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
             assert.strictEqual(errors.length, 0,
-                `Namespace-only file should not produce errors but got: ${errors.map(d => d.message).join('; ')}`);
+                `Namespace-only file should have 0 errors but got ${errors.length}`);
         } finally {
             await closeAllEditors();
             cleanup();
@@ -91,160 +106,148 @@ namespace JustNamespace
     });
 
     // ================================================================
-    // BOUNDARY POSITIONS — LSP should handle gracefully
+    // BOUNDARY POSITIONS
     // ================================================================
 
-    test('completions at position 0:0 does not crash', async function () {
-        this.timeout(60_000);
+    test('completions at position 0:0', async function () {
+        this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
+
         const completions = await getCompletions(doc, new vscode.Position(0, 0));
-        assert.ok(Array.isArray(completions.items), 'Completions should return an array at position 0:0');
+        assert.ok(completions.items.length > 0,
+            'Should provide completions at position 0:0');
     });
 
-    test('completions at end of file does not crash', async function () {
-        this.timeout(60_000);
+    test('completions at end of file', async function () {
+        this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
+
         const lastLine = doc.lineCount - 1;
-        const lastChar = doc.lineAt(lastLine).text.length;
-        const completions = await getCompletions(doc, new vscode.Position(lastLine, lastChar));
-        assert.ok(Array.isArray(completions.items), 'Completions should return an array at end of file');
-    });
-
-    test('hover on whitespace returns empty or no result', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-        // Find a blank line or whitespace position
-        const hovers = await getHover(doc, new vscode.Position(0, 0));
-        // Should either return empty array or some info — not crash
-        assert.ok(Array.isArray(hovers), 'Hover should return an array even on whitespace');
+        const lastCol = doc.lineAt(lastLine).text.length;
+        const completions = await getCompletions(doc, new vscode.Position(lastLine, lastCol));
+        assert.ok(Array.isArray(completions.items),
+            'Completions at end of file should return array');
     });
 
     test('hover at end of file does not crash', async function () {
-        this.timeout(60_000);
+        this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
+
         const lastLine = doc.lineCount - 1;
-        const lastChar = doc.lineAt(lastLine).text.length;
-        const hovers = await getHover(doc, new vscode.Position(lastLine, lastChar));
-        assert.ok(Array.isArray(hovers), 'Hover should not crash at end of file');
-    });
-
-    test('definition at position with no symbol returns empty', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-        // Position on an opening brace — no symbol there
-        const pos = positionOf(doc, 'func Main() {', { at: 'end' });
-        const defs = await getDefinitions(doc, pos);
-        // Should return empty, not crash
-        assert.ok(Array.isArray(defs), 'Definitions should return an array for non-symbol position');
-    });
-
-    test('references at position with no symbol returns empty', async function () {
-        this.timeout(60_000);
-        const doc = await openDocumentAndWaitForLsp('Program.nl');
-        // Position at the opening brace of a function body
-        const pos = positionOf(doc, 'func Main() {', { at: 'end' });
-        const refs = await getReferences(doc, pos);
-        assert.ok(Array.isArray(refs), 'References should return an array for non-symbol position');
+        const hovers = await getHover(doc, new vscode.Position(lastLine, 0));
+        assert.ok(Array.isArray(hovers), 'Hover at end of file should return array');
     });
 
     // ================================================================
-    // HOVER ON DIFFERENT TOKEN TYPES
+    // NON-SYMBOL POSITIONS
+    // ================================================================
+
+    test('hover on whitespace returns empty', async function () {
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        // Line 1 is blank
+        const hovers = await getHover(doc, new vscode.Position(1, 0));
+        assert.ok(Array.isArray(hovers), 'Hover on whitespace should return array');
+    });
+
+    test('definition at non-symbol position returns empty', async function () {
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        const defs = await getDefinitions(doc, new vscode.Position(1, 0));
+        assert.ok(Array.isArray(defs), 'Definition at non-symbol should return array');
+    });
+
+    test('references at non-symbol position returns empty', async function () {
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        const refs = await getReferences(doc, new vscode.Position(1, 0));
+        assert.ok(Array.isArray(refs), 'References at non-symbol should return array');
+    });
+
+    // ================================================================
+    // LITERAL POSITIONS
     // ================================================================
 
     test('hover on string literal does not crash', async function () {
-        this.timeout(60_000);
+        this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
+
         const pos = positionOf(doc, '"World"', { at: 'middle' });
         const hovers = await getHover(doc, pos);
-        assert.ok(Array.isArray(hovers), 'Hover on string literal should not crash');
+        assert.ok(Array.isArray(hovers), 'Hover on string literal should return array');
     });
 
     test('hover on numeric literal does not crash', async function () {
-        this.timeout(60_000);
-        const { doc, cleanup } = await createTempNlFile(`
-namespace EdgeNum
-func Main() {
-    x := 42
-    print x
-}
-`, '_edge_num.nl');
-        try {
-            await getDiagnostics(doc);
-            const pos = positionOf(doc, '42', { at: 'start' });
-            const hovers = await getHover(doc, pos);
-            assert.ok(Array.isArray(hovers), 'Hover on numeric literal should not crash');
-        } finally {
-            await closeAllEditors();
-            cleanup();
-        }
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        const pos = positionOf(doc, 'add(3, 4)', { at: 'start' });
+        const numPos = new vscode.Position(pos.line, pos.character + 4); // on "3"
+        const hovers = await getHover(doc, numPos);
+        assert.ok(Array.isArray(hovers), 'Hover on numeric literal should return array');
     });
 
     test('hover on comment text does not crash', async function () {
-        this.timeout(60_000);
-        const { doc, cleanup } = await createTempNlFile(`
-namespace EdgeComment
-// This is a comment
-func Main() {
-    print "hi"
-}
-`, '_edge_comment_hover.nl');
-        try {
-            await getDiagnostics(doc);
-            const pos = positionOf(doc, 'This is a comment', { at: 'middle' });
-            const hovers = await getHover(doc, pos);
-            assert.ok(Array.isArray(hovers), 'Hover on comment text should not crash');
-        } finally {
-            await closeAllEditors();
-            cleanup();
-        }
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('ClassesAndRecords.nl');
+
+        const pos = positionOf(doc, '// Class with typed', { at: 'middle' });
+        const hovers = await getHover(doc, pos);
+        assert.ok(Array.isArray(hovers), 'Hover on comment should return array');
     });
 
     // ================================================================
-    // LSP FEATURES IN FILES WITH ERRORS
+    // PARTIAL ERRORS — LSP should still work
     // ================================================================
 
     test('completions still work in file with errors', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace EdgeErrComp
-func Main() {
-    x := 42
-    print x
-    y := !!!
+namespace EdgeErrTest
+func ValidFunc(): int {
+    return 42
 }
-`, '_edge_err_comp.nl');
+
+func Broken( {
+`, '_edge_partial.nl');
+
         try {
             await getDiagnostics(doc);
-            // Request completions in the valid part of the file
-            const pos = positionOf(doc, 'print x', { at: 'start' });
-            const completions = await getCompletions(doc, pos);
-            // Server should still respond — not crash due to the error below
+            const completions = await getCompletions(doc, new vscode.Position(0, 0));
             assert.ok(Array.isArray(completions.items),
-                'Completions should still return results in file with errors');
+                'Completions should work even in file with errors');
         } finally {
             await closeAllEditors();
             cleanup();
         }
     });
 
-    test('document symbols still returned for file with partial errors', async function () {
+    test('document symbols returned for file with partial errors', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace EdgePartial
-func ValidFunction() {
-    print "I am valid"
+namespace EdgePartialTest
+func ValidFunction(): string {
+    return "works"
 }
 
 func BrokenFunction( {
-    print "I am broken"
-}
-`, '_edge_partial.nl');
+`, '_edge_partial_sym.nl');
+
         try {
             await getDiagnostics(doc);
             const symbols = await getDocumentSymbols(doc);
-            // Should at least find ValidFunction even if BrokenFunction confuses the parser
             assert.ok(Array.isArray(symbols),
-                'Document symbols should return an array even in file with errors');
+                'Document symbols should return array for file with errors');
+
+            // The valid function should still appear in symbols
+            if (symbols.length > 0) {
+                const names = symbols.map(s => s.name);
+                assert.ok(names.includes('ValidFunction'),
+                    `ValidFunction should appear in symbols despite errors. Got: ${names.join(', ')}`);
+            }
         } finally {
             await closeAllEditors();
             cleanup();
@@ -252,27 +255,47 @@ func BrokenFunction( {
     });
 
     // ================================================================
-    // DEEP NESTING
+    // UNICODE
     // ================================================================
 
-    test('deeply nested code does not crash the LSP', async function () {
+    test('unicode in string literals produces zero errors', async function () {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
-namespace EdgeDeep
+namespace UnicodeTest
 func Main() {
-    x := 1
-    if x > 0 {
-        if x > 0 {
-            if x > 0 {
-                if x > 0 {
-                    if x > 0 {
-                        if x > 0 {
-                            if x > 0 {
-                                if x > 0 {
-                                    print "deep"
-                                }
-                            }
-                        }
+    greeting := "Hello, 世界! 🌍"
+    print greeting
+    emoji := "✅ ❌ 🎉"
+    print emoji
+}
+`, '_edge_unicode.nl');
+
+        try {
+            const diagnostics = await getDiagnostics(doc);
+            const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+            assert.strictEqual(errors.length, 0,
+                `Unicode strings should not produce errors but got ${errors.length}`);
+        } finally {
+            await closeAllEditors();
+            cleanup();
+        }
+    });
+
+    // ================================================================
+    // DEEPLY NESTED CODE
+    // ================================================================
+
+    test('deeply nested code does not crash server', async function () {
+        this.timeout(30_000);
+        const { doc, cleanup } = await createTempNlFile(`
+namespace DeepNestTest
+func Main() {
+    if true {
+        if true {
+            if true {
+                if true {
+                    if true {
+                        print "deep"
                     }
                 }
             }
@@ -280,14 +303,15 @@ func Main() {
     }
 }
 `, '_edge_deep.nl');
+
         try {
             const diagnostics = await getDiagnostics(doc);
             const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
             assert.strictEqual(errors.length, 0,
-                `Deeply nested code should not produce errors:\n${errors.map(d => d.message).join('; ')}`);
+                'Deeply nested code should not produce errors');
 
             const symbols = await getDocumentSymbols(doc);
-            assert.ok(Array.isArray(symbols), 'Document symbols should work on deeply nested code');
+            assert.ok(Array.isArray(symbols), 'Symbols should work for deeply nested code');
         } finally {
             await closeAllEditors();
             cleanup();
@@ -295,38 +319,10 @@ func Main() {
     });
 
     // ================================================================
-    // UNICODE / SPECIAL CHARACTERS
+    // RAPID FILE SWITCHING
     // ================================================================
 
-    test('unicode in string literals does not crash the LSP', async function () {
-        this.timeout(30_000);
-        const { doc, cleanup } = await createTempNlFile(`
-namespace EdgeUnicode
-func Main() {
-    emoji := "Hello 🌍🎉"
-    japanese := "こんにちは"
-    mixed := "café résumé naïve"
-    print emoji
-    print japanese
-    print mixed
-}
-`, '_edge_unicode.nl');
-        try {
-            const diagnostics = await getDiagnostics(doc);
-            const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
-            assert.strictEqual(errors.length, 0,
-                `Unicode strings should not produce errors:\n${errors.map(d => d.message).join('; ')}`);
-        } finally {
-            await closeAllEditors();
-            cleanup();
-        }
-    });
-
-    // ================================================================
-    // MULTIPLE RAPID OPENS — Stress test document management
-    // ================================================================
-
-    test('opening multiple files rapidly does not crash', async function () {
+    test('opening multiple files sequentially does not crash', async function () {
         this.timeout(120_000);
         const files = ['Program.nl', 'Helpers.nl', 'ClassesAndRecords.nl'];
 
@@ -344,15 +340,14 @@ func Main() {
     // SIGNATURE HELP EDGE CASES
     // ================================================================
 
-    test('signature help outside function call returns undefined', async function () {
-        this.timeout(60_000);
+    test('signature help outside function call returns nothing', async function () {
+        this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
-        // Position at the start of the file — not inside any function call
+
         const sig = await getSignatureHelp(doc, new vscode.Position(0, 0));
-        // Should be undefined or have no signatures — not crash
         if (sig) {
-            assert.ok(Array.isArray(sig.signatures),
-                'Signature help outside function call should have signatures array');
+            assert.strictEqual(sig.signatures.length, 0,
+                'Signature help outside function call should have no signatures');
         }
     });
 });
