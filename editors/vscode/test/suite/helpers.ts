@@ -7,7 +7,7 @@ const LANGUAGE_SERVER_TIMEOUT = 60_000;
 const DIAGNOSTICS_SETTLE_DELAY = 2_000;
 const DIAGNOSTICS_TIMEOUT = 30_000;
 const LSP_READY_POLL_INTERVAL = 500;
-const LSP_READY_TIMEOUT = 15_000;
+const LSP_READY_TIMEOUT = 30_000;
 
 // ================================================================
 // LANGUAGE SERVER LIFECYCLE
@@ -123,6 +123,10 @@ export async function createTempNlFile(
     fs.writeFileSync(filePath, content, 'utf-8');
 
     const doc = await openDocument(name);
+    // Wait for the LSP to be ready for this file
+    await getDiagnostics(doc);
+    await waitForLspReady(doc);
+
     const cleanup = () => {
         try {
             fs.unlinkSync(filePath);
