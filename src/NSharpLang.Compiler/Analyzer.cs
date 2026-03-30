@@ -2602,10 +2602,8 @@ public class Analyzer : IDisposable
         if (applicableExtensions.Count == 1)
             return CreateFunctionTypeInfo(applicableExtensions[0]);
 
-        // Multiple matches - return method group (for overload resolution)
-        // For now, just return the first one
-        // TODO: Implement proper method group resolution
-        return CreateFunctionTypeInfo(applicableExtensions[0]);
+        // Multiple matches - return method group for overload resolution
+        return new NSharpMethodGroupInfo(applicableExtensions);
     }
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
@@ -3358,7 +3356,7 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Scores how well an argument type matches a parameter type for N#-declared methods.
-    /// Exact match = 8, assignable = 4, fallback = 2.
+    /// Exact match = 8, MLC-equivalent match = 8, implicit numeric = 6, assignable = 4, fallback = 2.
     /// </summary>
     private int GetNSharpMatchScore(TypeInfo parameterType, TypeInfo argumentType)
     {
@@ -3370,6 +3368,16 @@ public class Analyzer : IDisposable
             return 8;
         if (resolvedParam.ToString() == resolvedArg.ToString())
             return 8;
+
+        // Cross-representation exact match (SimpleTypeInfo vs ReflectionTypeInfo for the same CLR type)
+        var paramClr = TryConvertTypeInfoToClrType(resolvedParam);
+        var argClr = TryConvertTypeInfoToClrType(resolvedArg);
+        if (paramClr != null && argClr != null && paramClr == argClr)
+            return 8;
+
+        // Implicit numeric conversion (better than generic assignable, worse than exact)
+        if (IsImplicitNumericConversion(resolvedArg, resolvedParam))
+            return 6;
 
         // Assignable but not exact
         if (IsAssignable(resolvedParam, resolvedArg))
@@ -4813,16 +4821,16 @@ public class Analyzer : IDisposable
         // Reflection-based type checking: use CLR semantics when both sides are reflection types
         if (resolvedSource is ReflectionTypeInfo srcRefl && resolvedTarget is ReflectionTypeInfo tgtRefl)
             return tgtRefl.Type.IsAssignableFrom(srcRefl.Type);
-        // Mixed: reflection target + built-in source — map built-in to CLR type
-        if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo srcSimple)
+        // Mixed: reflection target + built-in source — convert to MLC type for comparison
+        if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo)
         {
-            var clrType = MapBuiltInToClrType(srcSimple.Name);
+            var clrType = TryConvertTypeInfoToClrType(resolvedSource);
             if (clrType != null) return tgtRefl2.Type.IsAssignableFrom(clrType);
         }
         // Mixed: built-in target + reflection source
         if (resolvedTarget is SimpleTypeInfo tgtSimple && resolvedSource is ReflectionTypeInfo srcRefl2)
         {
-            var clrType = MapBuiltInToClrType(tgtSimple.Name);
+            var clrType = TryConvertTypeInfoToClrType(resolvedTarget);
             if (clrType != null) return clrType.IsAssignableFrom(srcRefl2.Type);
         }
         // One side is reflection, other is N#-declared — accept for now (C# compiler will verify)
