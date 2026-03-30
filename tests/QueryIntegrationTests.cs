@@ -9,13 +9,16 @@ namespace NSharpLang.Tests;
 
 /// <summary>
 /// Integration tests for the nlc query toolchain.
-/// Uses REAL example projects as test fixtures — no toy snippets.
+/// Uses REAL projects as test fixtures — no toy snippets.
 ///
-/// Fixture projects:
-///   examples/01-hello-world          — single file, basic functions, variables
-///   examples/06-classes-and-records   — multi-file, classes, records, enums, interfaces
-///   examples/12-multi-file-projects/MultiFileProject — cross-file imports, namespaces
-///   examples/05-unions               — unions, error handling
+/// Fixture projects (examples/):
+///   01-hello-world                              — single file, basic functions, variables
+///   06-classes-and-records                       — multi-file, classes, records, enums, interfaces
+///   12-multi-file-projects/MultiFileProject      — cross-file imports, namespaces
+///   05-unions                                    — unions, error handling
+///
+/// Fixture projects (tests/fixtures/):
+///   issue-tracker                                — complex multi-file web API (unions, duck interfaces, records)
 ///
 /// These tests are the "does it actually work?" layer. They run the full
 /// CodeIntelligenceService pipeline against real N# projects and verify
@@ -25,17 +28,19 @@ public class QueryIntegrationTests : IDisposable
 {
     private readonly CodeIntelligenceService _service = new();
     private readonly string _examplesDir;
+    private readonly string _fixturesDir;
 
     // Lazily loaded snapshots — one per project, shared across tests
     private ProjectSnapshot? _helloWorldSnapshot;
     private ProjectSnapshot? _classesAndRecordsSnapshot;
     private ProjectSnapshot? _multiFileSnapshot;
     private ProjectSnapshot? _unionsSnapshot;
-    private ProjectSnapshot? _dogfoodSnapshot;
+    private ProjectSnapshot? _issueTrackerSnapshot;
 
     public QueryIntegrationTests()
     {
         _examplesDir = FindExamplesDir();
+        _fixturesDir = FindFixturesDir();
     }
 
     public void Dispose() { }
@@ -68,8 +73,8 @@ public class QueryIntegrationTests : IDisposable
     private ProjectSnapshot Unions => _unionsSnapshot ??=
         _service.LoadProject(Path.Combine(_examplesDir, "05-unions"));
 
-    private ProjectSnapshot Dogfood => _dogfoodSnapshot ??=
-        _service.LoadProject(Path.Combine(_examplesDir, "17-issue-tracker", "backend"));
+    private ProjectSnapshot IssueTracker => _issueTrackerSnapshot ??=
+        _service.LoadProject(Path.Combine(_fixturesDir, "issue-tracker"));
 
     // ═══════════════════════════════════════════════════════════════════
     //  SYMBOLS — does it actually find the right stuff?
@@ -552,10 +557,10 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Type_Dogfood_LocalVariableFromNewExpression_Resolves()
+    public void Type_IssueTracker_LocalVariableFromNewExpression_Resolves()
     {
         // Program.nl line 19: service := new IssueService(store, hub)
-        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 19, 5);
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 19, 5);
         Assert.NotNull(result);
         Assert.Equal("service", result!.Name);
         Assert.Equal("IssueService", result.ResolvedType);
@@ -563,20 +568,20 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Type_Dogfood_ClassMethodDeclaration_Resolves()
+    public void Type_IssueTracker_ClassMethodDeclaration_Resolves()
     {
         // Service.nl line 22: func CreateIssue(...): Issue
-        var result = _service.GetTypeAtPosition(Dogfood, "Service.nl", 22, 10);
+        var result = _service.GetTypeAtPosition(IssueTracker, "Service.nl", 22, 10);
         Assert.NotNull(result);
         Assert.Equal("CreateIssue", result!.Name);
     }
 
     [Fact]
-    public void Type_Dogfood_LocalVariableFromImportedMethodCall_Resolves()
+    public void Type_IssueTracker_LocalVariableFromImportedMethodCall_Resolves()
     {
         // Program.nl line 18: store := new IssueStore()
-        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 18, 5);
-        var programSemanticModel = Dogfood.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 18, 5);
+        var programSemanticModel = IssueTracker.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
         var variables = string.Join(", ", programSemanticModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
         Assert.True(result != null, $"Expected store type. Program variables: [{variables}]");
         Assert.Equal("store", result!.Name);
@@ -584,29 +589,29 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Type_Dogfood_RecordPropertyUse_Resolves()
+    public void Type_IssueTracker_RecordPropertyUse_Resolves()
     {
         // Service.nl line 11: store: IssueStore (field in IssueService)
-        var result = _service.GetTypeAtPosition(Dogfood, "Service.nl", 11, 5);
+        var result = _service.GetTypeAtPosition(IssueTracker, "Service.nl", 11, 5);
         Assert.NotNull(result);
         Assert.Equal("store", result!.Name);
     }
 
     [Fact]
-    public void References_Dogfood_MethodDeclaration_IsNotDuplicatedAsUsage()
+    public void References_IssueTracker_MethodDeclaration_IsNotDuplicatedAsUsage()
     {
         // Service.nl line 64: func GetAll(): List<Issue>
-        var refs = _service.FindReferences(Dogfood, "Service.nl", 64, 10);
+        var refs = _service.FindReferences(IssueTracker, "Service.nl", 64, 10);
 
         Assert.True(refs.Count >= 1, $"Expected at least 1 reference to GetAll, got {refs.Count}");
         Assert.Single(refs.Where(r => r.IsDefinition));
     }
 
     [Fact]
-    public void Definition_Dogfood_MethodUseSite_Resolves()
+    public void Definition_IssueTracker_MethodUseSite_Resolves()
     {
         // Service.nl line 64: func GetAll()
-        var result = _service.FindDefinition(Dogfood, "Service.nl", 64, 10);
+        var result = _service.FindDefinition(IssueTracker, "Service.nl", 64, 10);
 
         Assert.NotNull(result);
         Assert.Equal("GetAll", result!.Name);
@@ -616,10 +621,10 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Definition_Dogfood_MethodUseSite_ClosingParen_SnapsToMember()
+    public void Definition_IssueTracker_MethodUseSite_ClosingParen_SnapsToMember()
     {
         // Service.nl line 22: func CreateIssue(...)
-        var result = _service.FindDefinition(Dogfood, "Service.nl", 22, 10);
+        var result = _service.FindDefinition(IssueTracker, "Service.nl", 22, 10);
 
         Assert.NotNull(result);
         Assert.Equal("CreateIssue", result!.Name);
@@ -647,10 +652,10 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Definition_Dogfood_RecordDeclaration_Resolves()
+    public void Definition_IssueTracker_RecordDeclaration_Resolves()
     {
         // Models.nl line 34: record Issue {
-        var result = _service.FindDefinition(Dogfood, "Models.nl", 34, 8);
+        var result = _service.FindDefinition(IssueTracker, "Models.nl", 34, 8);
 
         Assert.NotNull(result);
         Assert.Equal("Issue", result!.Name);
@@ -660,11 +665,11 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Definition_Dogfood_LocalVariableInInterpolation_Resolves()
+    public void Definition_IssueTracker_LocalVariableInInterpolation_Resolves()
     {
         // Program.nl line 29: print "Issue Tracker running..."
         // Use definition by name as a reliable test path
-        var results = _service.FindDefinitionByName(Dogfood, "IssueService");
+        var results = _service.FindDefinitionByName(IssueTracker, "IssueService");
         Assert.NotEmpty(results);
         var issueService = results.First(d => d.Name == "IssueService");
         Assert.Equal("class", issueService.Kind);
@@ -673,10 +678,10 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Definition_Dogfood_UnionDeclaration_Resolves()
+    public void Definition_IssueTracker_UnionDeclaration_Resolves()
     {
         // Models.nl line 19: union IssueStatus {
-        var results = _service.FindDefinitionByName(Dogfood, "IssueStatus");
+        var results = _service.FindDefinitionByName(IssueTracker, "IssueStatus");
         Assert.NotEmpty(results);
         var status = results.First(d => d.Name == "IssueStatus");
         Assert.Equal("union", status.Kind);
@@ -685,20 +690,20 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void References_Dogfood_LocalVariableUseSite_FindsUsages()
+    public void References_IssueTracker_LocalVariableUseSite_FindsUsages()
     {
         // Service.nl line 10: class IssueService — find references to the class
-        var refs = _service.FindReferences(Dogfood, "Service.nl", 10, 7);
+        var refs = _service.FindReferences(IssueTracker, "Service.nl", 10, 7);
 
         Assert.True(refs.Count >= 1, $"Expected at least 1 reference to IssueService, got {refs.Count}");
         Assert.Single(refs.Where(r => r.IsDefinition));
     }
 
     [Fact]
-    public void References_Dogfood_EnumDeclaration_FindsUsages()
+    public void References_IssueTracker_EnumDeclaration_FindsUsages()
     {
         // Models.nl line 9: enum Priority {
-        var refs = _service.FindReferences(Dogfood, "Models.nl", 9, 6);
+        var refs = _service.FindReferences(IssueTracker, "Models.nl", 9, 6);
 
         Assert.True(refs.Count >= 1, $"Expected at least 1 reference to Priority, got {refs.Count}");
     }
@@ -736,5 +741,26 @@ public class QueryIntegrationTests : IDisposable
         }
 
         throw new Exception("Could not find examples directory");
+    }
+
+    private static string FindFixturesDir()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        for (int i = 0; i < 10; i++)
+        {
+            var candidate = Path.Combine(dir, "tests", "fixtures");
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "issue-tracker")))
+                return candidate;
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null) break;
+            dir = parent.FullName;
+        }
+
+        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures";
+        if (Directory.Exists(fallback))
+            return fallback;
+
+        throw new Exception("Could not find tests/fixtures directory");
     }
 }
