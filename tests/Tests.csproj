@@ -9,6 +9,8 @@
     <!-- Disable test parallelization to avoid resource contention -->
     <ParallelizeTestCollections>false</ParallelizeTestCollections>
     <ParallelizeAssembly>false</ParallelizeAssembly>
+    <!-- Exclude integration tests (they have their own project) -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Exclude integration tests — they have their own project (IntegrationTests.csproj) -->

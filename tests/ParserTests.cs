@@ -443,6 +443,48 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestEnumDeclarationWithExplicitStringType()
+    {
+        var source = @"
+            enum Status: string {
+                Pending = ""pending"",
+                Active = ""active"",
+                Done = ""done""
+            }
+        ";
+
+        var cu = Parse(source);
+        var enumDecl = cu.Declarations[0] as EnumDeclaration;
+
+        Assert.NotNull(enumDecl);
+        Assert.Equal("Status", enumDecl!.Name);
+        Assert.Equal(3, enumDecl!.Members.Count);
+        Assert.Equal(EnumType.String, enumDecl!.Type);
+        Assert.Equal("Pending", enumDecl!.Members[0].Name);
+        Assert.IsType<StringLiteralExpression>(enumDecl!.Members[0].Value);
+    }
+
+    [Fact]
+    public void TestEnumDeclarationWithExplicitIntType()
+    {
+        var source = @"
+            enum Priority: int {
+                Low = 0,
+                Medium = 1,
+                High = 2
+            }
+        ";
+
+        var cu = Parse(source);
+        var enumDecl = cu.Declarations[0] as EnumDeclaration;
+
+        Assert.NotNull(enumDecl);
+        Assert.Equal("Priority", enumDecl!.Name);
+        Assert.Equal(3, enumDecl!.Members.Count);
+        Assert.Equal(EnumType.Int, enumDecl!.Type);
+    }
+
+    [Fact]
     public void TestUnionDeclaration()
     {
         var source = @"
