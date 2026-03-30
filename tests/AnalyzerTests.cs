@@ -3354,6 +3354,269 @@ func Hello(): string {
         ");
     }
 
+    // ================================================================
+    // Type-based overload resolution — same arity, different types
+    // ================================================================
+
+    [Fact]
+    public void OverloadResolution_SameArity_IntVsString_SelectsInt()
+    {
+        AssertNoErrors(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                r := Process(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_SameArity_IntVsString_SelectsString()
+    {
+        AssertNoErrors(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                r := Process(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToLong()
+    {
+        AssertNoErrors(@"
+            func Handle(x: long): long { return x }
+            func Handle(x: string): string { return x }
+            func Main() {
+                r := Handle(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ImplicitNumeric_IntToDouble()
+    {
+        AssertNoErrors(@"
+            func Calc(x: double): double { return x }
+            func Calc(x: string): string { return x }
+            func Main() {
+                r := Calc(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_PreferExactOverImplicit()
+    {
+        // When both int and long overloads exist, int literal should prefer int
+        AssertNoErrors(@"
+            func Handle(x: int): int { return x }
+            func Handle(x: long): long { return x }
+            func Main() {
+                r := Handle(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_SameArity_BoolVsInt_Error()
+    {
+        AssertHasError(@"
+            func Process(x: int): int { return x }
+            func Process(x: string): string { return x }
+            func Main() {
+                Process(true)
+            }
+        ", "No matching overload");
+    }
+
+    [Fact]
+    public void OverloadResolution_ExtensionOverload_SameThis_DifferentParams()
+    {
+        AssertNoErrors(@"
+            func Format(this x: int, prefix: string): string { return prefix }
+            func Format(this x: int, decimals: int): int { return decimals }
+            func Main() {
+                r1 := 5.Format(""pre"")
+                r2 := 5.Format(3)
+            }
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_ExtensionOverload_NoMatch_Error()
+    {
+        AssertHasError(@"
+            func Format(this x: int, prefix: string): string { return prefix }
+            func Format(this x: int, decimals: int): int { return decimals }
+            func Main() {
+                5.Format(true)
+            }
+        ", "No matching overload");
+    }
+
+    // ================================================================
+    // Extension methods on literal receivers — type safety
+    // ================================================================
+
+    [Fact]
+    public void Extension_LiteralReceiver_ReturnTypeChecked()
+    {
+        // Extension returns int; assigning to string must error
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                let s: string = 5.Double()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_VariableReceiver_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                let x: int = 5
+                let s: string = x.Double()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_BoolLiteral_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Toggle(this b: bool): bool { return b }
+            func Main() {
+                let n: int = true.Toggle()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_StringLiteral_ReturnTypeChecked()
+    {
+        AssertHasError(@"
+            func Upper(this s: string): string { return s }
+            func Main() {
+                let n: int = ""hello"".Upper()
+            }
+        ", "assign");
+    }
+
+    [Fact]
+    public void Extension_LiteralReceiver_InExpression()
+    {
+        // Extension return used in binary expression
+        AssertNoErrors(@"
+            func Double(this n: int): int { return n * 2 }
+            func Main() {
+                r := 5.Double() + 3
+            }
+        ");
+    }
+
+    [Fact]
+    public void Extension_LiteralReceiver_AsArgument()
+    {
+        // Extension return passed to function expecting different type should error
+        AssertHasError(@"
+            func Double(this n: int): int { return n * 2 }
+            func TakesString(s: string) {}
+            func Main() {
+                TakesString(5.Double())
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void Extension_ChainedOnLiteral()
+    {
+        // 5.ToString().Length should work (CLR methods)
+        AssertNoErrors(@"
+            func Main() {
+                r := 5.ToString().Length
+            }
+        ");
+    }
+
+    [Fact]
+    public void Extension_DoubleLiteral_Receiver()
+    {
+        AssertNoErrors(@"
+            func Negate(this d: double): double { return 0.0 - d }
+            func Main() {
+                r := 3.14.Negate()
+            }
+        ");
+    }
+
+    // ================================================================
+    // .NET BCL interop — overloaded static methods
+    // ================================================================
+
+    [Fact]
+    public void BCL_ConsoleWrite_IntOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_ConsoleWrite_StringOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_ConsoleWrite_BoolOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                Console.Write(true)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_MathMax_IntOverload()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                r := Math.Max(1, 2)
+            }
+        ");
+    }
+
+    [Fact]
+    public void BCL_IntegerParse()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Main() {
+                n := Int32.Parse(""42"")
+            }
+        ");
+    }
+
     // ===================================================================
     // Type System Hardening Tests
     // ===================================================================
