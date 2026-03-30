@@ -3630,6 +3630,122 @@ class TaskEntity {
         Assert.Contains("public DateTime CreatedAt { get; set; }", result);
     }
 
+    // ===================================================================
+    // Duck Interface Lowering Tests
+    // ===================================================================
+
+    [Fact]
+    public void DuckInterface_EmitsInternalInterface()
+    {
+        var source = @"
+duck interface IReader {
+    func Read(): string
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("internal interface IReader", result);
+        Assert.Contains("string Read();", result);
+    }
+
+    [Fact]
+    public void DuckInterface_ClassAutoImplements()
+    {
+        var source = @"
+duck interface IReader {
+    func Read(): string
+}
+
+class FileReader {
+    func Read(): string {
+        return ""file contents""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Class should auto-implement the duck interface
+        // IReader is public because FileReader (PascalCase) is public
+        Assert.Contains("public interface IReader", result);
+        Assert.Contains("class FileReader : IReader", result);
+    }
+
+    [Fact]
+    public void DuckInterface_LowercaseMethodForcedPublic()
+    {
+        // Bug fix: duck interface methods with lowercase names must be emitted as public
+        // so C# interface compliance is satisfied (CS0737)
+        var source = @"
+duck interface IReader {
+    func read(): string
+}
+
+class FileReader {
+    func read(): string {
+        return ""file contents""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Class should auto-implement the duck interface
+        Assert.Contains("class FileReader : IReader", result);
+        // The method must be public even though it's lowercase (duck interface requirement)
+        Assert.Contains("public string read()", result);
+    }
+
+    [Fact]
+    public void DuckInterface_NestedTypeDoesNotClearOuterVisibility()
+    {
+        // Bug fix: nested types must not clear the outer type's duck-interface tracking
+        var source = @"
+duck interface IReader {
+    func read(): string
+}
+
+class FileReader {
+    func read(): string {
+        return ""file contents""
+    }
+
+    class Helper {
+        func help(): string {
+            return ""helping""
+        }
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // FileReader should auto-implement IReader and read() should be public
+        Assert.Contains("class FileReader : IReader", result);
+        Assert.Contains("public string read()", result);
+    }
+
+    [Fact]
+    public void DuckInterface_NonMatchingClassDoesNotImplement()
+    {
+        var source = @"
+duck interface IReader {
+    func Read(): string
+}
+
+class Writer {
+    func Write(s: string) {
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Writer should NOT implement IReader
+        Assert.DoesNotContain("class Writer : IReader", result);
+    }
+
     // NUnit test framework transpilation tests
 
     [Fact]
