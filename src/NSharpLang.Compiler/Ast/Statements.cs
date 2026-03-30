@@ -176,6 +176,14 @@ public record NamespaceImport(
 // Assert statement (for test files)
 public record AssertStatement(
     Expression Condition,
+    Expression? Message,
+    int Line,
+    int Column) : Statement(Line, Column);
+
+// Assert throws statement (for test files) - assert throws ExceptionType { body }
+public record AssertThrowsStatement(
+    TypeReference ExceptionType,
+    BlockStatement Body,
     int Line,
     int Column) : Statement(Line, Column);
 

@@ -17,6 +17,16 @@ public class TranspilerTests
         return transpiler.Transpile();
     }
 
+    private static string TranspileWithConfig(string source, ProjectConfig config)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        var transpiler = new Transpiler(result.CompilationUnit!, config);
+        return transpiler.Transpile();
+    }
+
     [Fact]
     public void TestIndexerTranspilation()
     {
@@ -1909,6 +1919,232 @@ test ""should-handle_special characters!"" {
     }
 
     [Fact]
+    public void TestAssertWithMessageTranspilation()
+    {
+        var source = @"
+test ""test with message"" {
+    assert x == 5, ""should be five""
+}";
+
+        var result = Transpile(source);
+        // Custom message forces Assert.True wrapping (TranspileExpression wraps binary in parens)
+        Assert.Contains("Assert.True((x == 5)", result);
+        Assert.Contains(@"""should be five""", result);
+    }
+
+    [Fact]
+    public void TestAssertThrowsTranspilation()
+    {
+        var source = @"
+test ""should throw"" {
+    assert throws DivideByZeroException {
+        Calculator.Divide(10, 0)
+    }
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Throws<DivideByZeroException>(() =>", result);
+        Assert.Contains("Calculator.Divide(10, 0);", result);
+    }
+
+    [Fact]
+    public void TestTableDrivenTestTranspilation()
+    {
+        var source = @"
+test ""should add"" with (a: int, b: int, expected: int) [
+    (1, 2, 3),
+    (0, 0, 0)
+] {
+    assert Add(a, b) == expected
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("[Theory]", result);
+        Assert.Contains("[InlineData(1, 2, 3)]", result);
+        Assert.Contains("[InlineData(0, 0, 0)]", result);
+        Assert.Contains("public void ShouldAdd(int a, int b, int expected)", result);
+    }
+
+    [Fact]
+    public void TestSkipTestTranspilation()
+    {
+        var source = @"
+test ""needs network"" skip ""no network in CI"" {
+    assert true
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("[Fact(Skip = \"no network in CI\")]", result);
+    }
+
+    [Fact]
+    public void TestSkipTableDrivenTestTranspilation()
+    {
+        var source = @"
+test ""should add"" with (a: int, b: int, expected: int) [
+    (1, 2, 3)
+] skip ""disabled"" {
+    assert Add(a, b) == expected
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("[Theory(Skip = \"disabled\")]", result);
+    }
+
+    [Fact]
+    public void TestTraitAttributeTranspilation()
+    {
+        var source = @"
+test ""should add two numbers"" {
+    assert true
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("[Trait(\"NSharpDescription\", \"should add two numbers\")]", result);
+    }
+
+    [Fact]
+    public void TestAssertNullTranspilation()
+    {
+        var source = @"
+test ""test null"" {
+    assert x == null
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Null(x);", result);
+    }
+
+    [Fact]
+    public void TestAssertEmptyCountTranspilation()
+    {
+        var source = @"
+test ""test empty"" {
+    assert list.Count == 0
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Empty(list);", result);
+    }
+
+    [Fact]
+    public void TestAssertEmptyLengthTranspilation()
+    {
+        var source = @"
+test ""test empty string"" {
+    assert str.Length == 0
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Empty(str);", result);
+    }
+
+    [Fact]
+    public void TestAssertContainsTranspilation()
+    {
+        var source = @"
+test ""test contains"" {
+    assert list.Contains(x)
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Contains(x, list);", result);
+    }
+
+    [Fact]
+    public void TestAssertStartsWithTranspilation()
+    {
+        var source = @"
+test ""test starts with"" {
+    assert str.StartsWith(""hello"")
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.StartsWith(\"hello\", str);", result);
+    }
+
+    [Fact]
+    public void TestAssertEndsWithTranspilation()
+    {
+        var source = @"
+test ""test ends with"" {
+    assert str.EndsWith(""world"")
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.EndsWith(\"world\", str);", result);
+    }
+
+    [Fact]
+    public void TestAssertFalseTranspilation()
+    {
+        var source = @"
+test ""test false"" {
+    assert !isValid
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.False(isValid);", result);
+    }
+
+    [Fact]
+    public void TestAssertDoesNotContainTranspilation()
+    {
+        var source = @"
+test ""test does not contain"" {
+    assert !list.Contains(x)
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.DoesNotContain(x, list);", result);
+    }
+
+    [Fact]
+    public void TestAssertSingleTranspilation()
+    {
+        var source = @"
+test ""test single"" {
+    assert list.Count == 1
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.Single(list);", result);
+    }
+
+    [Fact]
+    public void TestAssertNotEmptyTranspilation()
+    {
+        var source = @"
+test ""test not empty"" {
+    assert list.Count != 0
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("Assert.NotEmpty(list);", result);
+    }
+
+    [Fact]
+    public void TestSetupBlockTranspilation()
+    {
+        var source = @"
+setup {
+    store := new TaskStore()
+}
+
+test ""should work"" {
+    assert store != null
+}";
+
+        var result = Transpile(source);
+        // Should have a field and constructor
+        Assert.Contains("private dynamic store;", result);
+        Assert.Contains("store = new TaskStore();", result);
+        // Should still have the test method
+        Assert.Contains("[Fact]", result);
+        Assert.Contains("public void ShouldWork()", result);
+    }
+
+    [Fact]
     public void TestOperatorOverloadBinaryTranspilation()
     {
         var source = @"
@@ -3508,5 +3744,133 @@ class Writer {
 
         // Writer should NOT implement IReader
         Assert.DoesNotContain("class Writer : IReader", result);
+    }
+
+    // NUnit test framework transpilation tests
+
+    [Fact]
+    public void TestNUnitAssertEqualTranspilation()
+    {
+        var source = @"
+test ""test equals"" {
+    assert x == 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("using NUnit.Framework;", result);
+        Assert.Contains("[TestFixture]", result);
+        Assert.Contains("[Test]", result);
+        Assert.Contains("Assert.That(x, Is.EqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertNotEqualTranspilation()
+    {
+        var source = @"
+test ""test not equals"" {
+    assert x != 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.Not.EqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertNotNullTranspilation()
+    {
+        var source = @"
+test ""test not null"" {
+    assert value != null
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(value, Is.Not.Null);", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertGreaterThanTranspilation()
+    {
+        var source = @"
+test ""test greater than"" {
+    assert x > 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.GreaterThan(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertLessThanTranspilation()
+    {
+        var source = @"
+test ""test less than"" {
+    assert x < 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.LessThan(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertGreaterThanOrEqualTranspilation()
+    {
+        var source = @"
+test ""test gte"" {
+    assert x >= 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.GreaterThanOrEqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertLessThanOrEqualTranspilation()
+    {
+        var source = @"
+test ""test lte"" {
+    assert x <= 5
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(x, Is.LessThanOrEqualTo(5));", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertBooleanTranspilation()
+    {
+        var source = @"
+test ""test boolean"" {
+    assert isValid
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(isValid, Is.True);", result);
+    }
+
+    [Fact]
+    public void TestNUnitAssertIsTypeTranspilation()
+    {
+        var source = @"
+test ""test type check"" {
+    assert value is string
+}";
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("Assert.That(value, Is.InstanceOf<string>());", result);
+    }
+
+    [Fact]
+    public void TestXUnitIsDefaultWhenNoConfig()
+    {
+        var source = @"
+test ""test default"" {
+    assert x == 5
+}";
+        var result = Transpile(source);
+        Assert.Contains("using Xunit;", result);
+        Assert.Contains("[Fact]", result);
+        Assert.Contains("Assert.Equal(5, x);", result);
+        Assert.DoesNotContain("NUnit", result);
+        Assert.DoesNotContain("[TestFixture]", result);
     }
 }

@@ -65,6 +65,11 @@ public class ProjectConfig
     public List<string> Exclude { get; set; } = new();
 
     /// <summary>
+    /// Test framework to use: "xunit" (default) or "nunit"
+    /// </summary>
+    public string TestFramework { get; set; } = "xunit";
+
+    /// <summary>
     /// Language-specific configuration
     /// </summary>
     public LanguageConfig Language { get; set; } = new();
@@ -453,6 +458,13 @@ public class ProjectFileParser
                 $"Invalid outputType: '{config.OutputType}'. Must be 'exe' or 'library'.");
         }
 
+        // Validate testFramework
+        if (config.TestFramework != "xunit" && config.TestFramework != "nunit")
+        {
+            throw new InvalidOperationException(
+                $"Invalid testFramework: '{config.TestFramework}'. Must be 'xunit' or 'nunit'.");
+        }
+
         // Validate asyncDefaultType
         if (config.Language.AsyncDefaultType != "Task" && config.Language.AsyncDefaultType != "ValueTask")
         {
@@ -512,6 +524,9 @@ version: 1.0.0
 entry: Program.nl
 outputType: exe
 targetFramework: net9.0
+
+# Test framework: xunit (default) or nunit
+# testFramework: xunit
 
 # Add your dependencies here
 # dependencies:

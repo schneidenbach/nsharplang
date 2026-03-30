@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
 
@@ -13,7 +14,7 @@ namespace NSharpLang.Compiler;
 /// Semantic analyzer for NewCLILang
 /// Performs type checking, name resolution, and definite assignment analysis
 /// </summary>
-public class Analyzer
+public class Analyzer : IDisposable
 {
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
@@ -23,6 +24,7 @@ public class Analyzer
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
+    private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private TypeInfo? _currentReturnType;
     private bool _inLoop;
     private bool _inConstructor;
@@ -32,7 +34,11 @@ public class Analyzer
     private string? _projectRoot;
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
     private string[]? _sourceLines;  // Source code lines for error snippets
-    private readonly List<Assembly> _referencedAssemblies = new(); // External assemblies for type resolution
+    // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
+    private NSharpMetadataResolver? _metadataResolver;
+    private MetadataLoadContext? _mlc;
+    private WellKnownTypes? _wellKnownTypes;
+    private readonly List<Assembly> _mlcAssemblies = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
@@ -40,9 +46,7 @@ public class Analyzer
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
-    // Static assembly resolver — registered once per process, shared across all Analyzer instances.
-    // This avoids leaking per-instance handlers on AppDomain.CurrentDomain.AssemblyResolve.
-    private static readonly AssemblyResolver s_assemblyResolver = new();
+    private bool _disposed;
 
     public AnalysisResult Analyze(CompilationUnit unit)
     {
@@ -119,6 +123,16 @@ public class Analyzer
             }
         }
 
+        // Collect setup symbols first (so tests can reference them)
+        _setupSymbols = new List<(string Name, TypeInfo Type, int Line, int Column)>();
+        foreach (var decl in unit.Declarations)
+        {
+            if (decl is SetupDeclaration setup)
+            {
+                CollectSetupSymbols(setup);
+            }
+        }
+
         // Second pass: analyze all declarations
         foreach (var decl in unit.Declarations)
         {
@@ -136,6 +150,9 @@ public class Analyzer
         {
             case TestDeclaration test:
                 AnalyzeTestDeclaration(test);
+                break;
+            case SetupDeclaration setup:
+                AnalyzeSetupDeclaration(setup);
                 break;
             case FunctionDeclaration func:
                 AnalyzeFunctionDeclaration(func);
@@ -178,12 +195,82 @@ public class Analyzer
         // Tests are similar to functions - create scope and analyze body
         PushScope(new Scope(ScopeKind.Function));
 
+        // Inject setup symbols so tests can reference setup-declared variables
+        foreach (var (name, type, line, column) in _setupSymbols)
+        {
+            DeclareSymbol(name, type, line, column);
+        }
+
+        // If table-driven, declare parameters in scope
+        if (test.TableParameters != null)
+        {
+            foreach (var param in test.TableParameters)
+            {
+                var paramType = ResolveType(param.Type);
+                DeclareSymbol(param.Name, paramType, test.Line, test.Column);
+            }
+
+            // Validate test case row counts match parameter count
+            if (test.TableCases != null)
+            {
+                foreach (var row in test.TableCases)
+                {
+                    if (row.Count != test.TableParameters.Count)
+                    {
+                        Error(
+                            ErrorCode.TypeMismatch,
+                            $"Test case row has {row.Count} values but {test.TableParameters.Count} parameters were declared",
+                            test.Line, test.Column);
+                    }
+                }
+            }
+        }
+
         foreach (var stmt in test.Body.Statements)
         {
             AnalyzeStatement(stmt);
         }
 
         PopScope();
+    }
+
+    private void AnalyzeSetupDeclaration(SetupDeclaration setup)
+    {
+        // Analyze setup body in its own scope (validates the code),
+        // but symbols are already collected via CollectSetupSymbols
+        PushScope(new Scope(ScopeKind.Function));
+
+        foreach (var stmt in setup.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+
+        PopScope();
+    }
+
+    private void CollectSetupSymbols(SetupDeclaration setup)
+    {
+        // Extract variable declarations from setup block so they can be
+        // injected into each test's scope during analysis
+        foreach (var stmt in setup.Body.Statements)
+        {
+            if (stmt is VariableDeclarationStatement varDecl)
+            {
+                TypeInfo type;
+                if (varDecl.Type != null)
+                {
+                    type = ResolveType(varDecl.Type);
+                }
+                else
+                {
+                    // Inferred type — use a generic object type since we can't fully
+                    // resolve the initializer without a scope. The transpiler handles
+                    // the actual type via C#'s var keyword.
+                    type = BuiltInTypes.Object;
+                }
+                _setupSymbols.Add((varDecl.Name, type, varDecl.Line, varDecl.Column));
+            }
+        }
     }
 
     private void AnalyzeFunctionDeclaration(FunctionDeclaration func)
@@ -587,7 +674,10 @@ public class Analyzer
 
             if (field.Initializer != null)
             {
+                var previousExpectedType = _currentExpectedType;
+                _currentExpectedType = fieldType;
                 var initType = AnalyzeExpression(field.Initializer);
+                _currentExpectedType = previousExpectedType;
                 if (!IsAssignable(fieldType, initType))
                 {
                     var sourceSnippet = _sourceLines != null && field.Line > 0 && field.Line <= _sourceLines.Length
@@ -848,6 +938,9 @@ public class Analyzer
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
                 break;
+            case AssertThrowsStatement assertThrows:
+                AnalyzeAssertThrowsStatement(assertThrows);
+                break;
             case PreprocessorDirective:
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
@@ -862,8 +955,25 @@ public class Analyzer
         // Analyze the condition expression
         var condType = AnalyzeExpression(assertStmt.Condition);
 
+        // Analyze optional message expression
+        if (assertStmt.Message != null)
+        {
+            AnalyzeExpression(assertStmt.Message);
+        }
+
         // We don't strictly require boolean type because we support various comparison patterns
         // The transpiler will convert different expression types to appropriate Assert calls
+    }
+
+    private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
+    {
+        // Analyze the body block
+        PushScope(new Scope(ScopeKind.Block));
+        foreach (var stmt in assertThrows.Body.Statements)
+        {
+            AnalyzeStatement(stmt);
+        }
+        PopScope();
     }
 
     private void AnalyzeLocalFunction(LocalFunctionStatement localFunc)
@@ -1314,7 +1424,7 @@ public class Analyzer
             // Check if type implements IEnumerable<T>
             var enumerableInterface = type.GetInterfaces()
                 .FirstOrDefault(i => i.IsGenericType &&
-                                   i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
+                                   i.GetGenericTypeDefinition().FullName == "System.Collections.Generic.IEnumerable`1");
 
             if (enumerableInterface != null)
             {
@@ -1336,7 +1446,10 @@ public class Analyzer
 
         if (returnStmt.Value != null)
         {
+            var previousExpectedType = _currentExpectedType;
+            _currentExpectedType = _currentReturnType;
             var returnedType = AnalyzeExpression(returnStmt.Value);
+            _currentExpectedType = previousExpectedType;
             if (!IsAssignable(_currentReturnType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message
@@ -1775,7 +1888,7 @@ public class Analyzer
             MemberAccessExpression member => AnalyzeMemberAccess(member),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
-            LambdaExpression lambda => AnalyzeLambda(lambda),
+            LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
@@ -2450,12 +2563,8 @@ public class Analyzer
             return new List<MethodInfo>();
 
         var methods = new List<MethodInfo>();
-        var assemblies = _referencedAssemblies
-            .Concat(AppDomain.CurrentDomain.GetAssemblies())
-            .Distinct()
-            .ToList();
 
-        foreach (var assembly in assemblies)
+        foreach (var assembly in _mlcAssemblies)
         {
             foreach (var type in GetLoadableTypes(assembly))
             {
@@ -2467,7 +2576,7 @@ public class Analyzer
 
                 foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
-                    if (method.Name != methodName || !method.IsDefined(typeof(ExtensionAttribute), false))
+                    if (method.Name != methodName || !HasExtensionAttribute(method))
                         continue;
 
                     var parameters = method.GetParameters();
@@ -2497,6 +2606,16 @@ public class Analyzer
         {
             return Array.Empty<Type>();
         }
+    }
+
+    private static bool HasExtensionAttribute(MethodInfo method)
+    {
+        try
+        {
+            return method.GetCustomAttributesData()
+                .Any(a => a.AttributeType.FullName == "System.Runtime.CompilerServices.ExtensionAttribute");
+        }
+        catch { return false; }
     }
 
     private bool IsExtensionParameterCompatible(Type parameterType, Type targetClrType)
@@ -2548,38 +2667,31 @@ public class Analyzer
 
     private TypeInfo ConvertReflectionType(Type type)
     {
-        // Handle primitive types
-        if (type == typeof(int)) return BuiltInTypes.Int;
-        if (type == typeof(long)) return BuiltInTypes.Long;
-        if (type == typeof(float)) return BuiltInTypes.Float;
-        if (type == typeof(double)) return BuiltInTypes.Double;
-        if (type == typeof(bool)) return BuiltInTypes.Bool;
-        if (type == typeof(string)) return BuiltInTypes.String;
-        if (type == typeof(void)) return BuiltInTypes.Void;
-        if (type == typeof(object)) return BuiltInTypes.Object;
-
-        // Handle arrays
-        if (type.IsArray)
+        // Handle primitive types by FullName (works with both runtime and MLC types)
+        return type.FullName switch
         {
-            var elementType = ConvertReflectionType(type.GetElementType()!);
-            return new ArrayTypeInfo(elementType);
-        }
-
-        // Handle generics
-        if (type.IsGenericType)
-        {
-            var genericArgs = type.GetGenericArguments().Select(ConvertReflectionType).ToList();
-            var genericName = type.Name.Substring(0, type.Name.IndexOf('`'));
-            return new GenericTypeInfo(genericName, genericArgs);
-        }
-
-        // Default to reflection type
-        return new ReflectionTypeInfo(type);
+            "System.Int32" => BuiltInTypes.Int,
+            "System.Int64" => BuiltInTypes.Long,
+            "System.Single" => BuiltInTypes.Float,
+            "System.Double" => BuiltInTypes.Double,
+            "System.Boolean" => BuiltInTypes.Bool,
+            "System.String" => BuiltInTypes.String,
+            "System.Void" => BuiltInTypes.Void,
+            "System.Object" => BuiltInTypes.Object,
+            _ when type.IsArray => new ArrayTypeInfo(ConvertReflectionType(type.GetElementType()!)),
+            _ when type.IsGenericType => new GenericTypeInfo(
+                type.Name[..type.Name.IndexOf('`')],
+                type.GetGenericArguments().Select(ConvertReflectionType).ToList()),
+            _ => new ReflectionTypeInfo(type)
+        };
     }
 
-    private static bool IsDelegateType(Type type)
+    private bool IsDelegateType(Type type)
     {
-        return typeof(Delegate).IsAssignableFrom(type) && type != typeof(Delegate) && type != typeof(MulticastDelegate);
+        if (_wellKnownTypes == null) return false;
+        return _wellKnownTypes.Delegate.IsAssignableFrom(type)
+            && type.FullName != "System.Delegate"
+            && type.FullName != "System.MulticastDelegate";
     }
 
     private FunctionTypeInfo CreateFunctionTypeInfoFromDelegate(Type delegateType)
@@ -2587,14 +2699,12 @@ public class Analyzer
         if (delegateType.IsGenericType)
         {
             var genericDefinition = delegateType.GetGenericTypeDefinition();
+            var genDefName = genericDefinition.FullName;
             var typeArguments = delegateType.GetGenericArguments()
                 .Select(ConvertReflectionType)
                 .ToList();
 
-            if (genericDefinition == typeof(Action<>)
-                || genericDefinition == typeof(Action<,>)
-                || genericDefinition == typeof(Action<,,>)
-                || genericDefinition == typeof(Action<,,,>))
+            if (genDefName is "System.Action`1" or "System.Action`2" or "System.Action`3" or "System.Action`4")
             {
                 return new FunctionTypeInfo(null)
                 {
@@ -2603,11 +2713,7 @@ public class Analyzer
                 };
             }
 
-            if (genericDefinition == typeof(Func<>)
-                || genericDefinition == typeof(Func<,>)
-                || genericDefinition == typeof(Func<,,>)
-                || genericDefinition == typeof(Func<,,,>)
-                || genericDefinition == typeof(Func<,,,,>))
+            if (genDefName is "System.Func`1" or "System.Func`2" or "System.Func`3" or "System.Func`4" or "System.Func`5")
             {
                 return new FunctionTypeInfo(null)
                 {
@@ -2621,9 +2727,11 @@ public class Analyzer
         if (invokeMethod == null)
             return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
 
+        var invokeParameters = invokeMethod.GetParameters();
+
         return new FunctionTypeInfo(null)
         {
-            ParameterTypes = invokeMethod.GetParameters()
+            ParameterTypes = invokeParameters
                 .Select(parameter => ConvertReflectionType(parameter.ParameterType))
                 .ToList(),
             ReturnType = ConvertReflectionType(invokeMethod.ReturnType)
@@ -2641,26 +2749,27 @@ public class Analyzer
 
     private Type? TryConvertTypeInfoToClrType(TypeInfo typeInfo)
     {
+        if (_wellKnownTypes == null) return null;
         var resolvedType = ResolveTypeAlias(typeInfo);
 
         return resolvedType switch
         {
-            SimpleTypeInfo simple when simple == BuiltInTypes.Int => typeof(int),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Long => typeof(long),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Float => typeof(float),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Double => typeof(double),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => typeof(decimal),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => typeof(byte),
-            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => typeof(sbyte),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Short => typeof(short),
-            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => typeof(ushort),
-            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => typeof(uint),
-            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => typeof(ulong),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Char => typeof(char),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => typeof(bool),
-            SimpleTypeInfo simple when simple == BuiltInTypes.String => typeof(string),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Void => typeof(void),
-            SimpleTypeInfo simple when simple == BuiltInTypes.Object => typeof(object),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Int => _wellKnownTypes.Int32,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Long => _wellKnownTypes.Int64,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Float => _wellKnownTypes.Single,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Double => _wellKnownTypes.Double,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => _wellKnownTypes.Decimal,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => _wellKnownTypes.Byte,
+            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => _wellKnownTypes.SByte,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Short => _wellKnownTypes.Int16,
+            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => _wellKnownTypes.UInt16,
+            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => _wellKnownTypes.UInt32,
+            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => _wellKnownTypes.UInt64,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Char => _wellKnownTypes.Char,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => _wellKnownTypes.Boolean,
+            SimpleTypeInfo simple when simple == BuiltInTypes.String => _wellKnownTypes.String,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Void => _wellKnownTypes.Void,
+            SimpleTypeInfo simple when simple == BuiltInTypes.Object => _wellKnownTypes.Object,
             ReflectionTypeInfo reflection => reflection.Type,
             ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
@@ -2673,33 +2782,36 @@ public class Analyzer
     private Type? TryConvertNullableType(TypeInfo innerType)
     {
         var clrInnerType = TryConvertTypeInfoToClrType(innerType);
-        if (clrInnerType == null)
+        if (clrInnerType == null || _wellKnownTypes?.NullableOpen == null)
             return null;
 
-        return clrInnerType.IsValueType ? typeof(Nullable<>).MakeGenericType(clrInnerType) : clrInnerType;
+        return clrInnerType.IsValueType ? _wellKnownTypes.NullableOpen.MakeGenericType(clrInnerType) : clrInnerType;
     }
 
     private Type? TryConstructKnownGenericType(GenericTypeInfo genericType)
     {
+        if (_wellKnownTypes == null) return null;
+        var wkt = _wellKnownTypes;
+
         var typeDefinition = genericType.Name switch
         {
-            "List" when genericType.TypeArguments.Count == 1 => typeof(List<>),
-            "IEnumerable" when genericType.TypeArguments.Count == 1 => typeof(IEnumerable<>),
-            "ICollection" when genericType.TypeArguments.Count == 1 => typeof(ICollection<>),
-            "IList" when genericType.TypeArguments.Count == 1 => typeof(IList<>),
-            "Dictionary" when genericType.TypeArguments.Count == 2 => typeof(Dictionary<,>),
-            "IDictionary" when genericType.TypeArguments.Count == 2 => typeof(IDictionary<,>),
-            "Task" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.Task<>),
-            "ValueTask" when genericType.TypeArguments.Count == 1 => typeof(System.Threading.Tasks.ValueTask<>),
-            "Func" when genericType.TypeArguments.Count == 1 => typeof(Func<>),
-            "Func" when genericType.TypeArguments.Count == 2 => typeof(Func<,>),
-            "Func" when genericType.TypeArguments.Count == 3 => typeof(Func<,,>),
-            "Func" when genericType.TypeArguments.Count == 4 => typeof(Func<,,,>),
-            "Func" when genericType.TypeArguments.Count == 5 => typeof(Func<,,,,>),
-            "Action" when genericType.TypeArguments.Count == 1 => typeof(Action<>),
-            "Action" when genericType.TypeArguments.Count == 2 => typeof(Action<,>),
-            "Action" when genericType.TypeArguments.Count == 3 => typeof(Action<,,>),
-            "Action" when genericType.TypeArguments.Count == 4 => typeof(Action<,,,>),
+            "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
+            "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
+            "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
+            "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
+            "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
+            "IDictionary" when genericType.TypeArguments.Count == 2 => wkt.IDictionaryOpen,
+            "Task" when genericType.TypeArguments.Count == 1 => wkt.TaskOpen,
+            "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
+            "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
+            "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
+            "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
+            "Func" when genericType.TypeArguments.Count == 4 => wkt.Func4,
+            "Func" when genericType.TypeArguments.Count == 5 => wkt.Func5,
+            "Action" when genericType.TypeArguments.Count == 1 => wkt.Action1,
+            "Action" when genericType.TypeArguments.Count == 2 => wkt.Action2,
+            "Action" when genericType.TypeArguments.Count == 3 => wkt.Action3,
+            "Action" when genericType.TypeArguments.Count == 4 => wkt.Action4,
             _ => null
         };
 
@@ -2721,7 +2833,7 @@ public class Analyzer
 
     private Type? TryConstructDelegateType(FunctionTypeInfo functionType)
     {
-        if (functionType.ParameterTypes == null || functionType.ReturnType == null)
+        if (functionType.ParameterTypes == null || functionType.ReturnType == null || _wellKnownTypes == null)
             return null;
 
         var clrParameterTypes = new List<Type>();
@@ -2738,15 +2850,17 @@ public class Analyzer
         if (clrReturnType == null)
             return null;
 
-        if (clrReturnType == typeof(void))
+        var wkt = _wellKnownTypes;
+
+        if (clrReturnType.FullName == "System.Void")
         {
             return clrParameterTypes.Count switch
             {
-                0 => typeof(Action),
-                1 => typeof(Action<>).MakeGenericType(clrParameterTypes.ToArray()),
-                2 => typeof(Action<,>).MakeGenericType(clrParameterTypes.ToArray()),
-                3 => typeof(Action<,,>).MakeGenericType(clrParameterTypes.ToArray()),
-                4 => typeof(Action<,,,>).MakeGenericType(clrParameterTypes.ToArray()),
+                0 => wkt.Action,
+                1 => wkt.Action1?.MakeGenericType(clrParameterTypes.ToArray()),
+                2 => wkt.Action2?.MakeGenericType(clrParameterTypes.ToArray()),
+                3 => wkt.Action3?.MakeGenericType(clrParameterTypes.ToArray()),
+                4 => wkt.Action4?.MakeGenericType(clrParameterTypes.ToArray()),
                 _ => null
             };
         }
@@ -2754,11 +2868,11 @@ public class Analyzer
         var funcTypes = clrParameterTypes.Concat(new[] { clrReturnType }).ToArray();
         return clrParameterTypes.Count switch
         {
-            0 => typeof(Func<>).MakeGenericType(funcTypes),
-            1 => typeof(Func<,>).MakeGenericType(funcTypes),
-            2 => typeof(Func<,,>).MakeGenericType(funcTypes),
-            3 => typeof(Func<,,,>).MakeGenericType(funcTypes),
-            4 => typeof(Func<,,,,>).MakeGenericType(funcTypes),
+            0 => wkt.Func1?.MakeGenericType(funcTypes),
+            1 => wkt.Func2?.MakeGenericType(funcTypes),
+            2 => wkt.Func3?.MakeGenericType(funcTypes),
+            3 => wkt.Func4?.MakeGenericType(funcTypes),
+            4 => wkt.Func5?.MakeGenericType(funcTypes),
             _ => null
         };
     }
@@ -3688,17 +3802,23 @@ public class Analyzer
 
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
-        return parameter.GetCustomAttributes(typeof(ParamArrayAttribute), false).Length > 0;
+        try
+        {
+            return parameter.GetCustomAttributesData()
+                .Any(a => a.AttributeType.FullName == "System.ParamArrayAttribute");
+        }
+        catch { return false; }
     }
 
     private static bool IsExtensionMethodCall(MethodInfo method, CallExpression call)
     {
-        return call.Callee is MemberAccessExpression && method.IsDefined(typeof(ExtensionAttribute), false);
+        return call.Callee is MemberAccessExpression && HasExtensionAttribute(method);
     }
 
     private static int GetCallParameterCount(MethodInfo method, CallExpression call)
     {
-        return Math.Max(0, method.GetParameters().Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
+        var parameters = method.GetParameters();
+        return Math.Max(0, parameters.Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
     }
 
     private static int GetReflectionMatchScore(Type parameterType, Type argumentType)
@@ -3794,7 +3914,11 @@ public class Analyzer
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
         var targetType = AnalyzeExpression(assignment.Target);
+
+        var previousExpectedType = _currentExpectedType;
+        _currentExpectedType = targetType;
         var valueType = AnalyzeExpression(assignment.Value);
+        _currentExpectedType = previousExpectedType;
 
         // Check for readonly field assignment outside constructor
         CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);
@@ -4040,7 +4164,9 @@ public class Analyzer
         // Validate the type exists
         ResolveType(typeofExpr.Type);
         // typeof always returns System.Type
-        return new ReflectionTypeInfo(typeof(Type));
+        return _wellKnownTypes != null
+            ? new ReflectionTypeInfo(_wellKnownTypes.SystemType)
+            : BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeNameofExpression(NameofExpression nameofExpr)
@@ -4398,14 +4524,6 @@ public class Analyzer
         if (_externalTypeCache.TryGetValue(name, out var cachedType))
             return new ReflectionTypeInfo(cachedType);
 
-        // Try direct type lookup in common assemblies
-        var type = Type.GetType(name);
-        if (type != null)
-        {
-            _externalTypeCache[name] = type;
-            return new ReflectionTypeInfo(type);
-        }
-
         // Try with using namespaces
         foreach (var ns in _usingNamespaces)
         {
@@ -4415,72 +4533,25 @@ public class Analyzer
             if (_externalTypeCache.TryGetValue(fullName, out cachedType))
                 return new ReflectionTypeInfo(cachedType);
 
-            // Try core library
-            type = Type.GetType($"{fullName}, System.Runtime");
-            if (type != null)
-            {
-                _externalTypeCache[fullName] = type;
-                return new ReflectionTypeInfo(type);
-            }
-
-            // Try System.Private.CoreLib
-            type = Type.GetType($"{fullName}, System.Private.CoreLib");
-            if (type != null)
-            {
-                _externalTypeCache[fullName] = type;
-                return new ReflectionTypeInfo(type);
-            }
-
-            // Try without assembly qualification
-            type = Type.GetType(fullName);
-            if (type != null)
-            {
-                _externalTypeCache[fullName] = type;
-                return new ReflectionTypeInfo(type);
-            }
-
-            // Try common assemblies
-            var assemblies = new[]
-            {
-                Assembly.Load("System.Runtime"),
-                Assembly.Load("System.Console"),
-                Assembly.Load("System.Linq"),
-                typeof(object).Assembly // mscorlib/System.Private.CoreLib
-            };
-
-            foreach (var assembly in assemblies)
-            {
-                type = assembly.GetType(fullName);
-                if (type != null)
-                {
-                    _externalTypeCache[fullName] = type;
-                    return new ReflectionTypeInfo(type);
-                }
-            }
-
-            // Try referenced assemblies (NEW)
-            foreach (var assembly in _referencedAssemblies)
+            // Search all MLC-loaded assemblies
+            foreach (var assembly in _mlcAssemblies)
             {
                 try
                 {
-                    type = assembly.GetType(fullName);
+                    var type = assembly.GetType(fullName);
+                    if (type != null)
+                    {
+                        _externalTypeCache[fullName] = type;
+                        return new ReflectionTypeInfo(type);
+                    }
                 }
-                catch
-                {
-                    continue;
-                }
-                if (type != null)
-                {
-                    _externalTypeCache[fullName] = type;
-                    return new ReflectionTypeInfo(type);
-                }
+                catch { continue; }
             }
         }
 
-        // Try without namespace in referenced assemblies (NEW)
-        foreach (var assembly in _referencedAssemblies)
+        // Try without namespace (by simple name) in MLC assemblies
+        foreach (var assembly in _mlcAssemblies)
         {
-            // Search all exported types in the assembly
             try
             {
                 var matchingType = assembly.GetExportedTypes()
@@ -4491,11 +4562,7 @@ public class Analyzer
                     return new ReflectionTypeInfo(matchingType);
                 }
             }
-            catch
-            {
-                // Some assemblies may not expose all types
-                continue;
-            }
+            catch { continue; }
         }
 
         return null;
@@ -6042,29 +6109,19 @@ public class Analyzer
             return cachedType;
         }
 
-        var type = Type.GetType(fullName);
-        if (type != null)
-        {
-            _externalTypeCache[fullName] = type;
-            return type;
-        }
-
-        foreach (var assembly in GetExternalSearchAssemblies())
+        // Search MLC assemblies for the exact fully-qualified type name
+        foreach (var assembly in _mlcAssemblies)
         {
             try
             {
-                type = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+                var resolved = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+                if (resolved != null)
+                {
+                    _externalTypeCache[fullName] = resolved;
+                    return resolved;
+                }
             }
-            catch
-            {
-                continue;
-            }
-
-            if (type != null)
-            {
-                _externalTypeCache[fullName] = type;
-                return type;
-            }
+            catch { continue; }
         }
 
         return null;
@@ -6181,16 +6238,7 @@ public class Analyzer
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            var assemblyName = assembly.FullName ?? assembly.GetName().Name;
-            if (!string.IsNullOrEmpty(assemblyName) && seen.Add(assemblyName))
-            {
-                yield return assembly;
-            }
-        }
-
-        foreach (var assembly in _referencedAssemblies)
+        foreach (var assembly in _mlcAssemblies)
         {
             var assemblyName = assembly.FullName ?? assembly.GetName().Name;
             if (!string.IsNullOrEmpty(assemblyName) && seen.Add(assemblyName))
@@ -6263,134 +6311,80 @@ public class Analyzer
     }
 
     /// <summary>
-    /// Load a .NET assembly by file path for type resolution
+    /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)
     /// </summary>
     public void LoadReferencedAssembly(string assemblyPath)
     {
+        if (_mlc == null) return;
         try
         {
-            var assembly = Assembly.LoadFrom(assemblyPath);
-            if (!_referencedAssemblies.Contains(assembly))
-            {
-                _referencedAssemblies.Add(assembly);
-            }
+            var fullPath = Path.GetFullPath(assemblyPath);
+            _metadataResolver?.AddSearchDirectory(Path.GetDirectoryName(fullPath)!);
+            var assembly = _mlc.LoadFromAssemblyPath(fullPath);
+            if (!_mlcAssemblies.Contains(assembly))
+                _mlcAssemblies.Add(assembly);
         }
         catch (Exception ex)
         {
-            // Log but don't fail - assembly might not be needed
             Console.Error.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution
+    /// Load a .NET assembly by name (e.g., "System.Runtime") for type resolution (metadata-only via MLC)
     /// </summary>
     public void LoadReferencedAssemblyByName(string assemblyName)
     {
+        if (_mlc == null) return;
         try
         {
-            var assembly = Assembly.Load(assemblyName);
-            if (!_referencedAssemblies.Contains(assembly))
-            {
-                _referencedAssemblies.Add(assembly);
-            }
-        }
-        catch (FileNotFoundException)
-        {
-            // Try loading from ASP.NET Core shared framework
-            if (TryLoadFromSharedFramework(assemblyName))
-            {
-                return;
-            }
-            // Assembly not found - this is expected for some references
-        }
-        catch (Exception)
-        {
-            // Try loading from shared framework for ANY exception
-            if (TryLoadFromSharedFramework(assemblyName))
-            {
-                return;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Try to load an assembly from the .NET shared frameworks
-    /// </summary>
-    private bool TryLoadFromSharedFramework(string assemblyName)
-    {
-        try
-        {
-            // Get the runtime directory (where shared frameworks are installed)
-            // RuntimeEnvironment.GetRuntimeDirectory() returns something like:
-            // /opt/homebrew/Cellar/dotnet/9.0.8/libexec/shared/Microsoft.NETCore.App/9.0.8/
-            var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-
-            // Navigate up to find the "shared" directory
-            // runtimeDir ends in something like /Microsoft.NETCore.App/9.0.8/
-            // We need to go up to /libexec/shared/
-            var currentDir = runtimeDir;
-            string? sharedFrameworksPath = null;
-
-            // Go up the directory tree looking for a "shared" folder
-            for (int i = 0; i < 5; i++)
-            {
-                currentDir = Path.GetDirectoryName(currentDir);
-                if (currentDir == null) break;
-
-                if (Path.GetFileName(currentDir) == "shared")
-                {
-                    sharedFrameworksPath = currentDir;
-                    break;
-                }
-            }
-
-            if (sharedFrameworksPath == null || !Directory.Exists(sharedFrameworksPath))
-            {
-                return false;
-            }
-
-            // Check both Microsoft.AspNetCore.App and Microsoft.NETCore.App
-            var frameworkNames = new[] { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" };
-
-            foreach (var frameworkName in frameworkNames)
-            {
-                var frameworkPath = Path.Combine(sharedFrameworksPath, frameworkName);
-                if (!Directory.Exists(frameworkPath)) continue;
-
-                // Get the latest version directory
-                var versions = Directory.GetDirectories(frameworkPath)
-                    .Select(Path.GetFileName)
-                    .OrderByDescending(v => v)
-                    .ToList();
-
-                foreach (var version in versions)
-                {
-                    var assemblyPath = Path.Combine(frameworkPath, version!, $"{assemblyName}.dll");
-                    if (File.Exists(assemblyPath))
-                    {
-                        LoadReferencedAssembly(assemblyPath);
-                        return true;
-                    }
-                }
-            }
-
-            return false;
+            var assembly = _mlc.LoadFromAssemblyName(assemblyName);
+            if (!_mlcAssemblies.Contains(assembly))
+                _mlcAssemblies.Add(assembly);
         }
         catch
         {
-            return false;
+            // Assembly not found — the MLC resolver already searched all configured paths
         }
     }
 
     /// <summary>
-    /// Load system assemblies that are commonly used
+    /// Load system assemblies that are commonly used (initializes MetadataLoadContext)
     /// </summary>
     public void LoadSystemAssemblies()
     {
-        // Ensure the static assembly resolver is registered (idempotent, thread-safe)
-        s_assemblyResolver.EnsureRegistered();
+        // Initialize MetadataLoadContext with search directories
+        _metadataResolver = new NSharpMetadataResolver();
 
+        // Add .NET shared framework directories
+        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
+        _metadataResolver.AddSearchDirectory(runtimeDir);
+
+        // Find and add ASP.NET Core and other shared framework directories
+        var searchDir = runtimeDir;
+        for (int i = 0; i < 5; i++)
+        {
+            searchDir = Path.GetDirectoryName(searchDir);
+            if (searchDir == null) break;
+            if (Path.GetFileName(searchDir) == "shared")
+            {
+                foreach (var fwDir in new[] { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" })
+                {
+                    var fwPath = Path.Combine(searchDir, fwDir);
+                    if (!Directory.Exists(fwPath)) continue;
+                    // Add all version directories so transitive deps can be resolved
+                    foreach (var versionDir in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
+                        _metadataResolver.AddSearchDirectory(versionDir);
+                }
+                break;
+            }
+        }
+
+        // Create MetadataLoadContext
+        _mlc = new MetadataLoadContext(_metadataResolver, "System.Runtime");
+
+        // Load common assemblies — with MLC we need to be explicit about which assemblies
+        // to load since there's no automatic type forwarding like runtime reflection
         var commonAssemblies = new[]
         {
             "System.Runtime",
@@ -6399,181 +6393,45 @@ public class Analyzer
             "System.Linq",
             "System.Net.Http",
             "System.Text.Json",
-            "System.Threading.Tasks"
+            "System.Threading",
+            "System.Threading.Tasks",
+            "System.IO.FileSystem",
+            "System.Text.RegularExpressions",
+            "System.ComponentModel.Annotations",
+            "System.Collections.Concurrent",
+            "System.Diagnostics.Debug",
+            "System.Diagnostics.Process",
+            "System.Runtime.InteropServices",
+            "System.ObjectModel",
+            "System.Linq.Expressions",
+            "System.Memory",
+            "System.IO.Pipes",
+            "System.Net.Primitives",
+            "System.Net.Sockets",
+            "System.Security.Cryptography",
+            "System.Text.Encoding.Extensions",
+            "System.Xml.ReaderWriter",
+            "System.Private.CoreLib"
         };
 
         foreach (var assemblyName in commonAssemblies)
         {
             LoadReferencedAssemblyByName(assemblyName);
         }
+
+        // Initialize well-known types from MLC
+        _wellKnownTypes = new WellKnownTypes(_mlc);
     }
 
-    /// <summary>
-    /// Static, process-singleton assembly resolver for transitive NuGet/framework dependencies.
-    /// Registered once on AppDomain.CurrentDomain.AssemblyResolve and shared across all Analyzer instances.
-    /// Uses a lock for thread-safe resolution and caches successful results only.
-    /// </summary>
-    internal sealed class AssemblyResolver
+    public void Dispose()
     {
-        private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
-        private static readonly string[] FrameworkNames = { "Microsoft.AspNetCore.App", "Microsoft.NETCore.App" };
-
-        // Successful resolutions only — misses are NOT cached so they can be retried after restore/install.
-        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Assembly> _cache = new(StringComparer.OrdinalIgnoreCase);
-        private readonly object _resolveLock = new();
-        private readonly HashSet<string> _resolving = new(StringComparer.OrdinalIgnoreCase); // same-thread reentrancy guard (under lock)
-        private bool _registered;
-
-        public void EnsureRegistered()
+        if (!_disposed)
         {
-            // Lock ensures the handler is fully attached before any caller proceeds.
-            lock (_resolveLock)
-            {
-                if (_registered) return;
-                AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
-                _registered = true;
-            }
-        }
-
-        private Assembly? OnAssemblyResolve(object? sender, ResolveEventArgs args)
-        {
-            var asmName = new AssemblyName(args.Name);
-            var simpleName = asmName.Name;
-            if (simpleName == null) return null;
-
-            // Fast path: return cached successful resolution
-            if (_cache.TryGetValue(simpleName, out var cached))
-                return cached;
-
-            // Serialize resolution so concurrent threads wait rather than returning null.
-            // The lock also protects the reentrancy guard set.
-            lock (_resolveLock)
-            {
-                // Double-check after acquiring lock
-                if (_cache.TryGetValue(simpleName, out cached))
-                    return cached;
-
-                // Reentrancy guard: if this thread is already resolving this name
-                // (e.g. Assembly.LoadFrom triggered another AssemblyResolve for the same name),
-                // return null to break the cycle.
-                if (!_resolving.Add(simpleName))
-                    return null;
-
-                try
-                {
-                    var result = ResolveAssembly(simpleName);
-                    if (result != null)
-                        _cache[simpleName] = result;
-                    return result;
-                }
-                finally
-                {
-                    _resolving.Remove(simpleName);
-                }
-            }
-        }
-
-        private static Assembly? ResolveAssembly(string simpleName)
-        {
-            // Check already-loaded assemblies in the AppDomain
-            foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                try
-                {
-                    if (string.Equals(loaded.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase))
-                        return loaded;
-                }
-                catch { /* skip assemblies that can't report their name */ }
-            }
-
-            var nugetRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".nuget", "packages");
-
-            // Try exact NuGet package match (assembly name == package name)
-            var nugetExact = Path.Combine(nugetRoot, simpleName.ToLowerInvariant());
-            var found = TryLoadFromNuGetPackageDir(nugetExact, simpleName);
-            if (found != null) return found;
-
-            // Fallback: search NuGet packages with matching prefix
-            // (handles cases like Microsoft.CodeAnalysis in package microsoft.codeanalysis.common)
-            if (Directory.Exists(nugetRoot))
-            {
-                try
-                {
-                    var prefix = simpleName.ToLowerInvariant();
-                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
-                    {
-                        var dirName = Path.GetFileName(pkgDir);
-                        if (dirName == null || !dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        var result = TryLoadFromNuGetPackageDir(pkgDir, simpleName);
-                        if (result != null) return result;
-                    }
-                }
-                catch { /* NuGet prefix search failed */ }
-            }
-
-            // Try shared framework directories
-            return TryLoadFromSharedFrameworks(simpleName);
-        }
-
-        private static Assembly? TryLoadFromNuGetPackageDir(string packageDir, string simpleName)
-        {
-            if (!Directory.Exists(packageDir)) return null;
-
-            var versionDir = Directory.GetDirectories(packageDir)
-                .OrderByDescending(d => d)
-                .FirstOrDefault();
-            if (versionDir == null) return null;
-
-            foreach (var tfm in Tfms)
-            {
-                var dllPath = Path.Combine(versionDir, "lib", tfm, $"{simpleName}.dll");
-                if (File.Exists(dllPath))
-                {
-                    try { return Assembly.LoadFrom(dllPath); }
-                    catch { /* continue searching */ }
-                }
-            }
-            return null;
-        }
-
-        private static Assembly? TryLoadFromSharedFrameworks(string simpleName)
-        {
-            try
-            {
-                var runtimeDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
-                var searchDir = runtimeDir;
-
-                for (int i = 0; i < 5; i++)
-                {
-                    searchDir = Path.GetDirectoryName(searchDir);
-                    if (searchDir == null) break;
-                    if (Path.GetFileName(searchDir) == "shared")
-                    {
-                        foreach (var fw in FrameworkNames)
-                        {
-                            var fwPath = Path.Combine(searchDir, fw);
-                            if (!Directory.Exists(fwPath)) continue;
-
-                            foreach (var ver in Directory.GetDirectories(fwPath).OrderByDescending(d => d))
-                            {
-                                var dllPath = Path.Combine(ver, $"{simpleName}.dll");
-                                if (File.Exists(dllPath))
-                                {
-                                    try { return Assembly.LoadFrom(dllPath); }
-                                    catch { /* continue searching */ }
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
-            catch { /* shared framework search failed */ }
-            return null;
+            _mlc?.Dispose();
+            _mlc = null;
+            _wellKnownTypes = null;
+            _mlcAssemblies.Clear();
+            _disposed = true;
         }
     }
 
@@ -6891,6 +6749,223 @@ public class Analyzer
             types.AddRange(scope.Types.Keys);
         }
         return types;
+    }
+
+    /// <summary>
+    /// Custom MetadataAssemblyResolver that dynamically searches directories for assemblies.
+    /// Replaces the old AppDomain.AssemblyResolve-based AssemblyResolver.
+    /// </summary>
+    internal sealed class NSharpMetadataResolver : MetadataAssemblyResolver
+    {
+        private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
+
+        private readonly List<string> _searchDirectories = new();
+
+        public void AddSearchDirectory(string directory)
+        {
+            if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory) && !_searchDirectories.Contains(directory))
+                _searchDirectories.Add(directory);
+        }
+
+        public override Assembly? Resolve(MetadataLoadContext context, AssemblyName assemblyName)
+        {
+            var simpleName = assemblyName.Name;
+            if (simpleName == null) return null;
+
+            // Search configured directories
+            foreach (var dir in _searchDirectories)
+            {
+                var dllPath = Path.Combine(dir, $"{simpleName}.dll");
+                if (File.Exists(dllPath))
+                {
+                    try { return context.LoadFromAssemblyPath(dllPath); }
+                    catch { continue; }
+                }
+            }
+
+            // Search NuGet cache
+            var nugetRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget", "packages");
+
+            var nugetExact = Path.Combine(nugetRoot, simpleName.ToLowerInvariant());
+            var found = TryLoadFromNuGetPackageDir(context, nugetExact, simpleName);
+            if (found != null) return found;
+
+            // Prefix search in NuGet cache
+            if (Directory.Exists(nugetRoot))
+            {
+                try
+                {
+                    var prefix = simpleName.ToLowerInvariant();
+                    foreach (var pkgDir in Directory.GetDirectories(nugetRoot))
+                    {
+                        var dirName = Path.GetFileName(pkgDir);
+                        if (dirName != null && dirName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var result = TryLoadFromNuGetPackageDir(context, pkgDir, simpleName);
+                            if (result != null) return result;
+                        }
+                    }
+                }
+                catch { /* NuGet prefix search failed */ }
+            }
+
+            return null;
+        }
+
+        private static Assembly? TryLoadFromNuGetPackageDir(MetadataLoadContext context, string packageDir, string simpleName)
+        {
+            if (!Directory.Exists(packageDir)) return null;
+
+            var versionDir = Directory.GetDirectories(packageDir)
+                .OrderByDescending(d => d)
+                .FirstOrDefault();
+            if (versionDir == null) return null;
+
+            foreach (var tfm in Tfms)
+            {
+                var dllPath = Path.Combine(versionDir, "lib", tfm, $"{simpleName}.dll");
+                if (File.Exists(dllPath))
+                {
+                    try { return context.LoadFromAssemblyPath(dllPath); }
+                    catch { continue; }
+                }
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Caches well-known CLR types from the MetadataLoadContext for use in type comparisons
+    /// and generic type construction. Replaces all typeof() references.
+    /// </summary>
+    internal sealed class WellKnownTypes
+    {
+        // Primitives (non-nullable — guaranteed to exist in any .NET runtime)
+        public readonly Type Int32;
+        public readonly Type Int64;
+        public readonly Type Single;
+        public readonly Type Double;
+        public readonly Type Decimal;
+        public readonly Type Byte;
+        public readonly Type SByte;
+        public readonly Type Int16;
+        public readonly Type UInt16;
+        public readonly Type UInt32;
+        public readonly Type UInt64;
+        public readonly Type Char;
+        public readonly Type Boolean;
+        public readonly Type String;
+        public readonly Type Void;
+        public readonly Type Object;
+
+        // System.Type (for typeof expressions)
+        public readonly Type SystemType;
+
+        // Delegate hierarchy
+        public readonly Type Delegate;
+
+        // Nullable
+        public readonly Type? NullableOpen;
+
+        // Collections
+        public readonly Type? ListOpen;
+        public readonly Type? IEnumerableOpen;
+        public readonly Type? ICollectionOpen;
+        public readonly Type? IListOpen;
+        public readonly Type? DictionaryOpen;
+        public readonly Type? IDictionaryOpen;
+
+        // Tasks
+        public readonly Type? TaskOpen;
+        public readonly Type? ValueTaskOpen;
+
+        // Action/Func delegates
+        public readonly Type? Action;
+        public readonly Type? Action1;
+        public readonly Type? Action2;
+        public readonly Type? Action3;
+        public readonly Type? Action4;
+        public readonly Type? Func1;
+        public readonly Type? Func2;
+        public readonly Type? Func3;
+        public readonly Type? Func4;
+        public readonly Type? Func5;
+
+        public WellKnownTypes(MetadataLoadContext mlc)
+        {
+            var core = mlc.CoreAssembly ?? throw new InvalidOperationException("MLC core assembly not loaded");
+
+            // Some types may be defined in System.Private.CoreLib rather than System.Runtime
+            // (depending on framework layout). Try both to be safe.
+            Assembly? coreLib = null;
+            try { coreLib = mlc.LoadFromAssemblyName("System.Private.CoreLib"); } catch { }
+
+            Type? Resolve(string fullName) =>
+                core.GetType(fullName) ?? coreLib?.GetType(fullName);
+
+            // Primitives — these must exist in any .NET runtime
+            Int32 = Resolve("System.Int32") ?? throw new InvalidOperationException("System.Int32 not found in MLC");
+            Int64 = Resolve("System.Int64") ?? throw new InvalidOperationException("System.Int64 not found in MLC");
+            Single = Resolve("System.Single") ?? throw new InvalidOperationException("System.Single not found in MLC");
+            Double = Resolve("System.Double") ?? throw new InvalidOperationException("System.Double not found in MLC");
+            Decimal = Resolve("System.Decimal") ?? throw new InvalidOperationException("System.Decimal not found in MLC");
+            Byte = Resolve("System.Byte") ?? throw new InvalidOperationException("System.Byte not found in MLC");
+            SByte = Resolve("System.SByte") ?? throw new InvalidOperationException("System.SByte not found in MLC");
+            Int16 = Resolve("System.Int16") ?? throw new InvalidOperationException("System.Int16 not found in MLC");
+            UInt16 = Resolve("System.UInt16") ?? throw new InvalidOperationException("System.UInt16 not found in MLC");
+            UInt32 = Resolve("System.UInt32") ?? throw new InvalidOperationException("System.UInt32 not found in MLC");
+            UInt64 = Resolve("System.UInt64") ?? throw new InvalidOperationException("System.UInt64 not found in MLC");
+            Char = Resolve("System.Char") ?? throw new InvalidOperationException("System.Char not found in MLC");
+            Boolean = Resolve("System.Boolean") ?? throw new InvalidOperationException("System.Boolean not found in MLC");
+            String = Resolve("System.String") ?? throw new InvalidOperationException("System.String not found in MLC");
+            Void = Resolve("System.Void") ?? throw new InvalidOperationException("System.Void not found in MLC");
+            Object = Resolve("System.Object") ?? throw new InvalidOperationException("System.Object not found in MLC");
+            Delegate = Resolve("System.Delegate") ?? throw new InvalidOperationException("System.Delegate not found in MLC");
+            SystemType = Resolve("System.Type") ?? throw new InvalidOperationException("System.Type not found in MLC");
+
+            NullableOpen = Resolve("System.Nullable`1");
+            Action = Resolve("System.Action");
+            Action1 = Resolve("System.Action`1");
+            Action2 = Resolve("System.Action`2");
+            Action3 = Resolve("System.Action`3");
+            Action4 = Resolve("System.Action`4");
+            Func1 = Resolve("System.Func`1");
+            Func2 = Resolve("System.Func`2");
+            Func3 = Resolve("System.Func`3");
+            Func4 = Resolve("System.Func`4");
+            Func5 = Resolve("System.Func`5");
+
+            // Collections — may be in a separate assembly
+            try
+            {
+                var collections = mlc.LoadFromAssemblyName("System.Collections");
+                ListOpen = collections.GetType("System.Collections.Generic.List`1");
+                ICollectionOpen = collections.GetType("System.Collections.Generic.ICollection`1");
+                IListOpen = collections.GetType("System.Collections.Generic.IList`1");
+                DictionaryOpen = collections.GetType("System.Collections.Generic.Dictionary`2");
+                IDictionaryOpen = collections.GetType("System.Collections.Generic.IDictionary`2");
+            }
+            catch { /* collections assembly not available */ }
+
+            // IEnumerable<T> is in System.Runtime
+            IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1");
+
+            // Tasks — try core first, then dedicated assembly
+            TaskOpen = Resolve("System.Threading.Tasks.Task`1");
+            ValueTaskOpen = Resolve("System.Threading.Tasks.ValueTask`1");
+            if (TaskOpen == null || ValueTaskOpen == null)
+            {
+                try
+                {
+                    var threading = mlc.LoadFromAssemblyName("System.Threading.Tasks");
+                    TaskOpen ??= threading.GetType("System.Threading.Tasks.Task`1");
+                    ValueTaskOpen ??= threading.GetType("System.Threading.Tasks.ValueTask`1");
+                }
+                catch { /* threading assembly not available */ }
+            }
+        }
     }
 }
 
