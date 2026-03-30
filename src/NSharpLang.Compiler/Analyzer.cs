@@ -3487,29 +3487,113 @@ public class Analyzer : IDisposable
             return null;
 
         var bindings = new Dictionary<string, TypeInfo>();
+        // Track all bounds per type parameter for LUB computation
+        var allBounds = new Dictionary<string, List<TypeInfo>>();
+        foreach (var tp in decl.TypeParameters)
+            allBounds[tp.Name] = new List<TypeInfo>();
 
-        // First: use explicit type arguments if provided
+        // Phase 1: Use explicit type arguments if provided
         if (call.TypeArguments != null && call.TypeArguments.Count > 0)
         {
-            if (call.TypeArguments.Count != decl.TypeParameters.Count)
-                return null; // Arity mismatch on type args
-
-            for (int i = 0; i < decl.TypeParameters.Count; i++)
+            if (call.TypeArguments.Count == decl.TypeParameters.Count)
             {
-                bindings[decl.TypeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
+                // All type args are explicit
+                for (int i = 0; i < decl.TypeParameters.Count; i++)
+                {
+                    bindings[decl.TypeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
+                }
+                return bindings;
             }
-            // Fall through to constraint validation below
-        }
-        else
-        {
-            // Second: infer from argument types
-            var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-            var paramStart = isExtension ? 1 : 0;
-
-            for (int i = 0; i < argTypes.Count && (i + paramStart) < decl.Parameters.Count; i++)
+            else if (call.TypeArguments.Count < decl.TypeParameters.Count)
             {
-                var paramTypeRef = decl.Parameters[i + paramStart].Type;
-                TryMatchNSharpTypeParameter(paramTypeRef, argTypes[i], decl.TypeParameters, bindings);
+                // Partial inference: first N type args are explicit, rest are inferred
+                for (int i = 0; i < call.TypeArguments.Count; i++)
+                {
+                    bindings[decl.TypeParameters[i].Name] = ResolveType(call.TypeArguments[i]);
+                }
+                // Fall through to infer the remaining type parameters from arguments
+            }
+            else
+            {
+                return null; // More type args than type params
+            }
+        }
+
+        // Phase 2: Infer from argument types
+        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+        var paramStart = isExtension ? 1 : 0;
+        var hasParams = decl.Parameters.Count > 0 &&
+                        decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+        var effectiveParamCount = decl.Parameters.Count - paramStart;
+        var regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
+
+        // For extension methods, infer from the receiver type (the `this` parameter)
+        if (isExtension && call.Callee is MemberAccessExpression memberAccess)
+        {
+            var receiverType = AnalyzeExpression(memberAccess.Object);
+            CollectNSharpTypeParameterBounds(decl.Parameters[0].Type, receiverType, decl.TypeParameters, allBounds);
+        }
+
+        // Match regular (non-params) parameters
+        for (int i = 0; i < argTypes.Count && i < regularParamCount; i++)
+        {
+            var paramTypeRef = decl.Parameters[i + paramStart].Type;
+            CollectNSharpTypeParameterBounds(paramTypeRef, argTypes[i], decl.TypeParameters, allBounds);
+        }
+
+        // Match params arguments against the element type of the params array
+        if (hasParams && argTypes.Count >= regularParamCount)
+        {
+            var paramsTypeRef = decl.Parameters[^1].Type;
+            // Extract element type for inference:
+            // - T[] → T (ArrayTypeReference)
+            // - List<T>, IEnumerable<T>, etc. → T (GenericTypeReference with single type arg)
+            TypeReference? paramsElementTypeRef = null;
+            if (paramsTypeRef is ArrayTypeReference paramsArray)
+            {
+                paramsElementTypeRef = paramsArray.ElementType;
+            }
+            else if (paramsTypeRef is GenericTypeReference paramsGeneric && paramsGeneric.TypeArguments.Count == 1)
+            {
+                // Handles params List<T>, params IEnumerable<T>, params Span<T>, etc.
+                paramsElementTypeRef = paramsGeneric.TypeArguments[0];
+            }
+
+            if (paramsElementTypeRef != null)
+            {
+                for (int i = regularParamCount; i < argTypes.Count; i++)
+                {
+                    CollectNSharpTypeParameterBounds(paramsElementTypeRef, argTypes[i], decl.TypeParameters, allBounds);
+                }
+            }
+            else
+            {
+                // Fallback: match directly against the whole params type
+                for (int i = regularParamCount; i < argTypes.Count; i++)
+                {
+                    CollectNSharpTypeParameterBounds(paramsTypeRef, argTypes[i], decl.TypeParameters, allBounds);
+                }
+            }
+        }
+
+        // Phase 3: Resolve bounds into bindings
+        foreach (var tp in decl.TypeParameters)
+        {
+            if (bindings.ContainsKey(tp.Name))
+                continue; // Already bound by explicit type arg
+
+            var bounds = allBounds[tp.Name];
+            if (bounds.Count == 0)
+                continue;
+
+            if (bounds.Count == 1)
+            {
+                bindings[tp.Name] = bounds[0];
+            }
+            else
+            {
+                // Compute LUB (least upper bound) of all bounds
+                bindings[tp.Name] = ComputeLeastUpperBound(bounds);
             }
         }
 
@@ -3517,24 +3601,119 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Recursively matches a parameter type reference against an argument type to infer generic bindings.
+    /// Computes the least upper bound (best common type) of a list of types.
+    /// Used when multiple arguments constrain the same type parameter.
     /// </summary>
-    private void TryMatchNSharpTypeParameter(
+    private TypeInfo ComputeLeastUpperBound(List<TypeInfo> types)
+    {
+        if (types.Count == 0)
+            return BuiltInTypes.Object;
+        if (types.Count == 1)
+            return types[0];
+
+        // If all types are the same, return that type
+        var first = types[0];
+        if (types.All(t => TypesEqual(t, first)))
+            return first;
+
+        // Check if one type is assignable from all others (common supertype among the candidates)
+        foreach (var candidate in types)
+        {
+            if (types.All(t => TypesEqual(t, candidate) || IsAssignable(candidate, t)))
+                return candidate;
+        }
+
+        // For numeric types, find the widest numeric type
+        var numericLub = TryComputeNumericLub(types);
+        if (numericLub != null)
+            return numericLub;
+
+        // No common type found — use object as the safe fallback
+        // (C# would fail best-common-type inference here; object is the conservative choice)
+        return BuiltInTypes.Object;
+    }
+
+    /// <summary>
+    /// Tries to compute the widest numeric type from a list of numeric types.
+    /// </summary>
+    private TypeInfo? TryComputeNumericLub(List<TypeInfo> types)
+    {
+        // Numeric widening order: byte < short < int < long < float < double < decimal
+        var numericOrder = new[] { "byte", "short", "int", "long", "float", "double", "decimal" };
+
+        int maxIndex = -1;
+        foreach (var type in types)
+        {
+            var name = type.ToString().ToLowerInvariant();
+            // Also handle System.* names
+            name = name switch
+            {
+                "system.byte" => "byte",
+                "system.int16" => "short",
+                "system.int32" => "int",
+                "system.int64" => "long",
+                "system.single" => "float",
+                "system.double" => "double",
+                "system.decimal" => "decimal",
+                _ => name
+            };
+            var index = Array.IndexOf(numericOrder, name);
+            if (index < 0)
+                return null; // Not all types are numeric
+            maxIndex = Math.Max(maxIndex, index);
+        }
+
+        if (maxIndex >= 0)
+        {
+            return numericOrder[maxIndex] switch
+            {
+                "byte" => BuiltInTypes.Byte,
+                "short" => BuiltInTypes.Short,
+                "int" => BuiltInTypes.Int,
+                "long" => BuiltInTypes.Long,
+                "float" => BuiltInTypes.Float,
+                "double" => BuiltInTypes.Double,
+                "decimal" => BuiltInTypes.Decimal,
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if two TypeInfo values represent the same type.
+    /// </summary>
+    private bool TypesEqual(TypeInfo a, TypeInfo b)
+    {
+        if (a == b) return true;
+        if (a.ToString() == b.ToString()) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Collects type parameter bounds by recursively matching a parameter type reference against an argument type.
+    /// Unlike direct binding, this collects ALL bounds so LUB can be computed when a type param appears multiple times.
+    /// </summary>
+    private void CollectNSharpTypeParameterBounds(
         TypeReference paramTypeRef,
         TypeInfo argType,
         List<TypeParameter> typeParameters,
-        Dictionary<string, TypeInfo> bindings)
+        Dictionary<string, List<TypeInfo>> allBounds)
     {
+        // Skip types that provide no inference information
+        if (BuiltInTypes.IsUnknown(argType))
+            return;
+        if (argType == BuiltInTypes.Null)
+            return; // null carries no type information for generic inference
+
         if (paramTypeRef is SimpleTypeReference simple)
         {
-            // Check if this simple type name is a type parameter
             foreach (var tp in typeParameters)
             {
                 if (tp.Name == simple.Name)
                 {
-                    // Bind it if not already bound, or verify consistency
-                    if (!bindings.ContainsKey(tp.Name))
-                        bindings[tp.Name] = argType;
+                    allBounds[tp.Name].Add(argType);
                     return;
                 }
             }
@@ -3542,29 +3721,111 @@ public class Analyzer : IDisposable
         else if (paramTypeRef is GenericTypeReference generic)
         {
             // e.g., List<T> matched against List<int> → T=int
-            if (argType is GenericTypeInfo argGeneric &&
-                generic.Name == argGeneric.Name &&
+            if (argType is GenericTypeInfo argGeneric && GenericNamesMatch(generic.Name, argGeneric.Name) &&
                 generic.TypeArguments.Count == argGeneric.TypeArguments.Count)
             {
                 for (int i = 0; i < generic.TypeArguments.Count; i++)
                 {
-                    TryMatchNSharpTypeParameter(generic.TypeArguments[i], argGeneric.TypeArguments[i], typeParameters, bindings);
+                    CollectNSharpTypeParameterBounds(generic.TypeArguments[i], argGeneric.TypeArguments[i], typeParameters, allBounds);
+                }
+            }
+            // Also match against ExternalTypeInfo that wraps a generic CLR type
+            else if (argType is ExternalTypeInfo ext)
+            {
+                TryMatchGenericRefAgainstExternalType(generic, ext, typeParameters, allBounds);
+            }
+            // Match against ReflectionTypeInfo wrapping a generic CLR type
+            else if (argType is ReflectionTypeInfo refl && refl.Type.IsGenericType)
+            {
+                var typeArgs = refl.Type.GetGenericArguments();
+                if (generic.TypeArguments.Count == typeArgs.Length &&
+                    GenericNamesMatch(generic.Name, refl.Type.Name.Split('`')[0]))
+                {
+                    for (int i = 0; i < generic.TypeArguments.Count; i++)
+                    {
+                        CollectNSharpTypeParameterBounds(generic.TypeArguments[i], ConvertReflectionType(typeArgs[i]), typeParameters, allBounds);
+                    }
                 }
             }
         }
         else if (paramTypeRef is ArrayTypeReference array)
         {
-            // T[] matched against int[] → T=int
             if (argType is ArrayTypeInfo argArray)
             {
-                TryMatchNSharpTypeParameter(array.ElementType, argArray.ElementType, typeParameters, bindings);
+                CollectNSharpTypeParameterBounds(array.ElementType, argArray.ElementType, typeParameters, allBounds);
             }
         }
         else if (paramTypeRef is NullableTypeReference nullable)
         {
             if (argType is NullableTypeInfo argNullable)
             {
-                TryMatchNSharpTypeParameter(nullable.InnerType, argNullable.InnerType, typeParameters, bindings);
+                CollectNSharpTypeParameterBounds(nullable.InnerType, argNullable.InnerType, typeParameters, allBounds);
+            }
+            // Also allow matching T? against a non-nullable T (infer the inner type)
+            else
+            {
+                CollectNSharpTypeParameterBounds(nullable.InnerType, argType, typeParameters, allBounds);
+            }
+        }
+        // Handle Func/Action delegate types for lambda inference
+        else if (paramTypeRef is FunctionTypeReference funcRef)
+        {
+            if (argType is FunctionTypeInfo funcType)
+            {
+                // Match parameter types
+                if (funcRef.ParameterTypes != null && funcType.ParameterTypes != null)
+                {
+                    for (int i = 0; i < funcRef.ParameterTypes.Count && i < funcType.ParameterTypes.Count; i++)
+                    {
+                        CollectNSharpTypeParameterBounds(funcRef.ParameterTypes[i], funcType.ParameterTypes[i], typeParameters, allBounds);
+                    }
+                }
+                // Match return type
+                if (funcRef.ReturnType != null && funcType.ReturnType != null)
+                {
+                    CollectNSharpTypeParameterBounds(funcRef.ReturnType, funcType.ReturnType, typeParameters, allBounds);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks if two generic type names match, accounting for namespace-qualified names.
+    /// e.g., "List" matches "List", and "Dictionary" matches "Dictionary".
+    /// </summary>
+    private static bool GenericNamesMatch(string refName, string infoName)
+    {
+        if (refName == infoName) return true;
+        // Handle cases where one is qualified and the other isn't
+        if (infoName.Contains('.'))
+            return infoName.EndsWith("." + refName);
+        if (refName.Contains('.'))
+            return refName.EndsWith("." + infoName);
+        return false;
+    }
+
+    /// <summary>
+    /// Tries to match a GenericTypeReference (from a parameter declaration) against an ExternalTypeInfo (from an argument).
+    /// This handles cases like matching List&lt;T&gt; against an ExternalTypeInfo("List`1") from reflection.
+    /// </summary>
+    private void TryMatchGenericRefAgainstExternalType(
+        GenericTypeReference generic,
+        ExternalTypeInfo ext,
+        List<TypeParameter> typeParameters,
+        Dictionary<string, List<TypeInfo>> allBounds)
+    {
+        // Try to resolve the ExternalTypeInfo to a CLR type for deeper matching
+        var clrType = TryConvertTypeInfoToClrType(ext);
+        if (clrType != null && clrType.IsGenericType)
+        {
+            var typeArgs = clrType.GetGenericArguments();
+            if (generic.TypeArguments.Count == typeArgs.Length &&
+                GenericNamesMatch(generic.Name, clrType.Name.Split('`')[0]))
+            {
+                for (int i = 0; i < generic.TypeArguments.Count; i++)
+                {
+                    CollectNSharpTypeParameterBounds(generic.TypeArguments[i], ConvertReflectionType(typeArgs[i]), typeParameters, allBounds);
+                }
             }
         }
     }
