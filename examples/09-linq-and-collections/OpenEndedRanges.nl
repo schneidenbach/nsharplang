@@ -2,7 +2,7 @@
 // Demonstrates C# 8+ open-ended range operators
 func PrintArray(arr: int[]) {
     result := "["
-    for i = 0; i < arr.Length; i++ {
+    for i := 0; i < arr.Length; i++ {
         result = result + arr[i].ToString()
         if i < arr.Length - 1 {
             result = result + ", "
@@ -63,7 +63,7 @@ func Main() {
     pageSize := 5
     totalPages := (items.Length + pageSize - 1) / pageSize
 
-    for i = 0; i < totalPages; i++ {
+    for i := 0; i < totalPages; i++ {
         start := i * pageSize
         end := start + pageSize
 
