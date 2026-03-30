@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -27,25 +26,19 @@ public static class AuditCommand
 
         try
         {
-            var psi = new ProcessStartInfo("dotnet", $"list \"{csproj}\" package --vulnerable --include-transitive --format json")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                WorkingDirectory = projectRoot
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd() ?? "";
-            var stderr = process?.StandardError.ReadToEnd() ?? "";
-            process?.WaitForExit();
+            var result = DotnetRunner.Run(
+                $"list \"{csproj}\" package --vulnerable --include-transitive --format json",
+                workingDirectory: projectRoot);
 
-            if (process?.ExitCode != 0)
+            if (result.ExitCode != 0)
             {
                 // dotnet list --vulnerable may not be available in older SDKs
-                if (stderr.Contains("--vulnerable"))
+                if (result.Stderr.Contains("--vulnerable"))
                     return Error("The --vulnerable flag requires .NET SDK 8.0 or later.");
-                return Error($"Audit failed: {stderr}".Trim());
+                return Error($"Audit failed: {result.Stderr}".Trim());
             }
+
+            var output = result.Stdout;
 
             var vulnCount = CountVulnerabilities(output);
 

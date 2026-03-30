@@ -2,7 +2,7 @@ import System
 
 // A simple hello-world program demonstrating functions and string interpolation
 
-func hi(): int {
+func Hi(): int {
     print "hi there!"
     return 42
 }
@@ -15,7 +15,7 @@ func Main() {
     greeting := $"Hello, {name}!"
     print greeting
 
-    // Call hi() and capture the result
-    i := hi()
+    // Call Hi() and capture the result
+    i := Hi()
     print $"hi returned {i}"
 }

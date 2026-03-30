@@ -49,6 +49,15 @@ public class LinterConfig
                 { "NL003", DiagnosticSeverity.Warning }, // Unnecessary null check
                 { "NL004", DiagnosticSeverity.Warning }, // Async without await
                 { "NL005", DiagnosticSeverity.Info },    // Use pattern matching
+                { "NL006", DiagnosticSeverity.Warning }, // Unreachable code
+                { "NL007", DiagnosticSeverity.Warning }, // Pascal-case type
+                { "NL008", DiagnosticSeverity.Info },    // Camel-case local
+                { "NL009", DiagnosticSeverity.Warning }, // Pascal-case function
+                { "NL011", DiagnosticSeverity.Warning }, // Empty catch
+                { "NL012", DiagnosticSeverity.Info },    // Unused parameter
+                { "NL013", DiagnosticSeverity.Info },    // Prefer interpolation
+                { "NL019", DiagnosticSeverity.Info },    // Empty block
+                { "NL020", DiagnosticSeverity.Warning }, // Shadowed variable
             }
         };
     }
@@ -183,6 +192,10 @@ internal class LintVisitor
     private readonly HashSet<Expression> _visitingStack = new(ReferenceEqualityComparer.Instance);
     private int _recursionDepth = 0;
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
+
+    // NL012: Track parameters separately so we can report them without polluting the unused-variable check
+    private List<(string Name, int Line, int Column)> _currentFunctionParams = new();
+    private HashSet<string> _currentFunctionParamUsages = new();
 
     public List<Diagnostic> Diagnostics => _diagnostics;
 
@@ -376,19 +389,37 @@ internal class LintVisitor
         switch (declaration)
         {
             case FunctionDeclaration func:
+                // NL009: Pascal-case function
+                CheckPascalCaseFunction(func.Name, func.Line, func.Column);
                 VisitFunction(func);
                 break;
             case ClassDeclaration classDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(classDecl.Name, "class", classDecl.Line, classDecl.Column);
                 VisitClass(classDecl);
                 break;
             case StructDeclaration structDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(structDecl.Name, "struct", structDecl.Line, structDecl.Column);
                 VisitStruct(structDecl);
                 break;
             case RecordDeclaration recordDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(recordDecl.Name, "record", recordDecl.Line, recordDecl.Column);
                 VisitRecord(recordDecl);
                 break;
             case InterfaceDeclaration interfaceDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(interfaceDecl.Name, "interface", interfaceDecl.Line, interfaceDecl.Column);
                 VisitInterface(interfaceDecl);
+                break;
+            case UnionDeclaration unionDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(unionDecl.Name, "union", unionDecl.Line, unionDecl.Column);
+                break;
+            case EnumDeclaration enumDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(enumDecl.Name, "enum", enumDecl.Line, enumDecl.Column);
                 break;
             case FieldDeclaration field:
                 if (field.Initializer != null)
@@ -408,6 +439,46 @@ internal class LintVisitor
         }
     }
 
+    private void CheckPascalCaseType(string name, string kind, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL007"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        if (!char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL007",
+                $"{kind} '{name}' should use PascalCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL007"),
+                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
+        }
+    }
+
+    private void CheckPascalCaseFunction(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL009"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        // Skip operator overloads (name may start with non-letter)
+        if (!char.IsLetter(name[0]))
+            return;
+        // 'main' is a special entry-point identifier, exempt from PascalCase (like Go)
+        if (name == "main")
+            return;
+        if (!char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL009",
+                $"Function '{name}' should use PascalCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL009"),
+                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
+        }
+    }
+
     private void VisitFunction(FunctionDeclaration func)
     {
         // NL004: Check for async without await
@@ -416,18 +487,29 @@ internal class LintVisitor
         _inAsyncFunction = func.Modifiers.HasFlag(Modifiers.Async);
         _hasAwaitInFunction = false;
 
+        // NL012: Save outer param tracking state
+        var outerParams = _currentFunctionParams;
+        var outerParamUsages = _currentFunctionParamUsages;
+        _currentFunctionParams = new List<(string Name, int Line, int Column)>();
+        _currentFunctionParamUsages = new HashSet<string>();
+
         if (func.Body != null)
         {
             PushScope();
 
-            // Add parameters to scope
+            // Add parameters to scope; track for NL012
             foreach (var param in func.Parameters)
             {
                 DeclareVariable(param.Name, func.Line, func.Column);
-                MarkVariableUsed(param.Name); // Parameters are considered used
+                MarkVariableUsed(param.Name); // Parameters exempt from NL001
+                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
             }
 
             VisitStatement(func.Body);
+
+            // NL012: Report unused parameters
+            CheckUnusedParameters(func.Name);
+
             PopScope();
         }
         else if (func.ExpressionBody != null)
@@ -437,8 +519,13 @@ internal class LintVisitor
             {
                 DeclareVariable(param.Name, func.Line, func.Column);
                 MarkVariableUsed(param.Name);
+                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
             }
             VisitExpression(func.ExpressionBody);
+
+            // NL012: Report unused parameters
+            CheckUnusedParameters(func.Name);
+
             PopScope();
         }
 
@@ -464,6 +551,27 @@ internal class LintVisitor
         // Restore state
         _inAsyncFunction = wasInAsync;
         _hasAwaitInFunction = hadAwait;
+        _currentFunctionParams = outerParams;
+        _currentFunctionParamUsages = outerParamUsages;
+    }
+
+    private void CheckUnusedParameters(string functionName)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL012"))
+            return;
+
+        foreach (var (name, line, column) in _currentFunctionParams)
+        {
+            if (!_currentFunctionParamUsages.Contains(name))
+            {
+                AddDiagnostic(
+                    "NL012",
+                    $"Parameter '{name}' in function '{functionName}' is never used",
+                    new Location(line, column, _filePath),
+                    _config.GetSeverity("NL012"),
+                    $"Prefix with '_' to suppress: '_{name}'");
+            }
+        }
     }
 
     private void VisitClass(ClassDeclaration classDecl)
@@ -514,12 +622,27 @@ internal class LintVisitor
                     _ => 3
                 };
                 var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
+                // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
+                CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
                 DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
                 if (varDecl.Initializer != null)
                     VisitExpression(varDecl.Initializer);
                 break;
 
             case BlockStatement block:
+                // NL019: Empty block — warn if block has no statements
+                // (Only fire at function-body level; we suppress for interface method stubs etc.
+                //  The simplest safe check: only warn when the block is non-top-level, i.e. there
+                //  IS a containing scope already, which means we are inside at least one function.)
+                if (block.Statements.Count == 0 && _scopeStack.Count > 0)
+                {
+                    AddDiagnostic(
+                        "NL019",
+                        "Empty block body — consider adding a comment or removing the block",
+                        new Location(block.Line, block.Column, _filePath),
+                        _config.GetSeverity("NL019"));
+                }
+
                 PushScope();
                 var unreachableReported = false;
                 var restIsUnreachable = false;
@@ -601,6 +724,17 @@ internal class LintVisitor
                 VisitStatement(tryStmt.TryBlock);
                 foreach (var catchClause in tryStmt.CatchClauses)
                 {
+                    // NL011: Empty catch block
+                    if (catchClause.Block.Statements.Count == 0)
+                    {
+                        AddDiagnostic(
+                            "NL011",
+                            "Empty catch block swallows exceptions silently",
+                            new Location(catchClause.Block.Line, catchClause.Block.Column, _filePath),
+                            _config.GetSeverity("NL011"),
+                            "Add error handling or at minimum a comment explaining why the exception is ignored");
+                    }
+
                     PushScope();
                     if (catchClause.VariableName != null)
                     {
@@ -800,6 +934,9 @@ internal class LintVisitor
                 break;
 
             case BinaryExpression binary:
+                // NL013: Prefer string interpolation over concatenation
+                if (binary.Operator == BinaryOperator.Add)
+                    CheckPreferInterpolation(binary);
                 VisitExpression(binary.Left);
                 VisitExpression(binary.Right);
                 break;
@@ -950,13 +1087,86 @@ internal class LintVisitor
         }
     }
 
+    private void CheckCamelCaseLocal(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL008"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        // Skip underscore-prefixed names (convention for intentionally unused / discards)
+        if (name.StartsWith("_", StringComparison.Ordinal))
+            return;
+        if (char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL008",
+                $"Local variable '{name}' should use camelCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL008"),
+                $"Rename '{name}' to '{char.ToLowerInvariant(name[0])}{name[1..]}'");
+        }
+    }
+
+    private void CheckPreferInterpolation(BinaryExpression binary)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL013"))
+            return;
+
+        var leftIsString = binary.Left is StringLiteralExpression;
+        var rightIsString = binary.Right is StringLiteralExpression;
+
+        // Only fire when at least one operand is a string literal and the other is not also
+        // a string literal (string literal + string literal is just concatenation, not a
+        // case where interpolation helps readability).
+        if ((leftIsString || rightIsString) && !(leftIsString && rightIsString))
+        {
+            AddDiagnostic(
+                "NL013",
+                "String concatenation with '+' — consider using string interpolation ($\"...\")",
+                new Location(binary.Line, binary.Column, _filePath),
+                _config.GetSeverity("NL013"),
+                "Replace with $\"...{expr}...\" interpolated string");
+        }
+    }
+
     private void DeclareVariable(string name, int line, int column)
     {
+        // NL020: Check if this name shadows a variable in an outer scope
+        CheckShadowedVariable(name, line, column);
+
         _declaredVariables[name] = (line, column, false);
+    }
+
+    private void CheckShadowedVariable(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL020"))
+            return;
+
+        // Skip discard (_) and underscore-prefixed names
+        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
+            return;
+
+        // Check all outer scopes on the stack (not the current scope, which we're declaring into)
+        foreach (var scope in _scopeStack)
+        {
+            if (scope.ContainsKey(name))
+            {
+                AddDiagnostic(
+                    "NL020",
+                    $"Variable '{name}' shadows a variable declared in an outer scope",
+                    new Location(line, column, _filePath),
+                    _config.GetSeverity("NL020"));
+                return;
+            }
+        }
     }
 
     private void MarkVariableUsed(string name)
     {
+        // NL012: Track parameter usages
+        if (_currentFunctionParams.Any(p => p.Name == name))
+            _currentFunctionParamUsages.Add(name);
+
         // Check current scope
         if (_declaredVariables.ContainsKey(name))
         {

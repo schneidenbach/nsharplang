@@ -17,14 +17,13 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc build --release` | Build with Release configuration | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
-| `nlc build --output <path>` | Build to specific output directory (-o shorthand) | `nlc build -o ./dist` |
 | `nlc run` | Compile and run project | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
-| `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
+| `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check (JSON by default) | `nlc check` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
@@ -62,14 +61,12 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint <files>` | Lint specific files | `nlc lint Program.nl` |
 | `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
 | `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
-| `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/15-dogfood-project` |
+| `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/17-issue-tracker/backend` |
 | `nlc test` | Run .tests.nl files (xUnit or NUnit per project.yml) | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 | `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
-| `nlc test --timeout <dur>` | Set test timeout (e.g., 30s, 5m, 1h) | `nlc test --timeout 5m` |
-| `nlc test --no-cache` | Force clean rebuild before running tests | `nlc test --no-cache` |
 
 ### Project Management
 
@@ -144,9 +141,37 @@ $ nlc fix --dry-run    # preview without applying; exits 1 if fixes are availabl
 $ nlc fix --file F     # fix single file
 ```
 
-**Currently supported fixes:**
-- **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
+**Built-in lint rules:**
+
+| Code | Severity | Name | Description |
+|------|----------|------|-------------|
+| NL001 | Warning | `unused-variable` | Local variable declared but never read |
+| NL002 | Error | `missing-import` | Type used without the required `import` |
+| NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
+| NL004 | Warning | `async-without-await` | `async` function never uses `await` |
+| NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
+| NL006 | Warning | `unreachable-code` | Statements after `return` or `throw` |
+| NL007 | Warning | `pascal-case-type` | Type name (class/struct/record/enum/union/interface) doesn't start with uppercase |
+| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase |
+| NL009 | Warning | `pascal-case-function` | Function name doesn't start with uppercase (`main` is exempt) |
+| NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
+| NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
+| NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
+| NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
+| NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+
+**Currently supported auto-fixes (`nlc fix`):**
 - **NL001** — Unused variable: removes the declaration line
+- **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
+- **NL003** — Unnecessary null check: removes the `== null` / `!= null` clause
+- **NL007** — Pascal-case type: capitalises the first letter of the type name (`ReviewNeeded` safety)
+- **NL011** — Empty catch: inserts `// TODO: handle exception` comment
+- **NL013** — Prefer interpolation: suggestion-only hint (full conversion requires manual review)
+
+**`FixSafety` levels** (on `CodeAction`):
+- `Safe` — always correct to apply automatically
+- `ReviewNeeded` — likely correct but may need follow-up (e.g. callers that reference the renamed symbol)
+- `SuggestionOnly` — provides a hint only; no edits are applied
 
 Inline lint suppression is also supported for specific warnings:
 
@@ -273,7 +298,7 @@ $ nlc query batch --requests requests.json
   "schemaVersion": 1,
   "command": "batch",
   "ok": false,
-  "projectRoot": "/repo/examples/15-dogfood-project",
+  "projectRoot": "/repo/examples/17-issue-tracker/backend",
   "requestCount": 3,
   "successCount": 2,
   "failureCount": 1,
@@ -328,15 +353,11 @@ nlc format --stdin < Program.nl
 nlc test --filter "should add"
 nlc test --verbose
 nlc test --coverage
-nlc test --timeout 5m
-nlc test --no-cache
 ```
 
 - `--filter` matches both test display names and fully-qualified test names
 - `--verbose` increases `dotnet test` output detail without changing the underlying test pipeline
 - `--coverage` collects code coverage via coverlet.msbuild, generates `coverage.opencover.xml` in the project root
-- `--timeout <duration>` sets the test session timeout (e.g., `30s`, `5m`, `1h`)
-- `--no-cache` forces a clean rebuild before running tests (bypass incremental build)
 
 ### `nlc build` — Release Builds and Verbose Output
 
@@ -346,14 +367,12 @@ Build supports Go/Rust-style configuration flags:
 nlc build                # debug build (default)
 nlc build --release      # release (optimized) build
 nlc build --verbose      # detailed MSBuild output
-nlc build -o ./dist      # build to specific output directory
 nlc build --release --verbose
 ```
 
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `--release` passes `-c Release` to `dotnet build`
 - `--verbose` increases MSBuild verbosity to `detailed`
-- `--output <path>` / `-o <path>` sets the output directory for build artifacts
 
 ### `nlc clean` — Build Artifact Cleanup
 
@@ -375,8 +394,6 @@ Watch the project tree and re-run a command after a debounce window:
 nlc watch check
 nlc watch build
 nlc watch test --filter "should add"
-nlc watch lint
-nlc watch format --check
 ```
 
 - Watches `.nl`, `project.yml`, and `.editorconfig`
@@ -595,7 +612,6 @@ nlc query inspect --file Program.nl --pos 5:4
 
 Socket: `{projectRoot}/.nlc/daemon.sock`
 Protocol: JSON-RPC over Unix socket
-File watching: `*.nl`, `project.yml`, `.editorconfig` (cache invalidated on change)
 
 ---
 

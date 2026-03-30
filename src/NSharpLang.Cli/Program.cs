@@ -144,24 +144,25 @@ Exit codes:
             if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
             buildArgs += verbose ? " -v normal" : " -v q";
 
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = buildArgs,
-                RedirectStandardOutput = !verbose,
-                RedirectStandardError = !verbose,
-                UseShellExecute = false
-            });
+            int buildExitCode;
+            string buildDetail = "";
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (verbose)
             {
-                var error = verbose ? "" : (buildResult?.StandardError.ReadToEnd() ?? "");
-                var output = verbose ? "" : (buildResult?.StandardOutput.ReadToEnd() ?? "");
-                var detail = string.IsNullOrWhiteSpace(error + output) ? "" : $"\n{error}{output}";
+                buildExitCode = DotnetRunner.RunPassthrough(buildArgs, verbose: true);
+            }
+            else
+            {
+                var buildCapture = DotnetRunner.Run(buildArgs);
+                buildExitCode = buildCapture.ExitCode;
+                var detail = buildCapture.Stderr + buildCapture.Stdout;
+                buildDetail = string.IsNullOrWhiteSpace(detail) ? "" : $"\n{detail}";
+            }
+
+            if (buildExitCode != 0)
+            {
                 Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
-                return Error($"Build failed{detail}");
+                return Error($"Build failed{buildDetail}");
             }
 
             Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
@@ -288,19 +289,9 @@ Exit codes:
             if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
 
 
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = buildArgs,
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false
-            });
+            var buildExitCode = DotnetRunner.RunPassthrough(buildArgs, workingDirectory: projectRoot, verbose: verbose);
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (buildExitCode != 0)
             {
                 Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
                 return Error("Build failed");
@@ -463,36 +454,16 @@ Exit codes:
             File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
 
             // Build and run
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
+            var buildCapture = DotnetRunner.Run($"build \"{projectFile}\" -v q");
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (buildCapture.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Build failed:\n{error}{output}");
+                return Error($"Build failed:\n{buildCapture.Stderr}{buildCapture.Stdout}");
             }
 
             Console.WriteLine();
 
-            var runResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"run --project \"{projectFile}\" --no-build",
-                UseShellExecute = false
-            });
-
-            runResult?.WaitForExit();
-
-            return runResult?.ExitCode ?? 0;
+            return DotnetRunner.RunPassthrough($"run --project \"{projectFile}\" --no-build");
         }
         catch (Exception ex)
         {
@@ -526,17 +497,9 @@ Exit codes:
             Console.WriteLine("Running...");
             Console.WriteLine();
 
-            var runResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"run --project \"{csprojPath}\" --no-build",
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false
-            });
-
-            runResult?.WaitForExit();
-
-            return runResult?.ExitCode ?? 0;
+            return DotnetRunner.RunPassthrough(
+                $"run --project \"{csprojPath}\" --no-build",
+                workingDirectory: projectRoot);
         }
         catch (Exception ex)
         {
@@ -605,19 +568,11 @@ Exit codes:
             if (args.Contains("--self-contained"))
                 publishArgs.Add("--self-contained");
 
-            var publishResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", publishArgs),
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false
-            });
+            var publishExitCode = DotnetRunner.RunPassthrough(
+                string.Join(" ", publishArgs),
+                workingDirectory: projectRoot);
 
-            publishResult?.WaitForExit();
-
-            if (publishResult?.ExitCode != 0)
+            if (publishExitCode != 0)
             {
                 return Error("Publish failed");
             }
@@ -996,22 +951,11 @@ Exit codes:
                 File.WriteAllText(mainProjectFile, GenerateCsProj(projectConfig));
 
                 // Build main project
-                var mainBuildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "dotnet",
-                    Arguments = $"build \"{mainProjectFile}\" -v q",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false
-                });
+                var mainBuildCapture = DotnetRunner.Run($"build \"{mainProjectFile}\" -v q");
 
-                mainBuildResult?.WaitForExit();
-
-                if (mainBuildResult?.ExitCode != 0)
+                if (mainBuildCapture.ExitCode != 0)
                 {
-                    var error = mainBuildResult?.StandardError.ReadToEnd() ?? "";
-                    var output = mainBuildResult?.StandardOutput.ReadToEnd() ?? "";
-                    var msg = $"Main project build failed:\n{error}{output}";
+                    var msg = $"Main project build failed:\n{mainBuildCapture.Stderr}{mainBuildCapture.Stdout}";
                     if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
                     return Error(msg);
                 }
@@ -1111,22 +1055,11 @@ Exit codes:
             var testBuildArgs = $"build \"{projectFile}\" -v q";
             if (noCache) testBuildArgs += " --no-incremental";
 
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = testBuildArgs,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
+            var testBuildCapture = DotnetRunner.Run(testBuildArgs);
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (testBuildCapture.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                var msg = $"Test build failed:\n{error}{output}";
+                var msg = $"Test build failed:\n{testBuildCapture.Stderr}{testBuildCapture.Stdout}";
                 if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
             }
 
@@ -1180,17 +1113,18 @@ Exit codes:
                 }
             }
 
-            var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            int exitCode;
+            if (jsonOutput)
             {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", testArguments),
-                RedirectStandardOutput = jsonOutput,
-                RedirectStandardError = jsonOutput,
-                UseShellExecute = false
-            });
-
-            testRunResult?.WaitForExit();
-            var exitCode = testRunResult?.ExitCode ?? 0;
+                // Capture output so we can parse the TRX file without console noise
+                var testRunCapture = DotnetRunner.Run(string.Join(" ", testArguments));
+                exitCode = testRunCapture.ExitCode;
+            }
+            else
+            {
+                // Forward output live so the user sees test progress
+                exitCode = DotnetRunner.RunPassthrough(string.Join(" ", testArguments));
+            }
 
             // JSON output: parse TRX and emit structured JSON
             if (jsonOutput)
@@ -1604,39 +1538,24 @@ Exit codes:
         try
         {
             // Install reportgenerator as a global tool if not already installed
-            var installResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = "tool install -g dotnet-reportgenerator-globaltool",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
-            installResult?.WaitForExit();
+            DotnetRunner.Run("tool install -g dotnet-reportgenerator-globaltool");
             // Ignore exit code — tool may already be installed
 
             // Generate HTML report
-            var reportResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "reportgenerator",
-                Arguments = $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
-            reportResult?.WaitForExit();
+            var reportResult = DotnetRunner.RunProcess(
+                "reportgenerator",
+                $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html");
 
-            if (reportResult?.ExitCode == 0)
+            if (reportResult.ExitCode == 0)
             {
                 Console.WriteLine();
                 Console.WriteLine($"Coverage report generated: {reportDir}/index.html");
             }
             else
             {
-                var error = reportResult?.StandardError.ReadToEnd() ?? "";
                 Console.Error.WriteLine($"Warning: Could not generate HTML report. Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
-                if (!string.IsNullOrWhiteSpace(error))
-                    Console.Error.WriteLine(error);
+                if (!string.IsNullOrWhiteSpace(reportResult.Stderr))
+                    Console.Error.WriteLine(reportResult.Stderr);
             }
         }
         catch (Exception ex)
