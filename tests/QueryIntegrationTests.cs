@@ -433,7 +433,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(13, main.Line); // func Main() is on line 13
+        Assert.Equal(13, main.Line); // func Main() is on line 13 of Program.nl
     }
 
     // MultiFile Person.nl layout:
