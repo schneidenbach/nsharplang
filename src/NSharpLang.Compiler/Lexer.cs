@@ -553,6 +553,51 @@ public class Lexer
         var sb = new StringBuilder();
         var isFloat = false;
 
+        // Hex literal: 0x or 0X
+        if (Peek() == '0' && (PeekNext() == 'x' || PeekNext() == 'X'))
+        {
+            sb.Append(Peek()); Advance(); // '0'
+            sb.Append(Peek()); Advance(); // 'x'/'X'
+
+            if (IsAtEnd() || !IsHexDigit(Peek()))
+            {
+                return new Token(TokenType.Unknown, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
+            while (!IsAtEnd() && (IsHexDigit(Peek()) || Peek() == '_'))
+            {
+                if (Peek() == '_') { Advance(); continue; }
+                sb.Append(Peek());
+                Advance();
+            }
+
+            ConsumeIntegerSuffix(sb);
+            return new Token(TokenType.IntLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        }
+
+        // Binary literal: 0b or 0B
+        if (Peek() == '0' && (PeekNext() == 'b' || PeekNext() == 'B'))
+        {
+            sb.Append(Peek()); Advance(); // '0'
+            sb.Append(Peek()); Advance(); // 'b'/'B'
+
+            if (IsAtEnd() || (Peek() != '0' && Peek() != '1'))
+            {
+                return new Token(TokenType.Unknown, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
+            while (!IsAtEnd() && (Peek() == '0' || Peek() == '1' || Peek() == '_'))
+            {
+                if (Peek() == '_') { Advance(); continue; }
+                sb.Append(Peek());
+                Advance();
+            }
+
+            ConsumeIntegerSuffix(sb);
+            return new Token(TokenType.IntLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        }
+
+        // Decimal / float literal
         while (!IsAtEnd() && (char.IsDigit(Peek()) || Peek() == '.' || Peek() == '_'))
         {
             if (Peek() == '_')
@@ -573,7 +618,15 @@ public class Lexer
                     break;
 
                 if (isFloat)
-                    throw new Exception($"Invalid number format at {_fileName ?? "?"}:{startLine}:{startColumn}");
+                {
+                    // Invalid: multiple decimal points — produce error token instead of throwing
+                    while (!IsAtEnd() && (char.IsDigit(Peek()) || Peek() == '.'))
+                    {
+                        sb.Append(Peek());
+                        Advance();
+                    }
+                    return new Token(TokenType.Unknown, sb.ToString(), startLine, startColumn, _fileName);
+                }
 
                 isFloat = true;
             }
@@ -582,10 +635,90 @@ public class Lexer
             Advance();
         }
 
+        // Exponent notation: e/E followed by optional +/- and digits (e.g., 1.5e10, 2E-3)
+        if (!IsAtEnd() && (Peek() == 'e' || Peek() == 'E'))
+        {
+            isFloat = true;
+            sb.Append(Peek());
+            Advance();
+
+            if (!IsAtEnd() && (Peek() == '+' || Peek() == '-'))
+            {
+                sb.Append(Peek());
+                Advance();
+            }
+
+            if (IsAtEnd() || !char.IsDigit(Peek()))
+            {
+                return new Token(TokenType.Unknown, sb.ToString(), startLine, startColumn, _fileName);
+            }
+
+            while (!IsAtEnd() && (char.IsDigit(Peek()) || Peek() == '_'))
+            {
+                if (Peek() == '_') { Advance(); continue; }
+                sb.Append(Peek());
+                Advance();
+            }
+        }
+
+        // Type suffixes: f/F (float), d/D (double), m/M (decimal) for floats;
+        // L/l, U/u, UL/ul etc. for integers
+        if (isFloat)
+        {
+            ConsumeFloatSuffix(sb);
+        }
+        else
+        {
+            ConsumeIntegerSuffix(sb);
+        }
+
         var value = sb.ToString();
         var tokenType = isFloat ? TokenType.FloatLiteral : TokenType.IntLiteral;
 
         return new Token(tokenType, value, startLine, startColumn, _fileName);
+    }
+
+    private void ConsumeFloatSuffix(StringBuilder sb)
+    {
+        if (IsAtEnd()) return;
+        var ch = Peek();
+        if (ch == 'f' || ch == 'F' || ch == 'd' || ch == 'D' || ch == 'm' || ch == 'M')
+        {
+            sb.Append(ch);
+            Advance();
+        }
+    }
+
+    private void ConsumeIntegerSuffix(StringBuilder sb)
+    {
+        if (IsAtEnd()) return;
+        var ch = Peek();
+        // U/u, L/l, UL/ul, LU/lu
+        if (ch == 'u' || ch == 'U')
+        {
+            sb.Append(ch);
+            Advance();
+            if (!IsAtEnd() && (Peek() == 'l' || Peek() == 'L'))
+            {
+                sb.Append(Peek());
+                Advance();
+            }
+        }
+        else if (ch == 'l' || ch == 'L')
+        {
+            sb.Append(ch);
+            Advance();
+            if (!IsAtEnd() && (Peek() == 'u' || Peek() == 'U'))
+            {
+                sb.Append(Peek());
+                Advance();
+            }
+        }
+    }
+
+    private static bool IsHexDigit(char c)
+    {
+        return char.IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     }
 
     private Token ReadString(int startLine, int startColumn, bool isInterpolated = false)
