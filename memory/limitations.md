@@ -279,14 +279,14 @@ Most limitations have workarounds:
 **High Priority:**
 - Method overload resolution by type
 - Extension methods on literals
-- SemanticModel field/property recording (completions use AST fallback currently)
+- ✅ SemanticModel field/property recording (fields and properties now recorded in top-level dicts AND TypeMembers)
 - BindingMap for cross-file type references (import path doesn't record bindings)
 
 **Medium Priority:**
 - Generic type inference
 - Exhaustiveness with guards
 - Circular import detection
-- Position-aware SemanticModel (for shadowing, scope-correct lookups)
+- ✅ Position-aware SemanticModel (scope tracking with LookupIdentifierAtPosition and GetVisibleVariablesAtPosition)
 
 **Low Priority:**
 - REPL

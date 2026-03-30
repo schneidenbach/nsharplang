@@ -403,4 +403,206 @@ class Person {
         // The type should be the resolved RecordTypeInfo, not just a string
         Assert.Equal("Address", members["Home"].ToString());
     }
+
+    // ── Field/Property top-level recording tests ────────────────────────
+
+    [Fact]
+    public void Analyzer_ClassFields_RecordedInTopLevelFieldsDict()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        // Fields should now be in the top-level Fields dict (not just TypeMembers)
+        Assert.Equal("string", result.SemanticModel.Fields["Name"].ToString());
+        Assert.Equal("int", result.SemanticModel.Fields["Age"].ToString());
+    }
+
+    [Fact]
+    public void Analyzer_ClassProperties_RecordedInTopLevelPropertiesDict()
+    {
+        var source = @"
+class Config {
+    _host: string
+
+    Host: string {
+        get { return _host }
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.NotNull(result.SemanticModel);
+        Assert.Equal("string", result.SemanticModel.Properties["Host"].ToString());
+        Assert.Equal("string", result.SemanticModel.Fields["_host"].ToString());
+    }
+
+    // ── Position-aware scope tests (integration with Analyzer) ──────────
+
+    [Fact]
+    public void Analyzer_ScopesAreRecorded_ForFunctionAndBlocks()
+    {
+        var source = @"
+func test() {
+    x := 42
+}";
+
+        var result = Analyze(source);
+
+        // Should have recorded scopes (at minimum: global + function)
+        Assert.True(result.SemanticModel.Scopes.Count >= 2,
+            $"Expected at least 2 scopes, got {result.SemanticModel.Scopes.Count}");
+    }
+
+    [Fact]
+    public void Analyzer_VariableShadowing_PositionAwareLookup()
+    {
+        var source = @"
+func test() {
+    x := 42
+    if true {
+        x := ""hello""
+    }
+}";
+
+        var result = Analyze(source);
+
+        // The flat lookup returns the last-written value (string, from the inner scope)
+        var flatResult = result.SemanticModel.LookupIdentifier("x");
+        Assert.NotNull(flatResult);
+
+        // Position-aware lookup at line 3 (x := 42) should find int
+        var outerResult = result.SemanticModel.LookupIdentifierAtPosition("x", 3, 5);
+        Assert.NotNull(outerResult);
+        Assert.Equal("int", outerResult!.ToString());
+
+        // Position-aware lookup at line 5 (x := "hello") should find string
+        var innerResult = result.SemanticModel.LookupIdentifierAtPosition("x", 5, 9);
+        Assert.NotNull(innerResult);
+        Assert.Equal("string", innerResult!.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_NestedScopes_VariableVisibility()
+    {
+        var source = @"
+func outer() {
+    a := 1
+    if true {
+        b := 2
+        if true {
+            c := 3
+        }
+    }
+}";
+
+        var result = Analyze(source);
+
+        // 'a' should be visible at all positions within the function
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("a", 3, 5));
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("a", 5, 9));
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("a", 7, 13));
+
+        // 'b' should be visible at line 5 and 7 but not at line 3
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("b", 5, 9));
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("b", 7, 13));
+
+        // 'c' should be visible at line 7 but not at line 5
+        Assert.NotNull(result.SemanticModel.LookupIdentifierAtPosition("c", 7, 13));
+    }
+
+    [Fact]
+    public void Analyzer_GetVisibleVariables_AtDifferentPositions()
+    {
+        var source = @"
+func test() {
+    x := 1
+    y := ""hello""
+    if true {
+        z := true
+    }
+}";
+
+        var result = Analyze(source);
+
+        // At line 6 (inside if block): x, y, z should all be visible
+        var innerVars = result.SemanticModel.GetVisibleVariablesAtPosition(6, 9);
+        Assert.True(innerVars.ContainsKey("z"), "z should be visible inside if block");
+        Assert.True(innerVars.ContainsKey("x"), "x should be visible inside if block");
+        Assert.True(innerVars.ContainsKey("y"), "y should be visible inside if block");
+
+        // At line 4 (before if block): x, y visible but not z
+        var outerVars = result.SemanticModel.GetVisibleVariablesAtPosition(4, 5);
+        Assert.True(outerVars.ContainsKey("x"), "x should be visible before if block");
+        Assert.True(outerVars.ContainsKey("y"), "y should be visible before if block");
+    }
+
+    [Fact]
+    public void Analyzer_FunctionParameters_RecordedInFunctionScope()
+    {
+        var source = @"
+func greet(name: string, age: int) {
+    message := name
+}";
+
+        var result = Analyze(source);
+
+        // Parameters should be visible inside the function body
+        var nameResult = result.SemanticModel.LookupIdentifierAtPosition("name", 3, 5);
+        Assert.NotNull(nameResult);
+        Assert.Equal("string", nameResult!.ToString());
+
+        var ageResult = result.SemanticModel.LookupIdentifierAtPosition("age", 3, 5);
+        Assert.NotNull(ageResult);
+        Assert.Equal("int", ageResult!.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_ForEachVariable_ScopedToLoop()
+    {
+        var source = @"
+func test() {
+    items: int[] = [1, 2, 3]
+    foreach item in items {
+        print(item)
+    }
+}";
+
+        var result = Analyze(source);
+
+        // 'item' should be visible inside the foreach body
+        var itemResult = result.SemanticModel.LookupIdentifierAtPosition("item", 5, 9);
+        Assert.NotNull(itemResult);
+        Assert.Equal("int", itemResult!.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_TwoFunctions_SameParameterName_DistinctScopes()
+    {
+        var source = @"
+func first(x: int) {
+    print(x)
+}
+
+func second(x: string) {
+    print(x)
+}";
+
+        var result = Analyze(source);
+
+        // x in first function (line 3) should be int
+        var firstX = result.SemanticModel.LookupIdentifierAtPosition("x", 3, 5);
+        Assert.NotNull(firstX);
+        Assert.Equal("int", firstX!.ToString());
+
+        // x in second function (line 7) should be string
+        var secondX = result.SemanticModel.LookupIdentifierAtPosition("x", 7, 5);
+        Assert.NotNull(secondX);
+        Assert.Equal("string", secondX!.ToString());
+    }
 }
