@@ -137,7 +137,11 @@ Options:
 Examples:
   nlc check
   nlc check --text
-  nlc check --project examples/16-task-cli");
+  nlc check --project examples/16-task-cli
+
+Exit codes:
+  0  No errors found
+  1  One or more errors detected");
 
         return 0;
     }

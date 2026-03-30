@@ -25,6 +25,7 @@ public static class AddCommand
             return Error("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.");
 
         var isFramework = args.Contains("--framework");
+        var isPrerelease = args.Contains("--prerelease");
         var raw = args.First(a => !a.StartsWith("-"));
 
         string packageName;
@@ -47,7 +48,7 @@ public static class AddCommand
         if (!isFramework && version == null)
         {
             Console.WriteLine($"Resolving latest version for {packageName}...");
-            version = ResolveLatestVersion(packageName);
+            version = ResolveLatestVersion(packageName, isPrerelease);
             if (version == null)
                 return Error($"Could not find package '{packageName}' on NuGet. Check the package name and try again.");
         }
@@ -111,11 +112,14 @@ public static class AddCommand
         return 0;
     }
 
-    internal static string? ResolveLatestVersion(string packageName)
+    internal static string? ResolveLatestVersion(string packageName, bool includePrerelease = false)
     {
         try
         {
-            var psi = new ProcessStartInfo("dotnet", $"package search {packageName} --exact-match --take 1 --format json")
+            var searchArgs = $"package search {packageName} --exact-match --take 1 --format json";
+            if (includePrerelease) searchArgs += " --prerelease";
+
+            var psi = new ProcessStartInfo("dotnet", searchArgs)
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -165,6 +169,7 @@ If no version is specified, the latest version is resolved from NuGet.
 
 Options:
   --version <ver>   Package version (alternative to @version syntax)
+  --prerelease      Allow prerelease versions when resolving latest
   --framework       Add as a framework reference instead of NuGet package
   --help, -h        Show this help text
 
@@ -172,6 +177,7 @@ Examples:
   nlc add Newtonsoft.Json
   nlc add Serilog@3.1.0
   nlc add Serilog --version 3.1.0
+  nlc add System.Text.Json --prerelease
   nlc add Microsoft.AspNetCore.App --framework
 
 Exit codes:

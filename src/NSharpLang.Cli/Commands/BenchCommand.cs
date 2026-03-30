@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Linq;
 
 namespace NSharpLang.Cli.Commands;
@@ -11,25 +10,10 @@ public static class BenchCommand
         if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
             return ShowHelp();
 
-        var projectRoot = Directory.GetCurrentDirectory();
-        var benchFiles = Directory.Exists(projectRoot)
-            ? Directory.GetFiles(projectRoot, "*.bench.nl", SearchOption.AllDirectories)
-            : Array.Empty<string>();
+        Console.Error.WriteLine("Benchmarking is not yet implemented.");
+        Console.Error.WriteLine("Track progress: https://github.com/nsharp-lang/nsharp/issues");
 
-        if (benchFiles.Length > 0)
-        {
-            Console.WriteLine($"Found {benchFiles.Length} benchmark file{(benchFiles.Length == 1 ? "" : "s")}:");
-            foreach (var f in benchFiles)
-                Console.WriteLine($"  {Path.GetRelativePath(projectRoot, f)}");
-            Console.WriteLine();
-        }
-
-        Console.WriteLine("Benchmarking support is coming soon.");
-        Console.WriteLine();
-        Console.WriteLine("Planned: *.bench.nl files with BenchmarkDotNet integration.");
-        Console.WriteLine("Track progress: https://github.com/nsharp-lang/nsharp/issues");
-
-        return 0;
+        return 1;
     }
 
     static int ShowHelp()

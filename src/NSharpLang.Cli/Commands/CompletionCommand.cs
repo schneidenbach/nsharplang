@@ -87,7 +87,7 @@ Exit codes:
 _nlc_commands="{{string.Join(" ", TopLevelCommands)}}"
 _nlc_query_commands="batch symbols outline diagnostics type inspect definition def references refs completions doc help"
 _nlc_daemon_commands="start stop status run help"
-_nlc_watch_commands="check build test"
+_nlc_watch_commands="check build test lint format"
 
 _nlc()
 {
@@ -129,7 +129,7 @@ case $words[2] in
     _values 'daemon command' start stop status run help
     ;;
   watch)
-    _values 'watch command' check build test
+    _values 'watch command' check build test lint format
     ;;
   *)
     _values 'nlc command' $commands
@@ -142,6 +142,6 @@ complete -c nlc -f
 complete -c nlc -n '__fish_use_subcommand' -a '{{string.Join(" ", TopLevelCommands)}}'
 complete -c nlc -n '__fish_seen_subcommand_from query' -a 'batch symbols outline diagnostics type inspect definition def references refs completions doc help'
 complete -c nlc -n '__fish_seen_subcommand_from daemon' -a 'start stop status run help'
-complete -c nlc -n '__fish_seen_subcommand_from watch' -a 'check build test'
+complete -c nlc -n '__fish_seen_subcommand_from watch' -a 'check build test lint format'
 """;
 }
