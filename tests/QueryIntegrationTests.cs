@@ -428,7 +428,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(1, main.Line); // func Main() is on line 1
+        Assert.Equal(13, main.Line); // func Main() is on line 13
     }
 
     // MultiFile Person.nl layout:
@@ -495,8 +495,8 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
-        // Main() is declared on line 1
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 1, 1);
+        // Main() is declared on line 13
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 6);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
