@@ -142,7 +142,7 @@ Options:
 Examples:
   nlc clean
   nlc clean --all
-  nlc clean --project examples/15-dogfood-project
+  nlc clean --project examples/16-task-cli
 
 Exit codes:
   0  Clean completed successfully

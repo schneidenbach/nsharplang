@@ -97,9 +97,9 @@ public class CliCommandTests
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "definition",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-            "--file", "Program.nl",
-            "--pos", "85:31"
+            "--project", Path.Combine(examplesDir, "16-task-cli"),
+            "--file", "Commands/StatsCommand.nl",
+            "--pos", "14:35"
         }));
 
         Assert.Equal(0, exitCode);
@@ -118,9 +118,9 @@ public class CliCommandTests
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "type",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+            "--project", Path.Combine(examplesDir, "16-task-cli"),
             "--file", "Program.nl",
-            "--pos", "83:1"
+            "--pos", "43:1"
         }));
 
         Assert.Equal(1, exitCode);
@@ -132,7 +132,7 @@ public class CliCommandTests
         Assert.Equal("noSymbol", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
         Assert.Equal("Program.nl",
             doc.RootElement.GetProperty("error").GetProperty("details").GetProperty("file").GetString());
-        Assert.Equal(83,
+        Assert.Equal(43,
             doc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position").GetProperty("line").GetInt32());
     }
 
@@ -144,9 +144,9 @@ public class CliCommandTests
         {
             "inspect",
             "--summary",
-            "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-            "--file", "Program.nl",
-            "--pos", "86:27"
+            "--project", Path.Combine(examplesDir, "16-task-cli"),
+            "--file", "Services/Formatter.nl",
+            "--pos", "103:31"
         }));
 
         Assert.True(string.IsNullOrWhiteSpace(stderr));
@@ -172,8 +172,8 @@ public class CliCommandTests
 [
   {
     "command": "inspect",
-    "file": "Program.nl",
-    "pos": "86:27",
+    "file": "Services/Formatter.nl",
+    "pos": "103:31",
     "summary": true
   },
   {
@@ -183,7 +183,7 @@ public class CliCommandTests
   {
     "command": "type",
     "file": "Program.nl",
-    "pos": "83:1"
+    "pos": "43:1"
   }
 ]
 """);
@@ -191,7 +191,7 @@ public class CliCommandTests
             var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
             {
                 "batch",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
                 "--requests", requestsPath
             }));
 
@@ -398,9 +398,9 @@ func Main() {
             new[]
             {
                 "type",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "85:5"
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
+                "--file", "Services/Formatter.nl",
+                "--pos", "103:31"
             }
         };
 
@@ -421,9 +421,9 @@ func Main() {
             new[]
             {
                 "definition",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:33"
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
+                "--file", "Services/Formatter.nl",
+                "--pos", "103:31"
             }
         };
 
@@ -433,9 +433,9 @@ func Main() {
             new[]
             {
                 "references",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
+                "--file", "Services/Formatter.nl",
+                "--pos", "103:31"
             }
         };
 
@@ -457,9 +457,9 @@ func Main() {
             new[]
             {
                 "inspect",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
+                "--file", "Services/Formatter.nl",
+                "--pos", "103:31"
             }
         };
 
@@ -470,9 +470,9 @@ func Main() {
             {
                 "inspect",
                 "--summary",
-                "--project", Path.Combine(examplesDir, "15-dogfood-project"),
-                "--file", "Program.nl",
-                "--pos", "86:27"
+                "--project", Path.Combine(examplesDir, "16-task-cli"),
+                "--file", "Services/Formatter.nl",
+                "--pos", "103:31"
             }
         };
     }

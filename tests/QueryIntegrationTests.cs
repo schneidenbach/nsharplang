@@ -12,10 +12,11 @@ namespace NSharpLang.Tests;
 /// Uses REAL example projects as test fixtures — no toy snippets.
 ///
 /// Fixture projects:
-///   examples/01-hello-world          — single file, basic functions, variables
+///   examples/01-hello-world          — single file, minimal function and locals
 ///   examples/06-classes-and-records   — multi-file, classes, records, enums, interfaces
 ///   examples/12-multi-file-projects/MultiFileProject — cross-file imports, namespaces
 ///   examples/05-unions               — unions, error handling
+///   examples/16-task-cli             — cross-file semantic navigation over a larger app
 ///
 /// These tests are the "does it actually work?" layer. They run the full
 /// CodeIntelligenceService pipeline against real N# projects and verify
@@ -31,7 +32,7 @@ public class QueryIntegrationTests : IDisposable
     private ProjectSnapshot? _classesAndRecordsSnapshot;
     private ProjectSnapshot? _multiFileSnapshot;
     private ProjectSnapshot? _unionsSnapshot;
-    private ProjectSnapshot? _dogfoodSnapshot;
+    private ProjectSnapshot? _taskCliSnapshot;
 
     public QueryIntegrationTests()
     {
@@ -68,27 +69,27 @@ public class QueryIntegrationTests : IDisposable
     private ProjectSnapshot Unions => _unionsSnapshot ??=
         _service.LoadProject(Path.Combine(_examplesDir, "05-unions"));
 
-    private ProjectSnapshot Dogfood => _dogfoodSnapshot ??=
-        _service.LoadProject(Path.Combine(_examplesDir, "15-dogfood-project"));
+    private ProjectSnapshot TaskCli => _taskCliSnapshot ??=
+        _service.LoadProject(Path.Combine(_examplesDir, "16-task-cli"));
 
     // ═══════════════════════════════════════════════════════════════════
     //  SYMBOLS — does it actually find the right stuff?
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void Symbols_HelloWorld_FindsMainAndHi()
+    public void Symbols_HelloWorld_FindsMainFunction()
     {
         var symbols = _service.GetSymbols(HelloWorld);
         Assert.Contains(symbols, s => s.Name == "Main" && s.Kind == SymbolKind.Function);
-        Assert.Contains(symbols, s => s.Name == "hi" && s.Kind == SymbolKind.Function);
+        Assert.Single(symbols);
     }
 
     [Fact]
-    public void Symbols_HelloWorld_HiFunctionHasIntReturnType()
+    public void Symbols_HelloWorld_MainFunctionHasVoidReturnType()
     {
         var symbols = _service.GetSymbols(HelloWorld);
-        var hi = symbols.First(s => s.Name == "hi");
-        Assert.Equal("int", hi.TypeName);
+        var main = symbols.First(s => s.Name == "Main");
+        Assert.Equal("void", main.TypeName);
     }
 
     [Fact]
@@ -169,12 +170,12 @@ public class QueryIntegrationTests : IDisposable
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void Outline_HelloWorld_HasImportsAndFunctions()
+    public void Outline_HelloWorld_HasNoImportsAndMainFunction()
     {
         var outline = _service.GetOutline(HelloWorld, "Program.nl");
-        Assert.Contains("System", outline.Imports);
-        Assert.Contains(outline.Outline, o => o.Name == "hi" && o.Kind == SymbolKind.Function);
+        Assert.Empty(outline.Imports);
         Assert.Contains(outline.Outline, o => o.Name == "Main" && o.Kind == SymbolKind.Function);
+        Assert.Single(outline.Outline);
     }
 
     [Fact]
@@ -192,9 +193,9 @@ public class QueryIntegrationTests : IDisposable
         var singleFileOutline = _service.GetOutlineSingleFile(programPath);
 
         // Should produce same structure as project-based outline
-        Assert.Contains("System", singleFileOutline.Imports);
+        Assert.Empty(singleFileOutline.Imports);
         Assert.Contains(singleFileOutline.Outline, o => o.Name == "Main");
-        Assert.Contains(singleFileOutline.Outline, o => o.Name == "hi");
+        Assert.Single(singleFileOutline.Outline);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -279,7 +280,7 @@ public class QueryIntegrationTests : IDisposable
     {
         var engine = new CompletionEngine();
         // LLM-optimized: keywords/primitives excluded by default
-        var result = engine.GetCompletions(HelloWorld, "Program.nl", 15, 4);
+        var result = engine.GetCompletions(HelloWorld, "Program.nl", 2, 5);
         Assert.False(result.Completions.ContainsKey("keywords"),
             "Keywords should be excluded by default for LLM use");
         Assert.False(result.Completions.ContainsKey("primitiveTypes"),
@@ -290,7 +291,7 @@ public class QueryIntegrationTests : IDisposable
     public void Completions_IdentifierContext_IncludesKeywordsWhenRequested()
     {
         var engine = new CompletionEngine();
-        var result = engine.GetCompletions(HelloWorld, "Program.nl", 15, 4, includeKeywords: true);
+        var result = engine.GetCompletions(HelloWorld, "Program.nl", 2, 5, includeKeywords: true);
         Assert.True(result.Completions.ContainsKey("keywords"),
             "Keywords should be included when includeKeywords=true");
 
@@ -330,7 +331,7 @@ public class QueryIntegrationTests : IDisposable
 
         Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal("symbols", doc.RootElement.GetProperty("command").GetString());
-        Assert.True(doc.RootElement.GetProperty("results").GetArrayLength() >= 2);
+        Assert.True(doc.RootElement.GetProperty("results").GetArrayLength() >= 1);
     }
 
     [Fact]
@@ -354,7 +355,7 @@ public class QueryIntegrationTests : IDisposable
         var json = OutputFormatter.OutlineToJson(outline);
         var doc = JsonDocument.Parse(json);
 
-        Assert.True(doc.RootElement.GetProperty("imports").GetArrayLength() > 0);
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("imports").ValueKind);
         Assert.True(doc.RootElement.GetProperty("outline").GetArrayLength() > 0);
     }
 
@@ -423,20 +424,19 @@ public class QueryIntegrationTests : IDisposable
     // ═══════════════════════════════════════════════════════════════════
 
     // HelloWorld Program.nl layout:
-    //   Line 5:  func hi(): int {        (col 1 = "func", col 6 = "hi")
-    //   Line 13: func Main() {           (col 1 = "func", col 6 = "Main")
-    //   Line 14:     name := "Spencer"   (col 5 = "name")
+    //   Line 1: func Main() {
+    //   Line 2:     name := "World"
+    //   Line 3:     print $"Hello, {name}!"
 
     [Fact]
-    public void Definition_AtPosition_FindsHiFunction()
+    public void Definition_AtPosition_FindsNameVariable()
     {
-        // Line 19 col 19: `i, err := hi()` — "hi" starts at col ~15
-        // Use name-based as the reliable path since position resolution depends on AST precision
-        var results = _service.FindDefinitionByName(HelloWorld, "hi");
-        Assert.NotEmpty(results);
-        var hi = results.First(d => d.Name == "hi");
-        Assert.Equal("function", hi.Kind);
-        Assert.Equal(5, hi.Line); // func hi() is on line 5
+        var result = _service.FindDefinition(HelloWorld, "Program.nl", 3, 21);
+        Assert.NotNull(result);
+        Assert.Equal("name", result!.Name);
+        Assert.Equal("variable", result.Kind);
+        Assert.Equal(2, result.Line);
+        Assert.Equal(5, result.Column);
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(13, main.Line); // func Main() is on line 13
+        Assert.Equal(1, main.Line);
     }
 
     // MultiFile Person.nl layout:
@@ -511,18 +511,14 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void References_HelloWorld_FindsHiFunctionUsages()
+    public void References_HelloWorld_FindsNameVariableUsages()
     {
-        // hi() is declared on line 5, called on line 18
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 5, 1);
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 2, 5);
 
-        // Should find at least the declaration itself
         Assert.NotEmpty(refs);
-
-        // If binding map is working, should also find the call site on line 19
-        // (this may be text-based fallback currently — either way it should find something)
-        Assert.True(refs.Count >= 1,
-            $"Expected at least 1 reference to hi, got {refs.Count}");
+        Assert.Equal(2, refs.Count);
+        Assert.Single(refs.Where(r => r.IsDefinition));
+        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 3 && r.Column == 21);
     }
 
     [Fact]
@@ -530,14 +526,10 @@ public class QueryIntegrationTests : IDisposable
     {
         var bindings = HelloWorld.Bindings!;
 
-        // hi function should be findable by name
-        var hiDecls = bindings.FindDeclarationsByName("hi");
-        Assert.NotEmpty(hiDecls);
-        Assert.Contains(hiDecls, d => d.Kind == "function");
-
         // Main function should be findable by name
         var mainDecls = bindings.FindDeclarationsByName("Main");
         Assert.NotEmpty(mainDecls);
+        Assert.Contains(mainDecls, d => d.Kind == "function");
     }
 
     [Fact]
@@ -573,40 +565,40 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Type_Dogfood_LocalVariableFromNewExpression_Resolves()
+    public void Type_TaskCli_ClassNameInNewExpression_Resolves()
     {
-        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 38, 5);
+        var result = _service.GetTypeAtPosition(TaskCli, "Program.nl", 39, 18);
         Assert.NotNull(result);
-        Assert.Equal("service", result!.Name);
+        Assert.Equal("TaskService", result!.Name);
         Assert.Equal("TaskService", result.ResolvedType);
         Assert.Equal("class", result.Kind);
     }
 
     [Fact]
-    public void Type_Dogfood_ImportedMethodCall_ResolvesToReturnType()
+    public void Type_TaskCli_ImportedMethodCall_ResolvesToReturnType()
     {
-        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 42, 19);
+        var result = _service.GetTypeAtPosition(TaskCli, "Commands/StatsCommand.nl", 14, 26);
         Assert.NotNull(result);
-        Assert.Equal("CreateTask", result!.Name);
-        Assert.Equal("TaskResult", result.ResolvedType);
-        Assert.Equal("union", result.Kind);
+        Assert.Equal("GetStats", result!.Name);
+        Assert.Equal("TaskStats", result.ResolvedType);
+        Assert.Equal("record", result.Kind);
     }
 
     [Fact]
-    public void Type_Dogfood_LocalVariableFromImportedMethodCall_Resolves()
+    public void Type_TaskCli_LocalVariableFromImportedMethodCall_Resolves()
     {
-        var result = _service.GetTypeAtPosition(Dogfood, "Program.nl", 85, 5);
-        var programSemanticModel = Dogfood.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
-        var variables = string.Join(", ", programSemanticModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
-        Assert.True(result != null, $"Expected stats type. Program variables: [{variables}]");
+        var result = _service.GetTypeAtPosition(TaskCli, "Commands/StatsCommand.nl", 14, 9);
+        var statsCommandModel = TaskCli.SemanticModels.First(kvp => kvp.Key.EndsWith(Path.Combine("Commands", "StatsCommand.nl"), StringComparison.Ordinal)).Value;
+        var variables = string.Join(", ", statsCommandModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
+        Assert.True(result != null, $"Expected stats type. StatsCommand variables: [{variables}]");
         Assert.Equal("stats", result!.Name);
         Assert.Equal("TaskStats", result.ResolvedType);
     }
 
     [Fact]
-    public void Type_Dogfood_RecordPropertyUse_Resolves()
+    public void Type_TaskCli_RecordPropertyUse_Resolves()
     {
-        var result = _service.GetTypeAtPosition(Dogfood, "Services/TaskService.nl", 107, 5);
+        var result = _service.GetTypeAtPosition(TaskCli, "Services/Formatter.nl", 103, 31);
         Assert.NotNull(result);
         Assert.Equal("Total", result!.Name);
         Assert.Equal("int", result.ResolvedType);
@@ -614,38 +606,38 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void References_Dogfood_MethodDeclaration_IsNotDuplicatedAsUsage()
+    public void References_TaskCli_MethodDeclaration_IsNotDuplicatedAsUsage()
     {
-        var refs = _service.FindReferences(Dogfood, "Services/TaskService.nl", 94, 10);
+        var refs = _service.FindReferences(TaskCli, "Services/TaskService.nl", 178, 10);
 
         Assert.Equal(2, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 85);
+        Assert.Contains(refs, r => r.File == "Commands/StatsCommand.nl" && r.Line == 14);
     }
 
     [Fact]
-    public void Definition_Dogfood_MethodUseSite_Resolves()
+    public void Definition_TaskCli_MethodUseSite_Resolves()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 85, 22);
+        var result = _service.FindDefinition(TaskCli, "Commands/StatsCommand.nl", 14, 26);
 
         Assert.NotNull(result);
         Assert.Equal("GetStats", result!.Name);
         Assert.Equal("function", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(94, result.Line);
+        Assert.Equal(178, result.Line);
         Assert.Equal(5, result.Column);
     }
 
     [Fact]
-    public void Definition_Dogfood_MethodUseSite_ClosingParen_SnapsToMember()
+    public void Definition_TaskCli_MethodUseSite_ClosingParen_SnapsToMember()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 85, 31);
+        var result = _service.FindDefinition(TaskCli, "Commands/StatsCommand.nl", 14, 35);
 
         Assert.NotNull(result);
         Assert.Equal("GetStats", result!.Name);
         Assert.Equal("function", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(94, result.Line);
+        Assert.Equal(178, result.Line);
         Assert.Equal(5, result.Column);
     }
 
@@ -666,67 +658,67 @@ public class QueryIntegrationTests : IDisposable
     }
 
     [Fact]
-    public void Definition_Dogfood_RecordPropertyUseSite_Resolves()
+    public void Definition_TaskCli_RecordPropertyUseSite_Resolves()
     {
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var totalColumn = FindColumnInFile(programPath, 86, "Total");
+        var formatterPath = Path.Combine(_examplesDir, "16-task-cli", "Services", "Formatter.nl");
+        var totalColumn = FindColumnInFile(formatterPath, 103, "Total");
 
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, totalColumn);
+        var result = _service.FindDefinition(TaskCli, "Services/Formatter.nl", 103, totalColumn);
 
         Assert.NotNull(result);
         Assert.Equal("Total", result!.Name);
         Assert.Equal("field", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(107, result.Line);
+        Assert.Equal(281, result.Line);
         Assert.Equal(5, result.Column);
     }
 
     [Fact]
-    public void Definition_Dogfood_LocalVariableInInterpolation_Resolves()
+    public void Definition_TaskCli_LocalVariableInInterpolation_Resolves()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 21);
+        var result = _service.FindDefinition(TaskCli, "Services/Formatter.nl", 103, 25);
 
         Assert.NotNull(result);
         Assert.Equal("stats", result!.Name);
-        Assert.Equal("record", result.Kind);
-        Assert.Equal("Program.nl", result.File);
-        Assert.Equal(85, result.Line);
-        Assert.Equal(5, result.Column);
+        Assert.Equal("variable", result.Kind);
+        Assert.Equal("Services/Formatter.nl", result.File);
+        Assert.Equal(101, result.Line);
+        Assert.Equal(12, result.Column);
     }
 
     [Fact]
-    public void Definition_Dogfood_RecordPropertyInInterpolation_Resolves()
+    public void Definition_TaskCli_RecordPropertyInInterpolation_Resolves()
     {
-        var result = _service.FindDefinition(Dogfood, "Program.nl", 86, 27);
+        var result = _service.FindDefinition(TaskCli, "Services/Formatter.nl", 103, 31);
 
         Assert.NotNull(result);
         Assert.Equal("Total", result!.Name);
         Assert.Equal("field", result.Kind);
         Assert.Equal("Services/TaskService.nl", result.File);
-        Assert.Equal(107, result.Line);
+        Assert.Equal(281, result.Line);
         Assert.Equal(5, result.Column);
     }
 
     [Fact]
-    public void References_Dogfood_LocalVariableUseSite_IncludeInterpolationUses()
+    public void References_TaskCli_LocalVariableUseSite_IncludeInterpolationUses()
     {
-        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 21);
+        var refs = _service.FindReferences(TaskCli, "Services/Formatter.nl", 103, 25);
 
         Assert.Equal(8, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 91 && r.Column == 31);
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 93 && r.Column == 11);
+        Assert.Contains(refs, r => r.File == "Services/Formatter.nl" && r.Line == 107 && r.Column == 12);
+        Assert.Contains(refs, r => r.File == "Services/Formatter.nl" && r.Line == 108 && r.Column == 27);
     }
 
     [Fact]
-    public void References_Dogfood_RecordPropertyUseSite_IncludeInterpolationUse()
+    public void References_TaskCli_RecordPropertyUseSite_IncludeInterpolationUse()
     {
-        var refs = _service.FindReferences(Dogfood, "Program.nl", 86, 27);
+        var refs = _service.FindReferences(TaskCli, "Services/Formatter.nl", 103, 31);
 
-        Assert.Equal(6, refs.Count);
+        Assert.Equal(9, refs.Count);
         Assert.Single(refs.Where(r => r.IsDefinition));
-        Assert.Contains(refs, r => r.File == "Program.nl" && r.Line == 86 && r.Column == 27);
-        Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 115 && r.Column == 38);
+        Assert.Contains(refs, r => r.File == "Services/Formatter.nl" && r.Line == 103 && r.Column == 31);
+        Assert.Contains(refs, r => r.File == "Services/TaskService.nl" && r.Line == 195 && r.Column == 13);
     }
 
     // ═══════════════════════════════════════════════════════════════════

@@ -1124,40 +1124,40 @@ func main(): void
     }
 
     [Fact]
-    public async Task Definition_CrossFileType_UsesCompilerProjectSnapshotAsync()
+    public async Task Definition_CrossFileMember_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var uri = new Uri(programPath).AbsoluteUri;
-        var source = File.ReadAllText(programPath);
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var uri = new Uri(statsCommandPath).AbsoluteUri;
+        var source = File.ReadAllText(statsCommandPath);
 
         harness.OpenDocument(uri, source);
 
-        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        var definition = await harness.GetDefinitionAsync(uri, 13, 25);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(93, location.Range.Start.Line);
+        Assert.Equal(new Uri(Path.Combine(_examplesDir, "16-task-cli", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(177, location.Range.Start.Line);
         Assert.Equal(4, location.Range.Start.Character);
     }
 
     [Fact]
-    public async Task Definition_CrossFileType_PrefersSemanticResultOverSameNameLocalSymbolAsync()
+    public async Task Definition_CrossFileMember_PrefersSemanticResultOverSameNameLocalSymbolAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var uri = new Uri(programPath).AbsoluteUri;
-        var source = File.ReadAllText(programPath);
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var uri = new Uri(statsCommandPath).AbsoluteUri;
+        var source = File.ReadAllText(statsCommandPath);
 
         harness.OpenDocument(uri, source);
 
-        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        var definition = await harness.GetDefinitionAsync(uri, 13, 25);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        Assert.Equal(new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(93, location.Range.Start.Line);
+        Assert.Equal(new Uri(Path.Combine(_examplesDir, "16-task-cli", "Services", "TaskService.nl")).AbsoluteUri, location.Uri.ToString());
+        Assert.Equal(177, location.Range.Start.Line);
         Assert.Equal(4, location.Range.Start.Character);
     }
 
@@ -1186,21 +1186,21 @@ func Foo(): void {
     public async Task Definition_CrossFile_WithUnsavedChanges_UsesDiskFallbackAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var uri = new Uri(programPath).AbsoluteUri;
-        var source = File.ReadAllText(programPath);
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var uri = new Uri(statsCommandPath).AbsoluteUri;
+        var source = File.ReadAllText(statsCommandPath);
 
         // Append a comment so the open buffer differs from disk,
         // causing IsProjectSynchronizedWithDisk to return false.
         // The disk-based fallback should still resolve cross-file definitions.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
-        // F12 on GetStats() at line 85 col 21 (0-indexed: 84, 21)
-        var definition = await harness.GetDefinitionAsync(uri, 84, 21);
+        // F12 on GetStats() at line 14 col 26 (0-indexed: 13, 25)
+        var definition = await harness.GetDefinitionAsync(uri, 13, 25);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        var expectedUri = new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri;
+        var expectedUri = new Uri(Path.Combine(_examplesDir, "16-task-cli", "Services", "TaskService.nl")).AbsoluteUri;
         Assert.Equal(expectedUri, location.Uri.ToString());
     }
 
@@ -1208,20 +1208,19 @@ func Foo(): void {
     public async Task Definition_CrossFile_DiskFallback_DifferentSymbolAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var uri = new Uri(programPath).AbsoluteUri;
-        var source = File.ReadAllText(programPath);
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var uri = new Uri(statsCommandPath).AbsoluteUri;
+        var source = File.ReadAllText(statsCommandPath);
 
         // Make the buffer differ from disk to force disk fallback
         harness.OpenDocument(uri, source + "\n// modified");
 
-        // F12 on GetUrgentTasks() at line 71 col 22 (0-indexed: 70, 22)
-        // GetUrgentTasks is defined in Services/TaskService.nl
-        var definition = await harness.GetDefinitionAsync(uri, 70, 22);
+        // F12 on GetPriorityBreakdown() at line 15 col 38 (0-indexed: 14, 37)
+        var definition = await harness.GetDefinitionAsync(uri, 14, 37);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        var expectedUri = new Uri(Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl")).AbsoluteUri;
+        var expectedUri = new Uri(Path.Combine(_examplesDir, "16-task-cli", "Services", "TaskService.nl")).AbsoluteUri;
         Assert.Equal(expectedUri, location.Uri.ToString());
     }
 
@@ -1322,17 +1321,16 @@ func main(): void
     }
 
     [Fact]
-    public async Task References_CrossFile_UsesCompilerProjectSnapshotAsync()
+    public async Task References_CrossFileMember_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var uri = new Uri(programPath).AbsoluteUri;
-        var source = File.ReadAllText(programPath);
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var uri = new Uri(statsCommandPath).AbsoluteUri;
+        var source = File.ReadAllText(statsCommandPath);
 
         harness.OpenDocument(uri, source);
 
-        // "TaskService" usage on line 84, col 21 (same position as definition cross-file test)
-        var refs = await harness.GetReferencesAsync(uri, 84, 21);
+        var refs = await harness.GetReferencesAsync(uri, 13, 25);
         Assert.NotNull(refs);
         Assert.NotEmpty(refs!);
     }
@@ -1573,31 +1571,31 @@ func outer(): void
     }
 
     [Fact]
-    public async Task Rename_CrossFileType_UsesCompilerProjectSnapshotAsync()
+    public async Task Rename_CrossFileMember_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
-        var programPath = Path.Combine(_examplesDir, "15-dogfood-project", "Program.nl");
-        var servicePath = Path.Combine(_examplesDir, "15-dogfood-project", "Services", "TaskService.nl");
-        var programUri = new Uri(programPath).AbsoluteUri;
+        var statsCommandPath = Path.Combine(_examplesDir, "16-task-cli", "Commands", "StatsCommand.nl");
+        var servicePath = Path.Combine(_examplesDir, "16-task-cli", "Services", "TaskService.nl");
+        var statsCommandUri = new Uri(statsCommandPath).AbsoluteUri;
         var serviceUri = new Uri(servicePath).AbsoluteUri;
 
-        harness.OpenDocument(programUri, File.ReadAllText(programPath));
+        harness.OpenDocument(statsCommandUri, File.ReadAllText(statsCommandPath));
         harness.OpenDocument(serviceUri, File.ReadAllText(servicePath));
 
-        var edit = await harness.RenameAsync(serviceUri, 93, 9, "ComputeStats");
+        var edit = await harness.RenameAsync(serviceUri, 177, 9, "ComputeStats");
         Assert.NotNull(edit);
         Assert.NotNull(edit!.Changes);
 
-        var programDocUri = DocumentUri.From(programUri);
+        var statsCommandDocUri = DocumentUri.From(statsCommandUri);
         var serviceDocUri = DocumentUri.From(serviceUri);
         Assert.True(edit.Changes!.ContainsKey(serviceDocUri), "Rename should include the declaration file");
-        Assert.True(edit.Changes.ContainsKey(programDocUri), "Rename should include the referencing file");
+        Assert.True(edit.Changes.ContainsKey(statsCommandDocUri), "Rename should include the referencing file");
 
         Assert.Contains(edit.Changes[serviceDocUri], change => change.NewText == "ComputeStats" &&
-            change.Range.Start.Line == 93 &&
+            change.Range.Start.Line == 177 &&
             change.Range.Start.Character == 4);
 
-        Assert.True(edit.Changes[programDocUri].Count() >= 1, "Rename should update the use-site in the program file");
+        Assert.True(edit.Changes[statsCommandDocUri].Count() >= 1, "Rename should update the use-site in the stats command file");
     }
 
     [Fact]

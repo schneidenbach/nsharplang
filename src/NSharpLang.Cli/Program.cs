@@ -859,7 +859,7 @@ Examples:
   nlc test
   nlc test --filter AddPerson
   nlc test --coverage
-  nlc test --project examples/15-dogfood-project --verbose
+  nlc test --project examples/16-task-cli --verbose
   nlc test --json
   nlc test --coverage
   nlc test --coverage --coverage-report
