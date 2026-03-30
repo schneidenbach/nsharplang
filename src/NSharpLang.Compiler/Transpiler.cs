@@ -19,6 +19,7 @@ public class Transpiler
     private bool _inInterface; // Track if we're currently inside an interface
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
     private readonly string? _sourceFilePath; // Source .nl file path for #line directives
+    private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null)
     {
@@ -36,6 +37,7 @@ public class Transpiler
         _output.Clear();
         _indentLevel = 0;
 
+        EmitLineHidden();
         WriteLine("#nullable enable annotations");
         _output.AppendLine();
 
@@ -93,6 +95,7 @@ public class Transpiler
         // This allows top-level functions to be called from within classes without qualification
         if (nonMainFunctions.Count > 0)
         {
+            EmitLineHidden();
             if (_compilationUnit.Package != null)
             {
                 // Package: Functions_PackageName class
@@ -142,6 +145,7 @@ public class Transpiler
         // Generate Program class with Main entry point (for exe projects)
         if (mainFunction != null)
         {
+            EmitLineHidden();
             WriteLine("public partial class Program");
             WriteLine("{");
             _indentLevel++;
@@ -156,6 +160,7 @@ public class Transpiler
             TranspileFunctionDeclaration(modifiedMain);
             WriteLine();
 
+            EmitLineHidden();
             _indentLevel--;
             WriteLine("}");
             WriteLine();
@@ -184,6 +189,7 @@ public class Transpiler
                 visibility = "internal";
             }
 
+            EmitLineHidden();
             WriteLine($"{visibility} static {partial}class {className}");
             WriteLine("{");
             _indentLevel++;
@@ -200,6 +206,7 @@ public class Transpiler
                 WriteLine();
             }
 
+            EmitLineHidden();
             _indentLevel--;
             WriteLine("}");
         }
@@ -211,6 +218,7 @@ public class Transpiler
                 ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
                 : "Tests";
 
+            EmitLineHidden();
             if (_projectConfig?.TestFramework == "nunit")
             {
                 WriteLine("[TestFixture]");
@@ -231,6 +239,7 @@ public class Transpiler
                 TranspileTestDeclaration(test);
             }
 
+            EmitLineHidden();
             _indentLevel--;
             WriteLine("}");
         }
@@ -899,7 +908,8 @@ public class Transpiler
         WriteLine("{");
         _indentLevel++;
 
-        // Generate case classes
+        // Generate case classes (these are compiler-generated, hide from debugger)
+        EmitLineHidden();
         foreach (var unionCase in union.Cases)
         {
             if (unionCase.Properties != null && unionCase.Properties.Count > 0)
@@ -913,6 +923,7 @@ public class Transpiler
             }
         }
 
+        EmitLineHidden();
         _indentLevel--;
         WriteLine("}");
     }
@@ -1779,6 +1790,9 @@ public class Transpiler
             var resultVar = tupleDecl.Names[0];
             var errVar = tupleDecl.Names[1];
 
+            // Hide variable declarations and try-catch scaffolding from debugger
+            EmitLineHidden();
+
             // Declare variables (skip result var if it's discarded)
             if (resultVar != "_")
             {
@@ -1803,6 +1817,8 @@ public class Transpiler
             WriteLine("try");
             WriteLine("{");
             _indentLevel++;
+            // Map the actual function call back to the N# source line
+            EmitLineDirective(tupleDecl.Line);
             // If result is discarded, just call the function; otherwise assign
             if (resultVar == "_")
             {
@@ -1812,6 +1828,7 @@ public class Transpiler
             {
                 WriteLine($"{resultVar} = {TranspileExpression(tupleDecl.Initializer)};");
             }
+            EmitLineHidden();
             _indentLevel--;
             WriteLine("}");
             WriteLine($"catch (Exception ex)");
@@ -2002,6 +2019,7 @@ public class Transpiler
 
         foreach (var caseStmt in switchStmt.Cases)
         {
+            EmitLineDirective(caseStmt.Line);
             if (caseStmt.Pattern != null)
             {
                 WriteLine($"case {TranspilePattern(caseStmt.Pattern)}:");
@@ -2016,6 +2034,7 @@ public class Transpiler
             {
                 TranspileStatement(statement);
             }
+            EmitLineHidden();
             WriteLine("break;");
             _indentLevel--;
         }
@@ -2370,11 +2389,14 @@ public class Transpiler
             var sb = new StringBuilder();
             sb.Append($"{parameters} => ");
 
-            // Transpile block inline
+            // Transpile block inline — suppress #line directives since they can't
+            // appear inside an expression context (would cause C# syntax errors)
             var savedIndent = _indentLevel;
             var savedOutput = _output.ToString();
+            var savedSuppress = _suppressLineDirectives;
             _output.Clear();
             _indentLevel = 0;
+            _suppressLineDirectives = true;
 
             TranspileBlockStatement(lambda.BlockBody);
 
@@ -2382,6 +2404,7 @@ public class Transpiler
             _output.Clear();
             _output.Append(savedOutput);
             _indentLevel = savedIndent;
+            _suppressLineDirectives = savedSuppress;
 
             return $"{parameters} => {blockCode}";
         }
@@ -2720,7 +2743,7 @@ public class Transpiler
     /// </summary>
     private void EmitLineDirective(int line)
     {
-        if (_sourceFilePath == null || line <= 0)
+        if (_sourceFilePath == null || line <= 0 || _suppressLineDirectives)
             return;
 
         // #line directives must not be indented - they are preprocessor directives
@@ -2728,6 +2751,18 @@ public class Transpiler
         // so strip characters that would break the directive (quotes, newlines)
         var safePath = _sourceFilePath.Replace("\"", "").Replace("\n", "").Replace("\r", "");
         _output.AppendLine($"#line {line} \"{safePath}\"");
+    }
+
+    /// <summary>
+    /// Emits #line hidden to tell the debugger to skip generated scaffolding.
+    /// Code between #line hidden and the next #line directive will not be steppable.
+    /// </summary>
+    private void EmitLineHidden()
+    {
+        if (_sourceFilePath == null || _suppressLineDirectives)
+            return;
+
+        _output.AppendLine("#line hidden");
     }
 
     /// <summary>

@@ -52,4 +52,9 @@
     </None>
   </ItemGroup>
 
+  <!-- Exclude integration tests - they have their own .csproj with Testcontainers dependency -->
+  <ItemGroup>
+    <Compile Remove="NSharpLang.IntegrationTests\**" />
+  </ItemGroup>
+
 </Project>

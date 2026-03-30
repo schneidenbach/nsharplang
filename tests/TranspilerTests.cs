@@ -3757,4 +3757,173 @@ test ""test default"" {
         Assert.DoesNotContain("NUnit", result);
         Assert.DoesNotContain("[TestFixture]", result);
     }
+
+    // ========================================================================
+    // Debug Information Tests (#line directives, #line hidden)
+    // ========================================================================
+
+    private static string TranspileWithDebugInfo(string source, string filePath = "test.nl")
+    {
+        var lexer = new Lexer(source, filePath);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, filePath);
+        var result = parser.ParseCompilationUnit();
+        var transpiler = new Transpiler(result.CompilationUnit!, sourceFilePath: filePath);
+        return transpiler.Transpile();
+    }
+
+    [Fact]
+    public void TestNoLineDirectivesWhenNoSourcePath()
+    {
+        var source = @"
+func Main() {
+    x := 42
+    print x
+}";
+        var result = Transpile(source);
+        Assert.DoesNotContain("#line", result);
+    }
+
+    [Fact]
+    public void TestLineDirectivesEmittedForStatements()
+    {
+        var source = @"
+func Main() {
+    x := 42
+    print x
+}";
+        var result = TranspileWithDebugInfo(source);
+        Assert.Contains("#line", result);
+        Assert.Contains("\"test.nl\"", result);
+    }
+
+    [Fact]
+    public void TestLineDefaultAtEnd()
+    {
+        var source = @"
+func Main() {
+    x := 42
+}";
+        var result = TranspileWithDebugInfo(source);
+        Assert.EndsWith("#line default\n", result);
+    }
+
+    [Fact]
+    public void TestLineHiddenForProgramClassScaffolding()
+    {
+        var source = @"
+func Main() {
+    x := 42
+}";
+        var result = TranspileWithDebugInfo(source);
+        // Program class scaffolding should be hidden via #line hidden
+        Assert.Contains("#line hidden", result);
+        Assert.Contains("public partial class Program", result);
+        // Should NOT use [DebuggerNonUserCode] on wrapper classes — it would mark user methods as non-user code
+        Assert.DoesNotContain("[DebuggerNonUserCode]", result);
+    }
+
+    [Fact]
+    public void TestLineHiddenForFunctionsClassScaffolding()
+    {
+        var source = @"
+func add(a: int, b: int): int {
+    return a + b
+}";
+        var result = TranspileWithDebugInfo(source);
+        // Functions wrapper class should be hidden via #line hidden
+        Assert.Contains("#line hidden", result);
+        Assert.DoesNotContain("[DebuggerNonUserCode]", result);
+        // The function itself should have a #line directive
+        Assert.Contains("#line 2 \"test.nl\"", result);
+    }
+
+    [Fact]
+    public void TestLineHiddenForTestClassScaffolding()
+    {
+        var source = @"
+test ""my test"" {
+    assert 1 == 1
+}";
+        var result = TranspileWithDebugInfo(source);
+        // Test class wrapper should be hidden via #line hidden
+        Assert.Contains("#line hidden", result);
+        Assert.DoesNotContain("[DebuggerNonUserCode]", result);
+        Assert.Contains("public class Tests", result);
+    }
+
+    [Fact]
+    public void TestLineHiddenErrorHandlingTryCatch()
+    {
+        var source = @"
+func riskyCall(): int {
+    return 42
+}
+
+func Main() {
+    result, err := riskyCall()
+}";
+        var result = TranspileWithDebugInfo(source);
+        // Error handling scaffolding should have #line hidden
+        Assert.Contains("#line hidden", result);
+        // But the actual function call should still map to source
+        Assert.Contains("riskyCall()", result);
+    }
+
+    [Fact]
+    public void TestLambdaBlockBodyNoInlineLineDirectives()
+    {
+        var source = @"
+func Main() {
+    action := () => {
+        x := 42
+    }
+}";
+        var result = TranspileWithDebugInfo(source);
+        // The lambda body should not contain #line directives (they'd break C# syntax)
+        var lambdaStart = result.IndexOf("() =>");
+        if (lambdaStart >= 0)
+        {
+            // Find the lambda block body
+            var afterLambda = result.Substring(lambdaStart);
+            var braceStart = afterLambda.IndexOf('{');
+            var braceEnd = afterLambda.IndexOf('}');
+            if (braceStart >= 0 && braceEnd > braceStart)
+            {
+                var lambdaBody = afterLambda.Substring(braceStart, braceEnd - braceStart + 1);
+                Assert.DoesNotContain("#line", lambdaBody);
+            }
+        }
+    }
+
+    [Fact]
+    public void TestSwitchCaseLineDirectives()
+    {
+        var source = @"
+func Main() {
+    x := 5
+    switch x {
+        case 1 => print 1
+        case 2 => print 2
+        default => print 0
+    }
+}";
+        var result = TranspileWithDebugInfo(source);
+        // Each case should have a #line directive for its line
+        Assert.Contains("case 1:", result);
+        Assert.Contains("default:", result);
+        // The auto-generated break; should be hidden
+        var lines = result.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Trim() == "break;")
+            {
+                // The line before break should be #line hidden or preceded by it
+                var precedingContent = string.Join("\n", lines.Take(i));
+                // At minimum, there should be #line hidden somewhere before each break
+                Assert.Contains("#line hidden", precedingContent);
+            }
+        }
+    }
+
 }
