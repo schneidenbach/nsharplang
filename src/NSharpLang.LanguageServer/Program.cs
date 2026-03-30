@@ -53,9 +53,13 @@ class Program
                     .WithHandler<DefinitionHandler>()
                     .WithHandler<CodeActionHandler>()
                     .WithHandler<RenameHandler>()
+                    .WithHandler<PrepareRenameHandler>()
                     .WithHandler<ReferencesHandler>()
                     .WithHandler<InlayHintHandler>()
                     .WithHandler<DocumentSymbolHandler>()
+                    .WithHandler<SemanticTokensHandler>()
+                    .WithHandler<WorkspaceSymbolHandler>()
+                    .WithHandler<FoldingRangeHandler>()
                     .WithHandler<DidChangeWatchedFilesHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {

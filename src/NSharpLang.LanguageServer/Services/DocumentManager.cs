@@ -411,6 +411,15 @@ public class DocumentManager
     }
 
     /// <summary>
+    /// Returns all documents currently tracked by the document manager.
+    /// Used by workspace-wide features like workspace symbols and semantic tokens.
+    /// </summary>
+    public IReadOnlyCollection<DocumentState> GetAllDocuments()
+    {
+        return _documents.Values.ToList();
+    }
+
+    /// <summary>
     /// Returns the diagnostics that should be published for the current project scope.
     /// When the project snapshot can be synchronized with disk, this returns one entry
     /// per open document in the project so related files can be refreshed together.

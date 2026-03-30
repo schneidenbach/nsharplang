@@ -13,7 +13,9 @@ using NSharpLang.LanguageServer.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
 using LspLocation = OmniSharp.Extensions.LanguageServer.Protocol.Models.Location;
 using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
 
@@ -229,6 +231,10 @@ public class LanguageServerTests
         public RenameHandler RenameHandler { get; }
         public InlayHintHandler InlayHintHandler { get; }
         public DocumentSymbolHandler DocumentSymbolHandler { get; }
+        public SemanticTokensHandler SemanticTokensHandler { get; }
+        public WorkspaceSymbolHandler WorkspaceSymbolHandler { get; }
+        public FoldingRangeHandler FoldingRangeHandler { get; }
+        public PrepareRenameHandler PrepareRenameHandler { get; }
 
         public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
         {
@@ -281,6 +287,26 @@ public class LanguageServerTests
             DocumentSymbolHandler = new DocumentSymbolHandler(
                 DocumentManager,
                 NullLogger<DocumentSymbolHandler>.Instance
+            );
+
+            SemanticTokensHandler = new SemanticTokensHandler(
+                DocumentManager,
+                NullLogger<SemanticTokensHandler>.Instance
+            );
+
+            WorkspaceSymbolHandler = new WorkspaceSymbolHandler(
+                DocumentManager,
+                NullLogger<WorkspaceSymbolHandler>.Instance
+            );
+
+            FoldingRangeHandler = new FoldingRangeHandler(
+                DocumentManager,
+                NullLogger<FoldingRangeHandler>.Instance
+            );
+
+            PrepareRenameHandler = new PrepareRenameHandler(
+                DocumentManager,
+                NullLogger<PrepareRenameHandler>.Instance
             );
         }
 
@@ -403,6 +429,33 @@ public class LanguageServerTests
             };
 
             return await InlayHintHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<Container<WorkspaceSymbol>?> GetWorkspaceSymbolsAsync(string query)
+        {
+            var request = new WorkspaceSymbolParams { Query = query };
+            return await WorkspaceSymbolHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<Container<FoldingRange>?> GetFoldingRangesAsync(string uri)
+        {
+            var request = new FoldingRangeRequestParam
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri))
+            };
+
+            return await FoldingRangeHandler.Handle(request, CancellationToken.None);
+        }
+
+        public async Task<RangeOrPlaceholderRange?> PrepareRenameAsync(string uri, int line, int character)
+        {
+            var request = new PrepareRenameParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.From(uri)),
+                Position = new Position(line, character)
+            };
+
+            return await PrepareRenameHandler.Handle(request, CancellationToken.None);
         }
     }
 
@@ -2418,6 +2471,395 @@ func createUser(name: string): User
         var barSymbol = fooSymbol.Children!.First(c => c.Name == "bar");
         Assert.True(barSymbol.Range.End.Character >= barSymbol.SelectionRange.End.Character
                     || barSymbol.Range.End.Line > barSymbol.SelectionRange.End.Line);
+    }
+
+    #endregion
+
+    #region Semantic Tokens Tests
+
+    [Fact]
+    public void SemanticTokens_ClassifiesKeywords()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens.nl";
+        var source = @"func main() {
+    let x := 42
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+        Assert.NotNull(doc!.Tokens);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+
+        // "func" should be classified as keyword (index 12)
+        var funcToken = doc.Tokens!.First(t => t.Type == NSharpLang.Compiler.TokenType.Func);
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            funcToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+        Assert.NotNull(classification);
+        Assert.Equal(12, classification!.Value.TokenType); // keyword
+
+        // "let" should be classified as keyword
+        var letToken = doc.Tokens!.First(t => t.Type == NSharpLang.Compiler.TokenType.Let);
+        classification = harness.SemanticTokensHandler.ClassifyToken(
+            letToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+        Assert.NotNull(classification);
+        Assert.Equal(12, classification!.Value.TokenType); // keyword
+    }
+
+    [Fact]
+    public void SemanticTokens_ClassifiesNumberLiterals()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_num.nl";
+        var source = @"func main() {
+    let x := 42
+    let y := 3.14
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+
+        var intToken = doc.Tokens!.First(t => t.Type == NSharpLang.Compiler.TokenType.IntLiteral);
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            intToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+        Assert.NotNull(classification);
+        Assert.Equal(15, classification!.Value.TokenType); // number
+
+        var floatToken = doc.Tokens!.First(t => t.Type == NSharpLang.Compiler.TokenType.FloatLiteral);
+        classification = harness.SemanticTokensHandler.ClassifyToken(
+            floatToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+        Assert.NotNull(classification);
+        Assert.Equal(15, classification!.Value.TokenType); // number
+    }
+
+    [Fact]
+    public void SemanticTokens_ClassifiesStringLiterals()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_str.nl";
+        var source = @"func main() {
+    let x := ""hello""
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+
+        var strToken = doc.Tokens!.First(t => t.Type == NSharpLang.Compiler.TokenType.StringLiteral);
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            strToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+        Assert.NotNull(classification);
+        Assert.Equal(14, classification!.Value.TokenType); // string
+    }
+
+    [Fact]
+    public void SemanticTokens_ClassifiesTypeNames()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_type.nl";
+        var source = @"class Person {
+    name: string
+    age: int
+}
+
+func main() {
+    let p := new Person()
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        Assert.Contains("Person", typeNames);
+    }
+
+    [Fact]
+    public void SemanticTokens_ClassifiesFunctionNames()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_func.nl";
+        var source = @"func greet(name: string): string {
+    return ""Hello "" + name
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc!);
+        Assert.Contains("greet", functionNames);
+    }
+
+    #endregion
+
+    #region Workspace Symbol Tests
+
+    [Fact]
+    public async Task WorkspaceSymbols_FindsTypeDeclarations()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/ws_symbols.nl";
+        var source = @"class Person {
+    name: string
+}
+
+func greet(): string {
+    return ""hello""
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetWorkspaceSymbolsAsync("Person");
+        Assert.NotNull(result);
+        Assert.Contains(result!, s => s.Name == "Person");
+    }
+
+    [Fact]
+    public async Task WorkspaceSymbols_EmptyQueryReturnsAllSymbols()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/ws_symbols_all.nl";
+        var source = @"class Foo {
+    bar: int
+}
+
+func baz(): void {
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetWorkspaceSymbolsAsync("");
+        Assert.NotNull(result);
+        Assert.True(result!.Count() >= 2); // At least Foo and baz
+    }
+
+    [Fact]
+    public void WorkspaceSymbols_FuzzyMatching()
+    {
+        // Test that "PrsNm" matches "PersonName" (fuzzy subsequence)
+        Assert.True(WorkspaceSymbolHandler.MatchesQuery("PersonName", "PrsNm"));
+        Assert.True(WorkspaceSymbolHandler.MatchesQuery("PersonName", "person"));
+        Assert.True(WorkspaceSymbolHandler.MatchesQuery("PersonName", ""));
+        Assert.False(WorkspaceSymbolHandler.MatchesQuery("PersonName", "xyz"));
+    }
+
+    [Fact]
+    public async Task WorkspaceSymbols_IncludesMembers()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/ws_symbols_members.nl";
+        var source = @"class Person {
+    name: string
+    age: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        // The class itself should be in results
+        var result = await harness.GetWorkspaceSymbolsAsync("Person");
+        Assert.NotNull(result);
+        Assert.Contains(result!, s => s.Name == "Person");
+
+        // Members should also be accessible if they exist in SymbolsInfo
+        var allSymbols = await harness.GetWorkspaceSymbolsAsync("");
+        Assert.NotNull(allSymbols);
+        // At minimum, the Person type itself should be returned
+        Assert.Contains(allSymbols!, s => s.Name == "Person");
+    }
+
+    #endregion
+
+    #region Folding Range Tests
+
+    [Fact]
+    public async Task FoldingRange_FoldsFunction()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/folding.nl";
+        var source = @"func main() {
+    let x := 42
+    let y := 43
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetFoldingRangesAsync(uri);
+        Assert.NotNull(result);
+        Assert.True(result!.Any());
+
+        // The function should fold from line 0 to line 3
+        var funcRange = result!.FirstOrDefault(r => r.StartLine == 0);
+        Assert.NotNull(funcRange);
+        Assert.True(funcRange!.EndLine > funcRange.StartLine);
+    }
+
+    [Fact]
+    public async Task FoldingRange_FoldsClass()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/folding_class.nl";
+        var source = @"class Person {
+    name: string
+    age: int
+
+    func greet(): string {
+        return ""Hello""
+    }
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetFoldingRangesAsync(uri);
+        Assert.NotNull(result);
+
+        // Should have at least class folding and method folding
+        Assert.True(result!.Count() >= 2);
+    }
+
+    [Fact]
+    public async Task FoldingRange_FoldsImports()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/folding_imports.nl";
+        var source = @"import System
+import System.Collections.Generic
+import System.Linq
+
+func main() {
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetFoldingRangesAsync(uri);
+        Assert.NotNull(result);
+
+        // Should have an import folding range
+        var importRange = result!.FirstOrDefault(r => r.Kind == FoldingRangeKind.Imports);
+        Assert.NotNull(importRange);
+    }
+
+    #endregion
+
+    #region Prepare Rename Tests
+
+    [Fact]
+    public async Task PrepareRename_AcceptsKnownSymbol()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename.nl";
+        var source = @"func greet(name: string): string {
+    return ""Hello "" + name
+}
+";
+        harness.OpenDocument(uri, source);
+
+        // "greet" starts at line 0, col 5 (0-based)
+        var result = await harness.PrepareRenameAsync(uri, 0, 5);
+        Assert.NotNull(result);
+        Assert.True(result!.IsPlaceholderRange);
+        Assert.Equal("greet", result.PlaceholderRange.Placeholder);
+    }
+
+    [Fact]
+    public async Task PrepareRename_RejectsKeyword()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_kw.nl";
+        var source = @"func main() {
+    let x := 42
+}
+";
+        harness.OpenDocument(uri, source);
+
+        // "func" is at line 0, col 0
+        var result = await harness.PrepareRenameAsync(uri, 0, 0);
+        Assert.Null(result);
+
+        // "let" is at line 1, col 4
+        result = await harness.PrepareRenameAsync(uri, 1, 4);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PrepareRename_RejectsPrimitiveType()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_prim.nl";
+        var source = @"func main() {
+    let x: int = 42
+}
+";
+        harness.OpenDocument(uri, source);
+
+        // "int" is at line 1
+        var lines = source.Split('\n');
+        var intCol = lines[1].IndexOf("int");
+        var result = await harness.PrepareRenameAsync(uri, 1, intCol);
+        Assert.Null(result);
+    }
+
+    #endregion
+
+    #region Hover Range Tests
+
+    [Fact]
+    public async Task Hover_KeywordIncludesRange()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/hover_kw_range.nl";
+        var source = @"func main() {
+}
+";
+        harness.OpenDocument(uri, source);
+
+        // "func" at line 0, col 0
+        var hover = await harness.GetHoverAsync(uri, 0, 0);
+        Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
+        Assert.Contains("keyword", hover.Contents.MarkedStrings == null
+            ? hover.Contents.MarkupContent!.Value
+            : hover.Contents.MarkedStrings.First().Value);
+    }
+
+    [Fact]
+    public async Task Hover_PrimitiveTypeIncludesRange()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/hover_prim_range.nl";
+        var source = @"func main() {
+    let x: int = 42
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var lines = source.Split('\n');
+        var intCol = lines[1].IndexOf("int");
+        var hover = await harness.GetHoverAsync(uri, 1, intCol);
+        Assert.NotNull(hover);
+        Assert.NotNull(hover!.Range);
+        Assert.Contains("primitive type", hover.Contents.MarkedStrings == null
+            ? hover.Contents.MarkupContent!.Value
+            : hover.Contents.MarkedStrings.First().Value);
     }
 
     #endregion

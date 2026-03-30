@@ -58,6 +58,15 @@ public class HoverHandler : HoverHandlerBase
                 var hover = TryResolveExpression(expression, word, doc);
                 if (hover != null)
                 {
+                    // Ensure Range is set for consistent behavior
+                    if (hover.Range == null && !string.IsNullOrWhiteSpace(word))
+                    {
+                        hover = new Hover
+                        {
+                            Contents = hover.Contents,
+                            Range = GetWordRange(doc.Text, line, character, word)
+                        };
+                    }
                     return Task.FromResult<Hover?>(hover);
                 }
             }
@@ -121,7 +130,8 @@ public class HoverHandler : HoverHandlerBase
                     {
                         Kind = MarkupKind.Markdown,
                         Value = $"**{word}** *(keyword)*"
-                    })
+                    }),
+                    Range = GetWordRange(doc.Text, line, character, word)
                 });
             }
 
@@ -139,7 +149,8 @@ public class HoverHandler : HoverHandlerBase
                     {
                         Kind = MarkupKind.Markdown,
                         Value = $"**{word}** *(primitive type)*"
-                    })
+                    }),
+                    Range = GetWordRange(doc.Text, line, character, word)
                 });
             }
         }

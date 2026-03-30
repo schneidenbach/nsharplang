@@ -133,7 +133,7 @@ public class RenameHandler : RenameHandlerBase
     {
         return new RenameRegistrationOptions
         {
-            PrepareProvider = false
+            PrepareProvider = true
         };
     }
 
