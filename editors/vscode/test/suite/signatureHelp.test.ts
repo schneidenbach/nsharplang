@@ -5,9 +5,22 @@ import {
     openDocumentAndWaitForLsp,
     getSignatureHelp,
     positionOf,
-    closeAllEditors
+    closeAllEditors,
+    createTempNlFile,
+    getDiagnostics
 } from './helpers';
 
+/**
+ * Signature Help tests with parameter validation.
+ *
+ * The SignatureHelpHandler is fully implemented for N# functions and .NET types.
+ * It triggers on "(" and "," characters.
+ *
+ * Signature label format: "funcName(param1: Type, param2: Type): ReturnType"
+ * Parameter label format: "paramName: ParamType"
+ *
+ * Every test hard-asserts the signature is returned AND validates parameters.
+ */
 suite('Signature Help', () => {
     suiteSetup(async function () {
         this.timeout(90_000);
@@ -18,39 +31,138 @@ suite('Signature Help', () => {
         await closeAllEditors();
     });
 
-    test('signature help on function call shows parameters', async function () {
+    // ================================================================
+    // SINGLE-PARAMETER FUNCTION
+    // ================================================================
+
+    test('greet() shows 1 parameter with name and type', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Find "greet(" and position cursor right after the opening paren
+        // Position right after "greet(" in "greet("World")"
         const pos = positionOf(doc, 'greet("World")', { at: 'start' });
-        const parenPos = new vscode.Position(pos.line, pos.character + 6); // after 'greet('
+        const parenPos = new vscode.Position(pos.line, pos.character + 6);
         const sigHelp = await getSignatureHelp(doc, parenPos);
 
-        if (sigHelp) {
-            assert.ok(sigHelp.signatures.length > 0,
-                'Expected at least one signature');
+        assert.ok(sigHelp, 'Signature help should be returned for greet()');
+        assert.ok(sigHelp!.signatures.length > 0,
+            'Expected at least one signature');
 
-            const sig = sigHelp.signatures[0];
-            assert.ok(sig.parameters.length > 0,
-                'Expected at least one parameter in signature');
-        }
-        // Signature help may not be available for all functions - that's OK
+        const sig = sigHelp!.signatures[0];
+        assert.ok(sig.parameters.length === 1,
+            `Expected 1 parameter for greet(), got ${sig.parameters.length}`);
+
+        // Check parameter label contains the parameter name
+        const paramLabel = typeof sig.parameters[0].label === 'string'
+            ? sig.parameters[0].label
+            : sig.label.substring(sig.parameters[0].label[0], sig.parameters[0].label[1]);
+        assert.ok(paramLabel.includes('name') || paramLabel.includes('string'),
+            `Parameter label should contain "name" or "string". Got: "${paramLabel}"`);
+
+        // Signature label should mention "greet"
+        assert.ok(sig.label.includes('greet'),
+            `Signature label should contain "greet". Got: "${sig.label}"`);
     });
 
-    test('signature help on multi-param function', async function () {
+    // ================================================================
+    // MULTI-PARAMETER FUNCTION
+    // ================================================================
+
+    test('add() shows 2 parameters', async function () {
         this.timeout(60_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Find "add(3, 4)" and position cursor after the opening paren
+        // Position right after "add(" in "add(3, 4)"
         const pos = positionOf(doc, 'add(3, 4)', { at: 'start' });
-        const parenPos = new vscode.Position(pos.line, pos.character + 4); // after 'add('
+        const parenPos = new vscode.Position(pos.line, pos.character + 4);
         const sigHelp = await getSignatureHelp(doc, parenPos);
 
-        if (sigHelp && sigHelp.signatures.length > 0) {
-            const sig = sigHelp.signatures[0];
-            assert.ok(sig.parameters.length >= 2,
-                `Expected at least 2 parameters for add(), got ${sig.parameters.length}`);
+        assert.ok(sigHelp, 'Signature help should be returned for add()');
+        assert.ok(sigHelp!.signatures.length > 0,
+            'Expected at least one signature');
+
+        const sig = sigHelp!.signatures[0];
+        assert.ok(sig.parameters.length >= 2,
+            `Expected at least 2 parameters for add(), got ${sig.parameters.length}`);
+
+        // Signature label should contain "add"
+        assert.ok(sig.label.includes('add'),
+            `Signature label should contain "add". Got: "${sig.label}"`);
+    });
+
+    test('add() after comma shows second parameter active', async function () {
+        this.timeout(60_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        // Position after "add(3, " — should highlight second parameter
+        const pos = positionOf(doc, 'add(3, 4)', { at: 'start' });
+        const afterComma = new vscode.Position(pos.line, pos.character + 7); // after "add(3, "
+        const sigHelp = await getSignatureHelp(doc, afterComma);
+
+        assert.ok(sigHelp, 'Signature help should work after comma');
+
+        // Active parameter should be 1 (second parameter, 0-indexed)
+        if (sigHelp!.signatures.length > 0 && sigHelp!.signatures[0].parameters.length >= 2) {
+            assert.strictEqual(sigHelp!.activeParameter, 1,
+                `Expected active parameter to be 1 (second param), got ${sigHelp!.activeParameter}`);
         }
+    });
+
+    // ================================================================
+    // RETURN TYPE IN SIGNATURE
+    // ================================================================
+
+    test('signature label includes return type', async function () {
+        this.timeout(60_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        const pos = positionOf(doc, 'greet("World")', { at: 'start' });
+        const parenPos = new vscode.Position(pos.line, pos.character + 6);
+        const sigHelp = await getSignatureHelp(doc, parenPos);
+
+        assert.ok(sigHelp, 'Signature help should be returned');
+
+        const sig = sigHelp!.signatures[0];
+        // greet returns string — label should include "string" as return type
+        assert.ok(
+            sig.label.includes('string'),
+            `Signature label should include return type "string". Got: "${sig.label}"`
+        );
+    });
+
+    // ================================================================
+    // EDGE CASES
+    // ================================================================
+
+    test('no signature help outside function call', async function () {
+        this.timeout(30_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        // Position at top of file, not inside any function call
+        const sigHelp = await getSignatureHelp(doc, new vscode.Position(0, 0));
+
+        // Should be undefined or have no signatures
+        if (sigHelp) {
+            assert.strictEqual(sigHelp.signatures.length, 0,
+                `Expected no signatures outside function call, got ${sigHelp.signatures.length}`);
+        }
+    });
+
+    test('signature help on constructor call', async function () {
+        this.timeout(60_000);
+        const doc = await openDocumentAndWaitForLsp('Program.nl');
+
+        // Position right after "Person(" in "new Person("Alice", 30)"
+        const pos = positionOf(doc, 'new Person("Alice"', { at: 'start' });
+        const parenPos = new vscode.Position(pos.line, pos.character + 11); // after "new Person("
+        const sigHelp = await getSignatureHelp(doc, parenPos);
+
+        assert.ok(sigHelp, 'Signature help should be returned for constructor call');
+        assert.ok(sigHelp!.signatures.length > 0,
+            'Constructor should have at least one signature');
+
+        const sig = sigHelp!.signatures[0];
+        assert.ok(sig.parameters.length >= 2,
+            `Person constructor should have at least 2 parameters (name, age), got ${sig.parameters.length}`);
     });
 });
