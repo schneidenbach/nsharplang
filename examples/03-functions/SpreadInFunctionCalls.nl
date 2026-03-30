@@ -14,7 +14,7 @@ func Sum(params numbers: int[]): int {
 // Function that concatenates strings
 func Concatenate(separator: string, params parts: string[]): string {
     result := ""
-    for i = 0; i < parts.Length; i++ {
+    for i := 0; i < parts.Length; i++ {
         if i > 0 {
             result += separator
         }
@@ -28,7 +28,7 @@ func Concatenate(separator: string, params parts: string[]): string {
 // Function with regular parameters and params
 func Format(prefix: string, suffix: string, params values: int[]): string {
     middle := ""
-    for i = 0; i < values.Length; i++ {
+    for i := 0; i < values.Length; i++ {
         if i > 0 {
             middle += ", "
         }

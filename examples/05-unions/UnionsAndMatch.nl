@@ -5,8 +5,8 @@ import System
 
 // Discriminated union example
 union Result {
-    Success(value: int)
-    Failure(error: string, code: int)
+    Success { value: int }
+    Failure { error: string, code: int }
 }
 
 // String enum example
@@ -28,9 +28,9 @@ type UserId = int
 type ErrorCode = int
 
 func ProcessResult(r: Result): string {
-    return r match {
-        Result.Success(value: ) => $"Success: {value}"
-        Result.Failure(error: , code: ) => $"Error {code}: {error}"
+    return match r {
+        Result.Success { value } => $"Success: {value}",
+        Result.Failure { error, code } => $"Error {code}: {error}"
     }
 }
 
@@ -56,12 +56,12 @@ func Main() {
 
     // Test success case
     print "\n1. Success case:"
-    successResult := new Result.Success(42)
+    successResult := new Result.Success { value: 42 }
     print ProcessResult(successResult)
 
     // Test failure case
     print "\n2. Failure case:"
-    failureResult := new Result.Failure("File not found", 404)
+    failureResult := new Result.Failure { error: "File not found", code: 404 }
     print ProcessResult(failureResult)
 
     // Test string values (enum simulation)

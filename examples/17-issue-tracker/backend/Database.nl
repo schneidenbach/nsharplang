@@ -4,7 +4,6 @@ namespace IssueTracker
 
 import System
 import System.Collections.Generic
-import "Models"
 
 class IssueStore {
     issues: List<Issue>

@@ -9,8 +9,6 @@ import System.Text.Json
 import System.Threading.Tasks
 import Microsoft.AspNetCore.Builder
 import Microsoft.AspNetCore.Http
-import "Models"
-import "Service"
 
 class Routes {
     service: IssueService

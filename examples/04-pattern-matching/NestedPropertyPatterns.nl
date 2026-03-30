@@ -24,49 +24,39 @@ class Company {
 
 func ClassifyPerson(person: Person): string {
     // Match with nested property patterns
-    return person match {
-        { Address: { City: "New York", State: "NY" } } => "New Yorker"
-        { Address: { City: city, State: "CA" } } => $"Californian from {city}"
-        { Address: { State: "TX" } } => "Texan"
-        { HasAddress: false } => "No address on file"
+    return match person {
+        { Address: { City: "New York", State: "NY" } } => "New Yorker",
+        { Address: { City: city, State: "CA" } } => $"Californian from {city}",
+        { Address: { State: "TX" } } => "Texan",
+        { HasAddress: false } => "No address on file",
         _ => "Other location"
     }
 }
 
-// Deep nesting: check if person lives in NYC
-
-// Nested with binding: extract the city name
-
-// Nested with literal: check specific state
-
-// Check HasAddress flag
-
-// Default case
-
 func DescribeCompany(company: Company): string {
     // Three-level nesting
-    return company match {
-        { Headquarters: { City: "New York", State: "NY", ZipCode: zip } } => $"NYC company in {zip}"
-        { Headquarters: { City: city, State: state } } => $"Based in {city}, {state}"
-        { HasHQ: false } => "Remote company"
+    return match company {
+        { Headquarters: { City: "New York", State: "NY", ZipCode: zip } } => $"NYC company in {zip}",
+        { Headquarters: { City: city, State: state } } => $"Based in {city}, {state}",
+        { HasHQ: false } => "Remote company",
         _ => "Unknown"
     }
 }
 
 func AnalyzePerson(person: Person): string {
     // Combining age check with nested address pattern
-    return person match {
-        { Age: age, Address: { City: "New York" } } when age < 30 => "Young New Yorker"
-        { Age: age, Address: { State: "CA" } } when age >= 65 => "Senior Californian"
-        { Age: age, HasAddress: false } when age < 18 => "Minor with no address"
+    return match person {
+        { Age: age, Address: { City: "New York" } } when age < 30 => "Young New Yorker",
+        { Age: age, Address: { State: "CA" } } when age >= 65 => "Senior Californian",
+        { Age: age, HasAddress: false } when age < 18 => "Minor with no address",
         _ => "Regular person"
     }
 }
 
 // Union type with nested patterns
 union ApiResponse {
-    Success(data: ResponseData)
-    Error(message: string, code: int)
+    Success { data: ResponseData }
+    Error { message: string, code: int }
 }
 
 class ResponseData {
@@ -76,14 +66,11 @@ class ResponseData {
 }
 
 func HandleResponse(response: ApiResponse): string {
-    return response match {
-        ApiResponse.Success(data: { UserName: name, IsActive: true }) => $"Active user: {name}"
-        ApiResponse.Success(data: { UserName: name, IsActive: false }) => $"Inactive user: {name}"
-        ApiResponse.Error(message: , code: ) => $"Error {code}: {message}"
+    return match response {
+        ApiResponse.Success { data } => $"User: {data.UserName}, Active: {data.IsActive}",
+        ApiResponse.Error { message, code } => $"Error {code}: {message}"
     }
 }
-
-// Nested pattern in union case
 
 func Main() {
     print "=== Nested Property Patterns Example ==="
@@ -125,11 +112,11 @@ func Main() {
     // Test API response
     responseData := new ResponseData() { UserId: 42, UserName: "Alice", IsActive: true }
 
-    response := new ApiResponse.Success() { data: responseData }
+    response := new ApiResponse.Success { data: responseData }
     print $"API Response: {HandleResponse(response)}"
 
     // Test error response
-    errorResponse := new ApiResponse.Error() { message: "User not found", code: 404 }
+    errorResponse := new ApiResponse.Error { message: "User not found", code: 404 }
 
     print $"Error Response: {HandleResponse(errorResponse)}"
 }

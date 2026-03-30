@@ -6,7 +6,6 @@ namespace IssueTracker
 
 import System
 import System.Collections.Generic
-import "Models"
 
 // Duck interface — any type with a matching Notify method qualifies.
 // No explicit implementation required. This is how Go interfaces work.

@@ -5,7 +5,6 @@
 namespace IssueTracker
 
 import System
-import "Models"
 
 class Workflow {
     // Transition is PascalCase → public.
