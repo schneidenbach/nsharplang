@@ -141,7 +141,7 @@ Examples:
   nlc fix
   nlc fix --dry-run --text
   nlc fix --file Program.nl
-  nlc fix --project examples/15-dogfood-project");
+  nlc fix --project examples/16-task-cli");
 
         return 0;
     }

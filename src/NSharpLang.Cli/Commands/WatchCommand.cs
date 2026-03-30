@@ -206,7 +206,7 @@ Examples:
   nlc watch check
   nlc watch build
   nlc watch test --filter AddPerson
-  nlc watch check --project examples/15-dogfood-project --max-runs 2
+  nlc watch check --project examples/16-task-cli --max-runs 2
 
 Exit codes:
   0  Watch finished and the last run succeeded

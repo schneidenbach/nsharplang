@@ -219,7 +219,7 @@ Examples:
   nlc lint --json
   nlc lint --text
   nlc lint Program.nl
-  nlc lint --project examples/15-dogfood-project
+  nlc lint --project examples/16-task-cli
 
 Exit codes:
   0  No lint issues found (or only info-level)

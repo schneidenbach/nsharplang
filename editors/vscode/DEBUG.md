@@ -2,6 +2,14 @@
 
 ## Quick Diagnosis Steps
 
+### 0. Run The Headless VS Code Smoke Tests
+
+```bash
+./scripts/test-vscode-headless.sh
+```
+
+This launches the real extension in a VS Code extension host, exercises core provider paths through the editor API, and writes a JSON report to `.context/vscode-headless-report.json`. Use this first when you want an LLM to validate editor behavior without screen control.
+
 ### 1. Check Language Server is Running
 
 **Open VS Code Output Panel:**

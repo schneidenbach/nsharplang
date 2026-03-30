@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 out/
 server/
+.vscode-test/
 
 # Package
 *.vsix

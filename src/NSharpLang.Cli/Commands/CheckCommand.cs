@@ -137,7 +137,7 @@ Options:
 Examples:
   nlc check
   nlc check --text
-  nlc check --project examples/15-dogfood-project");
+  nlc check --project examples/16-task-cli");
 
         return 0;
     }
