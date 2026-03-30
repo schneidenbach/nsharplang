@@ -38,6 +38,7 @@ class Program
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
             "lint" => Commands.LintCommand.Execute(args.Skip(1).ToArray()),
+            "restore" => RestoreCommand.Execute(args.Skip(1).ToArray()),
             "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
             "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
             "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
@@ -46,6 +47,14 @@ class Program
             "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
+            "add" => AddCommand.Execute(args.Skip(1).ToArray()),
+            "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
+            "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
+            "init" => InitCommand.Execute(args.Skip(1).ToArray()),
+            "env" => EnvCommand.Execute(args.Skip(1).ToArray()),
+            "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
+            "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
+            "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
@@ -252,14 +261,15 @@ Exit codes:
         {
             Console.WriteLine($"Building project in {projectRoot}...");
 
-            // Check for project.yml
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
-            if (!File.Exists(projectYmlPath))
+            // Generate obj/project.g.props from project.yml (canonical YAML→XML projection)
+            var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
+            if (restoreResult != 0)
             {
                 return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or 'nlc build <file.nl>' to build a single file.");
             }
 
             // Load project config and ensure generated MSBuild files exist
+            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             var config = ProjectFileParser.Parse(projectYmlPath);
             var csprojPath = EnsureProjectFiles(projectRoot, config);
 
@@ -816,8 +826,16 @@ Exit codes:
     print ""Hello, N#!""
 }");
 
+            // Create minimal .csproj (MSBuild entry point — all config comes from project.yml)
+            var csprojPath = Path.Combine(projectDir, $"{projectName}.csproj");
+            File.WriteAllText(csprojPath, "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+
+            // Generate obj/project.g.props so dotnet build works immediately
+            RestoreCommand.Restore(projectDir, quiet: true);
+
             Console.WriteLine($"Created: {projectName}/project.yml");
             Console.WriteLine($"Created: {projectName}/Program.nl");
+            Console.WriteLine($"Created: {projectName}/{projectName}.csproj");
             Console.WriteLine();
             Console.WriteLine($"To build and run your project:");
             Console.WriteLine($"  cd {projectName}");
@@ -1681,7 +1699,8 @@ Usage: nlc <command> [options]
 Build & Run:
   build [file]         Compile a project or single .nl file (--release, --verbose)
   run [file]           Build and run a project or single file
-  publish              Package for distribution
+  restore              Generate build config from project.yml
+  publish              Publish project for deployment
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
 
@@ -1695,11 +1714,21 @@ Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
   test                 Run .tests.nl test suites (--coverage, --verbose)
+  bench                Run benchmarks
+
+Dependencies:
+  add <package>        Add a NuGet dependency to project.yml
+  remove <package>     Remove a dependency from project.yml
+  update [package]     Update dependencies to latest versions
+  tree                 Show dependency tree
+  audit                Check for known vulnerabilities
 
 Project:
   new <name>           Create a new N# project
+  init                 Initialize N# in the current directory
   watch <cmd>          Re-run check/build/test on file changes
   doc                  Generate HTML API documentation
+  env                  Show environment and toolchain info
   completion <shell>   Generate shell completion scripts
 
 Options:
@@ -1713,7 +1742,7 @@ Common Workflows:
   nlc build                    Compile the project
   nlc run                      Build and run
   nlc test                     Run tests
-  nlc publish                  Package for distribution
+  nlc add Serilog@3.1.0        Add a dependency
   nlc check                    Fast feedback loop
   nlc fix && nlc check         Auto-fix then verify
   nlc build --release          Optimized release build
@@ -1721,6 +1750,7 @@ Common Workflows:
   nlc test --filter AddPerson  Run specific tests
   nlc test --coverage          Run tests with coverage
   nlc watch check              Re-check on every save
+  nlc publish -c Release       Publish for deployment
 
 Run 'nlc <command> --help' for command-specific options.");
 
