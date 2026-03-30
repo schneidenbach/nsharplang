@@ -22,9 +22,21 @@ async function main() {
         console.log(`Workspace: ${testWorkspace}`);
         console.log(`UserData:  ${userDataDir}`);
 
+        // Pass test filtering env vars through to the VS Code instance
+        const extensionTestsEnv: Record<string, string> = {};
+        if (process.env.TEST_SUITE) {
+            extensionTestsEnv.TEST_SUITE = process.env.TEST_SUITE;
+            console.log(`Filter:    TEST_SUITE=${process.env.TEST_SUITE}`);
+        }
+        if (process.env.TEST_GREP) {
+            extensionTestsEnv.TEST_GREP = process.env.TEST_GREP;
+            console.log(`Filter:    TEST_GREP=${process.env.TEST_GREP}`);
+        }
+
         await runTests({
             extensionDevelopmentPath,
             extensionTestsPath,
+            extensionTestsEnv,
             launchArgs: [
                 testWorkspace,
                 '--disable-extensions',
