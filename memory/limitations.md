@@ -22,20 +22,29 @@ f := x => x * 2  // x is Unknown — no declared type to infer from
 
 **Status:** Fully implemented. Contextual type flows through variable declarations, assignments, return statements, field initializers, function call arguments, and LINQ methods.
 
-### 2. Generic Type Inference
-**Current:** Generic type parameters must be explicit.
+### 2. Generic Type Inference (RESOLVED)
+**Current:** ✅ Generic type parameters are inferred from argument types.
 
 ```
-// Must specify type
-let result := Identity<int>(42)
+// Type inference — no explicit type args needed:
+let result := Identity(42)              // T inferred as int
+let pair := Pair(1, "hello")            // A=int, B=string inferred
+let first := First(myList)              // T inferred from List<T> arg
+let nums := CreateList(1, 2, 3)        // T=int inferred from params args
 
-// Can't infer:
-// let result := Identity(42)  // Error
+// Explicit type args still work when needed:
+let cast := items.Cast<object>()        // Can't infer — must be explicit
+let result := Identity<int>(42)         // Explicit still accepted
 ```
 
-**Why:** Generic constraint solving not implemented.
-
-**Future:** Implement full generic type inference algorithm.
+**Status:** Fully implemented. Constraint-solving algorithm infers type parameters from:
+- Direct argument types (T from argument)
+- Generic container arguments (List&lt;T&gt; from List&lt;int&gt;)
+- Array arguments (T[] from int[])
+- Nullable arguments (T? matching)
+- Params array elements
+- Multiple arguments constraining the same type param (LUB computation)
+- Partial inference (some explicit, some inferred)
 
 ### 3. Property Type Inference (RESOLVED - Task 025)
 **Current:** ✅ Properties support type inference with `:=` syntax.
@@ -269,7 +278,7 @@ length := (name ?? "").Length  // ✅ Works
 Most limitations have workarounds:
 
 1. **Lambda types**: Use explicit type annotations
-2. **Generic inference**: Specify type parameters explicitly
+2. ~~**Generic inference**: Specify type parameters explicitly~~ (RESOLVED)
 3. ~~**Overload resolution**: Use unique method names or param counts~~ (RESOLVED)
 4. ~~**Extension on literals**: Assign to variable first~~ (RESOLVED)
 5. **Circular imports**: Refactor to eliminate cycles
@@ -284,7 +293,6 @@ Most limitations have workarounds:
 - BindingMap for cross-file type references (import path doesn't record bindings)
 
 **Medium Priority:**
-- Generic type inference
 - Exhaustiveness with guards
 - Circular import detection
 - ✅ Position-aware SemanticModel (scope tracking with LookupIdentifierAtPosition and GetVisibleVariablesAtPosition)
