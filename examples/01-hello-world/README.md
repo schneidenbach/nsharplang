@@ -17,7 +17,13 @@ Your first N# programs! These examples show the basic structure of N# code.
 
 ```bash
 cd examples/01-hello-world
-dotnet run
+nlc run
+```
+
+From the repo root during local development:
+
+```bash
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/01-hello-world/Program.nl
 ```
 
 ## Expected Output

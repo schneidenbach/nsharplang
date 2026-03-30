@@ -99,7 +99,7 @@ Examples:
   nlc doc
   nlc doc --open
   nlc doc --json
-  nlc doc --project examples/15-dogfood-project --output /tmp/nsharp-docs
+  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs
 
 Exit codes:
   0  Documentation generated successfully
