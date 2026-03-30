@@ -337,6 +337,18 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Function), func.Line, func.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        // so they are resolvable as types (via LookupType) and as identifiers
+        if (func.TypeParameters != null)
+        {
+            foreach (var tp in func.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
 
@@ -471,6 +483,17 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Class), classDecl.Line, classDecl.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        if (classDecl.TypeParameters != null)
+        {
+            foreach (var tp in classDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         // Add 'this' to scope
         var classType = new ClassTypeInfo(classDecl);
         DeclareSymbol("this", classType, classDecl.Line, classDecl.Column);
@@ -523,6 +546,17 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Struct), structDecl.Line, structDecl.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        if (structDecl.TypeParameters != null)
+        {
+            foreach (var tp in structDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         var structType = new StructTypeInfo(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
 
@@ -555,6 +589,17 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Record), recordDecl.Line, recordDecl.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        if (recordDecl.TypeParameters != null)
+        {
+            foreach (var tp in recordDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         var recordType = new RecordTypeInfo(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
 
@@ -583,6 +628,17 @@ public class Analyzer : IDisposable
         CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
 
         PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
+
+        // Add generic type parameters to both type and symbol namespaces
+        if (interfaceDecl.TypeParameters != null)
+        {
+            foreach (var tp in interfaceDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
 
         foreach (var member in interfaceDecl.Members)
         {
@@ -888,21 +944,68 @@ public class Analyzer : IDisposable
     private HashSet<string> GetAssignedFields(BlockStatement block)
     {
         var assigned = new HashSet<string>();
-        foreach (var stmt in block.Statements)
+        CollectAssignedFields(block.Statements, assigned);
+        return assigned;
+    }
+
+    private void CollectAssignedFields(IEnumerable<Statement> statements, HashSet<string> assigned)
+    {
+        foreach (var stmt in statements)
         {
-            if (stmt is ExpressionStatement { Expression: AssignmentExpression assignment })
+            switch (stmt)
             {
-                if (assignment.Target is MemberAccessExpression { Object: ThisExpression } memberAccess)
-                {
-                    assigned.Add(memberAccess.MemberName);
-                }
-                else if (assignment.Target is IdentifierExpression ident)
-                {
-                    assigned.Add(ident.Name);
-                }
+                case ExpressionStatement { Expression: AssignmentExpression assignment }:
+                    if (assignment.Target is MemberAccessExpression { Object: ThisExpression } memberAccess)
+                        assigned.Add(memberAccess.MemberName);
+                    else if (assignment.Target is IdentifierExpression ident)
+                        assigned.Add(ident.Name);
+                    break;
+
+                case BlockStatement block:
+                    CollectAssignedFields(block.Statements, assigned);
+                    break;
+
+                case IfStatement ifStmt:
+                    // Only count as assigned if BOTH branches assign (definite assignment)
+                    if (ifStmt.ElseStatement != null)
+                    {
+                        var thenAssigned = new HashSet<string>();
+                        var elseAssigned = new HashSet<string>();
+                        CollectAssignedFields(new[] { ifStmt.ThenStatement }, thenAssigned);
+                        CollectAssignedFields(new[] { ifStmt.ElseStatement }, elseAssigned);
+                        // Fields assigned in both branches are definitely assigned
+                        thenAssigned.IntersectWith(elseAssigned);
+                        assigned.UnionWith(thenAssigned);
+                    }
+                    // Single-branch if: assignments are not definite, but still recurse
+                    // to catch assignments that happen unconditionally inside
+                    break;
+
+                case TryStatement tryStmt:
+                    CollectAssignedFields(tryStmt.TryBlock.Statements, assigned);
+                    break;
+
+                case ForStatement forStmt:
+                    CollectAssignedFields(new[] { forStmt.Body }, assigned);
+                    break;
+
+                case ForeachStatement foreachStmt:
+                    CollectAssignedFields(new[] { foreachStmt.Body }, assigned);
+                    break;
+
+                case WhileStatement whileStmt:
+                    CollectAssignedFields(new[] { whileStmt.Body }, assigned);
+                    break;
+
+                case UsingStatement usingStmt when usingStmt.Body != null:
+                    CollectAssignedFields(new[] { usingStmt.Body }, assigned);
+                    break;
+
+                case LockStatement lockStmt:
+                    CollectAssignedFields(lockStmt.Body.Statements, assigned);
+                    break;
             }
         }
-        return assigned;
     }
 
     private void AnalyzeStatement(Statement stmt)
@@ -3957,7 +4060,8 @@ public class Analyzer : IDisposable
         if (!HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count))
             return null;
 
-        var score = parameterOffset == 1 ? 4 : 0;
+        // Extension methods get a small penalty so instance methods are preferred (matches C# semantics)
+        var score = parameterOffset == 1 ? -1 : 0;
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
@@ -5060,6 +5164,8 @@ public class Analyzer : IDisposable
 
         if (resolvedTarget == resolvedSource) return true;
         if (resolvedSource == BuiltInTypes.Null && resolvedTarget is NullableTypeInfo) return true;
+        // null is assignable to any reference type (string, class instances, interfaces, delegates, arrays, etc.)
+        if (resolvedSource == BuiltInTypes.Null && IsReferenceType(resolvedTarget)) return true;
         if (resolvedSource == BuiltInTypes.Never) return true;
 
         // Unknown type handling — distinguished by kind
@@ -5626,6 +5732,29 @@ public class Analyzer : IDisposable
     private bool IsNullableType(TypeInfo type)
     {
         return type is NullableTypeInfo;
+    }
+
+    /// <summary>
+    /// Returns true if the type is a reference type (can hold null without being explicitly nullable).
+    /// Value types (int, bool, struct, enum) return false.
+    /// </summary>
+    private bool IsReferenceType(TypeInfo type)
+    {
+        // Obvious reference types
+        if (type == BuiltInTypes.String || type == BuiltInTypes.Object) return true;
+        if (type is ClassTypeInfo or InterfaceTypeInfo or ArrayTypeInfo or FunctionTypeInfo) return true;
+        if (type is GenericTypeInfo or UnionTypeInfo) return true;
+
+        // CLR reflection types: check the actual CLR type
+        if (type is ReflectionTypeInfo refl)
+            return !refl.Type.IsValueType;
+
+        // Value types
+        if (IsNumericType(type) || IsBoolType(type) || type == BuiltInTypes.Char) return false;
+        if (type is StructTypeInfo or RecordTypeInfo { Declaration.IsStruct: true } or EnumTypeInfo) return false;
+
+        // Default: assume reference type (safer — C# compiler will catch real errors)
+        return true;
     }
 
     /// <summary>
