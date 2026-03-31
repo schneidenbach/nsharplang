@@ -260,10 +260,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        foreach (var stmt in test.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(test.Body.Statements);
 
         PopScope();
     }
@@ -274,10 +271,7 @@ public class Analyzer : IDisposable
         // but symbols are already collected via CollectSetupSymbols
         PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
 
-        foreach (var stmt in setup.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(setup.Body.Statements);
 
         PopScope();
     }
@@ -336,6 +330,18 @@ public class Analyzer : IDisposable
         }
 
         PushScope(new Scope(ScopeKind.Function), func.Line, func.Column);
+
+        // Add generic type parameters to both type and symbol namespaces
+        // so they are resolvable as types (via LookupType) and as identifiers
+        if (func.TypeParameters != null)
+        {
+            foreach (var tp in func.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
 
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
@@ -455,6 +461,20 @@ public class Analyzer : IDisposable
             case LockStatement lockStmt:
                 return StatementAlwaysReturns(lockStmt.Body);
 
+            case SwitchStatement switchStmt:
+                // Switch always returns if it has a default case and all cases return
+                var hasDefault = switchStmt.Cases.Any(c => c.Pattern == null);
+                return hasDefault && switchStmt.Cases.All(c =>
+                    c.Statements.Any(s => StatementAlwaysReturns(s)));
+
+            case TryStatement tryStmt:
+                // Try always returns if the try block returns and all catch blocks return
+                if (!StatementAlwaysReturns(tryStmt.TryBlock))
+                    return false;
+                if (tryStmt.CatchClauses.Count == 0)
+                    return false;
+                return tryStmt.CatchClauses.All(c => StatementAlwaysReturns(c.Block));
+
             default:
                 return false;
         }
@@ -470,6 +490,17 @@ public class Analyzer : IDisposable
         CheckVisibilityConvention(classDecl.Name, classDecl.Modifiers, classDecl.Line, classDecl.Column);
 
         PushScope(new Scope(ScopeKind.Class), classDecl.Line, classDecl.Column);
+
+        // Add generic type parameters to both type and symbol namespaces
+        if (classDecl.TypeParameters != null)
+        {
+            foreach (var tp in classDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
 
         // Add 'this' to scope
         var classType = new ClassTypeInfo(classDecl);
@@ -523,6 +554,17 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Struct), structDecl.Line, structDecl.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        if (structDecl.TypeParameters != null)
+        {
+            foreach (var tp in structDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         var structType = new StructTypeInfo(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
 
@@ -555,6 +597,17 @@ public class Analyzer : IDisposable
 
         PushScope(new Scope(ScopeKind.Record), recordDecl.Line, recordDecl.Column);
 
+        // Add generic type parameters to both type and symbol namespaces
+        if (recordDecl.TypeParameters != null)
+        {
+            foreach (var tp in recordDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         var recordType = new RecordTypeInfo(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
 
@@ -583,6 +636,17 @@ public class Analyzer : IDisposable
         CheckVisibilityConvention(interfaceDecl.Name, interfaceDecl.Modifiers, interfaceDecl.Line, interfaceDecl.Column);
 
         PushScope(new Scope(ScopeKind.Interface), interfaceDecl.Line, interfaceDecl.Column);
+
+        // Add generic type parameters to both type and symbol namespaces
+        if (interfaceDecl.TypeParameters != null)
+        {
+            foreach (var tp in interfaceDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
 
         foreach (var member in interfaceDecl.Members)
         {
@@ -888,21 +952,71 @@ public class Analyzer : IDisposable
     private HashSet<string> GetAssignedFields(BlockStatement block)
     {
         var assigned = new HashSet<string>();
-        foreach (var stmt in block.Statements)
+        CollectAssignedFields(block.Statements, assigned);
+        return assigned;
+    }
+
+    private void CollectAssignedFields(IEnumerable<Statement> statements, HashSet<string> assigned)
+    {
+        foreach (var stmt in statements)
         {
-            if (stmt is ExpressionStatement { Expression: AssignmentExpression assignment })
+            switch (stmt)
             {
-                if (assignment.Target is MemberAccessExpression { Object: ThisExpression } memberAccess)
-                {
-                    assigned.Add(memberAccess.MemberName);
-                }
-                else if (assignment.Target is IdentifierExpression ident)
-                {
-                    assigned.Add(ident.Name);
-                }
+                case ExpressionStatement { Expression: AssignmentExpression assignment }:
+                    if (assignment.Target is MemberAccessExpression { Object: ThisExpression } memberAccess)
+                        assigned.Add(memberAccess.MemberName);
+                    else if (assignment.Target is IdentifierExpression ident)
+                        assigned.Add(ident.Name);
+                    break;
+
+                case BlockStatement block:
+                    CollectAssignedFields(block.Statements, assigned);
+                    break;
+
+                case IfStatement ifStmt:
+                    // Only count as assigned if BOTH branches assign (definite assignment)
+                    if (ifStmt.ElseStatement != null)
+                    {
+                        var thenAssigned = new HashSet<string>();
+                        var elseAssigned = new HashSet<string>();
+                        CollectAssignedFields(new[] { ifStmt.ThenStatement }, thenAssigned);
+                        CollectAssignedFields(new[] { ifStmt.ElseStatement }, elseAssigned);
+                        // Fields assigned in both branches are definitely assigned
+                        thenAssigned.IntersectWith(elseAssigned);
+                        assigned.UnionWith(thenAssigned);
+                    }
+                    // Single-branch if: assignments are not definite, but still recurse
+                    // to catch assignments that happen unconditionally inside
+                    break;
+
+                // try, for, foreach, while, using, lock bodies are NOT guaranteed
+                // to execute (loop may run 0 times, try may throw before assignment),
+                // so assignments inside them do NOT count as definite assignment.
+                case TryStatement:
+                case ForStatement:
+                case ForeachStatement:
+                case WhileStatement:
+                case UsingStatement:
+                case LockStatement:
+                    break;
             }
         }
-        return assigned;
+    }
+
+    private void AnalyzeStatements(IReadOnlyList<Statement> statements)
+    {
+        var terminated = false;
+        foreach (var stmt in statements)
+        {
+            if (terminated)
+            {
+                Error(ErrorCode.UnreachableStatement, "unreachable code", stmt.Line, stmt.Column);
+                break;
+            }
+            AnalyzeStatement(stmt);
+            if (StatementAlwaysReturns(stmt))
+                terminated = true;
+        }
     }
 
     private void AnalyzeStatement(Statement stmt)
@@ -921,8 +1035,7 @@ public class Analyzer : IDisposable
                 break;
             case BlockStatement block:
                 PushScope(new Scope(ScopeKind.Block), block.Line, block.Column);
-                foreach (var s in block.Statements)
-                    AnalyzeStatement(s);
+                AnalyzeStatements(block.Statements);
                 PopScope();
                 break;
             case IfStatement ifStmt:
@@ -1015,10 +1128,7 @@ public class Analyzer : IDisposable
     {
         // Analyze the body block
         PushScope(new Scope(ScopeKind.Block), assertThrows.Line, assertThrows.Column);
-        foreach (var stmt in assertThrows.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(assertThrows.Body.Statements);
         PopScope();
     }
 
@@ -1050,10 +1160,7 @@ public class Analyzer : IDisposable
         // Analyze body
         if (func.Body != null)
         {
-            foreach (var stmt in func.Body.Statements)
-            {
-                AnalyzeStatement(stmt);
-            }
+            AnalyzeStatements(func.Body.Statements);
         }
         else if (func.ExpressionBody != null)
         {
@@ -1640,10 +1747,7 @@ public class Analyzer : IDisposable
                 AnalyzePattern(switchCase.Pattern, valueType);
             }
 
-            foreach (var stmt in switchCase.Statements)
-            {
-                AnalyzeStatement(stmt);
-            }
+            AnalyzeStatements(switchCase.Statements);
 
             PopScope();
         }
@@ -4071,7 +4175,8 @@ public class Analyzer : IDisposable
         if (!HasCompatibleReflectionArity(parameters, parameterOffset, call.Arguments.Count))
             return null;
 
-        var score = parameterOffset == 1 ? 4 : 0;
+        // Extension methods get a small penalty so instance methods are preferred (matches C# semantics)
+        var score = parameterOffset == 1 ? -1 : 0;
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {

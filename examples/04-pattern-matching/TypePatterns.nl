@@ -6,10 +6,10 @@ import System.Collections.Generic
 
 // Example 1: Type pattern matching with strings
 func ClassifyString(value: string): string {
-    result := value match {
-        string s when s.Length == 0 => "Empty string"
-        string s when s.Length > 20 => "Long string"
-        string s when s.Length > 10 => "Medium string"
+    result := match value {
+        string s when s.Length == 0 => "Empty string",
+        string s when s.Length > 20 => "Long string",
+        string s when s.Length > 10 => "Medium string",
         string s => $"Short string: {s}"
     }
 
@@ -18,11 +18,11 @@ func ClassifyString(value: string): string {
 
 // Example 2: Type patterns with integers
 func ClassifyNumber(value: int): string {
-    result := value match {
-        int n when n > 100 => "Large number"
-        int n when n < 0 => "Negative number"
-        int n when n == 0 => "Zero"
-        int n when n > 50 => "Medium number"
+    result := match value {
+        int n when n > 100 => "Large number",
+        int n when n < 0 => "Negative number",
+        int n when n == 0 => "Zero",
+        int n when n > 50 => "Medium number",
         int n => $"Small number: {n}"
     }
 
@@ -31,11 +31,11 @@ func ClassifyNumber(value: int): string {
 
 // Example 3: Combining type patterns with literal patterns
 func CheckValue(value: string): string {
-    result := value match {
-        "special" => "Special string detected"
-        string s when s.StartsWith("ERROR:") => "Error message"
-        string s when s.StartsWith("WARN:") => "Warning message"
-        string s when s.Length > 10 => "Long string"
+    result := match value {
+        "special" => "Special string detected",
+        string s when s.StartsWith("ERROR:") => "Error message",
+        string s when s.StartsWith("WARN:") => "Warning message",
+        string s when s.Length > 10 => "Long string",
         string s => $"Regular string: {s}"
     }
 

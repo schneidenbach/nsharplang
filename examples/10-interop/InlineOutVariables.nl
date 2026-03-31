@@ -51,7 +51,7 @@ func Main() {
 
     // Example 1: out var (type inferred)
     print "1. Type inference with 'out var':"
-    if TryParseInt("12345", out out var number) {
+    if TryParseInt("12345", out var number) {
         print $"  Successfully parsed: {number}"
     } else {
         print "  Failed to parse"
@@ -61,7 +61,7 @@ func Main() {
 
     // Example 2: out with explicit type
     print "2. Explicit type with 'out int':"
-    if TryParseInt("abc", out out int value) {
+    if TryParseInt("abc", out int value) {
         print $"  Successfully parsed: {value}"
     } else {
         print "  Failed to parse (expected)"
@@ -71,7 +71,7 @@ func Main() {
 
     // Example 3: Using in conditions
     print "3. Inline out vars in if conditions:"
-    if TryGetFromCache("user", out out var username) {
+    if TryGetFromCache("user", out var username) {
         print $"  Found user: {username}"
     }
 
@@ -79,7 +79,7 @@ func Main() {
 
     // Example 4: Multiple out parameters
     print "4. Multiple out parameters:"
-    if TryParsePoint("10.5,20.3", out out var px, out out var py) {
+    if TryParsePoint("10.5,20.3", out var px, out var py) {
         print $"  Point: ({px}, {py})"
     }
 
@@ -87,7 +87,7 @@ func Main() {
 
     // Example 5: Explicit types for multiple parameters
     print "5. Explicit types for multiple out parameters:"
-    if TryParsePoint("coordinates", out out double coordX, out out double coordY) {
+    if TryParsePoint("coordinates", out double coordX, out double coordY) {
         print $"  Coordinates: X={coordX}, Y={coordY}"
     }
 
@@ -95,7 +95,7 @@ func Main() {
 
     // Example 6: Variable is available after if statement
     print "6. Variable scope - available after if:"
-    if TryGetFromCache("role", out out var userRole) {
+    if TryGetFromCache("role", out var userRole) {
         print $"  Role inside if: {userRole}"
     }
 
@@ -103,8 +103,7 @@ func Main() {
     print $"  Role outside if: {userRole}"
     print ""
 
-    // Example 7: Combining with .NET BCL (when available)
-    // This demonstrates the pattern for TryParse, TryGetValue, etc.
+    // Example 7: Pattern compatibility with .NET BCL
     print "7. Pattern compatibility with .NET BCL:"
     print "  This syntax is compatible with:"
     print "  - int.TryParse(\"123\", out var n)"

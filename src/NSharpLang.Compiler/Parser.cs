@@ -3799,6 +3799,9 @@ public class Parser
 
                     var subParser = new Parser(subTokens, _fileName);
                     expr = subParser.ParseExpression();
+
+                    // Propagate errors from the sub-parser into this parser's error list
+                    _errors.AddRange(subParser._errors);
                 }
                 catch
                 {
@@ -4037,13 +4040,13 @@ public class Parser
         var firstExpr = ParseExpression();
 
         // Check for named tuple element
-        if (Check(TokenType.Colon))
+        if (Check(TokenType.Colon) && firstExpr is IdentifierExpression firstIdent)
         {
             Advance();
             var firstValue = ParseExpression();
             var elements = new List<TupleElement>
             {
-                new TupleElement(((IdentifierExpression)firstExpr).Name, firstValue)
+                new TupleElement(firstIdent.Name, firstValue)
             };
 
             while (Match(TokenType.Comma))
@@ -4617,6 +4620,7 @@ public class Parser
     private void SynchronizeToNextDeclaration()
     {
         _panicMode = false;
+        _splitGreaterDepth = 0;
 
         while (!IsAtEnd())
         {
@@ -4656,6 +4660,7 @@ public class Parser
     private void SynchronizeToNextStatement()
     {
         _panicMode = false;
+        _splitGreaterDepth = 0;
 
         while (!IsAtEnd())
         {

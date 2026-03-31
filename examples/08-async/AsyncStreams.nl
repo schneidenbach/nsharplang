@@ -5,7 +5,7 @@ import System.Threading.Tasks
 
 // Example 1: Basic async stream (async iterator)
 async func* GetNumbersAsync(): IAsyncEnumerable<int> {
-    for i = 0; i < 10; i++ {
+    for i := 0; i < 10; i++ {
         await Task.Delay(100)
         yield i
     }

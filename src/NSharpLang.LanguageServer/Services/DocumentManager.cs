@@ -246,6 +246,7 @@ public class DocumentManager
             // import resolution never sees a file:/// URI as the current file.
             var lexer = new Lexer(text, filePath);
             state.Tokens = lexer.Tokenize();
+            state.Comments = lexer.Comments;
 
             var parser = new Parser(state.Tokens, filePath, text);  // Pass source code for error snippets
             var parseResult = parser.ParseCompilationUnit();
@@ -408,6 +409,15 @@ public class DocumentManager
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Returns all documents currently tracked by the document manager.
+    /// Used by workspace-wide features like workspace symbols and semantic tokens.
+    /// </summary>
+    public IReadOnlyCollection<DocumentState> GetAllDocuments()
+    {
+        return _documents.Values.ToList();
     }
 
     /// <summary>

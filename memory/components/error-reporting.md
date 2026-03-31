@@ -60,6 +60,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
 - `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
+- `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount

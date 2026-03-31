@@ -11,6 +11,7 @@ namespace NSharpLang.Tests;
 public class CliCommandTests
 {
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");
+    private static readonly string IssueTrackerFixture = Path.Combine(FindFixturesDir(), "issue-tracker");
 
     [Fact]
     public void CheckCommand_Help_IsSideEffectFree()
@@ -93,13 +94,12 @@ public class CliCommandTests
     [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
-        var examplesDir = FindExamplesDir();
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "definition",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Service.nl",
-            "--pos", "68:10"
+            "--pos", "64:10"
         }));
 
         Assert.Equal(0, exitCode);
@@ -113,12 +113,11 @@ public class CliCommandTests
     [Fact]
     public void QueryCommand_Type_NoSymbol_ReturnsStructuredEnvelope()
     {
-        var examplesDir = FindExamplesDir();
         // Line 1 is a comment — no symbol there
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "type",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Program.nl",
             "--pos", "1:1"
         }));
@@ -138,15 +137,14 @@ public class CliCommandTests
     [Fact]
     public void InspectSummary_Contract_UsesCompactEnvelope()
     {
-        var examplesDir = FindExamplesDir();
-        // Service.nl line 15: store: IssueStore (field)
+        // Service.nl line 11: store: IssueStore (field)
         var (_, json, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "inspect",
             "--summary",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Service.nl",
-            "--pos", "15:5"
+            "--pos", "11:5"
         }));
 
         AssertJsonContract("inspectSummary", json);
@@ -159,7 +157,6 @@ public class CliCommandTests
     [Fact]
     public void BatchCommand_UsesStableEnvelopeAndPerItemResponses()
     {
-        var examplesDir = FindExamplesDir();
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
@@ -171,7 +168,7 @@ public class CliCommandTests
   {
     "command": "inspect",
     "file": "Service.nl",
-    "pos": "15:5",
+    "pos": "11:5",
     "summary": true
   },
   {
@@ -189,7 +186,7 @@ public class CliCommandTests
             var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
             {
                 "batch",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--requests", requestsPath
             }));
 
@@ -396,9 +393,9 @@ func Main() {
             new[]
             {
                 "type",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -419,9 +416,9 @@ func Main() {
             new[]
             {
                 "definition",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "26:10"
+                "--pos", "22:10"
             }
         };
 
@@ -431,9 +428,9 @@ func Main() {
             new[]
             {
                 "references",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "14:7"
+                "--pos", "10:7"
             }
         };
 
@@ -445,7 +442,7 @@ func Main() {
                 "completions",
                 "--project", Path.Combine(examplesDir, "12-multi-file-projects", "MultiFileProject"),
                 "--file", "Services/PersonService.nl",
-                "--pos", "15:15"
+                "--pos", "14:15"
             }
         };
 
@@ -455,9 +452,9 @@ func Main() {
             new[]
             {
                 "inspect",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -468,9 +465,9 @@ func Main() {
             {
                 "inspect",
                 "--summary",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
     }
@@ -495,6 +492,28 @@ func Main() {
             return fallback;
 
         throw new DirectoryNotFoundException("Could not find examples directory.");
+    }
+
+    private static string FindFixturesDir()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        for (int i = 0; i < 10; i++)
+        {
+            var candidate = Path.Combine(dir, "tests", "fixtures");
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "issue-tracker")))
+                return candidate;
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+                break;
+            dir = parent.FullName;
+        }
+
+        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures";
+        if (Directory.Exists(fallback))
+            return fallback;
+
+        throw new DirectoryNotFoundException("Could not find tests/fixtures directory.");
     }
 
     private static void AssertJsonContract(string contractName, string json)
