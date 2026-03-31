@@ -37,3 +37,7 @@ compile-debug.log
 
 # Node.js
 node_modules/
+
+# Docusaurus
+website/build/
+website/.docusaurus/
