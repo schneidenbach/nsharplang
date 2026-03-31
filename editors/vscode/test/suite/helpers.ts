@@ -108,10 +108,13 @@ export async function closeAllEditors(): Promise<void> {
 /**
  * Create a temporary .nl file in the workspace with the given content,
  * open it via the LSP, and return the document along with a cleanup function.
+ *
+ * @param skipReadyWait - If true, skip waitForLspReady (for empty/minimal files that have no symbols)
  */
 export async function createTempNlFile(
     content: string,
-    filename?: string
+    filename?: string,
+    skipReadyWait?: boolean
 ): Promise<{ doc: vscode.TextDocument; cleanup: () => void }> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -125,7 +128,9 @@ export async function createTempNlFile(
     const doc = await openDocument(name);
     // Wait for the LSP to be ready for this file
     await getDiagnostics(doc);
-    await waitForLspReady(doc);
+    if (!skipReadyWait) {
+        await waitForLspReady(doc);
+    }
 
     const cleanup = () => {
         try {
