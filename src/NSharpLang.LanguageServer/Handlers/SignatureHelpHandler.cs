@@ -63,6 +63,42 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             var activeParameter = CountCommas(beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1));
 
+            // Constructor call (new TypeName(...)) — look up constructors for the type
+            if (callInfo.Value.IsConstructor)
+            {
+                var ctorSignatures = BuildNSharpConstructorSignatures(doc, callInfo.Value.MethodName);
+                if (ctorSignatures.Count > 0)
+                {
+                    _logger.LogDebug("Found N# constructor for {Type} with {Count} signature(s)",
+                        callInfo.Value.MethodName, ctorSignatures.Count);
+
+                    return Task.FromResult<SignatureHelp?>(new SignatureHelp
+                    {
+                        Signatures = new Container<SignatureInformation>(ctorSignatures),
+                        ActiveSignature = 0,
+                        ActiveParameter = activeParameter
+                    });
+                }
+
+                // Fall back to reflection for .NET types
+                var ctorType = _typeResolver.ResolveType(callInfo.Value.MethodName);
+                if (ctorType != null)
+                {
+                    var reflectionCtors = BuildReflectionConstructorSignatures(ctorType);
+                    if (reflectionCtors != null && reflectionCtors.Count > 0)
+                    {
+                        return Task.FromResult<SignatureHelp?>(new SignatureHelp
+                        {
+                            Signatures = new Container<SignatureInformation>(reflectionCtors),
+                            ActiveSignature = 0,
+                            ActiveParameter = activeParameter
+                        });
+                    }
+                }
+
+                return Task.FromResult<SignatureHelp?>(null);
+            }
+
             // Bare function call (no dot) — try N# function lookup first
             if (callInfo.Value.TypeName == null)
             {
@@ -157,6 +193,76 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             {
                 signatures.Add(BuildSignatureFromSymbolInfo(symbolInfo));
             }
+        }
+
+        return signatures;
+    }
+
+    /// <summary>
+    /// Build signatures for constructors of a user-defined N# type.
+    /// </summary>
+    private List<SignatureInformation> BuildNSharpConstructorSignatures(DocumentState doc, string typeName)
+    {
+        var signatures = new List<SignatureInformation>();
+
+        if (doc.SymbolsInfo == null)
+        {
+            return signatures;
+        }
+
+        if (!doc.SymbolsInfo.TryGetValue(typeName, out var typeSymbol))
+        {
+            return signatures;
+        }
+
+        if (typeSymbol.Kind is not (Models.SymbolKind.Class or Models.SymbolKind.Struct
+            or Models.SymbolKind.Record))
+        {
+            return signatures;
+        }
+
+        foreach (var member in typeSymbol.Members)
+        {
+            if (member.Kind == Models.SymbolKind.Constructor)
+            {
+                signatures.Add(BuildSignatureFromSymbolInfo(member));
+            }
+        }
+
+        return signatures;
+    }
+
+    /// <summary>
+    /// Build signatures for .NET type constructors via reflection.
+    /// </summary>
+    private List<SignatureInformation>? BuildReflectionConstructorSignatures(Type type)
+    {
+        var constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        if (constructors.Length == 0) return null;
+
+        var signatures = new List<SignatureInformation>();
+        foreach (var ctor in constructors)
+        {
+            var parameters = ctor.GetParameters();
+            var paramInfos = new List<ParameterInformation>();
+
+            foreach (var param in parameters)
+            {
+                var paramType = FormatTypeName(param.ParameterType);
+                paramInfos.Add(new ParameterInformation
+                {
+                    Label = $"{param.Name}: {paramType}"
+                });
+            }
+
+            var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
+            var label = $"new {type.Name}({paramList})";
+
+            signatures.Add(new SignatureInformation
+            {
+                Label = label,
+                Parameters = new Container<ParameterInformation>(paramInfos)
+            });
         }
 
         return signatures;
@@ -330,7 +436,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     /// Extract method call information from text before cursor.
     /// Returns (null, functionName) for bare function calls, or (typeName, methodName) for dot-qualified calls.
     /// </summary>
-    private (string? TypeName, string MethodName)? ExtractMethodCall(string text)
+    private (string? TypeName, string MethodName, bool IsConstructor)? ExtractMethodCall(string text)
     {
         // Find the opening parenthesis
         var openParenIndex = text.LastIndexOf('(');
@@ -350,19 +456,25 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
         var lastPart = parts[parts.Length - 1];
 
+        // Check if it's a constructor call: "new TypeName("
+        if (parts.Length >= 2 && parts[parts.Length - 2] == "new" && IsValidIdentifier(lastPart))
+        {
+            return (null, lastPart, IsConstructor: true);
+        }
+
         // Check if it's a member call (Type.Method)
         if (lastPart.Contains('.'))
         {
             var dotIndex = lastPart.LastIndexOf('.');
             var typeName = lastPart.Substring(0, dotIndex);
             var methodName = lastPart.Substring(dotIndex + 1);
-            return (typeName, methodName);
+            return (typeName, methodName, IsConstructor: false);
         }
 
         // Bare function call — return with null TypeName
         if (IsValidIdentifier(lastPart))
         {
-            return (null, lastPart);
+            return (null, lastPart, IsConstructor: false);
         }
 
         return null;
