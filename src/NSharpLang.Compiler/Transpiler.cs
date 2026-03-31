@@ -838,6 +838,28 @@ public class Transpiler
         TranspileAttributes(iface.Attributes);
 
         var modifiers = GetModifierString(iface.Modifiers);
+
+        // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
+        if (!iface.Modifiers.HasFlag(Modifiers.Public) &&
+            !iface.Modifiers.HasFlag(Modifiers.Private) && !iface.Modifiers.HasFlag(Modifiers.Protected) &&
+            !iface.Modifiers.HasFlag(Modifiers.Internal))
+        {
+            if (iface.Modifiers.HasFlag(Modifiers.File))
+            {
+                // File-local types cannot combine `file` with accessibility modifiers in C#.
+            }
+            else if (char.IsUpper(iface.Name[0]))
+            {
+                modifiers = "public " + modifiers;
+            }
+            else if (_currentTypeName != null)
+            {
+                // Nested type with camelCase gets private
+                modifiers = "private " + modifiers;
+            }
+            // Top-level camelCase types get internal (default in C#)
+        }
+
         var typeParams = iface.TypeParameters != null && iface.TypeParameters.Count > 0
             ? $"<{string.Join(", ", iface.TypeParameters.Select(tp => tp.Name))}>"
             : "";

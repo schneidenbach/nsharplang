@@ -1,0 +1,4 @@
+name: NSharpInteropLib
+version: 1.0.0
+outputType: library
+targetFramework: net9.0

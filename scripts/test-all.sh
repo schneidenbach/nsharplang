@@ -188,6 +188,35 @@ echo "Clearing NuGet caches..."
 dotnet nuget locals all --clear > /dev/null 2>&1
 handle_success "NuGet caches cleared"
 
+section "Step 4c: C# Interop Tests"
+echo "Building N# interop library and running C# consumer tests..."
+INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
+INTEROP_LIB_DIR="$INTEROP_DIR/NSharpInteropLib"
+
+# Build the N# library first (generates .g.csproj and compiles)
+INTEROP_BUILD_OUTPUT=$(mktemp)
+if (cd "$INTEROP_LIB_DIR" && dotnet "$CLI_DLL" build > "$INTEROP_BUILD_OUTPUT" 2>&1); then
+    handle_success "N# interop library built"
+
+    # Run the C# tests that consume the N# library
+    INTEROP_OUTPUT=$(mktemp)
+    if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo --no-restore > "$INTEROP_OUTPUT" 2>&1; then
+        TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
+        if [ -n "$TEST_RESULT" ]; then
+            echo "$TEST_RESULT"
+        fi
+        handle_success "C# interop tests passed"
+    else
+        cat "$INTEROP_OUTPUT"
+        handle_error "C# interop tests"
+    fi
+    rm -f "$INTEROP_OUTPUT"
+else
+    cat "$INTEROP_BUILD_OUTPUT"
+    handle_error "N# interop library build"
+fi
+rm -f "$INTEROP_BUILD_OUTPUT"
+
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local feed..."
 if dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force > /dev/null 2>&1; then
