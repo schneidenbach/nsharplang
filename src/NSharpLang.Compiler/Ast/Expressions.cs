@@ -362,6 +362,11 @@ public record ThisExpression(int Line, int Column) : Expression(Line, Column);
 // Base expression
 public record BaseExpression(int Line, int Column) : Expression(Line, Column);
 
+// Default expression: target-typed default value for any type
+// Example: x: int = default  // 0
+//          s: string = default  // null
+public record DefaultExpression(int Line, int Column) : Expression(Line, Column);
+
 // Out variable declaration expression (C# 7+)
 // Used for inline variable declarations in out parameters
 // Examples:
