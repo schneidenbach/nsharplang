@@ -36,6 +36,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query symbols` | List all symbols in project | `nlc query symbols` |
 | `nlc query symbols --file F` | Symbols in one file | `nlc query symbols --file Program.nl` |
 | `nlc query symbols --kind K` | Filter by kind | `nlc query symbols --kind function` |
+| `nlc query symbols --filter P` | Filter by glob or substring | `nlc query symbols --filter '*Person*'` |
 | `nlc query outline <file>` | File structure (imports, declarations) | `nlc query outline Program.nl` |
 | `nlc query diagnostics` | Errors/warnings with Elm-level context | `nlc query diagnostics` |
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
@@ -47,6 +48,11 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query def --name N` | Definition by name (search) | `nlc query def --name Person` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions --file F --pos L:C` | Completions at position | `nlc query completions --file Program.nl --pos 5:12` |
+| `nlc query hover --file F --pos L:C` | Signature + docs at position (shared model with LSP) | `nlc query hover --file Program.nl --pos 5:6` |
+| `nlc query call-graph --function N` | Callers and callees of a function | `nlc query call-graph --function Main` |
+| `nlc query call-graph` | All call edges in the project (--limit N, default 100) | `nlc query call-graph --limit 50` |
+| `nlc query implementors --name I` | Concrete types implementing an interface (by name) | `nlc query implementors --name IShape` |
+| `nlc query implementors --file F --pos L:C` | Implementors of the interface at a position | `nlc query implementors --file Program.nl --pos 10:11` |
 
 ### Code Quality
 
@@ -67,12 +73,20 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 | `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
+| `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
+| `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
+| `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
+| `nlc bench --export <fmt>` | Export results: json, csv, markdown | `nlc bench --export json` |
 
 ### Project Management
 
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `nlc new <name>` | Create new N# project | `nlc new MyApp` |
+| `nlc pack` | Generate a NuGet package from project.yml metadata | `nlc pack` |
+| `nlc pack --version <ver>` | Override package version | `nlc pack --version 2.0.0` |
+| `nlc pack --output <dir>` | Specify output directory for .nupkg | `nlc pack --output ./artifacts` |
+| `nlc pack --include-symbols` | Also produce a .snupkg symbols package | `nlc pack --include-symbols` |
 | `nlc doc` | Generate project API documentation | `nlc doc` |
 | `nlc doc --json` | Emit a structured doc-generation result | `nlc doc --json` |
 | `nlc completion <shell>` | Generate shell completions | `nlc completion zsh` |
@@ -329,6 +343,80 @@ Supported request commands:
 - `references` / `refs`
 - `completions`
 - `doc`
+
+### `nlc query hover` — Signature and Docs at a Position
+
+Returns the signature, kind, definition location, and any inline doc comment for the symbol at a cursor position. Shares its semantic model with the LSP `HoverHandler`.
+
+```bash
+$ nlc query hover --file Program.nl --pos 5:6
+{
+  "schemaVersion": 1,
+  "command": "hover",
+  "ok": true,
+  "file": "Program.nl",
+  "position": { "line": 5, "column": 6 },
+  "result": {
+    "signature": "func hi(): int",
+    "documentation": "A simple hello-world program demonstrating functions and string interpolation",
+    "definedIn": "Program.nl",
+    "kind": "function"
+  }
+}
+```
+
+Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
+
+### `nlc query call-graph` — Callers and Callees
+
+Walks all ASTs in the project to build a call graph. Use `--function` to focus on a specific function; omit it for a project-wide edge list. Use `--limit` (default 100) to cap result size.
+
+```bash
+$ nlc query call-graph --function Main
+{
+  "schemaVersion": 1,
+  "command": "callGraph",
+  "ok": true,
+  "function": "Main",
+  "callers": [],
+  "callees": [
+    { "name": "hi", "file": "Program.nl", "line": 19, "column": 9 }
+  ],
+  "truncated": false
+}
+```
+
+### `nlc query implementors` — Concrete Types Implementing an Interface
+
+Finds all class, struct, and record declarations in the project that list a given interface in their inheritance chain.
+
+```bash
+$ nlc query implementors --name IShape
+{
+  "schemaVersion": 1,
+  "command": "implementors",
+  "ok": true,
+  "interface": "IShape",
+  "results": [
+    { "typeName": "Circle", "kind": "class", "file": "RecordsAndInterfaces.nl", "line": 21, "column": 1 }
+  ]
+}
+```
+
+Also supports position-based lookup (`--file F --pos L:C`) which resolves the interface at that position first.
+
+### `nlc query symbols --filter` — Fuzzy/Glob Symbol Search
+
+The `symbols` subcommand now accepts `--filter <pattern>`:
+- Patterns containing `*` are treated as globs (`*Person*` matches any name containing `Person`)
+- Bare strings are treated as case-insensitive substring matches
+- Results are capped at 200
+
+```bash
+$ nlc query symbols --filter '*Person*'     # glob wildcard
+$ nlc query symbols --filter Person         # substring
+$ nlc query symbols --filter 'Get*'         # prefix glob
+```
 
 ### `nlc format` — Canonical Formatting With CI Support
 

@@ -48,6 +48,7 @@ class Program
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "add" => AddCommand.Execute(args.Skip(1).ToArray()),
+            "tidy" => TidyCommand.Execute(args.Skip(1).ToArray()),
             "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
             "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
             "init" => InitCommand.Execute(args.Skip(1).ToArray()),
@@ -55,6 +56,7 @@ class Program
             "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
+            "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
@@ -77,6 +79,7 @@ invokes MSBuild via the NSharpLang.Sdk. No user-authored .csproj is needed.
 Options:
   --release          Build with Release configuration (default: Debug)
   --verbose          Show detailed build output
+  --timings          Emit per-phase timing breakdown after build
   --output <path>    Output directory for build artifacts (-o shorthand)
   --keep-generated   Keep generated temporary files for debugging (single-file mode)
   --help, -h         Show this help text
@@ -85,6 +88,7 @@ Examples:
   nlc build              Build the current project
   nlc build --release    Optimized release build
   nlc build --verbose    Show detailed build output
+  nlc build --timings    Show phase-level timing breakdown
   nlc build -o ./dist    Build to a specific output directory
   nlc build Program.nl   Build a single file
 
@@ -98,8 +102,9 @@ Exit codes:
         var keepGenerated = args.Contains("--keep-generated");
         var release = args.Contains("--release");
         var verbose = args.Contains("--verbose");
+        var timings = args.Contains("--timings");
         var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose").ToArray();
+        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose" and not "--timings").ToArray();
         // Strip --output/-o and its value from positional args
         args = StripOptionWithValue(args, "--output");
         args = StripOptionWithValue(args, "-o");
@@ -109,7 +114,7 @@ Exit codes:
         {
             // No args - build all .nl files in current directory (multi-file mode)
             // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
-            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose, outputDir: outputDir);
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose, outputDir: outputDir, timings: timings);
         }
 
         var sourceFile = args[0];
@@ -262,14 +267,17 @@ Exit codes:
         return csprojPath;
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false, string? outputDir = null)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false, string? outputDir = null, bool timings = false)
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var totalSw = System.Diagnostics.Stopwatch.StartNew();
+        var transpileSw = new System.Diagnostics.Stopwatch();
+        var compileSw = new System.Diagnostics.Stopwatch();
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
 
-            // Generate obj/project.g.props from project.yml (canonical YAML→XML projection)
+            // Phase 1: Transpile (restore + generate MSBuild project files)
+            transpileSw.Start();
             var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
             if (restoreResult != 0)
             {
@@ -280,24 +288,37 @@ Exit codes:
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             var config = ProjectFileParser.Parse(projectYmlPath);
             var csprojPath = EnsureProjectFiles(projectRoot, config);
+            transpileSw.Stop();
 
-            // Build — pass NSharpExcludeTests to skip test compilation for production builds
+            // Phase 2: Compile (dotnet build)
+            compileSw.Start();
             var buildArgs = $"build \"{csprojPath}\"";
             if (excludeTests) buildArgs += " -p:NSharpExcludeTests=true";
             if (release) buildArgs += " -c Release";
             if (verbose) buildArgs += " -v detailed";
             if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
 
-
             var buildExitCode = DotnetRunner.RunPassthrough(buildArgs, workingDirectory: projectRoot, verbose: verbose);
+            compileSw.Stop();
 
             if (buildExitCode != 0)
             {
-                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
+                Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
                 return Error("Build failed");
             }
 
-            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(totalSw.Elapsed)}]");
+
+            if (timings)
+            {
+                Console.Error.WriteLine($"""
+Build timings:
+  Transpile:  {FormatElapsed(transpileSw.Elapsed)}
+  Compile:    {FormatElapsed(compileSw.Elapsed)}
+  Total:      {FormatElapsed(totalSw.Elapsed)}
+""");
+            }
+
             return 0;
         }
         catch (Exception ex)
@@ -1690,6 +1711,7 @@ Build & Run:
   run [file]           Build and run a project or single file
   restore              Generate build config from project.yml
   publish              Publish project for deployment
+  pack                 Create a NuGet package from project.yml metadata
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
 
@@ -1707,6 +1729,7 @@ Code Quality:
 
 Dependencies:
   add <package>        Add a NuGet dependency to project.yml
+  tidy                 Identify and remove unused dependencies
   remove <package>     Remove a dependency from project.yml
   update [package]     Update dependencies to latest versions
   tree                 Show dependency tree

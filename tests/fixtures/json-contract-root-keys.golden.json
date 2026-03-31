@@ -122,5 +122,46 @@
     "ok",
     "results",
     "summary"
+  ],
+  "bench": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "benchmarkCount",
+    "benchmarks"
+  ],
+  "pack": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "name",
+    "version",
+    "packagePath"
+  ],
+  "hover": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "file",
+    "position",
+    "result"
+  ],
+  "callGraph": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "function",
+    "callers",
+    "callees",
+    "truncated"
+  ],
+  "implementors": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "interface",
+    "results"
   ]
 }

@@ -213,3 +213,54 @@ public record InspectSummaryCompletionsResult(
     int TotalCount,
     Dictionary<string, int> GroupCounts,
     Dictionary<string, string[]> Groups);
+
+// ── Hover ──────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Hover result: signature + docs + definition location for a symbol at a position.
+/// Shared by the CLI (nlc query hover) and the LSP HoverHandler.
+/// </summary>
+public record HoverResult(
+    string Signature,
+    string? Documentation,
+    string? DefinedIn,
+    string Kind);
+
+// ── Call Graph ─────────────────────────────────────────────────────────
+
+/// <summary>
+/// A single call site edge: a callee name plus its source location.
+/// </summary>
+public record CallSiteResult(
+    string Name,
+    string? File,
+    int Line,
+    int Column);
+
+/// <summary>
+/// Call graph results for a function: all callers and callees found in the project.
+/// </summary>
+public record CallGraphResult(
+    string? Function,
+    List<CallSiteResult> Callers,
+    List<CallSiteResult> Callees,
+    bool Truncated);
+
+// ── Implementors ───────────────────────────────────────────────────────
+
+/// <summary>
+/// A single concrete type that implements an interface.
+/// </summary>
+public record ImplementorResult(
+    string TypeName,
+    string Kind,
+    string? File,
+    int Line,
+    int Column);
+
+/// <summary>
+/// All concrete types that implement a given interface.
+/// </summary>
+public record ImplementorsResult(
+    string Interface,
+    List<ImplementorResult> Results);

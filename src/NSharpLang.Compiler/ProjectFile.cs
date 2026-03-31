@@ -75,6 +75,11 @@ public class ProjectConfig
     public LanguageConfig Language { get; set; } = new();
 
     /// <summary>
+    /// NuGet package metadata (required for 'nlc pack')
+    /// </summary>
+    public PackageConfig? Package { get; set; }
+
+    /// <summary>
     /// Gets the effective project name (uses Name or defaults to directory name)
     /// </summary>
     [YamlIgnore]
@@ -243,6 +248,42 @@ public enum ReferenceType
     Dll,
     Project,
     Framework
+}
+
+/// <summary>
+/// NuGet package metadata for 'nlc pack'
+/// </summary>
+public class PackageConfig
+{
+    /// <summary>
+    /// Package author (mapped to MSBuild Authors property)
+    /// </summary>
+    public string? Author { get; set; }
+
+    /// <summary>
+    /// Short description of the package
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Space-separated list of package tags/keywords
+    /// </summary>
+    public List<string>? Tags { get; set; }
+
+    /// <summary>
+    /// SPDX license expression (e.g., "MIT", "Apache-2.0")
+    /// </summary>
+    public string? License { get; set; }
+
+    /// <summary>
+    /// Source repository URL
+    /// </summary>
+    public string? Repository { get; set; }
+
+    /// <summary>
+    /// Path to icon file (relative to project root)
+    /// </summary>
+    public string? Icon { get; set; }
 }
 
 /// <summary>
@@ -535,6 +576,11 @@ targetFramework: net9.0
 
 language:
   asyncDefaultType: ValueTask
+
+# package:
+#   author: Your Name
+#   description: A short description
+#   license: MIT
 ";
     }
 }
