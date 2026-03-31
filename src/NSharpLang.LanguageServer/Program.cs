@@ -61,6 +61,19 @@ class Program
                     .WithHandler<WorkspaceSymbolHandler>()
                     .WithHandler<FoldingRangeHandler>()
                     .WithHandler<DidChangeWatchedFilesHandler>()
+                    .WithHandler<DocumentFormattingHandler>()
+                    .WithHandler<GoToImplementationHandler>()
+                    .WithHandler<DocumentHighlightHandler>()
+                    .WithHandler<SelectionRangeHandler>()
+                    .WithHandler<CallHierarchyPrepareHandler>()
+                    .WithHandler<CallHierarchyIncomingHandler>()
+                    .WithHandler<CallHierarchyOutgoingHandler>()
+                    .WithHandler<TypeHierarchyPrepareHandler>()
+                    .WithHandler<TypeHierarchySupertypesHandler>()
+                    .WithHandler<TypeHierarchySubtypesHandler>()
+                    .WithHandler<DocumentLinkHandler>()
+                    .WithHandler<CodeLensHandler>()
+                    .WithHandler<OnTypeFormattingHandler>()
                     .OnInitialize((server, request, cancellationToken) =>
                     {
                         var logger = server.Services.GetRequiredService<ILogger<Program>>();

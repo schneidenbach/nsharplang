@@ -36,7 +36,7 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
         }
 
-        var word = GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
+        var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
         if (string.IsNullOrWhiteSpace(word))
         {
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
@@ -89,27 +89,6 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         };
     }
 
-    private static string GetWordAtPosition(string text, int line, int character)
-    {
-        var lines = text.Split('\n');
-        if (line >= lines.Length) return string.Empty;
-
-        var lineText = lines[line];
-        if (lineText.Length == 0) return string.Empty;
-        if (character < 0 || character >= lineText.Length) return string.Empty;
-        if (!IsIdentifierChar(lineText[character])) return string.Empty;
-
-        int start = character;
-        while (start > 0 && IsIdentifierChar(lineText[start - 1]))
-            start--;
-
-        int end = character;
-        while (end < lineText.Length && IsIdentifierChar(lineText[end]))
-            end++;
-
-        return lineText.Substring(start, end - start);
-    }
-
     private static LspRange GetWordRange(string text, int line, int character, string word)
     {
         var lines = text.Split('\n');
@@ -122,8 +101,6 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
 
         return new LspRange(line, startChar, line, startChar + word.Length);
     }
-
-    private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
 
     private static bool IsKeyword(string word)
     {

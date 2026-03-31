@@ -246,6 +246,7 @@ public class DocumentManager
             // import resolution never sees a file:/// URI as the current file.
             var lexer = new Lexer(text, filePath);
             state.Tokens = lexer.Tokenize();
+            state.Comments = lexer.Comments;
 
             var parser = new Parser(state.Tokens, filePath, text);  // Pass source code for error snippets
             var parseResult = parser.ParseCompilationUnit();
