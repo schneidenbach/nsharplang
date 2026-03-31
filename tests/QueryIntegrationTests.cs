@@ -422,9 +422,9 @@ public class QueryIntegrationTests : IDisposable
     // ═══════════════════════════════════════════════════════════════════
 
     // HelloWorld Program.nl layout:
-    //   Line 5:  func Hi(): int {        (col 1 = "func", col 6 = "Hi")
-    //   Line 13: func Main() {           (col 1 = "func", col 6 = "Main")
-    //   Line 14:     name := "Spencer"   (col 5 = "name")
+    //   Line 3:  func Hi(): int {        (col 1 = "func", col 6 = "Hi")
+    //   Line 11: func Main() {           (col 1 = "func", col 6 = "Main")
+    //   Line 12:     name := "Spencer"   (col 5 = "name")
 
     [Fact]
     public void Definition_AtPosition_FindsMainFunction()
@@ -433,7 +433,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(13, main.Line); // func Main() is on line 13 of Program.nl
+        Assert.Equal(11, main.Line); // func Main() is on line 11 of Program.nl
     }
 
     // MultiFile Person.nl layout:
@@ -500,8 +500,8 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
-        // Main() is declared on line 13
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 6);
+        // Main() is declared on line 11
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 11, 6);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
@@ -771,9 +771,9 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void HoverCommand_ReturnsSignatureAndDoc()
     {
-        // `Hi` is defined at line 5, col 6 in hello-world/Program.nl
+        // `Hi` is defined at line 3, col 6 in hello-world/Program.nl
         // Above it is a comment: "// A simple hello-world program..."
-        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 5, 6);
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 3, 6);
 
         Assert.NotNull(result);
         Assert.Equal("function", result!.Kind);
@@ -785,10 +785,10 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void HoverCommand_AtCallSite_ReturnsHoverInfo()
     {
-        // Line 19: `i := Hi()` — hover over `Hi` at col 6
+        // Line 17: `i := Hi()` — hover over `Hi` at col 6
         var hiCol = FindColumnInFile(
-            Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), 19, "Hi");
-        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 19, hiCol);
+            Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), 17, "Hi");
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 17, hiCol);
 
         Assert.NotNull(result);
         Assert.Equal("function", result!.Kind);
@@ -798,7 +798,7 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void HoverCommand_NoSymbol_ReturnsNull()
     {
-        // Line 1 is `import System` — hover over blank will return null
+        // Line 2 is blank — hover over blank will return null
         var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 2, 1);
         Assert.Null(result);
     }

@@ -340,13 +340,13 @@ func Main() {
     [Fact]
     public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
     {
-        // hello-world Program.nl line 5: func hi(): int {
+        // hello-world Program.nl line 3: func Hi(): int {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "5:6"
+            "--pos", "3:6"
         }));
 
         Assert.Equal(0, exitCode);
@@ -648,7 +648,7 @@ func Main() {
                 "hover",
                 "--project", Path.Combine(examplesDir, "01-hello-world"),
                 "--file", "Program.nl",
-                "--pos", "5:6"
+                "--pos", "3:6"
             }
         };
 

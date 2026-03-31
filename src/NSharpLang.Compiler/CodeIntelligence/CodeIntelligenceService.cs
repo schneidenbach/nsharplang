@@ -33,7 +33,7 @@ public class CodeIntelligenceService
             compiler.AllErrors,
             compiler.SharedAnalyzer,
             compiler.SourceFiles,
-            compiler.ProjectBindings
+            compiler.ProjectIndex
         );
     }
 
@@ -2836,7 +2836,17 @@ public class ProjectSnapshot
     public IReadOnlyList<CompilerError> AllErrors { get; }
     public Analyzer SharedAnalyzer { get; }
     public IReadOnlyList<string> SourceFiles { get; }
-    public BindingMap? Bindings { get; }
+
+    /// <summary>
+    /// The project-level semantic index: merged BindingMap plus type-declaration-to-file mapping.
+    /// Null when the snapshot was constructed without a full analysis pass (e.g. in tests).
+    /// </summary>
+    public ProjectIndex? Index { get; }
+
+    /// <summary>
+    /// Convenience accessor for the merged BindingMap. Null when Index is null.
+    /// </summary>
+    public BindingMap? Bindings => Index?.Bindings;
 
     public ProjectSnapshot(
         string projectRoot,
@@ -2845,7 +2855,7 @@ public class ProjectSnapshot
         IReadOnlyList<CompilerError> allErrors,
         Analyzer sharedAnalyzer,
         IReadOnlyList<string> sourceFiles,
-        BindingMap? bindings = null)
+        ProjectIndex? index = null)
     {
         ProjectRoot = projectRoot;
         CompilationUnits = compilationUnits;
@@ -2853,7 +2863,7 @@ public class ProjectSnapshot
         AllErrors = allErrors;
         SharedAnalyzer = sharedAnalyzer;
         SourceFiles = sourceFiles;
-        Bindings = bindings;
+        Index = index;
     }
 }
 

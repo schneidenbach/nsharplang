@@ -41,6 +41,10 @@ public class CompletionEngineTests
             [filePath] = analysisResult.SemanticModel
         };
 
+        var projectIndex = analysisResult.Bindings != null
+            ? new ProjectIndex(analysisResult.Bindings, analyzer.GetTypeDeclarationFiles())
+            : null;
+
         var snapshot = new ProjectSnapshot(
             tempDir,
             compilationUnits,
@@ -48,7 +52,7 @@ public class CompletionEngineTests
             new List<CompilerError>(),
             analyzer,
             new List<string> { filePath },
-            analysisResult.Bindings);
+            projectIndex);
 
         return (new CompletionEngine(), snapshot, filePath);
     }
