@@ -225,7 +225,7 @@ func Main() {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
 namespace InlayEmptyTest
-`, '_inlay_empty.nl');
+`, '_inlay_empty.nl', true);
 
         try {
             await getDiagnostics(doc);

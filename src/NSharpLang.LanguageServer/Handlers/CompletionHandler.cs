@@ -159,8 +159,29 @@ public class CompletionHandler : CompletionHandlerBase
                 }
             }
 
+            // Build a set of names that are class/struct members to avoid adding them
+            // as top-level functions (they should only appear via member access)
+            var memberNames = new HashSet<string>();
+            if (doc.SymbolsInfo != null)
+            {
+                foreach (var (_, sym) in doc.SymbolsInfo)
+                {
+                    if (sym.Kind is LanguageServer.Models.SymbolKind.Class or LanguageServer.Models.SymbolKind.Struct
+                        or LanguageServer.Models.SymbolKind.Record or LanguageServer.Models.SymbolKind.Interface)
+                    {
+                        foreach (var member in sym.Members)
+                        {
+                            memberNames.Add(member.Name);
+                        }
+                    }
+                }
+            }
+
             foreach (var (name, typeInfo) in doc.SemanticModel.Functions)
             {
+                // Skip class/struct members — they should only appear via dot-access completions
+                if (memberNames.Contains(name)) continue;
+
                 if (!items.Any(i => i.Label == name))
                 {
                     items.Add(new CompletionItem
@@ -553,11 +574,12 @@ public class CompletionHandler : CompletionHandlerBase
 
         // Try semantic model
         Type? type = null;
+        TypeInfo? nsharpTypeInfo = null;
         if (doc.SemanticModel != null)
         {
-            var typeInfo = doc.SemanticModel.LookupIdentifier(identifier);
-            if (typeInfo != null)
-                type = _typeResolver.ResolveType(typeInfo.ToString());
+            nsharpTypeInfo = doc.SemanticModel.LookupIdentifier(identifier);
+            if (nsharpTypeInfo != null)
+                type = _typeResolver.ResolveType(nsharpTypeInfo.ToString());
         }
 
         // Try as type name
@@ -569,6 +591,17 @@ public class CompletionHandler : CompletionHandlerBase
                 ? MemberAccessMode.InstanceOnly
                 : MemberAccessMode.StaticOnly;
             return MembersToCompletionItems(_typeResolver.GetMembers(type, mode), doc, type);
+        }
+
+        // Try as N# user-defined type (class, struct, record) — not resolvable via reflection
+        if (nsharpTypeInfo != null)
+        {
+            var nsharpMembers = GetNSharpTypeMembers(nsharpTypeInfo, doc);
+            if (nsharpMembers.Count > 0)
+            {
+                _logger.LogDebug("Fallback resolved '{Identifier}' as N# type with {Count} members", identifier, nsharpMembers.Count);
+                return nsharpMembers;
+            }
         }
 
         return items;
