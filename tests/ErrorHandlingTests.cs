@@ -435,11 +435,94 @@ func after() {
         var unit = Parse(code);
         Assert.NotNull(unit);
 
+        // Linter should warn about unreachable code
         var linter = new Linter();
         var diagnostics = linter.Lint(unit);
-
-        // Linter should warn about unreachable code
         Assert.Contains(diagnostics, d => d.Message.Contains("unreachable"));
+
+        // Analyzer should error about unreachable code
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
+    }
+
+    [Fact]
+    public void Analyzer_DetectsUnreachableCodeAfterTwoReturns()
+    {
+        var code = @"func getValue() -> int {
+    return 1
+    return 2
+}";
+        var unit = Parse(code);
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
+    }
+
+    [Fact]
+    public void Analyzer_DetectsUnreachableCodeAfterThrow()
+    {
+        var code = @"func main() {
+    throw Exception(""fail"")
+    print(""unreachable"")
+}";
+        var unit = Parse(code);
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
+    }
+
+    [Fact]
+    public void Analyzer_DetectsUnreachableCodeAfterIfElseBothReturn()
+    {
+        var code = @"func getValue(x: int) -> int {
+    if x > 0 {
+        return 1
+    } else {
+        return 2
+    }
+    print(""unreachable"")
+}";
+        var unit = Parse(code);
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
+    }
+
+    [Fact]
+    public void Analyzer_NoUnreachableErrorForValidCode()
+    {
+        var code = @"func getValue(x: int) -> int {
+    if x > 0 {
+        return 1
+    }
+    return 2
+}";
+        var unit = Parse(code);
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
+    }
+
+    [Fact]
+    public void Analyzer_ReportsOnlyFirstUnreachableStatement()
+    {
+        var code = @"func main() {
+    return
+    print(""first"")
+    print(""second"")
+    print(""third"")
+}";
+        var unit = Parse(code);
+        var analyzer = new Analyzer();
+        var result = analyzer.Analyze(unit);
+
+        // Should report exactly one unreachable error (only the first unreachable statement)
+        Assert.Single(result.Errors, e => e.Code == ErrorCode.UnreachableStatement);
     }
 
     [Fact]

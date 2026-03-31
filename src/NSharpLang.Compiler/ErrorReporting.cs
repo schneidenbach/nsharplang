@@ -42,6 +42,7 @@ public enum ErrorCode
     ReadonlyAssignment = 309,
     ConstantRequired = 310,
     InvalidModifier = 311,
+    UnreachableStatement = 312,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -603,6 +604,9 @@ public static class ErrorSuggestions
 
             ErrorCode.ComparisonOperatorPair
                 => "Define both operators in the pair (== with !=, < with >, <= with >=)",
+
+            ErrorCode.UnreachableStatement
+                => "Remove unreachable code or restructure control flow",
 
             _ => null
         };
