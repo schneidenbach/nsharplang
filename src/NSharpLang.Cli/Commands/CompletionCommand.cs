@@ -25,6 +25,7 @@ public static class CompletionCommand
         "query",
         "daemon",
         "add",
+        "tidy",
         "remove",
         "update",
         "publish",

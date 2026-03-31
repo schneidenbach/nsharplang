@@ -11,6 +11,7 @@ namespace NSharpLang.Tests;
 public class CliCommandTests
 {
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");
+    private static readonly string IssueTrackerFixture = Path.Combine(FindFixturesDir(), "issue-tracker");
 
     [Fact]
     public void CheckCommand_Help_IsSideEffectFree()
@@ -93,13 +94,12 @@ public class CliCommandTests
     [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
-        var examplesDir = FindExamplesDir();
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "definition",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Service.nl",
-            "--pos", "68:10"
+            "--pos", "64:10"
         }));
 
         Assert.Equal(0, exitCode);
@@ -113,12 +113,11 @@ public class CliCommandTests
     [Fact]
     public void QueryCommand_Type_NoSymbol_ReturnsStructuredEnvelope()
     {
-        var examplesDir = FindExamplesDir();
         // Line 1 is a comment — no symbol there
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "type",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Program.nl",
             "--pos", "1:1"
         }));
@@ -138,15 +137,14 @@ public class CliCommandTests
     [Fact]
     public void InspectSummary_Contract_UsesCompactEnvelope()
     {
-        var examplesDir = FindExamplesDir();
-        // Service.nl line 15: store: IssueStore (field)
+        // Service.nl line 11: store: IssueStore (field)
         var (_, json, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "inspect",
             "--summary",
-            "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+            "--project", IssueTrackerFixture,
             "--file", "Service.nl",
-            "--pos", "15:5"
+            "--pos", "11:5"
         }));
 
         AssertJsonContract("inspectSummary", json);
@@ -159,7 +157,6 @@ public class CliCommandTests
     [Fact]
     public void BatchCommand_UsesStableEnvelopeAndPerItemResponses()
     {
-        var examplesDir = FindExamplesDir();
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
@@ -171,7 +168,7 @@ public class CliCommandTests
   {
     "command": "inspect",
     "file": "Service.nl",
-    "pos": "15:5",
+    "pos": "11:5",
     "summary": true
   },
   {
@@ -189,7 +186,7 @@ public class CliCommandTests
             var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
             {
                 "batch",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--requests", requestsPath
             }));
 
@@ -340,6 +337,175 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
+    {
+        // hello-world Program.nl line 5: func hi(): int {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "hover",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "5:6"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("hover", doc.RootElement.GetProperty("command").GetString());
+
+        var result = doc.RootElement.GetProperty("result");
+        Assert.Equal("function", result.GetProperty("kind").GetString());
+        Assert.Contains("Hi", result.GetProperty("signature").GetString() ?? "");
+        AssertJsonContract("hover", stdout);
+    }
+
+    [Fact]
+    public void HoverCommand_NoSymbol_ReturnsStructuredError()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "hover",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "2:1"    // blank line
+        }));
+
+        Assert.Equal(1, exitCode);
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("hover", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("noSymbol", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void CallGraphCommand_FindsCalleesOfMain()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "call-graph",
+            "--project", HelloWorldProject,
+            "--function", "Main"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("callGraph", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("Main", doc.RootElement.GetProperty("function").GetString());
+
+        var callees = doc.RootElement.GetProperty("callees").EnumerateArray().ToArray();
+        Assert.Contains(callees, c => c.GetProperty("name").GetString() == "Hi");
+        AssertJsonContract("callGraph", stdout);
+    }
+
+    [Fact]
+    public void CallGraphCommand_NoFunction_ReturnsAllEdges()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "call-graph",
+            "--project", HelloWorldProject
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("callGraph", doc.RootElement.GetProperty("command").GetString());
+        // When no --function is specified, "function" key should be null/absent
+        var hasFunction = doc.RootElement.TryGetProperty("function", out var funcProp);
+        if (hasFunction)
+            Assert.Equal(JsonValueKind.Null, funcProp.ValueKind);
+    }
+
+    [Fact]
+    public void ImplementorsCommand_FindsCircleForIShape()
+    {
+        var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", classesAndRecordsProject,
+            "--name", "IShape"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("implementors", doc.RootElement.GetProperty("command").GetString());
+        Assert.Equal("IShape", doc.RootElement.GetProperty("interface").GetString());
+
+        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+        Assert.Contains(results, r =>
+            r.GetProperty("typeName").GetString() == "Circle" &&
+            r.GetProperty("kind").GetString() == "class");
+        AssertJsonContract("implementors", stdout);
+    }
+
+    [Fact]
+    public void ImplementorsCommand_MissingName_ReturnsError()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", HelloWorldProject
+        }));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Usage:", stderr);
+    }
+
+    [Fact]
+    public void SymbolsCommand_WildcardFilter_MatchesGlob()
+    {
+        var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", classesAndRecordsProject,
+            "--filter", "*ircle"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+
+        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+        Assert.Contains(results, r => r.GetProperty("name").GetString() == "Circle");
+        Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Square");
+    }
+
+    [Fact]
+    public void SymbolsCommand_SubstringFilter_MatchesSubstring()
+    {
+        var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", classesAndRecordsProject,
+            "--filter", "quare"  // should match Square, not Circle
+        }));
+
+        Assert.Equal(0, exitCode);
+        using var doc = JsonDocument.Parse(stdout);
+        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+        Assert.Contains(results, r => r.GetProperty("name").GetString() == "Square");
+        Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Circle");
+    }
+
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action)
     {
         var originalOut = Console.Out;
@@ -396,9 +562,9 @@ func Main() {
             new[]
             {
                 "type",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -419,9 +585,9 @@ func Main() {
             new[]
             {
                 "definition",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "26:10"
+                "--pos", "22:10"
             }
         };
 
@@ -431,9 +597,9 @@ func Main() {
             new[]
             {
                 "references",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "14:7"
+                "--pos", "10:7"
             }
         };
 
@@ -455,9 +621,9 @@ func Main() {
             new[]
             {
                 "inspect",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
             }
         };
 
@@ -468,9 +634,43 @@ func Main() {
             {
                 "inspect",
                 "--summary",
-                "--project", Path.Combine(examplesDir, "17-issue-tracker", "backend"),
+                "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
-                "--pos", "15:5"
+                "--pos", "11:5"
+            }
+        };
+
+        yield return new object[]
+        {
+            "hover",
+            new[]
+            {
+                "hover",
+                "--project", Path.Combine(examplesDir, "01-hello-world"),
+                "--file", "Program.nl",
+                "--pos", "5:6"
+            }
+        };
+
+        yield return new object[]
+        {
+            "callGraph",
+            new[]
+            {
+                "call-graph",
+                "--project", Path.Combine(examplesDir, "01-hello-world"),
+                "--function", "Main"
+            }
+        };
+
+        yield return new object[]
+        {
+            "implementors",
+            new[]
+            {
+                "implementors",
+                "--project", Path.Combine(examplesDir, "06-classes-and-records"),
+                "--name", "IShape"
             }
         };
     }
@@ -495,6 +695,28 @@ func Main() {
             return fallback;
 
         throw new DirectoryNotFoundException("Could not find examples directory.");
+    }
+
+    private static string FindFixturesDir()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        for (int i = 0; i < 10; i++)
+        {
+            var candidate = Path.Combine(dir, "tests", "fixtures");
+            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "issue-tracker")))
+                return candidate;
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+                break;
+            dir = parent.FullName;
+        }
+
+        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures";
+        if (Directory.Exists(fallback))
+            return fallback;
+
+        throw new DirectoryNotFoundException("Could not find tests/fixtures directory.");
     }
 
     private static void AssertJsonContract(string contractName, string json)

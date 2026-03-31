@@ -25,6 +25,12 @@ public static class AddCommand
 
         var isFramework = args.Contains("--framework");
         var isPrerelease = args.Contains("--prerelease");
+        var localPath = GetOption(args, "--path");
+
+        // --path: add a local project reference
+        if (localPath != null)
+            return AddProjectReference(projectYml, localPath);
+
         var raw = args.First(a => !a.StartsWith("-"));
 
         string packageName;
@@ -111,6 +117,50 @@ public static class AddCommand
         return 0;
     }
 
+    static int AddProjectReference(string projectYml, string localPath)
+    {
+        // Check for duplicate project reference
+        try
+        {
+            var config = ProjectFileParser.Parse(projectYml);
+            var existing = config.Dependencies.FirstOrDefault(d =>
+                string.Equals(d.Project, localPath, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return Error($"Project reference '{localPath}' is already in dependencies.");
+        }
+        catch
+        {
+            // If parse fails, proceed anyway — text-based edit doesn't require full parse
+        }
+
+        var lines = new List<string>(File.ReadAllLines(projectYml));
+        var depIndex = lines.FindIndex(l => l.TrimStart().StartsWith("dependencies:"));
+        var newEntry = $"  - project: {localPath}";
+
+        if (depIndex >= 0)
+        {
+            var insertAt = depIndex + 1;
+            while (insertAt < lines.Count)
+            {
+                var line = lines[insertAt];
+                if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
+                    break;
+                insertAt++;
+            }
+            lines.Insert(insertAt, newEntry);
+        }
+        else
+        {
+            lines.Add("");
+            lines.Add("dependencies:");
+            lines.Add(newEntry);
+        }
+
+        File.WriteAllLines(projectYml, lines);
+        Console.WriteLine($"Added project reference '{localPath}' to project.yml");
+        return 0;
+    }
+
     internal static string? ResolveLatestVersion(string packageName, bool includePrerelease = false)
     {
         try
@@ -154,14 +204,16 @@ public static class AddCommand
 
 Usage: nlc add <package> [options]
        nlc add <package>@<version>
+       nlc add --path <local-project>
 
-Add a NuGet package or framework reference to project.yml.
+Add a NuGet package, framework reference, or local project reference to project.yml.
 If no version is specified, the latest version is resolved from NuGet.
 
 Options:
   --version <ver>   Package version (alternative to @version syntax)
   --prerelease      Allow prerelease versions when resolving latest
   --framework       Add as a framework reference instead of NuGet package
+  --path <path>     Add a local project reference (path to project directory or .csproj)
   --help, -h        Show this help text
 
 Examples:
@@ -170,6 +222,7 @@ Examples:
   nlc add Serilog --version 3.1.0
   nlc add System.Text.Json --prerelease
   nlc add Microsoft.AspNetCore.App --framework
+  nlc add --path ../MyLibrary
 
 Exit codes:
   0  Dependency added successfully
