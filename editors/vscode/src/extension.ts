@@ -200,20 +200,24 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Check for C# extension dependency
-    const csharpExtension = vscode.extensions.getExtension('ms-dotnettools.csharp');
-    if (!csharpExtension) {
-        vscode.window.showWarningMessage(
-            'The C# extension (ms-dotnettools.csharp) is not installed. N# debugging requires it for CoreCLR support.',
-            'Install'
-        ).then(selection => {
-            if (selection === 'Install') {
-                vscode.commands.executeCommand(
-                    'workbench.extensions.installExtension',
-                    'ms-dotnettools.csharp'
-                );
-            }
-        });
+    // Check for C# extension dependency (needed for F5 debugging only).
+    // Skip the check when running in extension development/test mode since
+    // --disable-extensions prevents other extensions from loading.
+    if (context.extensionMode === vscode.ExtensionMode.Production) {
+        const csharpExtension = vscode.extensions.getExtension('ms-dotnettools.csharp');
+        if (!csharpExtension) {
+            vscode.window.showWarningMessage(
+                'The C# extension (ms-dotnettools.csharp) is not installed. N# debugging requires it for CoreCLR support.',
+                'Install'
+            ).then(selection => {
+                if (selection === 'Install') {
+                    vscode.commands.executeCommand(
+                        'workbench.extensions.installExtension',
+                        'ms-dotnettools.csharp'
+                    );
+                }
+            });
+        }
     }
 
     // Start the client (this will also launch the server)
