@@ -107,7 +107,6 @@
       }
     ]
   },
-  "extensionDependencies": [],
   "scripts": {
     "build-server": "dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false",
     "vscode:prepublish": "npm run build-server && npm run compile",
