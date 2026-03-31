@@ -61,6 +61,7 @@ public enum ErrorCode
     InvalidPattern = 503,
     PatternTypeMismatch = 504,
     GuardNotBoolean = 505,
+    ImpossiblePattern = 506,
 
     // Operator errors (600-699)
     InvalidOperatorOverload = 601,
@@ -706,6 +707,14 @@ public class SmartSuggester
 /// </summary>
 public static class TypeConversionSuggester
 {
+    private static readonly HashSet<string> NumericTypes = new()
+    {
+        "int", "long", "short", "byte", "sbyte",
+        "ushort", "uint", "ulong", "float", "double", "decimal", "char"
+    };
+
+    private static bool IsNumericType(string typeName) => NumericTypes.Contains(typeName);
+
     public static string? SuggestConversion(string fromType, string toType)
     {
         return (fromType, toType) switch
@@ -722,8 +731,8 @@ public static class TypeConversionSuggester
                 "Implicit conversion from int to double works automatically.",
 
             ("double", "int") =>
-                "You need an explicit cast: (int)value\n" +
-                "Warning: This truncates decimals, so 3.7 becomes 3.",
+                "Cannot implicitly convert 'double' to 'int'. Use an explicit cast: (int)value\n" +
+                "Warning: This truncates decimals (e.g. 3.7 becomes 3) and may lose data if the value exceeds the target type's range.",
 
             ("string", "double") =>
                 "Use double.Parse(yourString) or double.TryParse(yourString, out result).",
@@ -735,8 +744,8 @@ public static class TypeConversionSuggester
                 "Implicit conversion from int to long works automatically.",
 
             ("long", "int") =>
-                "You need an explicit cast: (int)value\n" +
-                "Warning: This may lose data if the long value is too large for int.",
+                "Cannot implicitly convert 'long' to 'int'. Use an explicit cast: (int)value\n" +
+                "Warning: This conversion may lose data if the value exceeds the target type's range.",
 
             // Nullable conversions
             (var from, var to) when to == from + "?" =>
@@ -753,6 +762,11 @@ public static class TypeConversionSuggester
 
             (var from, var to) when from.StartsWith("List<") && to.EndsWith("[]") =>
                 "Use .ToArray() to convert a List to an array.",
+
+            // Numeric narrowing conversions — catch-all for all remaining numeric pairs
+            (var from, var to) when IsNumericType(from) && IsNumericType(to) =>
+                $"Cannot implicitly convert '{from}' to '{to}'. Use an explicit cast: ({to})value\n" +
+                "Warning: This conversion may lose data if the value exceeds the target type's range.",
 
             _ => null
         };

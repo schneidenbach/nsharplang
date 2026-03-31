@@ -52,6 +52,43 @@ public class AnalyzerTests
         Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
     }
 
+    private void AssertHasParseError(string source, string expectedMessage)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+        Assert.False(result.Success, "Expected parse error but got none");
+        Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
+    }
+
+    /// <summary>
+    /// Analyze source code with full source context so the rich error path (ErrorMessageBuilder) is taken,
+    /// populating ContextualHint with conversion suggestions.
+    /// </summary>
+    private AnalysisResult AnalyzeWithSource(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        return analyzer.Analyze(result.CompilationUnit!, "test.nl", null, source);
+    }
+
+    /// <summary>
+    /// Assert that at least one error has a ContextualHint containing the expected text.
+    /// Use this to verify numeric narrowing cast suggestions.
+    /// </summary>
+    private void AssertHasHint(string source, string expectedHint)
+    {
+        var result = AnalyzeWithSource(source);
+        Assert.True(result.HasErrors, "Expected errors but got none");
+        Assert.Contains(result.Errors, e =>
+            (e.ContextualHint != null && e.ContextualHint.Contains(expectedHint)));
+    }
+
     [Fact]
     public void SimpleVariableDeclaration_TypeInference()
     {
@@ -5093,6 +5130,203 @@ func Hello(): string {
         ", "does not satisfy constraint");
     }
 
+    // --- Special constraint tests ---
+
+    [Fact]
+    public void SpecialConstraint_Class_WithStringArg_NoError()
+    {
+        AssertNoErrors(@"
+            func Identity<T>(value: T): T where T : class {
+                return value
+            }
+            func Main() {
+                result := Identity(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_Class_WithIntArg_Error()
+    {
+        AssertHasError(@"
+            func Identity<T>(value: T): T where T : class {
+                return value
+            }
+            func Main() {
+                result := Identity(42)
+            }
+        ", "must be a reference type");
+    }
+
+    [Fact]
+    public void SpecialConstraint_Struct_WithIntArg_NoError()
+    {
+        AssertNoErrors(@"
+            func Box<T>(value: T): T where T : struct {
+                return value
+            }
+            func Main() {
+                result := Box(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_Struct_WithStringArg_Error()
+    {
+        AssertHasError(@"
+            func Box<T>(value: T): T where T : struct {
+                return value
+            }
+            func Main() {
+                result := Box(""hello"")
+            }
+        ", "must be a non-nullable value type");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithDefaultCtorClass_NoError()
+    {
+        AssertNoErrors(@"
+            class Widget {
+            }
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                w := new Widget()
+                result := Create(w)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithParameterizedCtorOnly_Error()
+    {
+        // A record with primary constructor parameters has no parameterless constructor.
+        // Use explicit type argument to ensure T is resolved to the record type.
+        AssertHasError(@"
+            record Point(X: int, Y: int)
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                p := new Point(1, 2)
+                result := Create<Point>(p)
+            }
+        ", "must have a parameterless constructor");
+    }
+
+    [Fact]
+    public void SpecialConstraint_ClassAndStruct_MutuallyExclusive_ParseError()
+    {
+        AssertHasParseError(@"
+            func Bad<T>(value: T): T where T : class, struct {
+                return value
+            }
+        ", "mutually exclusive");
+    }
+
+    [Fact]
+    public void SpecialConstraint_Class_WithInterface_WithStringArg_NoError()
+    {
+        // string satisfies both 'class' and IComparable
+        AssertNoErrors(@"
+            interface IComparable {
+                func CompareTo(other: object): int
+            }
+            class MyString : IComparable {
+                func CompareTo(other: object): int { return 0 }
+            }
+            func Process<T>(value: T): T where T : class, IComparable {
+                return value
+            }
+            func Main() {
+                ms := new MyString()
+                result := Process(ms)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithStructArg_NoError()
+    {
+        // Structs always have a parameterless constructor
+        AssertNoErrors(@"
+            struct Point {
+                X: int
+                Y: int
+            }
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                p := new Point()
+                result := Create(p)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_Class_WithRecordArg_NoError()
+    {
+        // Records are reference types and satisfy 'class' constraint
+        AssertNoErrors(@"
+            record Person(Name: string, Age: int)
+            func Process<T>(value: T): T where T : class {
+                return value
+            }
+            func Main() {
+                p := new Person(""Alice"", 30)
+                result := Process(p)
+            }
+        ");
+    }
+
+    [Fact]
+    public void SpecialConstraint_StructAndNew_MutuallyExclusive_ParseError()
+    {
+        // C# forbids struct + new() because struct already implies new()
+        AssertHasParseError(@"
+            func Bad<T>(value: T): T where T : struct, new() {
+                return value
+            }
+        ", "struct");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithPrimaryCtorClass_Error()
+    {
+        // A class with a primary constructor (suppresses implicit default ctor)
+        // should NOT satisfy new()
+        AssertHasError(@"
+            class RequiresPrimary(X: int) { }
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                r := new RequiresPrimary(1)
+                result := Create<RequiresPrimary>(r)
+            }
+        ", "must have a parameterless constructor");
+    }
+
+    [Fact]
+    public void SpecialConstraint_New_WithRecordStructArg_NoError()
+    {
+        // Record structs always have an implicit parameterless constructor
+        AssertNoErrors(@"
+            record struct Size(Width: int, Height: int)
+            func Create<T>(dummy: T): T where T : new() {
+                return dummy
+            }
+            func Main() {
+                s := new Size(10, 20)
+                result := Create<Size>(s)
+            }
+        ");
+    }
+
     #endregion
 
     #region String-to-Enum Rejection
@@ -5449,6 +5683,408 @@ func Hello(): string {
             }
             func Main() {
                 s: Shape = null
+            }
+        ");
+    }
+
+    #endregion
+
+    #region Impossible Pattern Warnings
+
+    private void AssertHasWarning(string source, string expectedMessage)
+    {
+        var result = Analyze(source);
+        Assert.Contains(result.Errors,
+            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
+              && e.Message.Contains(expectedMessage));
+    }
+
+    private void AssertNoWarning(string source, string warningMessage)
+    {
+        var result = Analyze(source);
+        Assert.DoesNotContain(result.Errors,
+            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
+              && e.Message.Contains(warningMessage));
+    }
+
+    [Fact]
+    public void ImpossiblePattern_IntIsString_ProducesWarning()
+    {
+        // int is a value type; string is a different reference type — can never match
+        AssertHasWarning(@"
+            func Main() {
+                x: int = 42
+                result := x is string
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_BoolIsInt_ProducesWarning()
+    {
+        // bool and int are unrelated value types — can never match
+        AssertHasWarning(@"
+            func Main() {
+                flag: bool = true
+                result := flag is int
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_IntIsInt_NoWarning()
+    {
+        // Exact same type — trivially possible (always matches)
+        AssertNoWarning(@"
+            func Main() {
+                x: int = 42
+                result := x is int
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_ClassIsInterface_NoWarning()
+    {
+        // Any class could implement an interface — always possible at runtime
+        AssertNoWarning(@"
+            interface IShape {
+                func Area(): double
+            }
+            class Circle {
+                Radius: double
+                func Area(): double { return 3.14 * Radius * Radius }
+            }
+            func Main() {
+                c: Circle = new Circle { Radius: 1.0 }
+                result := c is IShape
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_BaseClassIsDerived_NoWarning()
+    {
+        // Downcasting from base to derived is a valid runtime check
+        AssertNoWarning(@"
+            class Animal {
+                Name: string
+            }
+            class Dog : Animal {
+                Breed: string
+            }
+            func Main() {
+                a: Animal = new Dog { Name: ""Rex"", Breed: ""Lab"" }
+                result := a is Dog
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_SealedClassUnrelated_ProducesWarning()
+    {
+        // A sealed class can never be a subtype of an unrelated class
+        AssertHasWarning(@"
+            sealed class Cat {
+                Name: string
+            }
+            class Dog {
+                Name: string
+            }
+            func Main() {
+                c: Cat = new Cat { Name: ""Whiskers"" }
+                result := c is Dog
+            }
+        ", "will never");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_ObjectIsString_NoWarning()
+    {
+        // object can be anything — unboxing/downcasting string is valid
+        AssertNoWarning(@"
+            func Main() {
+                obj: object = ""hello""
+                result := obj is string
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_UnionTypeIsCase_NoWarning()
+    {
+        // Pattern matching union cases is always valid
+        AssertNoWarning(@"
+            union Shape {
+                Circle { radius: double }
+                Rectangle { width: double, height: double }
+            }
+            func Main() {
+                s: Shape = new Shape.Circle { radius: 1.0 }
+                x := match s {
+                    Shape.Circle { radius } => radius,
+                    _ => 0.0
+                }
+            }
+        ", "will never");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_IsExpression_IntIsString_ProducesWarning()
+    {
+        // if 42 is string s — int can never be string
+        AssertHasWarning(@"
+            func Main() {
+                n: int = 42
+                if n is string s {
+                    len: int = s.Length
+                }
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_IsExpression_ObjectIsString_NoWarning()
+    {
+        // obj is string s — object can always be checked at runtime
+        AssertNoWarning(@"
+            func Main() {
+                obj: object = ""hello""
+                if obj is string s {
+                    len: int = s.Length
+                }
+            }
+        ", "will never succeed");
+    }
+
+    [Fact]
+    public void ImpossiblePattern_IsExpression_IntIsDouble_Warning()
+    {
+        // The `is` operator is a CLR runtime type-identity test (isinst), NOT a conversion.
+        // int is double is always false at runtime, even though int->double is an implicit conversion.
+        AssertHasWarning(@"
+            func Main() {
+                x: int = 5
+                result := x is double
+            }
+        ", "will never succeed");
+    }
+
+    #endregion
+
+    #region Numeric Narrowing Cast Suggestions
+
+    // These tests verify that when a numeric narrowing error occurs, the error's ContextualHint
+    // contains explicit cast syntax (e.g. "(int)value") to help the developer fix the issue.
+
+    [Fact]
+    public void NarrowingSuggestion_LongToInt_SuggestsCast()
+    {
+        // long → int: should suggest explicit (int) cast
+        AssertHasHint(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: int = x
+            }
+        ", "(int)value");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_DoubleToFloat_SuggestsCast()
+    {
+        // double → float: should suggest explicit (float) cast
+        AssertHasHint(@"
+            func Main() {
+                x: double = 3.14
+                y: float = x
+            }
+        ", "(float)value");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_FunctionArgument_LongToInt_SuggestsCast()
+    {
+        // Passing a long argument to a function expecting int should include cast suggestion
+        AssertHasHint(@"
+            func Foo(x: int) {}
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                v: long = GetLong()
+                Foo(v)
+            }
+        ", "(int)value");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_ReturnDoubleFromIntFunc_SuggestsCast()
+    {
+        // Returning double from a function declared to return int should suggest cast
+        AssertHasHint(@"
+            func GetDouble(): double { return 0.0 }
+            func Compute(): int {
+                d: double = GetDouble()
+                return d
+            }
+        ", "(int)value");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_IntToByte_LiteralTooLarge_SuggestsCast()
+    {
+        // Assigning an int literal (300) to byte: int → byte narrowing should suggest cast
+        AssertHasHint(@"
+            func Main() {
+                x: int = 300
+                y: byte = x
+            }
+        ", "(byte)value");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_IntToInt_NoError()
+    {
+        // int to int: valid assignment, no error and no narrowing suggestion needed
+        AssertNoErrors(@"
+            func Main() {
+                x: int = 42
+            }
+        ");
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_StringToInt_NotNumericNarrowing()
+    {
+        // string → int: error, but NOT a numeric narrowing suggestion — should use the
+        // string-specific hint (int.Parse / int.TryParse), not a cast suggestion
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                x: string = ""hello""
+                y: int = x
+            }
+        ");
+        Assert.True(result.HasErrors, "Expected errors but got none");
+        var typeMismatchErrors = result.Errors.Where(e => e.ContextualHint != null).ToList();
+        // Should NOT suggest a numeric cast — should suggest int.Parse instead
+        Assert.Contains(typeMismatchErrors, e => e.ContextualHint!.Contains("int.Parse"));
+        Assert.DoesNotContain(typeMismatchErrors, e => e.ContextualHint!.Contains("(int)value"));
+    }
+
+    [Fact]
+    public void NarrowingSuggestion_LongToShort_SuggestsCast()
+    {
+        // long → short: should suggest explicit (short) cast
+        AssertHasHint(@"
+            func GetLong(): long { return 0 as long }
+            func Main() {
+                x: long = GetLong()
+                y: short = x
+            }
+        ", "(short)value");
+    }
+
+    #endregion
+
+    #region Default Expression
+
+    [Fact]
+    public void DefaultExpression_IntVariable_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int = default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_StringVariable_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                s: string = default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_ReturnFromIntFunction_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Foo(): int {
+                return default
+            }
+        ");
+    }
+
+
+    [Fact]
+    public void DefaultExpression_NoTypeContext_ReportsError()
+    {
+        AssertHasError(@"
+            func Main() {
+                x := default
+            }
+        ", "Cannot determine type for 'default'");
+    }
+
+    [Fact]
+    public void DefaultExpression_FunctionArgument_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Bar(x: int) {}
+            func Main() {
+                Bar(default)
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_NullableIntVariable_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: int? = default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_BoolVariable_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: bool = default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_DoubleVariable_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                x: double = default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_ReturnFromBoolFunction_NoErrors()
+    {
+        AssertNoErrors(@"
+            func IsReady(): bool {
+                return default
+            }
+        ");
+    }
+
+    [Fact]
+    public void DefaultExpression_FieldInitializer_NoErrors()
+    {
+        AssertNoErrors(@"
+            class Counter {
+                count: int = default
             }
         ");
     }

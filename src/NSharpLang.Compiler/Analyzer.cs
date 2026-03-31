@@ -1849,6 +1849,14 @@ public class Analyzer : IDisposable
                 // Type pattern checks if value is of a specific type and binds it
                 var targetType = ResolveType(typePattern.Type);
 
+                // Check if pattern is provably impossible
+                if (!IsPatternPossible(valueType, targetType))
+                {
+                    Warning(ErrorCode.ImpossiblePattern,
+                        $"Type pattern 'is {targetType}' will never match a value of type '{valueType}'",
+                        pattern.Line, pattern.Column);
+                }
+
                 // Bind the variable if a binding name is provided
                 if (typePattern.BindingName != null)
                 {
@@ -1954,7 +1962,7 @@ public class Analyzer : IDisposable
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
             CastExpression cast => ResolveType(cast.TargetType),
-            IsExpression isExpr => BuiltInTypes.Bool,
+            IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),
             ThrowExpression => BuiltInTypes.Never,
             ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
@@ -1967,11 +1975,26 @@ public class Analyzer : IDisposable
             OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
+            DefaultExpression defaultExpr => AnalyzeDefaultExpression(defaultExpr),
             _ => BuiltInTypes.Unknown
         };
 
         _semanticModel.RecordExpressionType(expr.Line, expr.Column, type);
         return type;
+    }
+
+    private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
+    {
+        // Target-typed: use _currentExpectedType if available
+        if (_currentExpectedType != null)
+        {
+            return _currentExpectedType;
+        }
+
+        // If no expected type context, report an error
+        Error("Cannot determine type for 'default' — use a type annotation or provide context",
+            defaultExpr.Line, defaultExpr.Column);
+        return BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeRangeExpression(RangeExpression range)
@@ -3458,6 +3481,40 @@ public class Analyzer : IDisposable
         {
             if (bindings.TryGetValue(constraint.TypeParameter, out var boundType))
             {
+                // Validate special constraints
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+                {
+                    if (!IsReferenceType(boundType))
+                    {
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"Type '{boundType}' must be a reference type to satisfy the 'class' constraint on type parameter '{constraint.TypeParameter}'",
+                            call.Line, call.Column);
+                    }
+                }
+
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                {
+                    // CLR 'struct' constraint means non-nullable value type.
+                    // Nullable<T> (NullableTypeInfo) is NOT a valid struct-constrained type.
+                    if (IsReferenceType(boundType) || boundType is NullableTypeInfo)
+                    {
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"Type '{boundType}' must be a non-nullable value type to satisfy the 'struct' constraint on type parameter '{constraint.TypeParameter}'",
+                            call.Line, call.Column);
+                    }
+                }
+
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New))
+                {
+                    if (!HasParameterlessConstructor(boundType))
+                    {
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"Type '{boundType}' must have a parameterless constructor to satisfy the 'new()' constraint on type parameter '{constraint.TypeParameter}'",
+                            call.Line, call.Column);
+                    }
+                }
+
+                // Validate interface/type constraints
                 foreach (var constraintTypeRef in constraint.Constraints)
                 {
                     var constraintType = ApplyNSharpGenericBindings(ResolveType(constraintTypeRef), bindings);
@@ -3469,6 +3526,53 @@ public class Analyzer : IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Returns true if the type has an accessible parameterless constructor,
+    /// which is required to satisfy a 'new()' generic constraint.
+    /// </summary>
+    private bool HasParameterlessConstructor(TypeInfo type)
+    {
+        // Structs (and record structs) always have an implicit parameterless constructor in C#
+        if (type is StructTypeInfo)
+            return true;
+
+        if (type is ClassTypeInfo classType)
+        {
+            // A class with a primary constructor (C# 12-style `class Foo(int x)`) suppresses
+            // the implicit default constructor, so it does NOT satisfy new().
+            if (classType.Declaration.PrimaryConstructorParameters != null
+                && classType.Declaration.PrimaryConstructorParameters.Count > 0)
+                return false;
+
+            var constructors = classType.Declaration.Members
+                .OfType<ConstructorDeclaration>();
+            // If no explicit constructors, the implicit default constructor is available
+            return !constructors.Any() || constructors.Any(c => c.Parameters.Count == 0);
+        }
+
+        if (type is RecordTypeInfo recordType)
+        {
+            // Record structs always have an implicit parameterless constructor regardless of
+            // whether they declare primary constructor parameters.
+            if (recordType.Declaration.IsStruct)
+                return true;
+
+            // Record classes: a primary constructor with params suppresses the default ctor
+            return recordType.Declaration.PrimaryConstructorParameters == null
+                || recordType.Declaration.PrimaryConstructorParameters.Count == 0;
+        }
+
+        if (type is ReflectionTypeInfo refl)
+        {
+            // CLR value types always have a parameterless constructor even if no explicit
+            // constructor is declared (they are zero-initialized), so check IsValueType first.
+            return refl.Type.IsValueType || refl.Type.GetConstructor(Type.EmptyTypes) != null;
+        }
+
+        // Conservative: unknown types are assumed to satisfy the constraint
+        return true;
     }
 
     /// <summary>
@@ -4482,6 +4586,21 @@ public class Analyzer : IDisposable
         }
 
         return type;
+    }
+
+    private TypeInfo AnalyzeIsExpression(IsExpression isExpr)
+    {
+        var sourceType = AnalyzeExpression(isExpr.Expression);
+        var targetType = ResolveType(isExpr.Type);
+
+        if (!IsPatternPossible(sourceType, targetType))
+        {
+            Warning(ErrorCode.ImpossiblePattern,
+                $"Type check 'is {targetType}' will never succeed for a value of type '{sourceType}'",
+                isExpr.Line, isExpr.Column);
+        }
+
+        return BuiltInTypes.Bool;
     }
 
     private TypeInfo AnalyzeAwaitExpression(AwaitExpression await)
@@ -5501,6 +5620,85 @@ public class Analyzer : IDisposable
         // Nullable wrapper is already handled before this check
         // External/unknown: be conservative, don't claim reference type
         return false;
+    }
+
+    private bool IsPatternPossible(TypeInfo sourceType, TypeInfo targetType)
+    {
+        var resolvedSource = ResolveTypeAlias(sourceType);
+        var resolvedTarget = ResolveTypeAlias(targetType);
+
+        // Conservative: unknown/external/reflection types — don't warn
+        if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
+        if (resolvedSource is ExternalTypeInfo || resolvedTarget is ExternalTypeInfo) return true;
+        if (resolvedSource is ReflectionTypeInfo || resolvedTarget is ReflectionTypeInfo) return true;
+
+        // Generic type parameters — conservative, don't warn
+        if (resolvedSource is GenericTypeInfo || resolvedTarget is GenericTypeInfo) return true;
+
+        // Same type — trivially possible
+        if (resolvedSource == resolvedTarget) return true;
+        if (resolvedSource.ToString() == resolvedTarget.ToString()) return true;
+
+        // Either is interface — always possible at runtime (boxing, duck typing)
+        if (resolvedSource is InterfaceTypeInfo || resolvedTarget is InterfaceTypeInfo) return true;
+
+        // Either is object — anything can be boxed to/from object
+        if (resolvedSource == BuiltInTypes.Object || resolvedTarget == BuiltInTypes.Object) return true;
+
+        // Nullable types — unwrapping is always a valid pattern
+        if (resolvedSource is NullableTypeInfo || resolvedTarget is NullableTypeInfo) return true;
+
+        // Union types — pattern matching on union cases is always valid
+        if (resolvedSource is UnionTypeInfo || resolvedTarget is UnionTypeInfo) return true;
+
+        // Both are value types and different — impossible
+        // The `is` operator is a CLR runtime type-identity test (isinst), NOT a conversion.
+        // Implicit numeric widening does NOT make `is` succeed: `42 is double` is always false.
+        // We check this BEFORE IsAssignable because IsAssignable allows implicit numeric conversions
+        // which are NOT valid for type pattern matching.
+        bool sourceIsValue = !IsReferenceType(resolvedSource);
+        bool targetIsValue = !IsReferenceType(resolvedTarget);
+        if (sourceIsValue && targetIsValue)
+        {
+            return false;
+        }
+
+        // IsAssignable in either direction — covers covariance, inheritance, etc.
+        // This is checked AFTER the value-type block to avoid false negatives from implicit numeric conversions.
+        if (IsAssignable(resolvedTarget, resolvedSource)) return true;
+        if (IsAssignable(resolvedSource, resolvedTarget)) return true;
+
+        // Value type to non-interface, non-object reference type — impossible
+        // (e.g., int is string, bool is string — these can never match)
+        // Value types can box to object, and can match interfaces they implement,
+        // but both of those are handled by IsAssignable above.
+        if (sourceIsValue && !targetIsValue)
+        {
+            // Target must not be an interface (handled above via IsAssignable/interface check)
+            // and must not be object (handled above)
+            if (resolvedTarget is not InterfaceTypeInfo)
+                return false;
+        }
+        if (targetIsValue && !sourceIsValue)
+        {
+            // Source must not be an interface and must not be object
+            if (resolvedSource is not InterfaceTypeInfo)
+                return false;
+        }
+
+        // Sealed class to unrelated class — impossible
+        // (IsAssignable already checked above, so if we get here they're unrelated)
+        if (resolvedSource is ClassTypeInfo srcClass && srcClass.Declaration.Modifiers.HasFlag(Modifiers.Sealed))
+        {
+            if (resolvedTarget is ClassTypeInfo) return false;
+        }
+        if (resolvedTarget is ClassTypeInfo tgtClass && tgtClass.Declaration.Modifiers.HasFlag(Modifiers.Sealed))
+        {
+            if (resolvedSource is ClassTypeInfo) return false;
+        }
+
+        // Default: conservative, assume possible
+        return true;
     }
 
     // Check if a type is a known generic collection type (List<T>, HashSet<T>, etc.)
