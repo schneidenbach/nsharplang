@@ -55,6 +55,9 @@ echo -e "${GREEN}✓ TypeScript compiled${NC}"
 
 echo
 echo -e "${YELLOW}Step 5: Running VS Code Integration Tests${NC}"
+if [ -n "$TEST_SUITE" ]; then
+    echo "Suite filter: $TEST_SUITE"
+fi
 echo "(This will download VS Code if needed and may take a minute...)"
 echo
 

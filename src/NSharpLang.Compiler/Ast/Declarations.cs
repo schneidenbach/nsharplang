@@ -75,9 +75,19 @@ public record Parameter(
 
 public record TypeParameter(string Name);
 
+[Flags]
+public enum SpecialConstraintKind
+{
+    None = 0,
+    Class = 1,      // where T : class (reference type)
+    Struct = 2,     // where T : struct (value type)
+    New = 4,        // where T : new() (parameterless constructor)
+}
+
 public record GenericConstraint(
     string TypeParameter,
-    List<TypeReference> Constraints);
+    List<TypeReference> Constraints,
+    SpecialConstraintKind SpecialConstraints = SpecialConstraintKind.None);
 
 // Class declaration
 public record ClassDeclaration(

@@ -22,36 +22,28 @@ class Company {
 
 func ClassifyPerson(person: Person): string {
     // Match with nested property patterns
-    return person match {
-        { Address: { City: "New York", State: "NY" } } => "New Yorker"
-        { Address: { City: city, State: "CA" } } => $"Californian from {city}"
-        { Address: { State: "TX" } } => "Texan"
+    return match person {
+        { Address: { City: "New York", State: "NY" } } => "New Yorker",
+        { Address: { City: city, State: "CA" } } => $"Californian from {city}",
+        { Address: { State: "TX" } } => "Texan",
         _ => "Other location"
     }
 }
 
-// Deep nesting: check if person lives in NYC
-
-// Nested with binding: extract the city name
-
-// Nested with literal: check specific state
-
-// Default case
-
 func DescribeCompany(company: Company): string {
     // Three-level nesting with binding
-    return company match {
-        { HQ: { City: "New York", State: "NY", ZipCode: zip } } => $"NYC company in {zip}"
-        { HQ: { City: city, State: state } } => $"Based in {city}, {state}"
+    return match company {
+        { HQ: { City: "New York", State: "NY", ZipCode: zip } } => $"NYC company in {zip}",
+        { HQ: { City: city, State: state } } => $"Based in {city}, {state}",
         _ => "Unknown"
     }
 }
 
 func AnalyzePerson(person: Person): string {
     // Combining age check with nested address pattern using guards
-    return person match {
-        { Age: age, Address: { City: "New York" } } when age < 30 => "Young New Yorker"
-        { Age: age, Address: { State: "CA" } } when age >= 65 => "Senior Californian"
+    return match person {
+        { Age: age, Address: { City: "New York" } } when age < 30 => "Young New Yorker",
+        { Age: age, Address: { State: "CA" } } when age >= 65 => "Senior Californian",
         _ => "Regular person"
     }
 }
@@ -83,5 +75,5 @@ func Main() {
 
     print $"Company: {DescribeCompany(company)}"
     print ""
-    print "✓ All nested property patterns working correctly!"
+    print "All nested property patterns working correctly!"
 }

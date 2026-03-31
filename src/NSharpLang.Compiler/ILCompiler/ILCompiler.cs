@@ -917,7 +917,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        var value = int.Parse(intLit.Value);
+        var value = ParseIntLiteralValue(intLit.Value);
 
         // Use optimized opcodes for small values
         switch (value)
@@ -943,6 +943,32 @@ public partial class ILCompiler
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// Parse an integer literal value, handling hex (0x), binary (0b), octal (0o),
+    /// underscore separators, and integer suffixes (u, l, ul, etc.)
+    /// </summary>
+    private static int ParseIntLiteralValue(string text)
+    {
+        // Strip trailing suffixes (u, l, ul, lu, etc.)
+        var span = text.AsSpan();
+        while (span.Length > 0 && (span[^1] == 'u' || span[^1] == 'U' || span[^1] == 'l' || span[^1] == 'L'))
+        {
+            span = span[..^1];
+        }
+
+        // Remove underscore separators
+        var clean = span.ToString().Replace("_", "");
+
+        if (clean.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return int.Parse(clean[2..], System.Globalization.NumberStyles.HexNumber);
+        if (clean.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+            return Convert.ToInt32(clean[2..], 2);
+        if (clean.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
+            return Convert.ToInt32(clean[2..], 8);
+
+        return int.Parse(clean);
     }
 
     /// <summary>

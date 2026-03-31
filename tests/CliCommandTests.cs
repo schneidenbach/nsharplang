@@ -611,7 +611,7 @@ func Main() {
                 "completions",
                 "--project", Path.Combine(examplesDir, "12-multi-file-projects", "MultiFileProject"),
                 "--file", "Services/PersonService.nl",
-                "--pos", "15:15"
+                "--pos", "14:15"
             }
         };
 

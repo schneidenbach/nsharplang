@@ -584,7 +584,21 @@ public class Transpiler
         {
             foreach (var constraint in func.Constraints)
             {
-                _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", constraint.Constraints.Select(TranspileTypeReference))}");
+                var parts = new List<string>();
+                // C# ordering: class/struct first
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+                    parts.Add("class");
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                    parts.Add("struct");
+                // Then interface/type constraints
+                parts.AddRange(constraint.Constraints.Select(TranspileTypeReference));
+                // new() must be last in C#; omit if struct is present (struct implies new() and C# rejects the combination)
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New)
+                    && !constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                    parts.Add("new()");
+
+                if (parts.Count > 0)
+                    _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", parts)}");
             }
         }
 
@@ -1795,7 +1809,21 @@ public class Transpiler
         {
             foreach (var constraint in func.Constraints)
             {
-                _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", constraint.Constraints.Select(TranspileTypeReference))}");
+                var parts = new List<string>();
+                // C# ordering: class/struct first
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+                    parts.Add("class");
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                    parts.Add("struct");
+                // Then interface/type constraints
+                parts.AddRange(constraint.Constraints.Select(TranspileTypeReference));
+                // new() must be last in C#; omit if struct is present (struct implies new() and C# rejects the combination)
+                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New)
+                    && !constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                    parts.Add("new()");
+
+                if (parts.Count > 0)
+                    _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", parts)}");
             }
         }
 
@@ -2140,6 +2168,7 @@ public class Transpiler
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
             OutVariableDeclarationExpression outVar => TranspileOutVariableDeclaration(outVar),
             ParenthesizedExpression paren => $"({TranspileExpression(paren.Inner)})",
+            DefaultExpression => "default",
             _ => throw new Exception($"Unsupported expression type: {expression.GetType().Name}")
         };
     }

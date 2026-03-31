@@ -8,7 +8,7 @@ class Logger(name: string) {
     }
 }
 
-struct Point {
+struct Point(x: double, y: double) {
     X: double = x
     Y: double = y
 
