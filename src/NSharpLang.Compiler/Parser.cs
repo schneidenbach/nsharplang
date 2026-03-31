@@ -702,13 +702,61 @@ public class Parser
             var typeParam = ConsumeIdentifier("Expected type parameter");
             Consume(TokenType.Colon, "Expected ':'");
 
-            var constraintTypes = new List<TypeReference> { ParseTypeReference() };
-            while (Match(TokenType.Comma))
+            var constraintTypes = new List<TypeReference>();
+            var specialConstraints = SpecialConstraintKind.None;
+
+            do
             {
-                constraintTypes.Add(ParseTypeReference());
+                if (Check(TokenType.Class))
+                {
+                    Advance();
+                    specialConstraints |= SpecialConstraintKind.Class;
+                }
+                else if (Check(TokenType.Struct))
+                {
+                    Advance();
+                    specialConstraints |= SpecialConstraintKind.Struct;
+                }
+                else if (Check(TokenType.New) && LookAhead(1).Type == TokenType.LeftParen)
+                {
+                    Advance(); // consume 'new'
+                    Advance(); // consume '('
+                    Consume(TokenType.RightParen, "Expected ')' after 'new('");
+                    specialConstraints |= SpecialConstraintKind.New;
+                }
+                else
+                {
+                    constraintTypes.Add(ParseTypeReference());
+                }
+            } while (Match(TokenType.Comma));
+
+            // Validate: class and struct are mutually exclusive
+            if (specialConstraints.HasFlag(SpecialConstraintKind.Class) &&
+                specialConstraints.HasFlag(SpecialConstraintKind.Struct))
+            {
+                ReportError(
+                    ErrorCode.InvalidSyntax,
+                    "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time."
+                );
             }
 
-            constraints.Add(new GenericConstraint(typeParam, constraintTypes));
+            // Validate: struct implies new(), so combining them is redundant and illegal in C#
+            if (specialConstraints.HasFlag(SpecialConstraintKind.Struct) &&
+                specialConstraints.HasFlag(SpecialConstraintKind.New))
+            {
+                ReportError(
+                    ErrorCode.InvalidSyntax,
+                    "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#."
+                );
+            }
+
+            constraints.Add(new GenericConstraint(typeParam, constraintTypes, specialConstraints));
         }
 
         return constraints;
@@ -2154,7 +2202,8 @@ public class Parser
             TokenType.Unchecked or
             TokenType.Typeof or
             TokenType.Nameof or
-            TokenType.Sizeof;
+            TokenType.Sizeof or
+            TokenType.Default;
 
     private YieldStatement ParseYieldStatement()
     {
@@ -3514,6 +3563,13 @@ public class Parser
             return new NullLiteralExpression(line, column);
         }
 
+        // Default expression (target-typed)
+        if (Check(TokenType.Default))
+        {
+            var token = Advance();
+            return new DefaultExpression(token.Line, token.Column);
+        }
+
         // This and Base
         if (Check(TokenType.This))
         {
@@ -3743,6 +3799,9 @@ public class Parser
 
                     var subParser = new Parser(subTokens, _fileName);
                     expr = subParser.ParseExpression();
+
+                    // Propagate errors from the sub-parser into this parser's error list
+                    _errors.AddRange(subParser._errors);
                 }
                 catch
                 {
@@ -3981,13 +4040,13 @@ public class Parser
         var firstExpr = ParseExpression();
 
         // Check for named tuple element
-        if (Check(TokenType.Colon))
+        if (Check(TokenType.Colon) && firstExpr is IdentifierExpression firstIdent)
         {
             Advance();
             var firstValue = ParseExpression();
             var elements = new List<TupleElement>
             {
-                new TupleElement(((IdentifierExpression)firstExpr).Name, firstValue)
+                new TupleElement(firstIdent.Name, firstValue)
             };
 
             while (Match(TokenType.Comma))
@@ -4561,6 +4620,7 @@ public class Parser
     private void SynchronizeToNextDeclaration()
     {
         _panicMode = false;
+        _splitGreaterDepth = 0;
 
         while (!IsAtEnd())
         {
@@ -4600,6 +4660,7 @@ public class Parser
     private void SynchronizeToNextStatement()
     {
         _panicMode = false;
+        _splitGreaterDepth = 0;
 
         while (!IsAtEnd())
         {

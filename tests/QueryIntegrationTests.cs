@@ -302,10 +302,10 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void Completions_MemberAccess_FieldMembers()
     {
-        // PersonService.nl line 15: people.Add(person)
+        // PersonService.nl line 14: people.Add(person)
         // Completions at "people." should return List<Person> members
         var engine = new CompletionEngine();
-        var result = engine.GetCompletions(MultiFile, "Services/PersonService.nl", 15, 15);
+        var result = engine.GetCompletions(MultiFile, "Services/PersonService.nl", 14, 15);
         Assert.Equal(CompletionContext.MemberAccess, result.Context);
         Assert.Equal("people", result.Receiver);
         Assert.True(result.Completions.ContainsKey("methods"),
@@ -546,14 +546,14 @@ public class QueryIntegrationTests : IDisposable
         // NOTE: Currently the BindingMap records the usage site as the declaration
         // when cross-file resolution via file-path imports is unavailable.
         // The text-based fallback in FindReferences still finds cross-file usages.
-        var memberColumn = FindColumnInFile(programPath, 30, "GetPeople");
-        var declaration = bindings.GetBindingAt(programPath, 30, memberColumn);
+        var memberColumn = FindColumnInFile(programPath, 28, "GetPeople");
+        var declaration = bindings.GetBindingAt(programPath, 28, memberColumn);
 
         Assert.NotNull(declaration);
         Assert.Equal("GetPeople", declaration!.Name);
         Assert.Equal("function", declaration.Kind);
         Assert.EndsWith("PersonService.nl", declaration.File, StringComparison.Ordinal);
-        Assert.Equal(19, declaration.Line);
+        Assert.Equal(18, declaration.Line);
     }
 
     [Fact]
@@ -637,9 +637,9 @@ public class QueryIntegrationTests : IDisposable
     public void Definition_MultiFile_ImportedMemberUseSite_Resolves()
     {
         var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
-        var memberColumn = FindColumnInFile(programPath, 30, "GetPeople");
+        var memberColumn = FindColumnInFile(programPath, 28, "GetPeople");
 
-        var result = _service.FindDefinition(MultiFile, "Program.nl", 30, memberColumn);
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 28, memberColumn);
 
         // After file-path imports were removed, cross-file member resolution
         // falls back to the local binding. The text-based FindReferences still
@@ -648,7 +648,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.Equal("GetPeople", result!.Name);
         Assert.Equal("function", result.Kind);
         Assert.EndsWith("PersonService.nl", result.File, StringComparison.Ordinal);
-        Assert.Equal(19, result.Line);
+        Assert.Equal(18, result.Line);
     }
 
     [Fact]

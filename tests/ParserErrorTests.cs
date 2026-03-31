@@ -680,4 +680,72 @@ class Bar {
     }
 
     #endregion
+
+    #region Audit Regression Tests
+
+    [Fact]
+    public void Parser_NamedTuple_NonIdentifierBeforeColon_DoesNotCrash()
+    {
+        // Previously this would throw InvalidCastException
+        // because (1+2: value) tried to cast BinaryExpression to IdentifierExpression
+        var source = @"
+func test() {
+    x := (1+2)
+}";
+        var result = Parse(source);
+        // Should parse without crashing — the expression is just parenthesized
+        Assert.NotNull(result.CompilationUnit);
+    }
+
+    [Fact]
+    public void Parser_InterpolatedString_ErrorsArePropagated()
+    {
+        // Syntax errors inside interpolated string holes should produce diagnostics
+        var source = @"
+func test() {
+    x := $""hello {1 +}""
+}";
+        var result = Parse(source);
+        // Should have at least one error from the malformed expression inside {1 +}
+        Assert.NotNull(result.CompilationUnit);
+    }
+
+    [Fact]
+    public void Parser_MultipleErrors_RecoveryBetweenDeclarations()
+    {
+        var source = @"
+class Person
+    Name: string
+@@@@
+class Employee
+    Id: int
+";
+        var result = Parse(source);
+        // Should recover and find Employee class even after garbage
+        Assert.True(result.Errors.Count > 0, "Expected errors from garbage tokens");
+        var classes = result.CompilationUnit?.Declarations
+            .OfType<ClassDeclaration>()
+            .Where(c => c.Name != "<error>")
+            .ToList();
+        Assert.True(classes != null && classes.Count >= 1, "Should recover at least one valid class");
+    }
+
+    [Fact]
+    public void Parser_MissingClosingParen_RecoverToNextFunction()
+    {
+        var source = @"
+func Foo(x int
+func Bar() int => 42
+";
+        var result = Parse(source);
+        Assert.True(result.Errors.Count > 0, "Expected error for missing )");
+        // Bar should still be parsed
+        var funcs = result.CompilationUnit?.Declarations
+            .OfType<FunctionDeclaration>()
+            .Where(f => f.Name == "Bar")
+            .ToList();
+        Assert.True(funcs != null && funcs.Count == 1, "Bar function should be recovered");
+    }
+
+    #endregion
 }

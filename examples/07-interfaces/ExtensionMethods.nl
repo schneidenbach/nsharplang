@@ -145,7 +145,7 @@ func Main() {
 
     print "Counting to 5:"
     let count: int = 5
-    count.Times(i => print $"  {i}")
+    count.Times(i => Console.WriteLine($"  {i}"))
 
     print ""
     print "=== Array Extensions (LINQ-style) ==="

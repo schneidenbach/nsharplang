@@ -4,8 +4,6 @@ import System
 import System.Linq
 import MultiFileProject.Models
 import MultiFileProject.Services
-import "Models/Person"
-import "Services/PersonService"
 
 func Main() {
     print "=== Multi-File Project Demo ==="

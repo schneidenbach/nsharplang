@@ -2,7 +2,6 @@ namespace MultiFileProject.Services
 
 import System.Collections.Generic
 import MultiFileProject.Models
-import "../Models/Person"
 
 class PersonService {
     people: List<Person>
