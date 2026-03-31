@@ -1,7 +1,7 @@
 # N# CLI Toolchain (`nlc`)
 
 **Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
-**Test count:** 960+ tests passing, 0 failures.
+**Test count:** 1558+ tests passing, 0 failures.
 
 The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
@@ -168,9 +168,14 @@ $ nlc fix --file F     # fix single file
 | NL007 | Warning | `pascal-case-type` | Type name (class/struct/record/enum/union/interface) doesn't start with uppercase |
 | NL008 | Info | `camel-case-local` | Local variable name starts with uppercase |
 | NL009 | Warning | `pascal-case-function` | Function name doesn't start with uppercase (`main` is exempt) |
+| NL010 | Warning | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
 | NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
 | NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
+| NL014 | Info | `unnecessary-type-annotation` | Explicit type annotation on a `let` declaration whose type is trivially obvious from a literal initializer (e.g. `let x: int = 5`) |
+| NL015 | Info | `prefer-const` | `let x: T = ...` variable with explicit type annotation that is never reassigned — suggest `const` |
+| NL016 | Warning | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
+| NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
@@ -179,8 +184,10 @@ $ nlc fix --file F     # fix single file
 - **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
 - **NL003** — Unnecessary null check: removes the `== null` / `!= null` clause
 - **NL007** — Pascal-case type: capitalises the first letter of the type name (`ReviewNeeded` safety)
+- **NL010** — Unused import: removes the entire import line (`Safe`)
 - **NL011** — Empty catch: inserts `// TODO: handle exception` comment
 - **NL013** — Prefer interpolation: suggestion-only hint (full conversion requires manual review)
+- **NL015** — Prefer const: replaces `let` with `const` on the declaration line (`Safe`)
 
 **`FixSafety` levels** (on `CodeAction`):
 - `Safe` — always correct to apply automatically

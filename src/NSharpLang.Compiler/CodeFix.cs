@@ -87,6 +87,8 @@ public class CodeFixService
         _providers.Add(new RenameTypeToPascalCaseCodeFixProvider());
         _providers.Add(new AddCommentToEmptyCatchCodeFixProvider());
         _providers.Add(new ConvertToInterpolationCodeFixProvider());
+        _providers.Add(new RemoveUnusedImportCodeFixProvider());
+        _providers.Add(new ChangeLetToConstCodeFixProvider());
     }
 
     /// <summary>
@@ -433,6 +435,80 @@ public class ConvertToInterpolationCodeFixProvider : CodeFixProvider
             new List<TextEdit>(), // Edits require full expression parsing — provided as hint only
             CodeActionKind.RefactorRewrite,
             FixSafety.SuggestionOnly));
+
+        return actions;
+    }
+}
+
+/// <summary>
+/// Code fix provider for NL010: Unused Import.
+/// Deletes the entire import line. Safe to apply automatically.
+/// </summary>
+public class RemoveUnusedImportCodeFixProvider : CodeFixProvider
+{
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL010" };
+
+    public override List<CodeAction> GetCodeActions(
+        Diagnostic diagnostic,
+        CompilationUnit ast,
+        string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var line = diagnostic.Location.Line;
+
+        if (line <= 0)
+            return actions;
+
+        // Remove the entire import line (line N → line N+1, column 0 to column 0)
+        var edit = new TextEdit(line, 0, line + 1, 0, "");
+
+        actions.Add(new CodeAction(
+            "Remove unused import",
+            "NL010",
+            new List<TextEdit> { edit },
+            CodeActionKind.SourceOrganizeImports,
+            FixSafety.Safe));
+
+        return actions;
+    }
+}
+
+/// <summary>
+/// Code fix provider for NL015: Prefer Const.
+/// Replaces the `let` keyword with `const` on the declaration line.
+/// </summary>
+public class ChangeLetToConstCodeFixProvider : CodeFixProvider
+{
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL015" };
+
+    public override List<CodeAction> GetCodeActions(
+        Diagnostic diagnostic,
+        CompilationUnit ast,
+        string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var sourceLines = sourceCode.Split('\n');
+        var line = diagnostic.Location.Line;
+
+        if (line <= 0 || line > sourceLines.Length)
+            return actions;
+
+        var sourceLine = sourceLines[line - 1];
+
+        // Find `let ` on the declaration line and replace with `const `
+        var letIndex = sourceLine.IndexOf("let ", StringComparison.Ordinal);
+        if (letIndex < 0)
+            return actions;
+
+        // Replace `let ` (4 chars) with `const ` (6 chars)
+        var edit = new TextEdit(line, letIndex + 1, line, letIndex + 4 + 1, "const ");
+
+        actions.Add(new CodeAction(
+            "Change 'let' to 'const'",
+            "NL015",
+            new List<TextEdit> { edit },
+            CodeActionKind.QuickFix,
+            FixSafety.Safe));
 
         return actions;
     }

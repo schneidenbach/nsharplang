@@ -71,6 +71,12 @@ public class Analyzer : IDisposable
     /// </summary>
     public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
+    /// <summary>
+    /// Get a snapshot of the type-declaration-to-file mapping recorded during the most recent Analyze() call.
+    /// Used by MultiFileCompiler to build the project-level ProjectIndex.
+    /// </summary>
+    public Dictionary<string, string> GetTypeDeclarationFiles() => new(_typeDeclarationFiles);
+
     public AnalysisResult Analyze(CompilationUnit unit)
     {
         return Analyze(unit, null, null, null);
