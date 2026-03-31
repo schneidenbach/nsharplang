@@ -165,9 +165,7 @@ $ nlc fix --file F     # fix single file
 | NL004 | Warning | `async-without-await` | `async` function never uses `await` |
 | NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
 | NL006 | Warning | `unreachable-code` | Statements after `return` or `throw` |
-| NL007 | Warning | `pascal-case-type` | Type name (class/struct/record/enum/union/interface) doesn't start with uppercase |
-| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase |
-| NL009 | Warning | `pascal-case-function` | Function name doesn't start with uppercase (`main` is exempt) |
+| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase (locals use camelCase; PascalCase is for exported declarations) |
 | NL010 | Warning | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
 | NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
@@ -183,7 +181,6 @@ $ nlc fix --file F     # fix single file
 - **NL001** — Unused variable: removes the declaration line
 - **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
 - **NL003** — Unnecessary null check: removes the `== null` / `!= null` clause
-- **NL007** — Pascal-case type: capitalises the first letter of the type name (`ReviewNeeded` safety)
 - **NL010** — Unused import: removes the entire import line (`Safe`)
 - **NL011** — Empty catch: inserts `// TODO: handle exception` comment
 - **NL013** — Prefer interpolation: suggestion-only hint (full conversion requires manual review)

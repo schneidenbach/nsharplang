@@ -80,7 +80,7 @@ func main() {
 }";
         var diagnostic = new Diagnostic(
             "NL001",
-            "Unused variable 'unused'",
+            "Variable 'unused' is declared but never read",
             new Location(2, 9),
             DiagnosticSeverity.Warning);
 
@@ -115,7 +115,7 @@ func main() {
 }";
         var diagnostic = new Diagnostic(
             "NL001",
-            "Unused variable 'x'",
+            "Variable 'x' is declared but never read",
             new Location(2, 9),
             DiagnosticSeverity.Warning);
 
@@ -139,7 +139,7 @@ func main() {
 }";
         var diagnostic = new Diagnostic(
             "NL001",
-            "Unused variable 'MAX'",
+            "Variable 'MAX' is declared but never read",
             new Location(2, 11),
             DiagnosticSeverity.Warning);
 
@@ -317,7 +317,7 @@ func main() {
         var sourceCode = @"func main() {}";
         var diagnostic = new Diagnostic(
             "NL001",
-            "Unused variable 'x'",
+            "Variable 'x' is declared but never read",
             new Location(100, 1), // Line way out of range
             DiagnosticSeverity.Warning);
 

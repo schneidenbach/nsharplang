@@ -84,7 +84,6 @@ public class CodeFixService
         _providers.Add(new AddMissingImportCodeFixProvider());
         _providers.Add(new RemoveUnusedVariableCodeFixProvider());
         _providers.Add(new RemoveUnnecessaryNullCheckCodeFixProvider());
-        _providers.Add(new RenameTypeToPascalCaseCodeFixProvider());
         _providers.Add(new AddCommentToEmptyCatchCodeFixProvider());
         _providers.Add(new ConvertToInterpolationCodeFixProvider());
         _providers.Add(new RemoveUnusedImportCodeFixProvider());
@@ -207,7 +206,7 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
         var actions = new List<CodeAction>();
 
         // Extract variable name from diagnostic message
-        // Message format: "Unused variable 'x'"
+        // Message format: "Variable 'x' is declared but never read"
         var message = diagnostic.Message;
         var startIndex = message.IndexOf('\'');
         var endIndex = message.LastIndexOf('\'');
@@ -310,55 +309,6 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
                     FixSafety.Safe));
             }
         }
-
-        return actions;
-    }
-}
-
-/// <summary>
-/// Code fix provider for NL007: Pascal-case type name.
-/// Capitalises the first letter of the type name.
-/// </summary>
-public class RenameTypeToPascalCaseCodeFixProvider : CodeFixProvider
-{
-    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL007" };
-
-    public override List<CodeAction> GetCodeActions(
-        Diagnostic diagnostic,
-        CompilationUnit ast,
-        string sourceCode)
-    {
-        var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
-        var line = diagnostic.Location.Line;
-
-        if (line <= 0 || line > sourceLines.Length)
-            return actions;
-
-        // Extract old name from diagnostic message: "class 'foo' should use PascalCase naming"
-        var message = diagnostic.Message;
-        var nameStart = message.IndexOf('\'');
-        var nameEnd = message.IndexOf('\'', nameStart + 1);
-        if (nameStart < 0 || nameEnd <= nameStart)
-            return actions;
-
-        var oldName = message[(nameStart + 1)..nameEnd];
-        if (string.IsNullOrEmpty(oldName) || !char.IsLower(oldName[0]))
-            return actions;
-
-        var newName = char.ToUpperInvariant(oldName[0]) + oldName[1..];
-        var sourceLine = sourceLines[line - 1];
-        var col = sourceLine.IndexOf(oldName, StringComparison.Ordinal);
-        if (col < 0)
-            return actions;
-
-        var edit = new TextEdit(line, col + 1, line, col + oldName.Length + 1, newName);
-        actions.Add(new CodeAction(
-            $"Rename '{oldName}' to '{newName}'",
-            "NL007",
-            new List<TextEdit> { edit },
-            CodeActionKind.QuickFix,
-            FixSafety.ReviewNeeded)); // Renaming requires callers to update too
 
         return actions;
     }

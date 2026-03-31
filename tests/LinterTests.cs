@@ -38,7 +38,8 @@ public class LinterTests
 
         Assert.Single(diagnostics);
         Assert.Equal("NL001", diagnostics[0].Code);
-        Assert.Contains("unused variable 'x'", diagnostics[0].Message.ToLower());
+        Assert.Contains("'x'", diagnostics[0].Message);
+        Assert.Contains("never read", diagnostics[0].Message);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostics[0].Severity);
     }
 
@@ -454,53 +455,6 @@ func main() {
 
     #endregion
 
-    #region NL007: Pascal-Case Type Tests
-
-    [Fact]
-    public void NL007_PascalCaseType_WarnsOnLowercaseClass()
-    {
-        var source = "class myClass { }";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL007" && d.Message.Contains("myClass"));
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL007").Severity);
-    }
-
-    [Fact]
-    public void NL007_PascalCaseType_NoWarnOnCorrectClass()
-    {
-        var source = "class MyClass { }";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL007");
-    }
-
-    [Fact]
-    public void NL007_PascalCaseType_WarnsOnLowercaseInterface()
-    {
-        var source = "interface iAnimal { }";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL007" && d.Message.Contains("iAnimal"));
-    }
-
-    [Fact]
-    public void NL007_PascalCaseType_NoWarnOnCorrectInterface()
-    {
-        var source = "interface IAnimal { }";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL007");
-    }
-
-    [Fact]
-    public void NL007_PascalCaseType_HasSuggestion()
-    {
-        var source = "class myService { }";
-        var diagnostics = Lint(source);
-        var diag = diagnostics.FirstOrDefault(d => d.Code == "NL007");
-        Assert.NotNull(diag);
-        Assert.Contains("MyService", diag!.Suggestion ?? "");
-    }
-
-    #endregion
-
     #region NL008: Camel-Case Local Tests
 
     [Fact]
@@ -552,37 +506,6 @@ func main() {
         var diag = diagnostics.FirstOrDefault(d => d.Code == "NL008");
         Assert.NotNull(diag);
         Assert.Contains("userName", diag!.Suggestion ?? "");
-    }
-
-    #endregion
-
-    #region NL009: Pascal-Case Function Tests
-
-    [Fact]
-    public void NL009_PascalCaseFunction_WarnsOnLowercaseFunction()
-    {
-        var source = "func myFunc() { }";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL009" && d.Message.Contains("myFunc"));
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL009").Severity);
-    }
-
-    [Fact]
-    public void NL009_PascalCaseFunction_NoWarnOnCorrectFunction()
-    {
-        var source = "func MyFunc() { }";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL009");
-    }
-
-    [Fact]
-    public void NL009_PascalCaseFunction_HasSuggestion()
-    {
-        var source = "func doWork() { }";
-        var diagnostics = Lint(source);
-        var diag = diagnostics.FirstOrDefault(d => d.Code == "NL009");
-        Assert.NotNull(diag);
-        Assert.Contains("DoWork", diag!.Suggestion ?? "");
     }
 
     #endregion
@@ -1144,9 +1067,7 @@ class Builder {
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL004"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL005"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL006"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL007"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL008"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL009"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL011"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL012"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL013"));
