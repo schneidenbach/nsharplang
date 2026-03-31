@@ -146,6 +146,22 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
             endCol = int.MaxValue;
         }
 
+        // Compute selection range end column, clamped to fit within the full range.
+        // For single-line symbols (line0 == endLine0), the selection end must not exceed endCol.
+        // For multi-line symbols, the selection is on the start line — use that line's length.
+        int startLineLength = endCol; // default for single-line
+        if (sourceLines != null && line0 < sourceLines.Length)
+        {
+            startLineLength = sourceLines[line0].TrimEnd('\r').Length;
+        }
+        var selectionEndChar = Math.Min(name.Length, startLineLength);
+
+        // Ensure endCol is at least as large as selectionEndChar when on the same line
+        if (line0 == endLine0 && endCol < selectionEndChar)
+        {
+            endCol = selectionEndChar;
+        }
+
         var childArray = children?.ToArray();
 
         return new DocumentSymbol
@@ -153,7 +169,7 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
             Name = name,
             Kind = kind,
             Range = new LspRange(line0, 0, endLine0, endCol),
-            SelectionRange = new LspRange(line0, 0, line0, name.Length),
+            SelectionRange = new LspRange(line0, 0, line0, selectionEndChar),
             Detail = detail,
             Children = childArray is { Length: > 0 }
                 ? new Container<DocumentSymbol>(childArray)

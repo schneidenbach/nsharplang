@@ -170,13 +170,19 @@ func Main() {
         this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
-        // Position on empty line
-        const edit = await executeRename(doc, new vscode.Position(1, 0), 'whatever');
-        // Rename on non-symbol should return undefined or empty edit
-        if (edit) {
-            const entries = edit.entries();
-            assert.strictEqual(entries.length, 0,
-                'Rename at whitespace should produce no edits');
+        // Position on empty line — server returns null, VS Code may throw "No result"
+        try {
+            const edit = await executeRename(doc, new vscode.Position(1, 0), 'whatever');
+            // Rename on non-symbol should return undefined or empty edit
+            if (edit) {
+                const entries = edit.entries();
+                assert.strictEqual(entries.length, 0,
+                    'Rename at whitespace should produce no edits');
+            }
+        } catch (e: any) {
+            // VS Code throws "No result" when no rename provider claims the position
+            assert.ok(e.message?.includes('No result'),
+                `Unexpected error: ${e.message}`);
         }
     });
 
@@ -184,12 +190,18 @@ func Main() {
         this.timeout(30_000);
         const doc = await openDocumentAndWaitForLsp('Program.nl');
 
+        // Inside a string literal — server returns null, VS Code may throw "No result"
         const pos = positionOf(doc, '"World"', { at: 'middle' });
-        const edit = await executeRename(doc, pos, 'whatever');
-        if (edit) {
-            const entries = edit.entries();
-            assert.strictEqual(entries.length, 0,
-                'Rename on string literal should produce no edits');
+        try {
+            const edit = await executeRename(doc, pos, 'whatever');
+            if (edit) {
+                const entries = edit.entries();
+                assert.strictEqual(entries.length, 0,
+                    'Rename on string literal should produce no edits');
+            }
+        } catch (e: any) {
+            assert.ok(e.message?.includes('No result'),
+                `Unexpected error: ${e.message}`);
         }
     });
 });

@@ -45,7 +45,7 @@ suite('Edge Cases — LSP Resilience', () => {
 
     test('empty file does not crash the language server', async function () {
         this.timeout(30_000);
-        const { doc, cleanup } = await createTempNlFile('', '_edge_empty.nl');
+        const { doc, cleanup } = await createTempNlFile('', '_edge_empty.nl', true);
         try {
             const diagnostics = await getDiagnostics(doc);
             // It's fine to have errors (missing namespace), but server should not crash
@@ -63,7 +63,7 @@ suite('Edge Cases — LSP Resilience', () => {
 // This file has only comments
 // Nothing else
 // No namespace, no functions, no code
-`, '_edge_comments.nl');
+`, '_edge_comments.nl', true);
         try {
             const diagnostics = await getDiagnostics(doc);
             const symbols = await getDocumentSymbols(doc);
@@ -78,7 +78,7 @@ suite('Edge Cases — LSP Resilience', () => {
         this.timeout(30_000);
         const { doc, cleanup } = await createTempNlFile(`
 namespace JustNamespace
-`, '_edge_namespace.nl');
+`, '_edge_namespace.nl', true);
         try {
             const diagnostics = await getDiagnostics(doc);
             const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
