@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -147,27 +146,29 @@ Exit codes:
     {
         error = null;
 
-        ProcessStartInfo startInfo;
+        string fileName;
+        string arguments;
+
         if (OperatingSystem.IsMacOS())
         {
-            startInfo = new ProcessStartInfo("open", Quote(path));
+            fileName = "open";
+            arguments = Quote(path);
         }
         else if (OperatingSystem.IsWindows())
         {
-            startInfo = new ProcessStartInfo("cmd", $"/c start \"\" {Quote(path)}");
+            fileName = "cmd";
+            arguments = $"/c start \"\" {Quote(path)}";
         }
         else
         {
-            startInfo = new ProcessStartInfo("xdg-open", Quote(path));
+            fileName = "xdg-open";
+            arguments = Quote(path);
         }
-
-        startInfo.UseShellExecute = false;
 
         try
         {
-            using var process = Process.Start(startInfo);
-            process?.WaitForExit();
-            if (process?.ExitCode is null or 0)
+            var result = DotnetRunner.RunProcess(fileName, arguments);
+            if (result.ExitCode == 0)
                 return true;
 
             error = $"Generated docs, but failed to open {path}.";

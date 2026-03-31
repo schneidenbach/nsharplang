@@ -48,6 +48,7 @@ class Program
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
             "add" => AddCommand.Execute(args.Skip(1).ToArray()),
+            "tidy" => TidyCommand.Execute(args.Skip(1).ToArray()),
             "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
             "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
             "init" => InitCommand.Execute(args.Skip(1).ToArray()),
@@ -55,6 +56,7 @@ class Program
             "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
+            "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
@@ -77,6 +79,8 @@ invokes MSBuild via the NSharpLang.Sdk. No user-authored .csproj is needed.
 Options:
   --release          Build with Release configuration (default: Debug)
   --verbose          Show detailed build output
+  --timings          Emit per-phase timing breakdown after build
+  --output <path>    Output directory for build artifacts (-o shorthand)
   --keep-generated   Keep generated temporary files for debugging (single-file mode)
   --help, -h         Show this help text
 
@@ -84,6 +88,8 @@ Examples:
   nlc build              Build the current project
   nlc build --release    Optimized release build
   nlc build --verbose    Show detailed build output
+  nlc build --timings    Show phase-level timing breakdown
+  nlc build -o ./dist    Build to a specific output directory
   nlc build Program.nl   Build a single file
 
 Exit codes:
@@ -96,14 +102,19 @@ Exit codes:
         var keepGenerated = args.Contains("--keep-generated");
         var release = args.Contains("--release");
         var verbose = args.Contains("--verbose");
-        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose").ToArray();
+        var timings = args.Contains("--timings");
+        var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
+        args = args.Where(a => a is not "--keep-generated" and not "--release" and not "--verbose" and not "--timings").ToArray();
+        // Strip --output/-o and its value from positional args
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
 
         // Support both single-file and multi-file builds
         if (args.Length == 0)
         {
             // No args - build all .nl files in current directory (multi-file mode)
             // Use MSBuild SDK approach (generates .csproj, calls dotnet build, deletes .csproj)
-            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose);
+            return BuildWithMSBuild(Directory.GetCurrentDirectory(), keepGenerated, release: release, verbose: verbose, outputDir: outputDir, timings: timings);
         }
 
         var sourceFile = args[0];
@@ -135,26 +146,28 @@ Exit codes:
             // Build
             var buildArgs = $"build \"{projectFile}\"";
             if (release) buildArgs += " -c Release";
+            if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
             buildArgs += verbose ? " -v normal" : " -v q";
 
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = buildArgs,
-                RedirectStandardOutput = !verbose,
-                RedirectStandardError = !verbose,
-                UseShellExecute = false
-            });
+            int buildExitCode;
+            string buildDetail = "";
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (verbose)
             {
-                var error = verbose ? "" : (buildResult?.StandardError.ReadToEnd() ?? "");
-                var output = verbose ? "" : (buildResult?.StandardOutput.ReadToEnd() ?? "");
-                var detail = string.IsNullOrWhiteSpace(error + output) ? "" : $"\n{error}{output}";
+                buildExitCode = DotnetRunner.RunPassthrough(buildArgs, verbose: true);
+            }
+            else
+            {
+                var buildCapture = DotnetRunner.Run(buildArgs);
+                buildExitCode = buildCapture.ExitCode;
+                var detail = buildCapture.Stderr + buildCapture.Stdout;
+                buildDetail = string.IsNullOrWhiteSpace(detail) ? "" : $"\n{detail}";
+            }
+
+            if (buildExitCode != 0)
+            {
                 Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
-                return Error($"Build failed{detail}");
+                return Error($"Build failed{buildDetail}");
             }
 
             Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
@@ -254,14 +267,17 @@ Exit codes:
         return csprojPath;
     }
 
-    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false)
+    static int BuildWithMSBuild(string projectRoot, bool keepGenerated = false, bool excludeTests = true, bool release = false, bool verbose = false, string? outputDir = null, bool timings = false)
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var totalSw = System.Diagnostics.Stopwatch.StartNew();
+        var transpileSw = new System.Diagnostics.Stopwatch();
+        var compileSw = new System.Diagnostics.Stopwatch();
         try
         {
             Console.WriteLine($"Building project in {projectRoot}...");
 
-            // Generate obj/project.g.props from project.yml (canonical YAML→XML projection)
+            // Phase 1: Transpile (restore + generate MSBuild project files)
+            transpileSw.Start();
             var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
             if (restoreResult != 0)
             {
@@ -272,32 +288,37 @@ Exit codes:
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             var config = ProjectFileParser.Parse(projectYmlPath);
             var csprojPath = EnsureProjectFiles(projectRoot, config);
+            transpileSw.Stop();
 
-            // Build — pass NSharpExcludeTests to skip test compilation for production builds
+            // Phase 2: Compile (dotnet build)
+            compileSw.Start();
             var buildArgs = $"build \"{csprojPath}\"";
             if (excludeTests) buildArgs += " -p:NSharpExcludeTests=true";
             if (release) buildArgs += " -c Release";
             if (verbose) buildArgs += " -v detailed";
+            if (outputDir != null) buildArgs += $" --output \"{Path.GetFullPath(outputDir)}\"";
 
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            var buildExitCode = DotnetRunner.RunPassthrough(buildArgs, workingDirectory: projectRoot, verbose: verbose);
+            compileSw.Stop();
+
+            if (buildExitCode != 0)
             {
-                FileName = "dotnet",
-                Arguments = buildArgs,
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false
-            });
-
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
-            {
-                Console.WriteLine($"  Build failed in {FormatElapsed(sw.Elapsed)}");
+                Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
                 return Error("Build failed");
             }
 
-            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(sw.Elapsed)}]");
+            Console.WriteLine($"Build successful! ({(release ? "release" : "debug")}) [{FormatElapsed(totalSw.Elapsed)}]");
+
+            if (timings)
+            {
+                Console.Error.WriteLine($"""
+Build timings:
+  Transpile:  {FormatElapsed(transpileSw.Elapsed)}
+  Compile:    {FormatElapsed(compileSw.Elapsed)}
+  Total:      {FormatElapsed(totalSw.Elapsed)}
+""");
+            }
+
             return 0;
         }
         catch (Exception ex)
@@ -454,36 +475,16 @@ Exit codes:
             File.WriteAllText(projectFile, GenerateCsProj(projectConfig));
 
             // Build and run
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
+            var buildCapture = DotnetRunner.Run($"build \"{projectFile}\" -v q");
 
-            buildResult?.WaitForExit();
-
-            if (buildResult?.ExitCode != 0)
+            if (buildCapture.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                return Error($"Build failed:\n{error}{output}");
+                return Error($"Build failed:\n{buildCapture.Stderr}{buildCapture.Stdout}");
             }
 
             Console.WriteLine();
 
-            var runResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"run --project \"{projectFile}\" --no-build",
-                UseShellExecute = false
-            });
-
-            runResult?.WaitForExit();
-
-            return runResult?.ExitCode ?? 0;
+            return DotnetRunner.RunPassthrough($"run --project \"{projectFile}\" --no-build");
         }
         catch (Exception ex)
         {
@@ -517,17 +518,9 @@ Exit codes:
             Console.WriteLine("Running...");
             Console.WriteLine();
 
-            var runResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"run --project \"{csprojPath}\" --no-build",
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false
-            });
-
-            runResult?.WaitForExit();
-
-            return runResult?.ExitCode ?? 0;
+            return DotnetRunner.RunPassthrough(
+                $"run --project \"{csprojPath}\" --no-build",
+                workingDirectory: projectRoot);
         }
         catch (Exception ex)
         {
@@ -596,19 +589,11 @@ Exit codes:
             if (args.Contains("--self-contained"))
                 publishArgs.Add("--self-contained");
 
-            var publishResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", publishArgs),
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false
-            });
+            var publishExitCode = DotnetRunner.RunPassthrough(
+                string.Join(" ", publishArgs),
+                workingDirectory: projectRoot);
 
-            publishResult?.WaitForExit();
-
-            if (publishResult?.ExitCode != 0)
+            if (publishExitCode != 0)
             {
                 return Error("Publish failed");
             }
@@ -866,6 +851,8 @@ Options:
   --filter <name>       Run only tests whose display name or fully-qualified name matches
   --verbose             Use more detailed `dotnet test` output
   --json                Output results as structured JSON (schemaVersion 1 envelope)
+  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
+  --no-cache            Force clean rebuild before running tests (bypass incremental build)
   --coverage            Collect code coverage using Coverlet and print a summary
   --coverage-report     Also generate an HTML coverage report (implies --coverage)
   --help, -h            Show this help text
@@ -895,6 +882,17 @@ Exit codes:
         var jsonOutput = args.Contains("--json");
         var coverageReport = args.Contains("--coverage-report");
         var collectCoverage = args.Contains("--coverage") || coverageReport;
+        var timeoutStr = GetOptionValue(args, "--timeout");
+        var noCache = args.Contains("--no-cache");
+
+        // Parse timeout to milliseconds
+        int? timeoutMs = null;
+        if (timeoutStr != null)
+        {
+            timeoutMs = ParseDurationToMs(timeoutStr);
+            if (timeoutMs == null)
+                return Error($"Invalid timeout format '{timeoutStr}'. Expected a duration like 30s, 5m, or 1h.");
+        }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -974,22 +972,11 @@ Exit codes:
                 File.WriteAllText(mainProjectFile, GenerateCsProj(projectConfig));
 
                 // Build main project
-                var mainBuildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "dotnet",
-                    Arguments = $"build \"{mainProjectFile}\" -v q",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false
-                });
+                var mainBuildCapture = DotnetRunner.Run($"build \"{mainProjectFile}\" -v q");
 
-                mainBuildResult?.WaitForExit();
-
-                if (mainBuildResult?.ExitCode != 0)
+                if (mainBuildCapture.ExitCode != 0)
                 {
-                    var error = mainBuildResult?.StandardError.ReadToEnd() ?? "";
-                    var output = mainBuildResult?.StandardOutput.ReadToEnd() ?? "";
-                    var msg = $"Main project build failed:\n{error}{output}";
+                    var msg = $"Main project build failed:\n{mainBuildCapture.Stderr}{mainBuildCapture.Stdout}";
                     if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
                     return Error(msg);
                 }
@@ -1086,22 +1073,14 @@ Exit codes:
             }
 
             // Build tests
-            var buildResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"build \"{projectFile}\" -v q",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
+            var testBuildArgs = $"build \"{projectFile}\" -v q";
+            if (noCache) testBuildArgs += " --no-incremental";
 
-            buildResult?.WaitForExit();
+            var testBuildCapture = DotnetRunner.Run(testBuildArgs);
 
-            if (buildResult?.ExitCode != 0)
+            if (testBuildCapture.ExitCode != 0)
             {
-                var error = buildResult?.StandardError.ReadToEnd() ?? "";
-                var output = buildResult?.StandardOutput.ReadToEnd() ?? "";
-                var msg = $"Test build failed:\n{error}{output}";
+                var msg = $"Test build failed:\n{testBuildCapture.Stderr}{testBuildCapture.Stdout}";
                 if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
             }
 
@@ -1134,28 +1113,39 @@ Exit codes:
                 testArguments.Add(QuoteArgument($"trx;LogFileName={trxFile}"));
             }
 
-            // Add Coverlet properties for coverage
-            if (collectCoverage)
+            // Pass-through arguments (after --)
+            var needsPassThrough = collectCoverage || timeoutMs.HasValue;
+            if (needsPassThrough)
             {
-                var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
                 testArguments.Add("--");
-                testArguments.Add("/p:CollectCoverage=true");
-                testArguments.Add("/p:CoverletOutputFormat=opencover");
-                testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
-                testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
+
+                // Add timeout
+                if (timeoutMs.HasValue)
+                    testArguments.Add($"RunConfiguration.TestSessionTimeout={timeoutMs.Value}");
+
+                // Add Coverlet properties for coverage
+                if (collectCoverage)
+                {
+                    var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
+                    testArguments.Add("/p:CollectCoverage=true");
+                    testArguments.Add("/p:CoverletOutputFormat=opencover");
+                    testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
+                    testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
+                }
             }
 
-            var testRunResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            int exitCode;
+            if (jsonOutput)
             {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", testArguments),
-                RedirectStandardOutput = jsonOutput,
-                RedirectStandardError = jsonOutput,
-                UseShellExecute = false
-            });
-
-            testRunResult?.WaitForExit();
-            var exitCode = testRunResult?.ExitCode ?? 0;
+                // Capture output so we can parse the TRX file without console noise
+                var testRunCapture = DotnetRunner.Run(string.Join(" ", testArguments));
+                exitCode = testRunCapture.ExitCode;
+            }
+            else
+            {
+                // Forward output live so the user sees test progress
+                exitCode = DotnetRunner.RunPassthrough(string.Join(" ", testArguments));
+            }
 
             // JSON output: parse TRX and emit structured JSON
             if (jsonOutput)
@@ -1569,39 +1559,24 @@ Exit codes:
         try
         {
             // Install reportgenerator as a global tool if not already installed
-            var installResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = "tool install -g dotnet-reportgenerator-globaltool",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
-            installResult?.WaitForExit();
+            DotnetRunner.Run("tool install -g dotnet-reportgenerator-globaltool");
             // Ignore exit code — tool may already be installed
 
             // Generate HTML report
-            var reportResult = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "reportgenerator",
-                Arguments = $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            });
-            reportResult?.WaitForExit();
+            var reportResult = DotnetRunner.RunProcess(
+                "reportgenerator",
+                $"-reports:\"{coverageFile}\" -targetdir:\"{reportDir}\" -reporttypes:Html");
 
-            if (reportResult?.ExitCode == 0)
+            if (reportResult.ExitCode == 0)
             {
                 Console.WriteLine();
                 Console.WriteLine($"Coverage report generated: {reportDir}/index.html");
             }
             else
             {
-                var error = reportResult?.StandardError.ReadToEnd() ?? "";
                 Console.Error.WriteLine($"Warning: Could not generate HTML report. Install with: dotnet tool install -g dotnet-reportgenerator-globaltool");
-                if (!string.IsNullOrWhiteSpace(error))
-                    Console.Error.WriteLine(error);
+                if (!string.IsNullOrWhiteSpace(reportResult.Stderr))
+                    Console.Error.WriteLine(reportResult.Stderr);
             }
         }
         catch (Exception ex)
@@ -1663,6 +1638,41 @@ Exit codes:
         return positional.ToArray();
     }
 
+    static int? ParseDurationToMs(string duration)
+    {
+        if (string.IsNullOrWhiteSpace(duration)) return null;
+
+        var trimmed = duration.Trim();
+        if (trimmed.Length < 2) return null;
+
+        var unit = trimmed[^1];
+        if (!int.TryParse(trimmed[..^1], out var value) || value <= 0)
+            return null;
+
+        return unit switch
+        {
+            's' => value * 1000,
+            'm' => value * 60 * 1000,
+            'h' => value * 60 * 60 * 1000,
+            _ => null
+        };
+    }
+
+    static string[] StripOptionWithValue(string[] args, string flag)
+    {
+        var result = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag && i + 1 < args.Length)
+            {
+                i++; // Skip the value too
+                continue;
+            }
+            result.Add(args[i]);
+        }
+        return result.ToArray();
+    }
+
     static string QuoteArgument(string value)
         => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 
@@ -1701,6 +1711,7 @@ Build & Run:
   run [file]           Build and run a project or single file
   restore              Generate build config from project.yml
   publish              Publish project for deployment
+  pack                 Create a NuGet package from project.yml metadata
   transpile <file>     Transpile .nl to C# and print to stdout
   clean                Remove build artifacts
 
@@ -1718,6 +1729,7 @@ Code Quality:
 
 Dependencies:
   add <package>        Add a NuGet dependency to project.yml
+  tidy                 Identify and remove unused dependencies
   remove <package>     Remove a dependency from project.yml
   update [package]     Update dependencies to latest versions
   tree                 Show dependency tree
@@ -1726,7 +1738,7 @@ Dependencies:
 Project:
   new <name>           Create a new N# project
   init                 Initialize N# in the current directory
-  watch <cmd>          Re-run check/build/test on file changes
+  watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info
   completion <shell>   Generate shell completion scripts

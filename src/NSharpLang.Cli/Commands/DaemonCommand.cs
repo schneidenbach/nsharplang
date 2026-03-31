@@ -126,8 +126,13 @@ via Unix domain socket for faster repeated response times.
 
 - `nlc query` reuses the daemon only when one is already running
 - Auto-exits after 30 minutes of inactivity
-- Watches .nl files for changes and invalidates cache automatically
-- Socket: {projectRoot}/.nlc/daemon.sock");
+- Watches .nl, project.yml, and .editorconfig for changes and invalidates cache
+- Socket: {projectRoot}/.nlc/daemon.sock
+
+Exit codes:
+  0  Command succeeded
+  1  Command failed (e.g., daemon failed to start or stop)");
+
 
         return 0;
     }

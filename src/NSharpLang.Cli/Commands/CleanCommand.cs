@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -95,23 +94,12 @@ public static class CleanCommand
 
     private static int ClearNuGetCaches()
     {
-        var process = Process.Start(new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments = "nuget locals all --clear",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false
-        });
+        var result = DotnetRunner.Run("nuget locals all --clear");
 
-        process?.WaitForExit();
-
-        if (process?.ExitCode == 0)
+        if (result.ExitCode == 0)
             return 0;
 
-        var stderr = process?.StandardError.ReadToEnd() ?? string.Empty;
-        var stdout = process?.StandardOutput.ReadToEnd() ?? string.Empty;
-        return Error($"Failed to clear NuGet caches.\n{stderr}{stdout}".Trim());
+        return Error($"Failed to clear NuGet caches.\n{result.Stderr}{result.Stdout}".Trim());
     }
 
     private static string GetProjectRoot(string[] args)

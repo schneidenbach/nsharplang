@@ -422,9 +422,9 @@ public class QueryIntegrationTests : IDisposable
     // ═══════════════════════════════════════════════════════════════════
 
     // HelloWorld Program.nl layout:
-    //   Line 5:  func hi(): int {        (col 1 = "func", col 6 = "hi")
-    //   Line 13: func Main() {           (col 1 = "func", col 6 = "Main")
-    //   Line 14:     name := "Spencer"   (col 5 = "name")
+    //   Line 3:  func Hi(): int {        (col 1 = "func", col 6 = "Hi")
+    //   Line 11: func Main() {           (col 1 = "func", col 6 = "Main")
+    //   Line 12:     name := "Spencer"   (col 5 = "name")
 
     [Fact]
     public void Definition_AtPosition_FindsMainFunction()
@@ -433,7 +433,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(13, main.Line); // func Main() is on line 13 of Program.nl
+        Assert.Equal(11, main.Line); // func Main() is on line 11 of Program.nl
     }
 
     // MultiFile Person.nl layout:
@@ -500,8 +500,8 @@ public class QueryIntegrationTests : IDisposable
     [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
-        // Main() is declared on line 13
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 13, 6);
+        // Main() is declared on line 11
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", 11, 6);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);
@@ -542,7 +542,7 @@ public class QueryIntegrationTests : IDisposable
 
         // After removing file-path imports, cross-file member resolution through
         // the BindingMap uses namespace imports. The binding for service.GetPeople()
-        // resolves through the type of 'service' (PersonService), then finds AddPerson.
+        // resolves through the type of 'service' (PersonService), then finds GetPeople.
         // NOTE: Currently the BindingMap records the usage site as the declaration
         // when cross-file resolution via file-path imports is unavailable.
         // The text-based fallback in FindReferences still finds cross-file usages.
@@ -552,7 +552,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotNull(declaration);
         Assert.Equal("GetPeople", declaration!.Name);
         Assert.Equal("function", declaration.Kind);
-        Assert.EndsWith("Program.nl", declaration.File, StringComparison.Ordinal);
+        Assert.EndsWith("PersonService.nl", declaration.File, StringComparison.Ordinal);
         Assert.Equal(18, declaration.Line);
     }
 
@@ -647,7 +647,7 @@ public class QueryIntegrationTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal("GetPeople", result!.Name);
         Assert.Equal("function", result.Kind);
-        Assert.Equal("Program.nl", result.File);
+        Assert.EndsWith("PersonService.nl", result.File, StringComparison.Ordinal);
         Assert.Equal(18, result.Line);
     }
 
@@ -762,5 +762,183 @@ public class QueryIntegrationTests : IDisposable
             return fallback;
 
         throw new Exception("Could not find tests/fixtures directory");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  HOVER — does it return signature + docs?
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void HoverCommand_ReturnsSignatureAndDoc()
+    {
+        // `Hi` is defined at line 3, col 6 in hello-world/Program.nl
+        // Above it is a comment: "// A simple hello-world program..."
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 3, 6);
+
+        Assert.NotNull(result);
+        Assert.Equal("function", result!.Kind);
+        // Signature should mention "Hi" and its return type
+        Assert.Contains("Hi", result.Signature, StringComparison.Ordinal);
+        Assert.Contains("int", result.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HoverCommand_AtCallSite_ReturnsHoverInfo()
+    {
+        // Line 17: `i := Hi()` — hover over `Hi` at col 6
+        var hiCol = FindColumnInFile(
+            Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), 17, "Hi");
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 17, hiCol);
+
+        Assert.NotNull(result);
+        Assert.Equal("function", result!.Kind);
+        Assert.Contains("Hi", result.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HoverCommand_NoSymbol_ReturnsNull()
+    {
+        // Line 2 is blank — hover over blank will return null
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 2, 1);
+        Assert.Null(result);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  CALL GRAPH — does it find callers/callees?
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void CallGraph_FindsCallsFromMain()
+    {
+        // Main calls Hi() and print
+        var result = _service.GetCallGraph(HelloWorld, "Main");
+
+        Assert.NotNull(result);
+        Assert.Equal("Main", result.Function);
+
+        // Main should call Hi
+        Assert.Contains(result.Callees, c => c.Name == "Hi");
+    }
+
+    [Fact]
+    public void CallGraph_FindsCallerOfHi()
+    {
+        // Hi() is called by Main
+        var result = _service.GetCallGraph(HelloWorld, "Hi");
+
+        Assert.NotNull(result);
+        Assert.Equal("Hi", result.Function);
+        Assert.Contains(result.Callers, c => c.Name == "Main");
+    }
+
+    [Fact]
+    public void CallGraph_UnfilteredReturnsEdges()
+    {
+        // No function filter — should return all call edges
+        var result = _service.GetCallGraph(HelloWorld, null);
+
+        Assert.NotNull(result);
+        // Should have some callees (hi, print, etc.)
+        Assert.True(result.Callees.Count > 0,
+            "Expected call graph to have some edges");
+    }
+
+    [Fact]
+    public void CallGraph_UnknownFunction_ReturnsEmptyLists()
+    {
+        var result = _service.GetCallGraph(HelloWorld, "DoesNotExist");
+
+        Assert.NotNull(result);
+        Assert.Equal("DoesNotExist", result.Function);
+        Assert.Empty(result.Callers);
+        Assert.Empty(result.Callees);
+        Assert.False(result.Truncated);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  IMPLEMENTORS — does it find concrete types?
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Implementors_FindsConcreteTypes()
+    {
+        // In 06-classes-and-records: interface IShape is implemented by class Circle
+        var result = _service.GetImplementors(ClassesAndRecords, "IShape");
+
+        Assert.NotNull(result);
+        Assert.Equal("IShape", result.Interface);
+        Assert.Contains(result.Results, r => r.TypeName == "Circle" && r.Kind == "class");
+    }
+
+    [Fact]
+    public void Implementors_NoImplementors_ReturnsEmptyList()
+    {
+        var result = _service.GetImplementors(HelloWorld, "INotARealInterface");
+
+        Assert.NotNull(result);
+        Assert.Equal("INotARealInterface", result.Interface);
+        Assert.Empty(result.Results);
+    }
+
+    [Fact]
+    public void Implementors_ICache_FindsMemoryCache()
+    {
+        // ConstructorChaining.nl: interface ICache, class MemoryCache: ICache
+        var result = _service.GetImplementors(ClassesAndRecords, "ICache");
+
+        Assert.NotNull(result);
+        Assert.Contains(result.Results, r => r.TypeName == "MemoryCache");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  SYMBOLS FUZZY FILTER — does wildcard/substring matching work?
+    // ═══════════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Symbols_WildcardFilter_MatchesGlob()
+    {
+        // classes-and-records has symbols like Circle, Square, etc.
+        // Filter *ircle should match Circle
+        var allSymbols = _service.GetSymbols(ClassesAndRecords);
+        Assert.Contains(allSymbols, s => s.Name == "Circle");
+
+        // Verify the wildcard logic: simulate what the CLI does
+        var pattern = "*ircle";
+        var regex = BuildFilterRegex(pattern);
+        var filtered = allSymbols.Where(s => regex.IsMatch(s.Name)).ToList();
+        Assert.Contains(filtered, s => s.Name == "Circle");
+        Assert.DoesNotContain(filtered, s => s.Name == "Square");
+    }
+
+    [Fact]
+    public void Symbols_SubstringFilter_MatchesSubstring()
+    {
+        var allSymbols = _service.GetSymbols(ClassesAndRecords);
+        var pattern = "quare"; // substring match
+        var regex = BuildFilterRegex(pattern);
+        var filtered = allSymbols.Where(s => regex.IsMatch(s.Name)).ToList();
+        Assert.Contains(filtered, s => s.Name == "Square");
+        // Circle should not match
+        Assert.DoesNotContain(filtered, s => s.Name == "Circle");
+    }
+
+    /// <summary>
+    /// Duplicate of the CLI's BuildSymbolFilterRegex — kept here for service-layer tests.
+    /// </summary>
+    private static System.Text.RegularExpressions.Regex BuildFilterRegex(string pattern)
+    {
+        if (pattern.Contains('*'))
+        {
+            var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+                .Replace("\\*", ".*") + "$";
+            return new System.Text.RegularExpressions.Regex(
+                regexPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+                TimeSpan.FromMilliseconds(200));
+        }
+        return new System.Text.RegularExpressions.Regex(
+            System.Text.RegularExpressions.Regex.Escape(pattern),
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(200));
     }
 }

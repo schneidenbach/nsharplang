@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -25,6 +24,13 @@ public static class AddCommand
             return Error("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.");
 
         var isFramework = args.Contains("--framework");
+        var isPrerelease = args.Contains("--prerelease");
+        var localPath = GetOption(args, "--path");
+
+        // --path: add a local project reference
+        if (localPath != null)
+            return AddProjectReference(projectYml, localPath);
+
         var raw = args.First(a => !a.StartsWith("-"));
 
         string packageName;
@@ -47,7 +53,7 @@ public static class AddCommand
         if (!isFramework && version == null)
         {
             Console.WriteLine($"Resolving latest version for {packageName}...");
-            version = ResolveLatestVersion(packageName);
+            version = ResolveLatestVersion(packageName, isPrerelease);
             if (version == null)
                 return Error($"Could not find package '{packageName}' on NuGet. Check the package name and try again.");
         }
@@ -111,23 +117,62 @@ public static class AddCommand
         return 0;
     }
 
-    internal static string? ResolveLatestVersion(string packageName)
+    static int AddProjectReference(string projectYml, string localPath)
+    {
+        // Check for duplicate project reference
+        try
+        {
+            var config = ProjectFileParser.Parse(projectYml);
+            var existing = config.Dependencies.FirstOrDefault(d =>
+                string.Equals(d.Project, localPath, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return Error($"Project reference '{localPath}' is already in dependencies.");
+        }
+        catch
+        {
+            // If parse fails, proceed anyway — text-based edit doesn't require full parse
+        }
+
+        var lines = new List<string>(File.ReadAllLines(projectYml));
+        var depIndex = lines.FindIndex(l => l.TrimStart().StartsWith("dependencies:"));
+        var newEntry = $"  - project: {localPath}";
+
+        if (depIndex >= 0)
+        {
+            var insertAt = depIndex + 1;
+            while (insertAt < lines.Count)
+            {
+                var line = lines[insertAt];
+                if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
+                    break;
+                insertAt++;
+            }
+            lines.Insert(insertAt, newEntry);
+        }
+        else
+        {
+            lines.Add("");
+            lines.Add("dependencies:");
+            lines.Add(newEntry);
+        }
+
+        File.WriteAllLines(projectYml, lines);
+        Console.WriteLine($"Added project reference '{localPath}' to project.yml");
+        return 0;
+    }
+
+    internal static string? ResolveLatestVersion(string packageName, bool includePrerelease = false)
     {
         try
         {
-            var psi = new ProcessStartInfo("dotnet", $"package search {packageName} --exact-match --take 1 --format json")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd();
-            process?.WaitForExit();
+            var searchArgs = $"package search {packageName} --exact-match --take 1 --format json";
+            if (includePrerelease) searchArgs += " --prerelease";
 
-            if (process?.ExitCode == 0 && output != null)
+            var result = DotnetRunner.Run(searchArgs);
+
+            if (result.ExitCode == 0 && result.Stdout.Length > 0)
             {
-                using var doc = JsonDocument.Parse(output);
+                using var doc = JsonDocument.Parse(result.Stdout);
                 var results = doc.RootElement.GetProperty("searchResult");
                 foreach (var source in results.EnumerateArray())
                 {
@@ -159,20 +204,25 @@ public static class AddCommand
 
 Usage: nlc add <package> [options]
        nlc add <package>@<version>
+       nlc add --path <local-project>
 
-Add a NuGet package or framework reference to project.yml.
+Add a NuGet package, framework reference, or local project reference to project.yml.
 If no version is specified, the latest version is resolved from NuGet.
 
 Options:
   --version <ver>   Package version (alternative to @version syntax)
+  --prerelease      Allow prerelease versions when resolving latest
   --framework       Add as a framework reference instead of NuGet package
+  --path <path>     Add a local project reference (path to project directory or .csproj)
   --help, -h        Show this help text
 
 Examples:
   nlc add Newtonsoft.Json
   nlc add Serilog@3.1.0
   nlc add Serilog --version 3.1.0
+  nlc add System.Text.Json --prerelease
   nlc add Microsoft.AspNetCore.App --framework
+  nlc add --path ../MyLibrary
 
 Exit codes:
   0  Dependency added successfully

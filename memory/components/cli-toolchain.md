@@ -1,7 +1,7 @@
 # N# CLI Toolchain (`nlc`)
 
 **Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
-**Test count:** 960+ tests passing, 0 failures.
+**Test count:** 1558+ tests passing, 0 failures.
 
 The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
@@ -36,6 +36,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query symbols` | List all symbols in project | `nlc query symbols` |
 | `nlc query symbols --file F` | Symbols in one file | `nlc query symbols --file Program.nl` |
 | `nlc query symbols --kind K` | Filter by kind | `nlc query symbols --kind function` |
+| `nlc query symbols --filter P` | Filter by glob or substring | `nlc query symbols --filter '*Person*'` |
 | `nlc query outline <file>` | File structure (imports, declarations) | `nlc query outline Program.nl` |
 | `nlc query diagnostics` | Errors/warnings with Elm-level context | `nlc query diagnostics` |
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
@@ -47,6 +48,11 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query def --name N` | Definition by name (search) | `nlc query def --name Person` |
 | `nlc query refs --file F --pos L:C` | All references to symbol | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions --file F --pos L:C` | Completions at position | `nlc query completions --file Program.nl --pos 5:12` |
+| `nlc query hover --file F --pos L:C` | Signature + docs at position (shared model with LSP) | `nlc query hover --file Program.nl --pos 5:6` |
+| `nlc query call-graph --function N` | Callers and callees of a function | `nlc query call-graph --function Main` |
+| `nlc query call-graph` | All call edges in the project (--limit N, default 100) | `nlc query call-graph --limit 50` |
+| `nlc query implementors --name I` | Concrete types implementing an interface (by name) | `nlc query implementors --name IShape` |
+| `nlc query implementors --file F --pos L:C` | Implementors of the interface at a position | `nlc query implementors --file Program.nl --pos 10:11` |
 
 ### Code Quality
 
@@ -67,12 +73,20 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
 | `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
 | `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
+| `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
+| `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
+| `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
+| `nlc bench --export <fmt>` | Export results: json, csv, markdown | `nlc bench --export json` |
 
 ### Project Management
 
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `nlc new <name>` | Create new N# project | `nlc new MyApp` |
+| `nlc pack` | Generate a NuGet package from project.yml metadata | `nlc pack` |
+| `nlc pack --version <ver>` | Override package version | `nlc pack --version 2.0.0` |
+| `nlc pack --output <dir>` | Specify output directory for .nupkg | `nlc pack --output ./artifacts` |
+| `nlc pack --include-symbols` | Also produce a .snupkg symbols package | `nlc pack --include-symbols` |
 | `nlc doc` | Generate project API documentation | `nlc doc` |
 | `nlc doc --json` | Emit a structured doc-generation result | `nlc doc --json` |
 | `nlc completion <shell>` | Generate shell completions | `nlc completion zsh` |
@@ -141,9 +155,44 @@ $ nlc fix --dry-run    # preview without applying; exits 1 if fixes are availabl
 $ nlc fix --file F     # fix single file
 ```
 
-**Currently supported fixes:**
-- **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
+**Built-in lint rules:**
+
+| Code | Severity | Name | Description |
+|------|----------|------|-------------|
+| NL001 | Warning | `unused-variable` | Local variable declared but never read |
+| NL002 | Error | `missing-import` | Type used without the required `import` |
+| NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
+| NL004 | Warning | `async-without-await` | `async` function never uses `await` |
+| NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
+| NL006 | Warning | `unreachable-code` | Statements after `return` or `throw` |
+| NL007 | Warning | `pascal-case-type` | Type name (class/struct/record/enum/union/interface) doesn't start with uppercase |
+| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase |
+| NL009 | Warning | `pascal-case-function` | Function name doesn't start with uppercase (`main` is exempt) |
+| NL010 | Warning | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
+| NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
+| NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
+| NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
+| NL014 | Info | `unnecessary-type-annotation` | Explicit type annotation on a `let` declaration whose type is trivially obvious from a literal initializer (e.g. `let x: int = 5`) |
+| NL015 | Info | `prefer-const` | `let x: T = ...` variable with explicit type annotation that is never reassigned — suggest `const` |
+| NL016 | Warning | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
+| NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
+| NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
+| NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+
+**Currently supported auto-fixes (`nlc fix`):**
 - **NL001** — Unused variable: removes the declaration line
+- **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
+- **NL003** — Unnecessary null check: removes the `== null` / `!= null` clause
+- **NL007** — Pascal-case type: capitalises the first letter of the type name (`ReviewNeeded` safety)
+- **NL010** — Unused import: removes the entire import line (`Safe`)
+- **NL011** — Empty catch: inserts `// TODO: handle exception` comment
+- **NL013** — Prefer interpolation: suggestion-only hint (full conversion requires manual review)
+- **NL015** — Prefer const: replaces `let` with `const` on the declaration line (`Safe`)
+
+**`FixSafety` levels** (on `CodeAction`):
+- `Safe` — always correct to apply automatically
+- `ReviewNeeded` — likely correct but may need follow-up (e.g. callers that reference the renamed symbol)
+- `SuggestionOnly` — provides a hint only; no edits are applied
 
 Inline lint suppression is also supported for specific warnings:
 
@@ -301,6 +350,80 @@ Supported request commands:
 - `references` / `refs`
 - `completions`
 - `doc`
+
+### `nlc query hover` — Signature and Docs at a Position
+
+Returns the signature, kind, definition location, and any inline doc comment for the symbol at a cursor position. Shares its semantic model with the LSP `HoverHandler`.
+
+```bash
+$ nlc query hover --file Program.nl --pos 5:6
+{
+  "schemaVersion": 1,
+  "command": "hover",
+  "ok": true,
+  "file": "Program.nl",
+  "position": { "line": 5, "column": 6 },
+  "result": {
+    "signature": "func hi(): int",
+    "documentation": "A simple hello-world program demonstrating functions and string interpolation",
+    "definedIn": "Program.nl",
+    "kind": "function"
+  }
+}
+```
+
+Exit code 0 on success, 1 with a structured `noSymbol` error envelope if there is no symbol at the given position.
+
+### `nlc query call-graph` — Callers and Callees
+
+Walks all ASTs in the project to build a call graph. Use `--function` to focus on a specific function; omit it for a project-wide edge list. Use `--limit` (default 100) to cap result size.
+
+```bash
+$ nlc query call-graph --function Main
+{
+  "schemaVersion": 1,
+  "command": "callGraph",
+  "ok": true,
+  "function": "Main",
+  "callers": [],
+  "callees": [
+    { "name": "hi", "file": "Program.nl", "line": 19, "column": 9 }
+  ],
+  "truncated": false
+}
+```
+
+### `nlc query implementors` — Concrete Types Implementing an Interface
+
+Finds all class, struct, and record declarations in the project that list a given interface in their inheritance chain.
+
+```bash
+$ nlc query implementors --name IShape
+{
+  "schemaVersion": 1,
+  "command": "implementors",
+  "ok": true,
+  "interface": "IShape",
+  "results": [
+    { "typeName": "Circle", "kind": "class", "file": "RecordsAndInterfaces.nl", "line": 21, "column": 1 }
+  ]
+}
+```
+
+Also supports position-based lookup (`--file F --pos L:C`) which resolves the interface at that position first.
+
+### `nlc query symbols --filter` — Fuzzy/Glob Symbol Search
+
+The `symbols` subcommand now accepts `--filter <pattern>`:
+- Patterns containing `*` are treated as globs (`*Person*` matches any name containing `Person`)
+- Bare strings are treated as case-insensitive substring matches
+- Results are capped at 200
+
+```bash
+$ nlc query symbols --filter '*Person*'     # glob wildcard
+$ nlc query symbols --filter Person         # substring
+$ nlc query symbols --filter 'Get*'         # prefix glob
+```
 
 ### `nlc format` — Canonical Formatting With CI Support
 
@@ -604,4 +727,4 @@ Protocol: JSON-RPC over Unix socket
 
 ---
 
-*Last Updated: 2026-03-29*
+*Last Updated: 2026-03-30*

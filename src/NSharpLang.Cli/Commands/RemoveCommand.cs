@@ -80,6 +80,9 @@ Usage: nlc remove <package>
 
 Remove a dependency from project.yml.
 
+Options:
+  --help, -h    Show this help text
+
 Examples:
   nlc remove Newtonsoft.Json
   nlc remove Microsoft.AspNetCore.App

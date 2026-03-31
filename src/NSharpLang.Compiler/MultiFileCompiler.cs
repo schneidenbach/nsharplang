@@ -24,6 +24,7 @@ public class MultiFileCompiler
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
     private readonly BindingMap _projectBindings = new();
+    private readonly Dictionary<string, string> _projectTypeDeclarationFiles = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -36,7 +37,13 @@ public class MultiFileCompiler
     public IReadOnlyList<CompilerError> AllErrors => _allErrors;
     public IReadOnlyList<string> SourceFiles => _sourceFiles;
     public string ProjectRoot => _projectRoot;
-    public BindingMap ProjectBindings => _projectBindings;
+
+    /// <summary>
+    /// The project-level semantic index built from all analyzed files.
+    /// Contains the merged BindingMap and type-declaration-to-file mapping.
+    /// Available after <see cref="CompileForAnalysis"/> or <see cref="Compile"/> completes.
+    /// </summary>
+    public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
     {
@@ -193,6 +200,12 @@ public class MultiFileCompiler
                 if (result.Bindings != null)
                 {
                     _projectBindings.Merge(result.Bindings);
+                }
+
+                // Merge type-declaration-to-file mapping into the project index
+                foreach (var (typeName, filePath) in _sharedAnalyzer.GetTypeDeclarationFiles())
+                {
+                    _projectTypeDeclarationFiles[typeName] = filePath;
                 }
 
                 // Collect errors

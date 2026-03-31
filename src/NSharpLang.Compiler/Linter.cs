@@ -49,6 +49,20 @@ public class LinterConfig
                 { "NL003", DiagnosticSeverity.Warning }, // Unnecessary null check
                 { "NL004", DiagnosticSeverity.Warning }, // Async without await
                 { "NL005", DiagnosticSeverity.Info },    // Use pattern matching
+                { "NL006", DiagnosticSeverity.Warning }, // Unreachable code
+                { "NL007", DiagnosticSeverity.Warning }, // Pascal-case type
+                { "NL008", DiagnosticSeverity.Info },    // Camel-case local
+                { "NL009", DiagnosticSeverity.Warning }, // Pascal-case function
+                { "NL011", DiagnosticSeverity.Warning }, // Empty catch
+                { "NL012", DiagnosticSeverity.Info },    // Unused parameter
+                { "NL013", DiagnosticSeverity.Info },    // Prefer interpolation
+                { "NL010", DiagnosticSeverity.Warning }, // Unused import
+                { "NL014", DiagnosticSeverity.Info },    // Unnecessary type annotation
+                { "NL015", DiagnosticSeverity.Info },    // Prefer const
+                { "NL016", DiagnosticSeverity.Warning }, // Redundant null check
+                { "NL018", DiagnosticSeverity.Info },    // Prefer readonly
+                { "NL019", DiagnosticSeverity.Info },    // Empty block
+                { "NL020", DiagnosticSeverity.Warning }, // Shadowed variable
             }
         };
     }
@@ -184,6 +198,24 @@ internal class LintVisitor
     private int _recursionDepth = 0;
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
+    // NL010: Track imports and identifiers used in code for unused-import detection
+    private readonly List<(string Namespace, int Line, int Column, bool IsFile)> _allImports = new();
+    private readonly HashSet<string> _allCodeIdentifiers = new();
+
+    // NL015: Track let declarations and assignments within functions
+    // Maps variable name → (Line, Col, HasInitializer, InLambda)
+    private Dictionary<string, (int Line, int Column, bool HasInitializer, bool InLambda)> _letDeclarations = new();
+    private readonly HashSet<string> _assignedVariables = new();
+    private bool _inLambda = false;
+
+    // NL018: Track class field assignments — (field name → (assignedInCtor, assignedElsewhere))
+    private Dictionary<string, (bool InCtor, bool Elsewhere)> _classFieldAssignments = new();
+    private bool _inConstructor = false;
+
+    // NL012: Track parameters separately so we can report them without polluting the unused-variable check
+    private List<(string Name, int Line, int Column)> _currentFunctionParams = new();
+    private HashSet<string> _currentFunctionParamUsages = new();
+
     public List<Diagnostic> Diagnostics => _diagnostics;
 
     public LintVisitor(string? filePath = null, string? sourceText = null, LinterConfig? config = null)
@@ -195,17 +227,21 @@ internal class LintVisitor
 
     public void Visit(CompilationUnit unit)
     {
-        // Track imported namespaces for NL002
+        // Track imported namespaces for NL002 and NL010
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
+            _allImports.Add((import.Namespace, import.Line, import.Column, false));
         }
 
         foreach (var fileImport in unit.FileImports.OfType<FileImport>())
         {
             var importedSymbol = ExtractImportedFileSymbolName(fileImport);
             if (!string.IsNullOrWhiteSpace(importedSymbol))
-                _importedFileSymbols.Add(importedSymbol);
+            {
+                _importedFileSymbols.Add(importedSymbol!);
+                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.Column, true));
+            }
         }
 
         // Push global scope
@@ -220,6 +256,9 @@ internal class LintVisitor
         // Check for unused variables in global scope
         CheckUnusedVariables();
         PopScope();
+
+        // NL010: Check for unused imports (after visiting the whole file)
+        CheckUnusedImports();
     }
 
     private void PushScope()
@@ -376,19 +415,37 @@ internal class LintVisitor
         switch (declaration)
         {
             case FunctionDeclaration func:
+                // NL009: Pascal-case function
+                CheckPascalCaseFunction(func.Name, func.Line, func.Column);
                 VisitFunction(func);
                 break;
             case ClassDeclaration classDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(classDecl.Name, "class", classDecl.Line, classDecl.Column);
                 VisitClass(classDecl);
                 break;
             case StructDeclaration structDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(structDecl.Name, "struct", structDecl.Line, structDecl.Column);
                 VisitStruct(structDecl);
                 break;
             case RecordDeclaration recordDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(recordDecl.Name, "record", recordDecl.Line, recordDecl.Column);
                 VisitRecord(recordDecl);
                 break;
             case InterfaceDeclaration interfaceDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(interfaceDecl.Name, "interface", interfaceDecl.Line, interfaceDecl.Column);
                 VisitInterface(interfaceDecl);
+                break;
+            case UnionDeclaration unionDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(unionDecl.Name, "union", unionDecl.Line, unionDecl.Column);
+                break;
+            case EnumDeclaration enumDecl:
+                // NL007: Pascal-case type
+                CheckPascalCaseType(enumDecl.Name, "enum", enumDecl.Line, enumDecl.Column);
                 break;
             case FieldDeclaration field:
                 if (field.Initializer != null)
@@ -403,8 +460,51 @@ internal class LintVisitor
                     VisitStatement(prop.SetBody);
                 break;
             case ConstructorDeclaration ctor:
+                var wasInCtor = _inConstructor;
+                _inConstructor = true;
                 VisitStatement(ctor.Body);
+                _inConstructor = wasInCtor;
                 break;
+        }
+    }
+
+    private void CheckPascalCaseType(string name, string kind, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL007"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        if (!char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL007",
+                $"{kind} '{name}' should use PascalCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL007"),
+                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
+        }
+    }
+
+    private void CheckPascalCaseFunction(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL009"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        // Skip operator overloads (name may start with non-letter)
+        if (!char.IsLetter(name[0]))
+            return;
+        // 'main' is a special entry-point identifier, exempt from PascalCase (like Go)
+        if (name == "main")
+            return;
+        if (!char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL009",
+                $"Function '{name}' should use PascalCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL009"),
+                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
         }
     }
 
@@ -416,18 +516,38 @@ internal class LintVisitor
         _inAsyncFunction = func.Modifiers.HasFlag(Modifiers.Async);
         _hasAwaitInFunction = false;
 
+        // NL012: Save outer param tracking state
+        var outerParams = _currentFunctionParams;
+        var outerParamUsages = _currentFunctionParamUsages;
+        _currentFunctionParams = new List<(string Name, int Line, int Column)>();
+        _currentFunctionParamUsages = new HashSet<string>();
+
+        // NL015: Save outer let/assignment tracking state (per-function)
+        var outerLetDeclarations = _letDeclarations;
+        var outerAssignedVariables = _assignedVariables.ToHashSet();
+        _letDeclarations = new Dictionary<string, (int Line, int Column, bool HasInitializer, bool InLambda)>();
+        _assignedVariables.Clear();
+
         if (func.Body != null)
         {
             PushScope();
 
-            // Add parameters to scope
+            // Add parameters to scope; track for NL012
             foreach (var param in func.Parameters)
             {
                 DeclareVariable(param.Name, func.Line, func.Column);
-                MarkVariableUsed(param.Name); // Parameters are considered used
+                MarkVariableUsed(param.Name); // Parameters exempt from NL001
+                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
             }
 
             VisitStatement(func.Body);
+
+            // NL012: Report unused parameters
+            CheckUnusedParameters(func.Name);
+
+            // NL015: Emit prefer-const diagnostics for this function scope
+            CheckPreferConst();
+
             PopScope();
         }
         else if (func.ExpressionBody != null)
@@ -437,8 +557,16 @@ internal class LintVisitor
             {
                 DeclareVariable(param.Name, func.Line, func.Column);
                 MarkVariableUsed(param.Name);
+                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
             }
             VisitExpression(func.ExpressionBody);
+
+            // NL012: Report unused parameters
+            CheckUnusedParameters(func.Name);
+
+            // NL015: Emit prefer-const diagnostics for this function scope
+            CheckPreferConst();
+
             PopScope();
         }
 
@@ -464,18 +592,43 @@ internal class LintVisitor
         // Restore state
         _inAsyncFunction = wasInAsync;
         _hasAwaitInFunction = hadAwait;
+        _currentFunctionParams = outerParams;
+        _currentFunctionParamUsages = outerParamUsages;
+
+        // NL015: Restore outer let/assignment tracking
+        _letDeclarations = outerLetDeclarations;
+        _assignedVariables.Clear();
+        foreach (var v in outerAssignedVariables)
+            _assignedVariables.Add(v);
+    }
+
+    private void CheckUnusedParameters(string functionName)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL012"))
+            return;
+
+        foreach (var (name, line, column) in _currentFunctionParams)
+        {
+            if (!_currentFunctionParamUsages.Contains(name))
+            {
+                AddDiagnostic(
+                    "NL012",
+                    $"Parameter '{name}' in function '{functionName}' is never used",
+                    new Location(line, column, _filePath),
+                    _config.GetSeverity("NL012"),
+                    $"Prefix with '_' to suppress: '_{name}'");
+            }
+        }
     }
 
     private void VisitClass(ClassDeclaration classDecl)
     {
-        foreach (var member in classDecl.Members)
-        {
-            VisitDeclaration(member);
-        }
+        VisitClassLikeMembers(classDecl.Members, classDecl.Name, classDecl.Line, classDecl.Column);
     }
 
     private void VisitStruct(StructDeclaration structDecl)
     {
+        // Structs don't typically have the same readonly pattern as classes, visit normally
         foreach (var member in structDecl.Members)
         {
             VisitDeclaration(member);
@@ -514,12 +667,40 @@ internal class LintVisitor
                     _ => 3
                 };
                 var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
+                // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
+                CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
                 DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
                 if (varDecl.Initializer != null)
+                {
+                    // NL014: Unnecessary type annotation — flag obvious literal-type matches
+                    if (varDecl.Type != null && varDecl.Kind == VariableKind.Let)
+                        CheckUnnecessaryTypeAnnotation(varDecl.Type, varDecl.Initializer, varDecl.Line, varDecl.Column);
+
                     VisitExpression(varDecl.Initializer);
+                }
+                // NL015: Track let declarations that have an explicit type annotation.
+                // We only flag explicit `let x: T = ...` patterns, not `:=` shorthand,
+                // because the explicit annotation signals the developer is being deliberate
+                // and should use `const` when no reassignment occurs.
+                // Shorthand `:=` is too common to flag — it would be very noisy.
+                if (varDecl.Kind == VariableKind.Let && varDecl.Type != null)
+                    _letDeclarations[varDecl.Name] = (varDecl.Line, nameColumn, varDecl.Initializer != null, _inLambda);
                 break;
 
             case BlockStatement block:
+                // NL019: Empty block — warn if block has no statements
+                // (Only fire at function-body level; we suppress for interface method stubs etc.
+                //  The simplest safe check: only warn when the block is non-top-level, i.e. there
+                //  IS a containing scope already, which means we are inside at least one function.)
+                if (block.Statements.Count == 0 && _scopeStack.Count > 0)
+                {
+                    AddDiagnostic(
+                        "NL019",
+                        "Empty block body — consider adding a comment or removing the block",
+                        new Location(block.Line, block.Column, _filePath),
+                        _config.GetSeverity("NL019"));
+                }
+
                 PushScope();
                 var unreachableReported = false;
                 var restIsUnreachable = false;
@@ -556,6 +737,8 @@ internal class LintVisitor
                 VisitExpression(ifStmt.Condition);
                 // NL003: Check for unnecessary null checks on value types
                 CheckUnnecessaryNullCheck(ifStmt.Condition);
+                // NL016: Redundant null check on always-non-null expressions
+                CheckRedundantNullCheckOnNewOrLiteral(ifStmt.Condition);
                 VisitStatement(ifStmt.ThenStatement);
                 if (ifStmt.ElseStatement != null)
                     VisitStatement(ifStmt.ElseStatement);
@@ -585,6 +768,8 @@ internal class LintVisitor
             case WhileStatement whileStmt:
                 VisitExpression(whileStmt.Condition);
                 CheckUnnecessaryNullCheck(whileStmt.Condition);
+                // NL016: Redundant null check on always-non-null expressions
+                CheckRedundantNullCheckOnNewOrLiteral(whileStmt.Condition);
                 VisitStatement(whileStmt.Body);
                 break;
 
@@ -601,6 +786,17 @@ internal class LintVisitor
                 VisitStatement(tryStmt.TryBlock);
                 foreach (var catchClause in tryStmt.CatchClauses)
                 {
+                    // NL011: Empty catch block
+                    if (catchClause.Block.Statements.Count == 0)
+                    {
+                        AddDiagnostic(
+                            "NL011",
+                            "Empty catch block swallows exceptions silently",
+                            new Location(catchClause.Block.Line, catchClause.Block.Column, _filePath),
+                            _config.GetSeverity("NL011"),
+                            "Add error handling or at minimum a comment explaining why the exception is ignored");
+                    }
+
                     PushScope();
                     if (catchClause.VariableName != null)
                     {
@@ -778,6 +974,8 @@ internal class LintVisitor
         {
             case IdentifierExpression ident:
                 MarkVariableUsed(ident.Name);
+                // NL010: Track all identifiers used in code for unused-import detection
+                _allCodeIdentifiers.Add(ident.Name);
 
                 // NL002: Missing Import
                 // Check if identifier looks like a type that might need an import
@@ -800,6 +998,9 @@ internal class LintVisitor
                 break;
 
             case BinaryExpression binary:
+                // NL013: Prefer string interpolation over concatenation
+                if (binary.Operator == BinaryOperator.Add)
+                    CheckPreferInterpolation(binary);
                 VisitExpression(binary.Left);
                 VisitExpression(binary.Right);
                 break;
@@ -819,7 +1020,13 @@ internal class LintVisitor
             case NewExpression newExpr:
                 // Check if the type might need an import
                 if (newExpr.Type != null)
+                {
                     CheckMissingImportForType(newExpr.Type, newExpr.Line, newExpr.Column);
+                    // NL010: Record the type name as a used identifier
+                    var newTypeName = GetBaseTypeName(newExpr.Type);
+                    if (newTypeName != null)
+                        _allCodeIdentifiers.Add(newTypeName);
+                }
                 foreach (var arg in newExpr.ConstructorArguments)
                 {
                     VisitExpression(arg.Value);
@@ -843,6 +1050,11 @@ internal class LintVisitor
                 break;
 
             case AssignmentExpression assignment:
+                // NL015: Track what variables are assigned to after declaration
+                if (assignment.Target is IdentifierExpression assignTarget)
+                    _assignedVariables.Add(assignTarget.Name);
+                // NL018: Track field assignments to detect constructor-only writes
+                TrackFieldAssignment(assignment.Target);
                 VisitExpression(assignment.Target);
                 VisitExpression(assignment.Value);
                 break;
@@ -854,6 +1066,8 @@ internal class LintVisitor
                 break;
 
             case LambdaExpression lambda:
+                var wasInLambda = _inLambda;
+                _inLambda = true;
                 PushScope();
                 foreach (var param in lambda.Parameters)
                 {
@@ -865,6 +1079,7 @@ internal class LintVisitor
                 if (lambda.ExpressionBody != null)
                     VisitExpression(lambda.ExpressionBody);
                 PopScope();
+                _inLambda = wasInLambda;
                 break;
 
             case CastExpression cast:
@@ -950,13 +1165,86 @@ internal class LintVisitor
         }
     }
 
+    private void CheckCamelCaseLocal(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL008"))
+            return;
+        if (string.IsNullOrEmpty(name))
+            return;
+        // Skip underscore-prefixed names (convention for intentionally unused / discards)
+        if (name.StartsWith("_", StringComparison.Ordinal))
+            return;
+        if (char.IsUpper(name[0]))
+        {
+            AddDiagnostic(
+                "NL008",
+                $"Local variable '{name}' should use camelCase naming",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL008"),
+                $"Rename '{name}' to '{char.ToLowerInvariant(name[0])}{name[1..]}'");
+        }
+    }
+
+    private void CheckPreferInterpolation(BinaryExpression binary)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL013"))
+            return;
+
+        var leftIsString = binary.Left is StringLiteralExpression;
+        var rightIsString = binary.Right is StringLiteralExpression;
+
+        // Only fire when at least one operand is a string literal and the other is not also
+        // a string literal (string literal + string literal is just concatenation, not a
+        // case where interpolation helps readability).
+        if ((leftIsString || rightIsString) && !(leftIsString && rightIsString))
+        {
+            AddDiagnostic(
+                "NL013",
+                "String concatenation with '+' — consider using string interpolation ($\"...\")",
+                new Location(binary.Line, binary.Column, _filePath),
+                _config.GetSeverity("NL013"),
+                "Replace with $\"...{expr}...\" interpolated string");
+        }
+    }
+
     private void DeclareVariable(string name, int line, int column)
     {
+        // NL020: Check if this name shadows a variable in an outer scope
+        CheckShadowedVariable(name, line, column);
+
         _declaredVariables[name] = (line, column, false);
+    }
+
+    private void CheckShadowedVariable(string name, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL020"))
+            return;
+
+        // Skip discard (_) and underscore-prefixed names
+        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
+            return;
+
+        // Check all outer scopes on the stack (not the current scope, which we're declaring into)
+        foreach (var scope in _scopeStack)
+        {
+            if (scope.ContainsKey(name))
+            {
+                AddDiagnostic(
+                    "NL020",
+                    $"Variable '{name}' shadows a variable declared in an outer scope",
+                    new Location(line, column, _filePath),
+                    _config.GetSeverity("NL020"));
+                return;
+            }
+        }
     }
 
     private void MarkVariableUsed(string name)
     {
+        // NL012: Track parameter usages
+        if (_currentFunctionParams.Any(p => p.Name == name))
+            _currentFunctionParamUsages.Add(name);
+
         // Check current scope
         if (_declaredVariables.ContainsKey(name))
         {
@@ -1204,5 +1492,304 @@ internal class LintVisitor
         }
 
         return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // NL010: Unused Import
+    // -------------------------------------------------------------------------
+
+    // Maps namespace → set of type names that belong to it (from the known-types map)
+    private static readonly Dictionary<string, HashSet<string>> _knownNamespaceTypes =
+        BuildKnownNamespaceTypes();
+
+    private static Dictionary<string, HashSet<string>> BuildKnownNamespaceTypes()
+    {
+        var map = new Dictionary<string, string>
+        {
+            { "List", "System.Collections.Generic" },
+            { "Dictionary", "System.Collections.Generic" },
+            { "HashSet", "System.Collections.Generic" },
+            { "Queue", "System.Collections.Generic" },
+            { "Stack", "System.Collections.Generic" },
+            { "LinkedList", "System.Collections.Generic" },
+            { "StringBuilder", "System.Text" },
+            { "Regex", "System.Text.RegularExpressions" },
+            { "File", "System.IO" },
+            { "Directory", "System.IO" },
+            { "Path", "System.IO" },
+            { "Stream", "System.IO" },
+            { "HttpClient", "System.Net.Http" },
+            { "JsonSerializer", "System.Text.Json" },
+            { "Task", "System.Threading.Tasks" },
+            { "CancellationToken", "System.Threading" },
+            { "Encoding", "System.Text" },
+            { "DateTime", "System" },
+            { "TimeSpan", "System" },
+            { "Guid", "System" },
+            { "Uri", "System" },
+            { "Tuple", "System" },
+            { "Lazy", "System" },
+            { "Action", "System" },
+            { "Func", "System" },
+            { "Console", "System" },
+            { "Math", "System" },
+            { "Exception", "System" },
+            { "Environment", "System" },
+            { "Enumerable", "System.Linq" },
+        };
+
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var (typeName, ns) in map)
+        {
+            if (!result.TryGetValue(ns, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                result[ns] = set;
+            }
+            set.Add(typeName);
+        }
+        return result;
+    }
+
+    private void CheckUnusedImports()
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL010"))
+            return;
+
+        foreach (var (ns, line, column, isFile) in _allImports)
+        {
+            bool used;
+            if (isFile)
+            {
+                // File import: used if the symbol name appears in code identifiers
+                used = _allCodeIdentifiers.Contains(ns);
+            }
+            else
+            {
+                // Namespace import strategy:
+                // 1. If the namespace is in our known-types map, check if any of its known
+                //    types appear in the code identifiers. If we can't find ANY, flag it.
+                // 2. If the namespace is NOT in our known-types map, we can't determine usage
+                //    → conservatively mark as used (avoid false positives).
+                if (_knownNamespaceTypes.TryGetValue(ns, out var knownTypes))
+                {
+                    // Used if any known type from this namespace appears in the code
+                    used = knownTypes.Any(t => _allCodeIdentifiers.Contains(t));
+                }
+                else
+                {
+                    // Unknown namespace — be conservative, don't flag
+                    used = true;
+                }
+            }
+
+            if (!used)
+            {
+                var label = isFile ? $"import \"{ns}\"" : $"import {ns}";
+                AddDiagnostic(
+                    "NL010",
+                    $"Unused import: '{label}'",
+                    new Location(line, column, _filePath),
+                    _config.GetSeverity("NL010"),
+                    $"Remove unused import '{label}'");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NL014: Unnecessary Type Annotation
+    // -------------------------------------------------------------------------
+    private void CheckUnnecessaryTypeAnnotation(TypeReference declaredType, Expression initializer, int line, int column)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL014"))
+            return;
+
+        // Only flag the most obvious cases: literal value matches annotation exactly
+        var (obvious, literalTypeName) = (declaredType, initializer) switch
+        {
+            (SimpleTypeReference { Name: "int" }, IntLiteralExpression) => (true, "int"),
+            (SimpleTypeReference { Name: "string" }, StringLiteralExpression) => (true, "string"),
+            (SimpleTypeReference { Name: "bool" }, BoolLiteralExpression) => (true, "bool"),
+            (SimpleTypeReference { Name: "float" }, FloatLiteralExpression) => (true, "float"),
+            (SimpleTypeReference { Name: "double" }, FloatLiteralExpression) => (true, "double"),
+            _ => (false, (string?)null)
+        };
+
+        if (obvious && literalTypeName != null)
+        {
+            AddDiagnostic(
+                "NL014",
+                $"Unnecessary type annotation: type '{literalTypeName}' is inferred from the literal",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL014"),
+                $"Remove ': {literalTypeName}' — the type is obvious from the initializer");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NL015: Prefer Const
+    // -------------------------------------------------------------------------
+    private void CheckPreferConst()
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL015"))
+            return;
+
+        foreach (var kvp in _letDeclarations)
+        {
+            var name = kvp.Key;
+            var (line, column, hasInitializer, inLambda) = kvp.Value;
+
+            // Skip variables without initializers (they MUST be assigned later)
+            if (!hasInitializer)
+                continue;
+
+            // Skip variables inside lambdas (closures capture semantics differ)
+            if (inLambda)
+                continue;
+
+            // Skip if the variable was ever assigned after declaration
+            if (_assignedVariables.Contains(name))
+                continue;
+
+            // Skip if the variable is never read — NL001 (unused variable) will handle that case.
+            // Firing both NL001 and NL015 for the same variable is redundant noise.
+            if (!_usedVariables.Contains(name))
+                continue;
+
+            AddDiagnostic(
+                "NL015",
+                $"Variable '{name}' is never reassigned — consider using 'const'",
+                new Location(line, column, _filePath),
+                _config.GetSeverity("NL015"),
+                $"Replace 'let {name}' with 'const {name}'");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NL016: Redundant Null Check (conservative: only `new` / literal initialisers)
+    // -------------------------------------------------------------------------
+    private void CheckRedundantNullCheckOnNewOrLiteral(Expression condition)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL016"))
+            return;
+
+        if (condition is not BinaryExpression binary)
+            return;
+
+        if (binary.Operator != BinaryOperator.NotEqual && binary.Operator != BinaryOperator.Equal)
+            return;
+
+        var isNullCheck = binary.Right is NullLiteralExpression || binary.Left is NullLiteralExpression;
+        if (!isNullCheck)
+            return;
+
+        var checkedExpr = binary.Right is NullLiteralExpression ? binary.Left : binary.Right;
+
+        // Only flag when the expression being checked was just created via `new` or a non-null literal
+        var alwaysNonNull = checkedExpr switch
+        {
+            NewExpression => true,
+            IntLiteralExpression => true,
+            FloatLiteralExpression => true,
+            BoolLiteralExpression => true,
+            ArrayLiteralExpression => true,
+            _ => false
+        };
+
+        if (alwaysNonNull)
+        {
+            var verb = binary.Operator == BinaryOperator.NotEqual ? "always true" : "always false";
+            AddDiagnostic(
+                "NL016",
+                $"Redundant null check: this expression is never null ({verb})",
+                new Location(condition.Line, condition.Column, _filePath),
+                _config.GetSeverity("NL016"),
+                "Remove the null check — the value cannot be null");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NL018: Prefer Readonly — class members only
+    // -------------------------------------------------------------------------
+    private void VisitClassLikeMembers(List<Declaration> members, string typeName, int typeLine, int typeColumn)
+    {
+        if (!_config.RuleSeverities.ContainsKey("NL018"))
+        {
+            // If rule is disabled just visit normally
+            foreach (var member in members)
+                VisitDeclaration(member);
+            return;
+        }
+
+        // Collect field names that are writable (no readonly modifier yet)
+        var writableFields = new HashSet<string>();
+        foreach (var member in members)
+        {
+            if (member is FieldDeclaration fd
+                && !fd.Modifiers.HasFlag(Modifiers.Readonly)
+                && !fd.Modifiers.HasFlag(Modifiers.Const)
+                && !fd.PropertyModifier.HasFlag(PropertyModifier.Readonly))
+            {
+                writableFields.Add(fd.Name);
+            }
+        }
+
+        // Reset field assignment tracking for this class scope
+        var outerFieldAssignments = _classFieldAssignments;
+        _classFieldAssignments = new Dictionary<string, (bool InCtor, bool Elsewhere)>();
+        foreach (var f in writableFields)
+            _classFieldAssignments[f] = (false, false);
+
+        // Visit all members (constructors will set _inConstructor = true)
+        foreach (var member in members)
+            VisitDeclaration(member);
+
+        // Emit NL018 for fields only assigned in ctor (or initializer) and nowhere else
+        foreach (var kvp in _classFieldAssignments)
+        {
+            var fieldName = kvp.Key;
+            var (inCtor, elsewhere) = kvp.Value;
+            if (inCtor && !elsewhere)
+            {
+                // Find original field declaration for location
+                var fieldDecl = members.OfType<FieldDeclaration>().FirstOrDefault(f => f.Name == fieldName);
+                var loc = fieldDecl != null
+                    ? new Location(fieldDecl.Line, fieldDecl.Column, _filePath)
+                    : new Location(typeLine, typeColumn, _filePath);
+
+                AddDiagnostic(
+                    "NL018",
+                    $"Field '{fieldName}' is only assigned in the constructor — consider marking it 'readonly'",
+                    loc,
+                    _config.GetSeverity("NL018"),
+                    $"Add 'readonly' modifier to field '{fieldName}'");
+            }
+        }
+
+        _classFieldAssignments = outerFieldAssignments;
+    }
+
+    private void TrackFieldAssignment(Expression target)
+    {
+        // Only meaningful inside a class context — check if target is a simple field name
+        // or a `this.fieldName` access
+        string? fieldName = target switch
+        {
+            IdentifierExpression id => id.Name,
+            MemberAccessExpression { Object: IdentifierExpression { Name: "this" }, MemberName: var m } => m,
+            _ => null
+        };
+
+        if (fieldName == null)
+            return;
+
+        if (!_classFieldAssignments.ContainsKey(fieldName))
+            return;
+
+        var (inCtor, elsewhere) = _classFieldAssignments[fieldName];
+        if (_inConstructor)
+            _classFieldAssignments[fieldName] = (true, elsewhere);
+        else
+            _classFieldAssignments[fieldName] = (inCtor, true);
     }
 }
