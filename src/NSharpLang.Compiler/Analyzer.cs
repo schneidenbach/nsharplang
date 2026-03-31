@@ -260,10 +260,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        foreach (var stmt in test.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(test.Body.Statements);
 
         PopScope();
     }
@@ -274,10 +271,7 @@ public class Analyzer : IDisposable
         // but symbols are already collected via CollectSetupSymbols
         PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
 
-        foreach (var stmt in setup.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(setup.Body.Statements);
 
         PopScope();
     }
@@ -466,6 +460,20 @@ public class Analyzer : IDisposable
 
             case LockStatement lockStmt:
                 return StatementAlwaysReturns(lockStmt.Body);
+
+            case SwitchStatement switchStmt:
+                // Switch always returns if it has a default case and all cases return
+                var hasDefault = switchStmt.Cases.Any(c => c.Pattern == null);
+                return hasDefault && switchStmt.Cases.All(c =>
+                    c.Statements.Any(s => StatementAlwaysReturns(s)));
+
+            case TryStatement tryStmt:
+                // Try always returns if the try block returns and all catch blocks return
+                if (!StatementAlwaysReturns(tryStmt.TryBlock))
+                    return false;
+                if (tryStmt.CatchClauses.Count == 0)
+                    return false;
+                return tryStmt.CatchClauses.All(c => StatementAlwaysReturns(c.Block));
 
             default:
                 return false;
@@ -995,6 +1003,22 @@ public class Analyzer : IDisposable
         }
     }
 
+    private void AnalyzeStatements(IReadOnlyList<Statement> statements)
+    {
+        var terminated = false;
+        foreach (var stmt in statements)
+        {
+            if (terminated)
+            {
+                Error(ErrorCode.UnreachableStatement, "unreachable code", stmt.Line, stmt.Column);
+                break;
+            }
+            AnalyzeStatement(stmt);
+            if (StatementAlwaysReturns(stmt))
+                terminated = true;
+        }
+    }
+
     private void AnalyzeStatement(Statement stmt)
     {
         _currentLine = stmt.Line;
@@ -1011,8 +1035,7 @@ public class Analyzer : IDisposable
                 break;
             case BlockStatement block:
                 PushScope(new Scope(ScopeKind.Block), block.Line, block.Column);
-                foreach (var s in block.Statements)
-                    AnalyzeStatement(s);
+                AnalyzeStatements(block.Statements);
                 PopScope();
                 break;
             case IfStatement ifStmt:
@@ -1105,10 +1128,7 @@ public class Analyzer : IDisposable
     {
         // Analyze the body block
         PushScope(new Scope(ScopeKind.Block), assertThrows.Line, assertThrows.Column);
-        foreach (var stmt in assertThrows.Body.Statements)
-        {
-            AnalyzeStatement(stmt);
-        }
+        AnalyzeStatements(assertThrows.Body.Statements);
         PopScope();
     }
 
@@ -1140,10 +1160,7 @@ public class Analyzer : IDisposable
         // Analyze body
         if (func.Body != null)
         {
-            foreach (var stmt in func.Body.Statements)
-            {
-                AnalyzeStatement(stmt);
-            }
+            AnalyzeStatements(func.Body.Statements);
         }
         else if (func.ExpressionBody != null)
         {
@@ -1720,10 +1737,7 @@ public class Analyzer : IDisposable
                 AnalyzePattern(switchCase.Pattern, valueType);
             }
 
-            foreach (var stmt in switchCase.Statements)
-            {
-                AnalyzeStatement(stmt);
-            }
+            AnalyzeStatements(switchCase.Statements);
 
             PopScope();
         }
