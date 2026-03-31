@@ -33,7 +33,7 @@ public class CodeIntelligenceService
             compiler.AllErrors,
             compiler.SharedAnalyzer,
             compiler.SourceFiles,
-            compiler.ProjectBindings
+            compiler.ProjectIndex
         );
     }
 
@@ -346,6 +346,463 @@ public class CodeIntelligenceService
             .ThenBy(r => r.Line)
             .ThenBy(r => r.Column)
             .ToList();
+    }
+
+    // ── Hover Query ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Get hover information for the symbol at a position.
+    /// Combines type info + definition location + doc comment extraction.
+    /// Returns null if there is no symbol at that position.
+    /// </summary>
+    public HoverResult? GetHoverInfo(ProjectSnapshot snapshot, string file, int line, int col)
+    {
+        var type = GetTypeAtPosition(snapshot, file, line, col);
+        var definition = FindDefinition(snapshot, file, line, col);
+
+        if (type == null && definition == null)
+            return null;
+
+        var kind = definition?.Kind ?? type?.Kind ?? "unknown";
+        var name = definition?.Name ?? type?.Name ?? "unknown";
+        var definedIn = definition?.File;
+
+        // Build a human-readable signature
+        var (filePath, cu) = FindCompilationUnit(snapshot, file);
+        var signature = BuildSignature(cu, name, kind, type?.ResolvedType);
+
+        // Extract doc comment from the definition site
+        var documentation = definedIn != null
+            ? ExtractDocComment(snapshot, definedIn, definition?.Line ?? 0)
+            : null;
+
+        return new HoverResult(signature, documentation, definedIn, kind);
+    }
+
+    private static string BuildSignature(CompilationUnit? cu, string name, string kind, string? typeName)
+    {
+        // Try to find the declaration in the AST for a richer signature
+        if (cu != null)
+        {
+            var decl = FindDeclarationByName(cu, name);
+            if (decl is FunctionDeclaration func)
+                return FormatFunctionSignature(func);
+        }
+
+        // Fall back to a simple kind + name + type representation
+        return typeName != null ? $"{kind} {name}: {typeName}" : $"{kind} {name}";
+    }
+
+    private static string FormatFunctionSignature(FunctionDeclaration func)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("func ");
+        sb.Append(func.Name);
+        sb.Append('(');
+
+        for (int i = 0; i < func.Parameters.Count; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            var p = func.Parameters[i];
+            sb.Append(p.Name);
+            sb.Append(": ");
+            sb.Append(FormatTypeRef(p.Type));
+            if (p.DefaultValue != null)
+            {
+                sb.Append(" = ...");
+            }
+        }
+
+        sb.Append(')');
+
+        if (func.ReturnType != null)
+        {
+            sb.Append(": ");
+            sb.Append(FormatTypeRef(func.ReturnType));
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatTypeRef(TypeReference? typeRef) => typeRef switch
+    {
+        SimpleTypeReference s => s.Name,
+        GenericTypeReference g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(FormatTypeRef))}>",
+        NullableTypeReference n => $"{FormatTypeRef(n.InnerType)}?",
+        ArrayTypeReference a => $"{FormatTypeRef(a.ElementType)}[]",
+        null => "void",
+        _ => typeRef.ToString() ?? "unknown"
+    };
+
+    private static Declaration? FindDeclarationByName(CompilationUnit cu, string name)
+    {
+        foreach (var decl in cu.Declarations)
+        {
+            var declName = GetDeclName(decl);
+            if (declName == name) return decl;
+
+            // Search class/struct/record members
+            var member = FindMemberByName(decl, name);
+            if (member != null) return member;
+        }
+        return null;
+    }
+
+    private static Declaration? FindMemberByName(Declaration decl, string name)
+    {
+        IEnumerable<Declaration>? members = decl switch
+        {
+            ClassDeclaration cls => cls.Members,
+            StructDeclaration str => str.Members,
+            RecordDeclaration rec => rec.Members,
+            InterfaceDeclaration iface => iface.Members,
+            _ => null
+        };
+
+        if (members == null) return null;
+
+        foreach (var m in members)
+        {
+            if (GetDeclName(m) == name) return m;
+        }
+        return null;
+    }
+
+    private static string? GetDeclName(Declaration decl) => decl switch
+    {
+        FunctionDeclaration f => f.Name,
+        ClassDeclaration c => c.Name,
+        StructDeclaration s => s.Name,
+        RecordDeclaration r => r.Name,
+        InterfaceDeclaration i => i.Name,
+        EnumDeclaration e => e.Name,
+        UnionDeclaration u => u.Name,
+        _ => null
+    };
+
+    private string? ExtractDocComment(ProjectSnapshot snapshot, string relativeFile, int definitionLine)
+    {
+        if (definitionLine <= 1) return null;
+
+        // Find the absolute path
+        string? absolutePath = null;
+        foreach (var (filePath, _) in snapshot.CompilationUnits)
+        {
+            if (MatchesFilePath(filePath, relativeFile))
+            {
+                absolutePath = filePath;
+                break;
+            }
+        }
+
+        if (absolutePath == null) return null;
+
+        try
+        {
+            var lines = File.ReadAllLines(absolutePath);
+            var commentLines = new List<string>();
+
+            // Walk backwards from the declaration line collecting comment lines
+            for (int i = definitionLine - 2; i >= 0; i--)
+            {
+                var trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                {
+                    commentLines.Insert(0, trimmed.TrimStart('/').Trim());
+                }
+                else if (string.IsNullOrWhiteSpace(trimmed) && commentLines.Count == 0)
+                {
+                    continue; // Skip blank lines between declaration and comment block
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return commentLines.Count > 0 ? string.Join("\n", commentLines) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ── Call Graph ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Build a call graph for the project by walking all ASTs.
+    /// If functionName is provided, returns callers and callees for that function only.
+    /// If functionName is null, returns all edges up to the limit.
+    /// </summary>
+    public CallGraphResult GetCallGraph(ProjectSnapshot snapshot, string? functionName, int limit = 100)
+    {
+        // Build the complete per-function call map by walking all compilation units
+        var callSites = new Dictionary<string, List<(string Callee, string? File, int Line, int Col)>>(StringComparer.Ordinal);
+
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            var relFile = GetRelativePath(snapshot.ProjectRoot, filePath);
+            CollectCallSites(cu, relFile, callSites);
+        }
+
+        if (functionName == null)
+        {
+            // Return all callers + callees up to the limit
+            var allCallees = new List<CallSiteResult>();
+            var allCallers = new List<CallSiteResult>();
+            var truncated = false;
+
+            foreach (var (caller, calleeList) in callSites)
+            {
+                foreach (var (callee, file, line, col) in calleeList)
+                {
+                    if (allCallees.Count >= limit)
+                    {
+                        truncated = true;
+                        break;
+                    }
+                    allCallees.Add(new CallSiteResult(callee, file, line, col));
+                }
+                if (truncated) break;
+            }
+
+            return new CallGraphResult(null, allCallers, allCallees, truncated);
+        }
+
+        // Function-specific: find direct callees
+        var callees = new List<CallSiteResult>();
+        if (callSites.TryGetValue(functionName, out var directCallees))
+        {
+            foreach (var (callee, file, line, col) in directCallees)
+            {
+                callees.Add(new CallSiteResult(callee, file, line, col));
+            }
+        }
+
+        // Find callers (functions that call functionName)
+        var callerResults = new List<CallSiteResult>();
+        foreach (var (caller, calleeList) in callSites)
+        {
+            foreach (var (callee, file, line, col) in calleeList)
+            {
+                if (string.Equals(callee, functionName, StringComparison.Ordinal))
+                {
+                    callerResults.Add(new CallSiteResult(caller, file, line, col));
+                }
+            }
+        }
+
+        var totalCount = callees.Count + callerResults.Count;
+        var isTruncated = totalCount > limit;
+
+        if (isTruncated)
+        {
+            callees = callees.Take(limit / 2).ToList();
+            callerResults = callerResults.Take(limit / 2).ToList();
+        }
+
+        return new CallGraphResult(functionName, callerResults, callees, isTruncated);
+    }
+
+    /// <summary>
+    /// Walk all declarations in a compilation unit, recording caller->callee edges.
+    /// </summary>
+    private static void CollectCallSites(
+        CompilationUnit cu,
+        string relativeFile,
+        Dictionary<string, List<(string Callee, string? File, int Line, int Col)>> callSites)
+    {
+        foreach (var decl in cu.Declarations)
+        {
+            CollectCallSitesInDeclaration(decl, null, relativeFile, callSites);
+        }
+    }
+
+    private static void CollectCallSitesInDeclaration(
+        Declaration decl,
+        string? ownerContext,
+        string relativeFile,
+        Dictionary<string, List<(string Callee, string? File, int Line, int Col)>> callSites)
+    {
+        switch (decl)
+        {
+            case FunctionDeclaration func:
+            {
+                var callerName = ownerContext != null ? $"{ownerContext}.{func.Name}" : func.Name;
+                if (!callSites.ContainsKey(callerName))
+                    callSites[callerName] = new List<(string, string?, int, int)>();
+
+                if (func.Body != null)
+                    CollectCallSitesInStatement(func.Body, callerName, relativeFile, callSites);
+                if (func.ExpressionBody != null)
+                    CollectCallSitesInExpression(func.ExpressionBody, callerName, relativeFile, callSites);
+                break;
+            }
+            case ClassDeclaration cls:
+                foreach (var member in cls.Members)
+                    CollectCallSitesInDeclaration(member, cls.Name, relativeFile, callSites);
+                break;
+            case StructDeclaration str:
+                foreach (var member in str.Members)
+                    CollectCallSitesInDeclaration(member, str.Name, relativeFile, callSites);
+                break;
+            case RecordDeclaration rec:
+                foreach (var member in rec.Members)
+                    CollectCallSitesInDeclaration(member, rec.Name, relativeFile, callSites);
+                break;
+            case InterfaceDeclaration iface:
+                foreach (var member in iface.Members)
+                    CollectCallSitesInDeclaration(member, iface.Name, relativeFile, callSites);
+                break;
+        }
+    }
+
+    private static void CollectCallSitesInStatement(
+        Statement stmt,
+        string callerName,
+        string relativeFile,
+        Dictionary<string, List<(string Callee, string? File, int Line, int Col)>> callSites)
+    {
+        switch (stmt)
+        {
+            case BlockStatement block:
+                foreach (var s in block.Statements)
+                    CollectCallSitesInStatement(s, callerName, relativeFile, callSites);
+                break;
+            case ExpressionStatement exprStmt:
+                CollectCallSitesInExpression(exprStmt.Expression, callerName, relativeFile, callSites);
+                break;
+            case ReturnStatement ret when ret.Value != null:
+                CollectCallSitesInExpression(ret.Value, callerName, relativeFile, callSites);
+                break;
+            case VariableDeclarationStatement varDecl when varDecl.Initializer != null:
+                CollectCallSitesInExpression(varDecl.Initializer, callerName, relativeFile, callSites);
+                break;
+            case IfStatement ifStmt:
+                CollectCallSitesInExpression(ifStmt.Condition, callerName, relativeFile, callSites);
+                CollectCallSitesInStatement(ifStmt.ThenStatement, callerName, relativeFile, callSites);
+                if (ifStmt.ElseStatement != null)
+                    CollectCallSitesInStatement(ifStmt.ElseStatement, callerName, relativeFile, callSites);
+                break;
+            case WhileStatement whileStmt:
+                CollectCallSitesInExpression(whileStmt.Condition, callerName, relativeFile, callSites);
+                CollectCallSitesInStatement(whileStmt.Body, callerName, relativeFile, callSites);
+                break;
+            case ForeachStatement forEachStmt:
+                CollectCallSitesInExpression(forEachStmt.Collection, callerName, relativeFile, callSites);
+                CollectCallSitesInStatement(forEachStmt.Body, callerName, relativeFile, callSites);
+                break;
+        }
+    }
+
+    private static void CollectCallSitesInExpression(
+        Expression expr,
+        string callerName,
+        string relativeFile,
+        Dictionary<string, List<(string Callee, string? File, int Line, int Col)>> callSites)
+    {
+        switch (expr)
+        {
+            case CallExpression call:
+                var calleeName = ExtractCalleeName(call.Callee);
+                if (calleeName != null)
+                {
+                    callSites[callerName].Add((calleeName, relativeFile, call.Line, call.Column));
+                }
+                // Recurse into arguments
+                foreach (var arg in call.Arguments)
+                    CollectCallSitesInExpression(arg.Value, callerName, relativeFile, callSites);
+                // Recurse into callee (for chained calls)
+                CollectCallSitesInExpression(call.Callee, callerName, relativeFile, callSites);
+                break;
+            case MemberAccessExpression member:
+                CollectCallSitesInExpression(member.Object, callerName, relativeFile, callSites);
+                break;
+            case AssignmentExpression assign:
+                CollectCallSitesInExpression(assign.Value, callerName, relativeFile, callSites);
+                break;
+            case BinaryExpression bin:
+                CollectCallSitesInExpression(bin.Left, callerName, relativeFile, callSites);
+                CollectCallSitesInExpression(bin.Right, callerName, relativeFile, callSites);
+                break;
+            case InterpolatedStringExpression interp:
+                foreach (var part in interp.Parts)
+                    if (part is InterpolatedStringHole hole)
+                        CollectCallSitesInExpression(hole.Expression, callerName, relativeFile, callSites);
+                break;
+        }
+    }
+
+    private static string? ExtractCalleeName(Expression callee) => callee switch
+    {
+        IdentifierExpression id => id.Name,
+        MemberAccessExpression ma => ma.MemberName,
+        _ => null
+    };
+
+    // ── Implementors ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Find all concrete types (class, struct, record) that implement a given interface.
+    /// Walks all compilation units in the project.
+    /// </summary>
+    public ImplementorsResult GetImplementors(ProjectSnapshot snapshot, string interfaceName)
+    {
+        var results = new List<ImplementorResult>();
+
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            var relFile = GetRelativePath(snapshot.ProjectRoot, filePath);
+            CollectImplementors(cu, interfaceName, relFile, results);
+        }
+
+        return new ImplementorsResult(interfaceName, results);
+    }
+
+    private static void CollectImplementors(
+        CompilationUnit cu,
+        string interfaceName,
+        string relativeFile,
+        List<ImplementorResult> results)
+    {
+        foreach (var decl in cu.Declarations)
+        {
+            switch (decl)
+            {
+                case ClassDeclaration cls:
+                    // BaseClass holds the first colon-separated type (may be an interface when there is no actual base class)
+                    // Interfaces holds additional comma-separated types
+                    if ((cls.BaseClass != null && InterfaceNameMatches(cls.BaseClass, interfaceName))
+                        || cls.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    {
+                        results.Add(new ImplementorResult(cls.Name, "class", relativeFile, cls.Line, cls.Column));
+                    }
+                    break;
+                case StructDeclaration str:
+                    if (str.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    {
+                        results.Add(new ImplementorResult(str.Name, "struct", relativeFile, str.Line, str.Column));
+                    }
+                    break;
+                case RecordDeclaration rec:
+                    if (rec.Interfaces.Any(i => InterfaceNameMatches(i, interfaceName)))
+                    {
+                        results.Add(new ImplementorResult(rec.Name, "record", relativeFile, rec.Line, rec.Column));
+                    }
+                    break;
+            }
+        }
+    }
+
+    private static bool InterfaceNameMatches(TypeReference typeRef, string interfaceName)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference s => string.Equals(s.Name, interfaceName, StringComparison.Ordinal),
+            GenericTypeReference g => string.Equals(g.Name, interfaceName, StringComparison.Ordinal),
+            _ => false
+        };
     }
 
     /// <summary>
@@ -2379,7 +2836,17 @@ public class ProjectSnapshot
     public IReadOnlyList<CompilerError> AllErrors { get; }
     public Analyzer SharedAnalyzer { get; }
     public IReadOnlyList<string> SourceFiles { get; }
-    public BindingMap? Bindings { get; }
+
+    /// <summary>
+    /// The project-level semantic index: merged BindingMap plus type-declaration-to-file mapping.
+    /// Null when the snapshot was constructed without a full analysis pass (e.g. in tests).
+    /// </summary>
+    public ProjectIndex? Index { get; }
+
+    /// <summary>
+    /// Convenience accessor for the merged BindingMap. Null when Index is null.
+    /// </summary>
+    public BindingMap? Bindings => Index?.Bindings;
 
     public ProjectSnapshot(
         string projectRoot,
@@ -2388,7 +2855,7 @@ public class ProjectSnapshot
         IReadOnlyList<CompilerError> allErrors,
         Analyzer sharedAnalyzer,
         IReadOnlyList<string> sourceFiles,
-        BindingMap? bindings = null)
+        ProjectIndex? index = null)
     {
         ProjectRoot = projectRoot;
         CompilationUnits = compilationUnits;
@@ -2396,7 +2863,7 @@ public class ProjectSnapshot
         AllErrors = allErrors;
         SharedAnalyzer = sharedAnalyzer;
         SourceFiles = sourceFiles;
-        Bindings = bindings;
+        Index = index;
     }
 }
 

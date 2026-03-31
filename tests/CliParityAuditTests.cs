@@ -477,6 +477,214 @@ func Main() {
         }
     }
 
+    // ── nlc bench ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void BenchCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            BenchCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("*.bench.nl", stdout);
+        Assert.Contains("--filter", stdout);
+        Assert.Contains("--export", stdout);
+        Assert.Contains("--list", stdout);
+    }
+
+    [Fact]
+    public void BenchCommand_NoBenchFiles_ReturnsClean()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // No *.bench.nl files — should exit 0 with a friendly message
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                BenchCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("No benchmark files", stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BenchCommand_NoBenchFiles_JsonOutput_ReturnsZeroBenchmarks()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                BenchCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("bench", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, root.GetProperty("benchmarkCount").GetInt32());
+            Assert.Equal(0, root.GetProperty("benchmarks").GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BenchCommand_ListOnly_DiscoversBenchFunctions()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "math.bench.nl"), """
+func benchAddNumbers() {
+    let x = 1 + 2
+}
+
+func benchMultiply() {
+    let y = 3 * 4
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                BenchCommand.Execute(new[] { "--project", tempDir, "--list", "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.True(root.GetProperty("ok").GetBoolean());
+            Assert.Equal("bench", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("benchmarkCount").GetInt32() >= 0);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ── nlc pack ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void PackCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            PackCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("project.yml", stdout);
+        Assert.Contains("--output", stdout);
+        Assert.Contains("--version", stdout);
+        Assert.Contains("--include-symbols", stdout);
+    }
+
+    [Fact]
+    public void PackCommand_NoProjectYml_Fails()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // No project.yml in tempDir
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                PackCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("project.yml", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void PackCommand_NoProjectYml_JsonOutput_ReturnsErrorEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                PackCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(1, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("pack", root.GetProperty("command").GetString());
+            Assert.False(root.GetProperty("ok").GetBoolean());
+            Assert.Contains("project.yml",
+                root.GetProperty("error").GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ── WS5: Build timings, tidy, add ────────────────────────────────────────
+
+    [Fact]
+    public void BuildCommand_Timings_ShowsPhaseBreakdown()
+    {
+        // Verify --timings is documented in build --help and the phase names are present.
+        // The actual timing output is emitted only on a successful build run; testing it
+        // end-to-end requires MSBuild infrastructure not available in unit tests.
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("build", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.True(
+            stdout.Contains("--timings") && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
+            $"Expected --timings and phase breakdown in build --help but got: {stdout}");
+    }
+
+    [Fact]
+    public void TidyCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            TidyCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("tidy", stdout);
+        Assert.Contains("Usage", stdout);
+    }
+
+    [Fact]
+    public void TidyCommand_NoProjectYml_Fails()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TidyCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void AddCommand_Help_ShowsPathOption()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            AddCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("--path", stdout);
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");

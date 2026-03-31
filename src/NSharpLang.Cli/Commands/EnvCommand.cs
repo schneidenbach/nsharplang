@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -18,10 +17,13 @@ public static class EnvCommand
         var json = args.Contains("--json");
 
         var nlcVersion = Program.GetVersion();
-        var dotnetVersion = RunCapture("dotnet", "--version")?.Trim() ?? "unknown";
+        var dotnetVersion = RunCapture("--version")?.Trim() ?? "unknown";
         var runtime = RuntimeInformation.FrameworkDescription;
         var os = RuntimeInformation.OSDescription;
         var arch = RuntimeInformation.OSArchitecture.ToString();
+        var nugetCachePath = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var globalToolsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools");
 
         string? projectName = null;
         string? targetFramework = null;
@@ -58,6 +60,8 @@ public static class EnvCommand
             writer.WriteString("runtime", runtime);
             writer.WriteString("os", os);
             writer.WriteString("arch", arch);
+            writer.WriteString("nugetCachePath", nugetCachePath);
+            writer.WriteString("globalToolsPath", globalToolsPath);
             if (projectName != null)
             {
                 writer.WriteStartObject("project");
@@ -78,6 +82,8 @@ public static class EnvCommand
             Console.WriteLine($"runtime:        {runtime}");
             Console.WriteLine($"os:             {os}");
             Console.WriteLine($"arch:           {arch}");
+            Console.WriteLine($"nuget cache:    {nugetCachePath}");
+            Console.WriteLine($"global tools:   {globalToolsPath}");
 
             if (projectName != null)
             {
@@ -92,20 +98,12 @@ public static class EnvCommand
         return 0;
     }
 
-    static string? RunCapture(string command, string arguments)
+    static string? RunCapture(string arguments)
     {
         try
         {
-            var psi = new ProcessStartInfo(command, arguments)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false
-            };
-            var process = Process.Start(psi);
-            var output = process?.StandardOutput.ReadToEnd();
-            process?.WaitForExit();
-            return process?.ExitCode == 0 ? output : null;
+            var result = DotnetRunner.Run(arguments);
+            return result.ExitCode == 0 ? result.Stdout : null;
         }
         catch
         {

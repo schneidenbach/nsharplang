@@ -31,6 +31,7 @@ public static class LintCommand
         if (!Directory.Exists(projectRoot))
             return EmitError(useJson, $"Directory not found: {projectRoot}", projectRoot);
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             string[] files;
@@ -171,11 +172,12 @@ public static class LintCommand
             {
                 if (allDiagnostics.Count == 0)
                 {
-                    Console.Error.WriteLine($"  Linted {lintedFileCount} file{(lintedFileCount == 1 ? "" : "s")} — no issues.");
+                    Console.Error.WriteLine($"  Linted {lintedFileCount} file{(lintedFileCount == 1 ? "" : "s")} — no issues. [{FormatElapsed(sw.Elapsed)}]");
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(allDiagnostics));
+                    Console.Error.WriteLine($"  Linted in {FormatElapsed(sw.Elapsed)}");
                 }
             }
 
@@ -260,6 +262,13 @@ Exit codes:
                 return true;
         }
         return false;
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
+        return $"{elapsed.TotalSeconds:F1}s";
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');

@@ -416,6 +416,134 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    // ── Hover ──────────────────────────────────────────────────────────────
+
+    public static string HoverToJson(HoverResult result, string file, int line, int col)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "hover",
+            ok = true,
+            file = NormalizePath(file),
+            position = new { line, column = col },
+            result = new
+            {
+                signature = result.Signature,
+                documentation = result.Documentation,
+                definedIn = NormalizePath(result.DefinedIn),
+                kind = result.Kind
+            }
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string HoverToText(HoverResult result, string file, int line, int col)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Hover {file}:{line}:{col}");
+        sb.AppendLine();
+        sb.AppendLine($"Signature:  {result.Signature}");
+        sb.AppendLine($"Kind:       {result.Kind}");
+        if (result.DefinedIn != null)
+            sb.AppendLine($"Defined in: {result.DefinedIn}");
+        if (!string.IsNullOrWhiteSpace(result.Documentation))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Documentation:");
+            foreach (var docLine in result.Documentation.Split('\n'))
+                sb.AppendLine($"  {docLine}");
+        }
+        return sb.ToString();
+    }
+
+    // ── Call Graph ─────────────────────────────────────────────────────────
+
+    public static string CallGraphToJson(CallGraphResult result)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "callGraph",
+            ok = true,
+            function = result.Function,
+            callers = result.Callers.Select(c => new
+            {
+                name = c.Name,
+                file = NormalizePath(c.File),
+                line = c.Line,
+                column = c.Column
+            }).ToList(),
+            callees = result.Callees.Select(c => new
+            {
+                name = c.Name,
+                file = NormalizePath(c.File),
+                line = c.Line,
+                column = c.Column
+            }).ToList(),
+            truncated = result.Truncated
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string CallGraphToText(CallGraphResult result)
+    {
+        var sb = new StringBuilder();
+        if (result.Function != null)
+            sb.AppendLine($"Call graph for: {result.Function}");
+        else
+            sb.AppendLine("Call graph (full project)");
+        sb.AppendLine();
+
+        sb.AppendLine($"Callers ({result.Callers.Count}):");
+        foreach (var c in result.Callers)
+            sb.AppendLine($"  {c.Name}  ({c.File}:{c.Line})");
+
+        sb.AppendLine();
+        sb.AppendLine($"Callees ({result.Callees.Count}):");
+        foreach (var c in result.Callees)
+            sb.AppendLine($"  {c.Name}  ({c.File}:{c.Line})");
+
+        if (result.Truncated)
+            sb.AppendLine("(results truncated — use --limit to increase)");
+
+        return sb.ToString();
+    }
+
+    // ── Implementors ───────────────────────────────────────────────────────
+
+    public static string ImplementorsToJson(ImplementorsResult result)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "implementors",
+            ok = true,
+            @interface = result.Interface,
+            results = result.Results.Select(r => new
+            {
+                typeName = r.TypeName,
+                kind = r.Kind,
+                file = NormalizePath(r.File),
+                line = r.Line,
+                column = r.Column
+            }).ToList()
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string ImplementorsToText(ImplementorsResult result)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Implementors of {result.Interface} ({result.Results.Count}):");
+        sb.AppendLine();
+        foreach (var r in result.Results)
+            sb.AppendLine($"  {r.Kind} {r.TypeName}  ({r.File}:{r.Line})");
+        return sb.ToString();
+    }
+
+    // ── Error ──────────────────────────────────────────────────────────────
+
     public static string ErrorToJson(string command, string error, string? projectRoot = null,
         string? errorCode = null, object? details = null)
     {

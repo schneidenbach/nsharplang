@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -39,6 +40,9 @@ public static class QueryCommand
             "references" or "refs" => ReferencesCommand(positionalArgs, options),
             "completions" => CompletionsCommand(positionalArgs, options),
             "doc" => DocCommand(positionalArgs, options),
+            "hover" => HoverCommand(positionalArgs, options),
+            "call-graph" => CallGraphCommand(positionalArgs, options),
+            "implementors" => ImplementorsCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
             _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
         };
@@ -62,8 +66,16 @@ public static class QueryCommand
         }
 
         var fileFilter = GetOption(args, "--file") ?? options.File;
+        var filterPattern = GetOption(args, "--filter");
 
         var results = Service.GetSymbols(snapshot, fileFilter, kindFilter);
+
+        // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
+        if (!string.IsNullOrWhiteSpace(filterPattern))
+        {
+            var regex = BuildSymbolFilterRegex(filterPattern);
+            results = results.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
+        }
 
         if (options.UseText)
         {
@@ -75,6 +87,175 @@ public static class QueryCommand
         }
 
         return 0;
+    }
+
+    private static Regex BuildSymbolFilterRegex(string pattern)
+    {
+        // If the pattern contains *, treat it as a glob: * -> .*
+        // Otherwise, treat it as a case-insensitive substring match
+        if (pattern.Contains('*'))
+        {
+            var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
+            return new Regex(regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
+        }
+        return new Regex(Regex.Escape(pattern), RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
+    }
+
+    private static int HoverCommand(string[] args, QueryOptions options)
+    {
+        var file = GetOption(args, "--file") ?? options.File;
+        var posStr = GetOption(args, "--pos") ?? options.Pos;
+
+        if (file == null || posStr == null)
+        {
+            return QueryError("Usage: nlc query hover --file <path> --pos <line>:<col>");
+        }
+
+        if (!TryParsePosition(posStr, out var line, out var col))
+        {
+            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+        }
+
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var result = Service.GetHoverInfo(snapshot, file, line, col);
+        if (result == null)
+        {
+            if (options.UseText)
+            {
+                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ErrorToJson(
+                    "hover",
+                    $"No symbol found at {file}:{line}:{col}",
+                    GetProjectRoot(options),
+                    "noSymbol",
+                    new
+                    {
+                        file = NormalizePath(file),
+                        position = new { line, column = col }
+                    }));
+            }
+            return 1;
+        }
+
+        if (options.UseText)
+        {
+            Console.Write(OutputFormatter.HoverToText(result, file, line, col));
+        }
+        else
+        {
+            Console.Write(OutputFormatter.HoverToJson(result, file, line, col));
+        }
+
+        return 0;
+    }
+
+    private static int CallGraphCommand(string[] args, QueryOptions options)
+    {
+        var functionName = GetOption(args, "--function");
+        var limitStr = GetOption(args, "--limit");
+        var limit = 100;
+        if (limitStr != null && int.TryParse(limitStr, out var parsedLimit) && parsedLimit > 0)
+        {
+            limit = parsedLimit;
+        }
+
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var result = Service.GetCallGraph(snapshot, functionName, limit);
+
+        if (options.UseText)
+        {
+            Console.Write(OutputFormatter.CallGraphToText(result));
+        }
+        else
+        {
+            Console.Write(OutputFormatter.CallGraphToJson(result));
+        }
+
+        return 0;
+    }
+
+    private static int ImplementorsCommand(string[] args, QueryOptions options)
+    {
+        var name = GetOption(args, "--name");
+        var file = GetOption(args, "--file") ?? options.File;
+        var posStr = GetOption(args, "--pos") ?? options.Pos;
+
+        // Name-based lookup (primary)
+        if (name != null)
+        {
+            var snapshot = LoadProjectOrFail(options);
+            if (snapshot == null) return 1;
+
+            var result = Service.GetImplementors(snapshot, name);
+
+            if (options.UseText)
+            {
+                Console.Write(OutputFormatter.ImplementorsToText(result));
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ImplementorsToJson(result));
+            }
+
+            return result.Results.Count > 0 ? 0 : 1;
+        }
+
+        // Position-based: resolve the interface name at position, then find implementors
+        if (file != null && posStr != null)
+        {
+            if (!TryParsePosition(posStr, out var line, out var col))
+            {
+                return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            }
+
+            var snapshot = LoadProjectOrFail(options);
+            if (snapshot == null) return 1;
+
+            var definition = Service.FindDefinition(snapshot, file, line, col);
+            if (definition == null || !string.Equals(definition.Kind, "interface", StringComparison.OrdinalIgnoreCase))
+            {
+                if (options.UseText)
+                {
+                    Console.Error.WriteLine($"No interface found at {file}:{line}:{col}");
+                }
+                else
+                {
+                    Console.Write(OutputFormatter.ErrorToJson(
+                        "implementors",
+                        $"No interface found at {file}:{line}:{col}",
+                        GetProjectRoot(options),
+                        "noInterface",
+                        new
+                        {
+                            file = NormalizePath(file),
+                            position = new { line, column = col }
+                        }));
+                }
+                return 1;
+            }
+
+            var result = Service.GetImplementors(snapshot, definition.Name);
+
+            if (options.UseText)
+            {
+                Console.Write(OutputFormatter.ImplementorsToText(result));
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ImplementorsToJson(result));
+            }
+
+            return result.Results.Count > 0 ? 0 : 1;
+        }
+
+        return QueryError("Usage: nlc query implementors --name <interface>\n       nlc query implementors --file <path> --pos <line>:<col>");
     }
 
     private static int BatchCommand(string[] args, QueryOptions options)
@@ -795,6 +976,9 @@ Commands:
   references    Find all references to a symbol (aliases: refs)
   completions   Get completions at a position (LLM-optimized)
   doc           Look up .NET API documentation
+  hover         Signature + docs at a position
+  call-graph    Callers and callees of a function
+  implementors  Concrete types implementing an interface
 
 Global Options:
   --json        Output as JSON (default)
@@ -805,22 +989,29 @@ Global Options:
   --pos         Position as line:col (e.g. 5:12)
 
 Examples:
-  nlc query symbols                          # All symbols in project
-  nlc query batch --requests requests.json   # Mixed semantic queries in one call
-  nlc query symbols --file Program.nl        # Symbols in one file
-  nlc query symbols --kind function          # Only functions
-  nlc query outline Program.nl               # File structure
-  nlc query diagnostics                      # All errors/warnings
-  nlc query diagnostics --text               # Elm-style error output
-  nlc query type --file Program.nl --pos 5:4 # Type at position
+  nlc query symbols                              # All symbols in project
+  nlc query symbols --filter '*Person*'          # Symbols matching glob
+  nlc query symbols --filter Person              # Symbols matching substring
+  nlc query batch --requests requests.json       # Mixed semantic queries in one call
+  nlc query symbols --file Program.nl            # Symbols in one file
+  nlc query symbols --kind function              # Only functions
+  nlc query outline Program.nl                   # File structure
+  nlc query diagnostics                          # All errors/warnings
+  nlc query diagnostics --text                   # Elm-style error output
+  nlc query type --file Program.nl --pos 5:4     # Type at position
   nlc query inspect --file Program.nl --pos 5:4
   nlc query inspect --file Program.nl --pos 5:4 --summary
-  nlc query def --file Program.nl --pos 5:4  # Definition at position
-  nlc query def --name Person                # Search by name
-  nlc query refs --file Program.nl --pos 5:4 # All references
-  nlc query doc Console                      # Type documentation
-  nlc query doc Console.WriteLine            # Method documentation
-  nlc query doc List                         # Generic type docs
+  nlc query def --file Program.nl --pos 5:4      # Definition at position
+  nlc query def --name Person                    # Search by name
+  nlc query refs --file Program.nl --pos 5:4     # All references
+  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position
+  nlc query call-graph --function Main           # Callers/callees of Main
+  nlc query call-graph --function Main --limit 50
+  nlc query implementors --name IShape           # Types implementing IShape
+  nlc query implementors --file Program.nl --pos 10:11
+  nlc query doc Console                          # Type documentation
+  nlc query doc Console.WriteLine                # Method documentation
+  nlc query doc List                             # Generic type docs
 
 JSON queries reuse `nlc daemon` automatically when a daemon is already running.
 Use `--no-daemon` to bypass the daemon for debugging.");
