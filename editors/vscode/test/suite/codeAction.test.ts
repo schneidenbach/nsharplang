@@ -118,6 +118,9 @@ func Main() {
 
         for (const action of actions) {
             if (action.kind) {
+                // Skip code actions contributed by other extensions (e.g., GitHub Copilot)
+                if (action.kind.value?.includes('copilot')) continue;
+
                 const isValid = validKinds.some(k => action.kind!.contains(k));
                 assert.ok(isValid,
                     `Code action "${action.title}" has unexpected kind: ${action.kind.value}`);
