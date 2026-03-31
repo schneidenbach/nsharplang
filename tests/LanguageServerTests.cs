@@ -1943,7 +1943,7 @@ func Main() {
             var diagnostics = doc!.Diagnostics ?? new List<CompilerError>();
             var diagnostic = Assert.Single(diagnostics.Where(d =>
                 d.DiagnosticId == "NL704" &&
-                d.Message.Contains("Cannot import type 'System.Console'")));
+                d.Message.Contains("is a type, not a namespace")));
             Assert.Equal(1, diagnostic.Line);
             Assert.Equal(8, diagnostic.Column);
             Assert.Equal("System.Console".Length, diagnostic.Length);

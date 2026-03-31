@@ -259,7 +259,7 @@ public class Analyzer : IDisposable
                     {
                         Error(
                             ErrorCode.TypeMismatch,
-                            $"Test case row has {row.Count} values but {test.TableParameters.Count} parameters were declared",
+                            $"This test case has {row.Count} values but the table header declares {test.TableParameters.Count} parameters — each row must have exactly one value per parameter",
                             test.Line, test.Column);
                     }
                 }
@@ -401,7 +401,7 @@ public class Analyzer : IDisposable
                 {
                     Error(
                         ErrorCode.MissingReturn,
-                        $"Not all code paths return a value of type '{_currentReturnType}'",
+                        $"This function should return '{_currentReturnType}', but not all code paths return a value — make sure every branch ends with a 'return'",
                         func.Line,
                         func.Column);
                 }
@@ -432,7 +432,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"Expression body type '{exprType}' does not match return type '{_currentReturnType}'", func.Line, func.Column);
+                    Error(ErrorCode.TypeMismatch, $"This function should return '{_currentReturnType}', but the expression body gives '{exprType}'", func.Line, func.Column);
                 }
             }
         }
@@ -693,7 +693,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate union case '{unionCase.Name}'", caseLine, caseCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol);
                 }
             }
         }
@@ -730,7 +730,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Duplicate enum member '{member.Name}'", memLine, memCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol);
                 }
             }
 
@@ -740,11 +740,11 @@ public class Analyzer : IDisposable
                 var valueType = AnalyzeExpression(member.Value);
                 if (enumDecl.Type == EnumType.Int && !IsNumericType(valueType))
                 {
-                    Error($"Enum member value must be numeric", enumDecl.Line, enumDecl.Column);
+                    Error($"Enum member '{member.Name}' must have a numeric value — this enum uses int values", enumDecl.Line, enumDecl.Column);
                 }
                 else if (enumDecl.Type == EnumType.String && !IsStringType(valueType))
                 {
-                    Error($"Enum member value must be string", enumDecl.Line, enumDecl.Column);
+                    Error($"Enum member '{member.Name}' must have a string value — this enum uses string values", enumDecl.Line, enumDecl.Column);
                 }
             }
         }
@@ -761,7 +761,7 @@ public class Analyzer : IDisposable
         {
             if (field.Initializer == null)
             {
-                Error($"Property '{field.Name}' must have either a type or an initializer", field.Line, field.Column);
+                Error($"I can't determine the type of '{field.Name}' — give it a type annotation or an initial value so I know what it is", field.Line, field.Column);
                 fieldType = BuiltInTypes.Unknown;
             }
             else
@@ -771,7 +771,7 @@ public class Analyzer : IDisposable
 
                 if (BuiltInTypes.IsUnknown(fieldType))
                 {
-                    Error($"Cannot infer type for property '{field.Name}' from initializer", field.Line, field.Column);
+                    Error($"I can't figure out the type of '{field.Name}' from its initializer — try adding an explicit type annotation", field.Line, field.Column);
                 }
             }
         }
@@ -806,7 +806,7 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"Cannot assign '{initType}' to '{fieldType}'", field.Line, field.Column);
+                        Error($"Field '{field.Name}' is typed as '{fieldType}', but the initializer gives '{initType}'", field.Line, field.Column);
                     }
                 }
             }
@@ -865,7 +865,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"Cannot assign '{exprType}' to '{propType}' in expression-bodied property", prop.Line, prop.Column);
+                    Error($"Property '{prop.Name}' is typed as '{propType}', but the expression body returns '{exprType}'", prop.Line, prop.Column);
                 }
             }
         }
@@ -950,7 +950,7 @@ public class Analyzer : IDisposable
         {
             if (!assignedFields.Contains(field))
             {
-                Error(ErrorCode.DefiniteAssignmentError, $"Non-nullable field '{field}' must be assigned in constructor", ctor.Line, ctor.Column);
+                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column);
             }
         }
     }
@@ -1016,7 +1016,7 @@ public class Analyzer : IDisposable
         {
             if (terminated)
             {
-                Error(ErrorCode.UnreachableStatement, "unreachable code", stmt.Line, stmt.Column);
+                Error(ErrorCode.UnreachableStatement, "This code will never run — there's a 'return' or 'throw' above it", stmt.Line, stmt.Column);
                 break;
             }
             AnalyzeStatement(stmt);
@@ -1060,7 +1060,7 @@ public class Analyzer : IDisposable
                 var condType = AnalyzeExpression(whileStmt.Condition);
                 if (!IsBoolType(condType))
                 {
-                    Error($"While condition must be boolean", whileStmt.Line, whileStmt.Column);
+                    Error($"The condition in a 'while' loop must be a boolean, but I found '{condType}'", whileStmt.Line, whileStmt.Column);
                 }
                 var wasInLoop = _inLoop;
                 _inLoop = true;
@@ -1073,13 +1073,13 @@ public class Analyzer : IDisposable
             case BreakStatement:
                 if (!_inLoop)
                 {
-                    Error("Break statement outside of loop", stmt.Line, stmt.Column);
+                    Error("'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here", stmt.Line, stmt.Column);
                 }
                 break;
             case ContinueStatement:
                 if (!_inLoop)
                 {
-                    Error("Continue statement outside of loop", stmt.Line, stmt.Column);
+                    Error("'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here", stmt.Line, stmt.Column);
                 }
                 break;
             case ThrowStatement throwStmt:
@@ -1174,7 +1174,7 @@ public class Analyzer : IDisposable
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
-                Error($"Expression body type '{exprType}' is not assignable to return type '{returnType}'",
+                Error($"This function should return '{returnType}', but the expression body gives '{exprType}'",
                     localFunc.Line, localFunc.Column);
             }
         }
@@ -1228,7 +1228,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"Cannot assign '{inferredType}' to '{declaredType}'", varDecl.Line, varDecl.Column);
+                    Error(ErrorCode.TypeMismatch, $"Variable '{varDecl.Name}' is typed as '{declaredType}', but the value is '{inferredType}'", varDecl.Line, varDecl.Column);
                 }
             }
             finalType = declaredType;
@@ -1238,7 +1238,7 @@ public class Analyzer : IDisposable
             // Type specified but no initializer
             if (varDecl.Kind == VariableKind.Const)
             {
-                Error("Const variables must have an initializer", varDecl.Line, varDecl.Column);
+                Error("A 'const' must have an initial value — the compiler needs to know its value at compile time", varDecl.Line, varDecl.Column);
             }
             finalType = declaredType;
         }
@@ -1247,7 +1247,7 @@ public class Analyzer : IDisposable
             // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
             if (inferredType == BuiltInTypes.Void)
             {
-                Error(ErrorCode.TypeMismatch, "Cannot assign void to a variable — the expression does not return a value",
+                Error(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable",
                     varDecl.Line, varDecl.Column);
                 finalType = BuiltInTypes.Unknown;
             }
@@ -1259,7 +1259,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            Error("Variable must have either a type annotation or an initializer", varDecl.Line, varDecl.Column);
+            Error("I can't determine the type of this variable — give it a type annotation or an initial value", varDecl.Line, varDecl.Column);
             finalType = BuiltInTypes.Unknown;
         }
 
@@ -1346,7 +1346,7 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error(ErrorCode.TypeMismatch, $"If condition must be boolean, got '{condType}'", ifStmt.Line, ifStmt.Column);
+                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'", ifStmt.Line, ifStmt.Column);
             }
         }
 
@@ -1494,7 +1494,7 @@ public class Analyzer : IDisposable
             var condType = AnalyzeExpression(forStmt.Condition);
             if (!IsBoolType(condType))
             {
-                Error($"For condition must be boolean", forStmt.Line, forStmt.Column);
+                Error($"The condition in a 'for' loop must be a boolean, but I found '{condType}'", forStmt.Line, forStmt.Column);
             }
         }
 
@@ -1613,7 +1613,7 @@ public class Analyzer : IDisposable
     {
         if (_currentReturnType == null)
         {
-            Error("Return statement outside of function", returnStmt.Line, returnStmt.Column);
+            Error("'return' can only be used inside a function — there's no function to return from here", returnStmt.Line, returnStmt.Column);
             return;
         }
 
@@ -1645,7 +1645,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"Cannot return '{returnedType}' from function returning '{_currentReturnType}'",
+                    Error(ErrorCode.TypeMismatch, $"This function should return '{_currentReturnType}', but this return statement gives back '{returnedType}'",
                         returnStmt.Line, returnStmt.Column);
                 }
             }
@@ -1672,7 +1672,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.MissingReturn, $"Function must return a value of type '{_currentReturnType}'", returnStmt.Line, returnStmt.Column);
+                    Error(ErrorCode.MissingReturn, $"This function should return '{_currentReturnType}', but this 'return' doesn't provide a value", returnStmt.Line, returnStmt.Column);
                 }
             }
         }
@@ -1776,7 +1776,7 @@ public class Analyzer : IDisposable
 
                     if (matchingCase == null)
                     {
-                        Error($"Union type '{ut}' does not have a case '{identPattern.Name}'",
+                        Error($"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
                             pattern.Line, pattern.Column);
                     }
                     // For union cases without properties, no variables to bind
@@ -1807,7 +1807,7 @@ public class Analyzer : IDisposable
 
                     if (matchingCase == null)
                     {
-                        Error($"Union type '{unionType}' does not have a case '{unionPattern.CaseName}'",
+                        Error($"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
                             pattern.Line, pattern.Column);
                     }
                     else if (unionPattern.Properties != null)
@@ -1815,12 +1815,12 @@ public class Analyzer : IDisposable
                         // Bind property patterns to their types
                         if (matchingCase.Properties == null)
                         {
-                            Error($"Union case '{caseName}' has no properties (Properties is null)",
+                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
                                 pattern.Line, pattern.Column);
                         }
                         else if (matchingCase.Properties.Count == 0)
                         {
-                            Error($"Union case '{caseName}' has no properties (Properties is empty)",
+                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
                                 pattern.Line, pattern.Column);
                         }
                         else
@@ -1849,7 +1849,7 @@ public class Analyzer : IDisposable
                                 }
                                 else
                                 {
-                                    Error($"Union case '{caseName}' does not have property '{propPattern.Name}'",
+                                    Error($"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
                                         pattern.Line, pattern.Column);
                                 }
                             }
@@ -1919,7 +1919,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"List pattern cannot be used with type '{valueType}' (must be array or collection)",
+                    Error($"A list pattern can only match arrays or collections, but this value is '{valueType}'",
                         pattern.Line, pattern.Column);
                     elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
                 }
@@ -1963,7 +1963,7 @@ public class Analyzer : IDisposable
                 if (!IsPatternPossible(valueType, targetType))
                 {
                     Warning(ErrorCode.ImpossiblePattern,
-                        $"Type pattern 'is {targetType}' will never match a value of type '{valueType}'",
+                        $"This 'is {targetType}' pattern will never match — a '{valueType}' can never be '{targetType}'",
                         pattern.Line, pattern.Column);
                 }
 
@@ -2033,7 +2033,7 @@ public class Analyzer : IDisposable
 
             if (propType == null)
             {
-                Error($"Type '{valueType}' does not have property '{propPattern.Name}'", line, column);
+                Error($"'{valueType}' doesn't have a property named '{propPattern.Name}'", line, column);
                 continue;
             }
 
@@ -2102,7 +2102,7 @@ public class Analyzer : IDisposable
         }
 
         // If no expected type context, report an error
-        Error("Cannot determine type for 'default' — use a type annotation or provide context",
+        Error("I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
             defaultExpr.Line, defaultExpr.Column);
         return BuiltInTypes.Unknown;
     }
@@ -2322,7 +2322,7 @@ public class Analyzer : IDisposable
 
         if (!IsNumericType(left) || !IsNumericType(right))
         {
-            Error($"Operator '{expr.Operator}' cannot be applied to '{left}' and '{right}'",
+            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
                 expr.Line, expr.Column);
             return BuiltInTypes.Unknown;
         }
@@ -2331,7 +2331,7 @@ public class Analyzer : IDisposable
         var result = GetWiderType(left, right);
         if (result == null)
         {
-            Error($"Operator '{expr.Operator}' cannot be applied to '{left}' and '{right}'",
+            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
                 expr.Line, expr.Column);
             return BuiltInTypes.Unknown;
         }
@@ -2342,7 +2342,7 @@ public class Analyzer : IDisposable
     {
         if (!IsBoolType(left) || !IsBoolType(right))
         {
-            Error($"Logical operator '{expr.Operator}' requires boolean operands", expr.Line, expr.Column);
+            Error($"Both sides of '{expr.Operator}' must be booleans, but I found '{left}' and '{right}'", expr.Line, expr.Column);
         }
         return BuiltInTypes.Bool;
     }
@@ -2382,7 +2382,7 @@ public class Analyzer : IDisposable
                     return symbolType;
                 }
                 // Symbol not found in alias
-                Error($"Symbol '{member.MemberName}' not found in imported alias '{aliasName}'", member.Line, member.Column);
+                Error($"'{member.MemberName}' doesn't exist in '{aliasName}' — check the import for available symbols", member.Line, member.Column);
                 return BuiltInTypes.Unknown;
             }
 
@@ -3150,7 +3150,7 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"Function '{funcType.Declaration.Name}' expects at least {minArgs} arguments but got {argTypes.Count}",
+                        Error($"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
                             call.Line, call.Column);
                     }
                 }
@@ -3177,7 +3177,7 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"Function '{funcType.Declaration.Name}' expects {effectiveParamCount} arguments but got {argTypes.Count}",
+                        Error($"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
                             call.Line, call.Column);
                     }
                 }
@@ -3222,7 +3222,7 @@ public class Analyzer : IDisposable
                             }
                             else
                             {
-                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} of type '{argType}' is not assignable to parameter '{parameters[paramIndex].Name}' of type '{paramType}'",
+                                Error(ErrorCode.TypeMismatch, $"Argument {i + 1} is '{argType}', but parameter '{parameters[paramIndex].Name}' expects '{paramType}'",
                                     call.Line, call.Column);
                             }
                         }
@@ -3254,14 +3254,14 @@ public class Analyzer : IDisposable
                                     {
                                         if (!IsAssignable(arrayType.ElementType, spreadArrayType.ElementType))
                                         {
-                                            Error($"Spread argument {i + 1} element type '{spreadArrayType.ElementType}' is not assignable to params array element type '{arrayType.ElementType}'",
+                                            Error($"Spread argument {i + 1} contains '{spreadArrayType.ElementType}' elements, but the params array expects '{arrayType.ElementType}'",
                                                 call.Line, call.Column);
                                         }
                                     }
                                     // If it's not an array type, it's an error
                                     else if (!BuiltInTypes.IsUnknown(argType))
                                     {
-                                        Error($"Spread argument {i + 1} must be an array or collection type, but got '{argType}'",
+                                        Error($"Spread argument {i + 1} must be an array or collection, but this is '{argType}'",
                                             call.Line, call.Column);
                                     }
                                 }
@@ -3270,7 +3270,7 @@ public class Analyzer : IDisposable
                                     // Regular argument (not spread) - check element type directly
                                     if (!IsAssignable(arrayType.ElementType, argType))
                                     {
-                                        Error($"Params argument {i + 1} of type '{argType}' is not assignable to params array element type '{arrayType.ElementType}'",
+                                        Error($"Argument {i + 1} is '{argType}', but the params array expects '{arrayType.ElementType}' elements",
                                             call.Line, call.Column);
                                     }
                                 }
@@ -3333,7 +3333,7 @@ public class Analyzer : IDisposable
 
             // No matching overload found
             Error(ErrorCode.NoMatchingOverload,
-                $"No matching overload found for '{nsharpGroup.Declarations[0].Name}' with {argTypes.Count} argument(s)",
+                $"None of the overloads of '{nsharpGroup.Declarations[0].Name}' accept {argTypes.Count} argument(s) with these types — check the function signature",
                 call.Line, call.Column);
         }
 
@@ -3552,7 +3552,7 @@ public class Analyzer : IDisposable
 
             if (!IsAssignable(paramType, argType))
             {
-                Error($"Argument {i + 1} of type '{argType}' is not assignable to parameter '{decl.Parameters[paramIndex].Name}' of type '{paramType}'",
+                Error($"Argument {i + 1} is '{argType}', but parameter '{decl.Parameters[paramIndex].Name}' expects '{paramType}'",
                     call.Line, call.Column);
             }
         }
@@ -3570,7 +3570,7 @@ public class Analyzer : IDisposable
                     var argType = argTypes[i];
                     if (!IsAssignable(paramsArrayType.ElementType, argType))
                     {
-                        Error($"Params argument {i + 1} of type '{argType}' is not assignable to params array element type '{paramsArrayType.ElementType}'",
+                        Error($"Argument {i + 1} is '{argType}', but the params array expects '{paramsArrayType.ElementType}' elements",
                             call.Line, call.Column);
                     }
                 }
@@ -3597,7 +3597,7 @@ public class Analyzer : IDisposable
                     if (!IsReferenceType(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"Type '{boundType}' must be a reference type to satisfy the 'class' constraint on type parameter '{constraint.TypeParameter}'",
+                            $"'{boundType}' is a value type, but type parameter '{constraint.TypeParameter}' requires a reference type (class constraint)",
                             call.Line, call.Column);
                     }
                 }
@@ -3609,7 +3609,7 @@ public class Analyzer : IDisposable
                     if (IsReferenceType(boundType) || boundType is NullableTypeInfo)
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"Type '{boundType}' must be a non-nullable value type to satisfy the 'struct' constraint on type parameter '{constraint.TypeParameter}'",
+                            $"'{boundType}' is not a non-nullable value type, but type parameter '{constraint.TypeParameter}' requires one (struct constraint)",
                             call.Line, call.Column);
                     }
                 }
@@ -3619,7 +3619,7 @@ public class Analyzer : IDisposable
                     if (!HasParameterlessConstructor(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"Type '{boundType}' must have a parameterless constructor to satisfy the 'new()' constraint on type parameter '{constraint.TypeParameter}'",
+                            $"'{boundType}' doesn't have a parameterless constructor, but type parameter '{constraint.TypeParameter}' requires one (new() constraint)",
                             call.Line, call.Column);
                     }
                 }
@@ -3630,7 +3630,7 @@ public class Analyzer : IDisposable
                     var constraintType = ApplyNSharpGenericBindings(ResolveType(constraintTypeRef), bindings);
                     if (!IsSubtypeOf(boundType, constraintType) && !IsAssignable(constraintType, boundType))
                     {
-                        Error($"Type '{boundType}' does not satisfy constraint '{constraintType}' on type parameter '{constraint.TypeParameter}'",
+                        Error($"'{boundType}' doesn't implement '{constraintType}', which is required by type parameter '{constraint.TypeParameter}'",
                             call.Line, call.Column);
                     }
                 }
@@ -4490,7 +4490,7 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error($"Cannot assign '{valueType}' to '{targetType}'", assignment.Line, assignment.Column);
+                Error($"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'", assignment.Line, assignment.Column);
             }
         }
 
@@ -4523,7 +4523,7 @@ public class Analyzer : IDisposable
 
             if (field != null && field.Modifiers.HasFlag(Modifiers.Readonly))
             {
-                Error($"Cannot assign to readonly field '{fieldName}' outside of a constructor", line, column);
+                Error($"Field '{fieldName}' is readonly — it can only be assigned in a constructor", line, column);
             }
         }
     }
@@ -4608,7 +4608,7 @@ public class Analyzer : IDisposable
         var condType = AnalyzeExpression(ternary.Condition);
         if (!IsBoolType(condType))
         {
-            Error("Ternary condition must be boolean", ternary.Line, ternary.Column);
+            Error($"The condition in a ternary expression must be a boolean, but I found '{condType}'", ternary.Line, ternary.Column);
         }
 
         var thenType = AnalyzeExpression(ternary.ThenExpression);
@@ -4631,7 +4631,7 @@ public class Analyzer : IDisposable
             var elemType = AnalyzeExpression(elem);
             if (!IsAssignable(firstType, elemType))
             {
-                Error($"Array element type mismatch", array.Line, array.Column);
+                Error($"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'", array.Line, array.Column);
             }
         }
 
@@ -4707,7 +4707,7 @@ public class Analyzer : IDisposable
         if (!IsPatternPossible(sourceType, targetType))
         {
             Warning(ErrorCode.ImpossiblePattern,
-                $"Type check 'is {targetType}' will never succeed for a value of type '{sourceType}'",
+                $"This 'is {targetType}' check will always be false — a '{sourceType}' can never be '{targetType}'",
                 isExpr.Line, isExpr.Column);
         }
 
@@ -4772,7 +4772,7 @@ public class Analyzer : IDisposable
                 var guardType = AnalyzeExpression(matchCase.Guard);
                 if (!IsAssignable(BuiltInTypes.Bool, guardType))
                 {
-                    Error(ErrorCode.GuardNotBoolean, $"Guard expression must be of type 'bool', but got '{guardType}'",
+                    Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
                         matchCase.Guard.Line, matchCase.Guard.Column);
                 }
             }
@@ -4795,7 +4795,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"Match case has incompatible type '{caseType}', expected '{resultType}'",
+                    Error($"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
                         matchCase.Expression.Line, matchCase.Expression.Column);
                 }
             }
@@ -4886,7 +4886,7 @@ public class Analyzer : IDisposable
             else
             {
                 var missingCasesStr = string.Join(", ", missingCases);
-                Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing cases: {missingCasesStr}",
+                Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
                     match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
             }
         }
@@ -4976,7 +4976,7 @@ public class Analyzer : IDisposable
             else
             {
                 var missingStr = string.Join(", ", missingMembers);
-                Error(ErrorCode.NonExhaustiveMatch, $"Match expression is not exhaustive. Missing enum members: {missingStr}",
+                Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all enum members — missing: {missingStr}",
                     match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr));
             }
         }
@@ -5244,7 +5244,7 @@ public class Analyzer : IDisposable
         else
         {
             // Fallback to simple error
-            Error(ErrorCode.UndefinedVariable, $"Undefined identifier '{name}'", line, column);
+            Error(ErrorCode.UndefinedVariable, $"I can't find '{name}' — it hasn't been declared in this scope", line, column);
         }
 
         return BuiltInTypes.Unknown;
@@ -5286,7 +5286,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            Warning($"Identifier '{name}' doesn't follow naming convention (PascalCase for public, camelCase for private)",
+            Warning($"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means file-private",
                 line, column);
         }
     }
@@ -6153,7 +6153,7 @@ public class Analyzer : IDisposable
                 }
             }
 
-            Error($"Symbol '{name}' is already declared in this scope", line, column);
+            Error($"'{name}' is already declared in this scope — each name must be unique within the same scope", line, column);
         }
         else
         {
@@ -6207,7 +6207,7 @@ public class Analyzer : IDisposable
         var currentScope = _scopes.Peek();
         if (currentScope.Types.ContainsKey(name))
         {
-            Error($"Type '{name}' is already declared", line, column);
+            Error($"A type named '{name}' already exists — each type name must be unique", line, column);
         }
         else
         {
@@ -6250,13 +6250,13 @@ public class Analyzer : IDisposable
                 // params must be last parameter
                 if (i != parameters.Count - 1)
                 {
-                    Error("A params parameter must be the last parameter in a parameter list", line, column);
+                    Error("A 'params' parameter must come last in the parameter list — move it to the end", line, column);
                 }
 
                 // C# 13: params can be array, Span<T>, ReadOnlySpan<T>, or collection types
                 if (!IsValidParamsType(param.Type))
                 {
-                    Error($"A params parameter must be an array, Span<T>, ReadOnlySpan<T>, or a collection type (IEnumerable<T>, IList<T>, etc.), got '{TranspileTypeReference(param.Type)}'", line, column);
+                    Error($"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type", line, column);
                 }
             }
         }
@@ -6284,7 +6284,7 @@ public class Analyzer : IDisposable
                 if (!IsValidDefaultValue(param.DefaultValue!))
                 {
                     Error(ErrorCode.InvalidDefaultParameterValue,
-                        $"Default parameter value for '{param.Name}' must be a compile-time constant (literal, null, or simple constant expression)",
+                        $"The default value for '{param.Name}' must be something the compiler can evaluate — use a literal, null, or a simple constant",
                         line, column);
                 }
             }
@@ -6294,7 +6294,7 @@ public class Analyzer : IDisposable
                 if (foundOptional)
                 {
                     Error(ErrorCode.RequiredParameterAfterOptional,
-                        $"Required parameter '{param.Name}' cannot appear after optional parameters",
+                        $"Required parameter '{param.Name}' can't come after optional parameters — move it before the optional ones, or give it a default value too",
                         line, column);
                 }
             }
@@ -6394,7 +6394,7 @@ public class Analyzer : IDisposable
         // Operator overloads must be static
         if (!func.Modifiers.HasFlag(Modifiers.Static))
         {
-            Error("Operator overloads must be static", func.Line, func.Column);
+            Error("Operator overloads must be declared 'static' — they don't belong to a specific instance", func.Line, func.Column);
         }
 
         // Get expected parameter count
@@ -6411,7 +6411,7 @@ public class Analyzer : IDisposable
 
         if (expectedParams == -1)
         {
-            Error($"Unsupported operator '{func.OperatorSymbol}' for overloading", func.Line, func.Column);
+            Error($"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported", func.Line, func.Column);
             return;
         }
 
@@ -6420,12 +6420,12 @@ public class Analyzer : IDisposable
         {
             if (func.Parameters.Count != 1 && func.Parameters.Count != 2)
             {
-                Error($"Operator '{func.OperatorSymbol}' must have 1 (unary) or 2 (binary) parameters", func.Line, func.Column);
+                Error($"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}", func.Line, func.Column);
             }
         }
         else if (func.Parameters.Count != expectedParams)
         {
-            Error($"Operator '{func.OperatorSymbol}' must have {expectedParams} parameter(s), got {func.Parameters.Count}", func.Line, func.Column);
+            Error($"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}", func.Line, func.Column);
         }
     }
 
@@ -6512,7 +6512,7 @@ public class Analyzer : IDisposable
         {
             if (!IsValidIdentifier(part))
             {
-                Error($"Invalid package name: '{part}' is not a valid identifier", package.Line, package.Column);
+                Error($"Package name '{part}' is not a valid identifier — package names must start with a letter and contain only letters, digits, and underscores", package.Line, package.Column);
             }
         }
     }
@@ -6612,7 +6612,7 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error(ErrorCode.CircularImport, $"Circular import detected: '{import.Path}' imports itself",
+                Error(ErrorCode.CircularImport, $"'{import.Path}' imports itself — circular imports aren't allowed",
                     import.Line, import.Column,
                     ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
             }
@@ -6633,7 +6633,7 @@ public class Analyzer : IDisposable
             // Report parse errors
             foreach (var error in parseResult.Errors)
             {
-                Error($"Parse error in imported file '{import.Path}': {error.Message}", import.Line, import.Column);
+                Error($"The imported file '{import.Path}' has a syntax error — {error.Message}", import.Line, import.Column);
             }
 
             if (importedUnit == null)
@@ -6643,7 +6643,7 @@ public class Analyzer : IDisposable
         }
         catch (Exception ex)
         {
-            Error($"Failed to parse imported file '{import.Path}': {ex.Message}", import.Line, import.Column);
+            Error($"I couldn't read the imported file '{import.Path}' — {ex.Message}", import.Line, import.Column);
             return;
         }
 
@@ -6678,7 +6678,7 @@ public class Analyzer : IDisposable
                         else
                         {
                             Error(ErrorCode.CircularImport,
-                                $"Circular import detected: '{import.Path}' imports '{nestedFileImport.Path}' which creates a cycle",
+                                $"Circular import: '{import.Path}' imports '{nestedFileImport.Path}' which imports this file back — break the cycle by restructuring your imports",
                                 import.Line, import.Column,
                                 ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
                         }
@@ -6780,7 +6780,7 @@ public class Analyzer : IDisposable
         {
             // Multiple candidates from different files — ambiguous
             var sources = string.Join(", ", externalCandidates.Select(c => Path.GetFileName(c.SourceFile)));
-            Error($"Ambiguous symbol '{name}' found in multiple project files: {sources}. Use an explicit file import to disambiguate.", line, column);
+            Error($"'{name}' is defined in multiple files ({sources}) — add an explicit file import to tell me which one you mean", line, column);
             return false;
         }
 
@@ -6852,7 +6852,7 @@ public class Analyzer : IDisposable
 
             Error(
                 ErrorCode.NamespaceNotFound,
-                $"Cannot import type '{namespaceName}'; imports must target namespaces",
+                $"'{namespaceName}' is a type, not a namespace — you can only import namespaces",
                 line,
                 diagnosticColumn,
                 suggestion,
@@ -6872,7 +6872,7 @@ public class Analyzer : IDisposable
 
         Error(
             ErrorCode.NamespaceNotFound,
-            $"Namespace '{namespaceName}' not found",
+            $"I can't find namespace '{namespaceName}' — check the spelling and make sure the assembly is referenced",
             line,
             diagnosticColumn,
             "Check the namespace spelling and project references.",
@@ -7165,7 +7165,7 @@ public class Analyzer : IDisposable
         {
             if (sources.Count > 1)
             {
-                Error($"Symbol '{symbol}' imported from multiple sources: {string.Join(", ", sources)}. Use aliasing to resolve the conflict.", 0, 0);
+                Error($"'{symbol}' is imported from multiple sources ({string.Join(", ", sources)}) — use an alias to resolve the conflict", 0, 0);
             }
         }
     }

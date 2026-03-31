@@ -116,7 +116,7 @@ public class AnalyzerTests
             func Main() {
                 let x: string = 42
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class AnalyzerTests
             func Main() {
                 const x: int
             }
-        ", "Const variables must have an initializer");
+        ", "must have an initial value");
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class AnalyzerTests
             func Main() {
                 x := y
             }
-        ", "Undefined identifier 'y'");
+        ", "I can't find 'y'");
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public class AnalyzerTests
             func GetName(): string {
                 return 42
             }
-        ", "Cannot return");
+        ", "return statement gives back");
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public class AnalyzerTests
             func DoNothing() {
                 return 42
             }
-        ", "Cannot return");
+        ", "return statement gives back");
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class AnalyzerTests
 
                 }
             }
-        ", "If condition must be boolean");
+        ", "must be a boolean");
     }
 
     [Fact]
@@ -190,7 +190,7 @@ public class AnalyzerTests
 
                 }
             }
-        ", "While condition must be boolean");
+        ", "must be a boolean");
     }
 
     [Fact]
@@ -202,7 +202,7 @@ public class AnalyzerTests
 
                 }
             }
-        ", "For condition must be boolean");
+        ", "must be a boolean");
     }
 
     [Fact]
@@ -212,7 +212,7 @@ public class AnalyzerTests
             func Main() {
                 break
             }
-        ", "Break statement outside of loop");
+        ", "can only be used inside a loop");
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class AnalyzerTests
             func Main() {
                 continue
             }
-        ", "Continue statement outside of loop");
+        ", "can only be used inside a loop");
     }
 
     [Fact]
@@ -295,7 +295,7 @@ public class AnalyzerTests
             func Main() {
                 c: byte = getA() + getB()
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -308,7 +308,7 @@ public class AnalyzerTests
             func Main() {
                 c: short = getA() + getB()
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -334,7 +334,7 @@ public class AnalyzerTests
             func Main() {
                 x := getD() + getF()
             }
-        ", "cannot be applied");
+        ", "doesn't work with");
     }
 
     [Fact]
@@ -346,7 +346,7 @@ public class AnalyzerTests
             func Main() {
                 x := getD() + getF()
             }
-        ", "cannot be applied");
+        ", "doesn't work with");
     }
 
     [Fact]
@@ -359,7 +359,7 @@ public class AnalyzerTests
             func Main() {
                 x := getU() + getI()
             }
-        ", "cannot be applied");
+        ", "doesn't work with");
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public class AnalyzerTests
             func Main() {
                 x := ""hello"" - ""world""
             }
-        ", "cannot be applied");
+        ", "doesn't work with");
     }
 
     [Fact]
@@ -402,7 +402,7 @@ public class AnalyzerTests
             func Main() {
                 x := 1 && 2
             }
-        ", "requires boolean operands");
+        ", "must be booleans");
     }
 
     [Fact]
@@ -412,7 +412,7 @@ public class AnalyzerTests
             func Main() {
                 x := 42 ? 1 : 2
             }
-        ", "Ternary condition must be boolean");
+        ", "must be a boolean");
     }
 
     [Fact]
@@ -474,7 +474,7 @@ public class AnalyzerTests
                 Pending,
                 Pending
             }
-        ", "Duplicate enum member");
+        ", "is already defined");
     }
 
     [Fact]
@@ -496,7 +496,7 @@ public class AnalyzerTests
                 Success { value: int }
                 Success { error: string }
             }
-        ", "Duplicate union case");
+        ", "is already defined");
     }
 
     [Fact]
@@ -523,7 +523,7 @@ public class AnalyzerTests
                 constructor() {
                 }
             }
-        ", "must be assigned in constructor");
+        ", "isn't assigned in this constructor");
     }
 
     [Fact]
@@ -911,7 +911,7 @@ public class AnalyzerTests
                 reader := new FileReader()
                 DoWork(reader)
             }
-        ", "not assignable");
+        ", "but parameter");
     }
 
     [Fact]
@@ -935,7 +935,7 @@ public class AnalyzerTests
                 reader := new FileReader()
                 DoWork(reader)
             }
-        ", "not assignable");
+        ", "but parameter");
     }
 
     [Fact]
@@ -958,7 +958,7 @@ public class AnalyzerTests
                 writer := new FileWriter()
                 DoWork(writer)
             }
-        ", "not assignable");
+        ", "but parameter");
     }
 
     [Fact]
@@ -982,7 +982,7 @@ public class AnalyzerTests
                 processor := new DataProcessor()
                 DoWork(processor)
             }
-        ", "not assignable");
+        ", "but parameter");
     }
 
     [Fact]
@@ -1097,7 +1097,7 @@ public class AnalyzerTests
                     Result.Success { value } => value
                 }
             }
-        ", "not exhaustive");
+        ", "doesn't cover all");
     }
 
     [Fact]
@@ -1137,7 +1137,7 @@ public class AnalyzerTests
                     Status.Pending { id } => 0
                 }
             }
-        ", "not exhaustive");
+        ", "doesn't cover all");
     }
 
     [Fact]
@@ -1175,7 +1175,7 @@ public class AnalyzerTests
                     Result.Unknown => 0
                 }
             }
-        ", "does not have a case");
+        ", "is not a case of union");
     }
 
     [Fact]
@@ -1194,7 +1194,7 @@ public class AnalyzerTests
                     Result.Failure { invalidProp } => 0
                 }
             }
-        ", "does not have property");
+        ", "doesn't have a property named");
     }
 
     [Fact]
@@ -1241,7 +1241,7 @@ public class AnalyzerTests
                     Result.Failure { error } => error
                 }
             }
-        ", "incompatible type");
+        ", "All match arms must return the same type");
     }
 
     [Fact]
@@ -1269,7 +1269,7 @@ public class AnalyzerTests
                     n when ""not a bool"" => ""value""
                 }
             }
-        ", "must be of type 'bool'");
+        ", "A match guard must be a boolean");
     }
 
     [Fact]
@@ -1331,7 +1331,7 @@ public class AnalyzerTests
                     Status.Inactive when true => ""inactive""
                 }
             }
-        ", "not exhaustive");
+        ", "doesn't cover all");
     }
 
     [Fact]
@@ -1376,7 +1376,7 @@ public class AnalyzerTests
                     Status.Pending when true => ""pending""
                 }
             }
-        ", "not exhaustive");
+        ", "doesn't cover all");
     }
 
     [Fact]
@@ -1517,7 +1517,7 @@ public class AnalyzerTests
             func Main() {
                 let numbers: List<int> = [""not"", ""ints""]
             }
-        ", "Cannot assign 'string[]' to 'List<int>'");
+        ", "is typed as");
     }
 
     [Fact]
@@ -1556,7 +1556,7 @@ public class AnalyzerTests
         AssertHasError(@"
             func Invalid(params numbers: int[], other: string) {
             }
-        ", "params parameter must be the last parameter");
+        ", "must come last in the parameter list");
     }
 
     [Fact]
@@ -1565,7 +1565,7 @@ public class AnalyzerTests
         AssertHasError(@"
             func Invalid(params value: int) {
             }
-        ", "params parameter must be an array, Span<T>, ReadOnlySpan<T>, or a collection type");
+        ", "must be an array or collection type");
     }
 
     // Extension Method Resolution Tests
@@ -1723,7 +1723,7 @@ public class AnalyzerTests
                 let frac: Fraction = new Fraction { Numerator: 3, Denominator: 4 }
                 let value: double = frac  // Should error - explicit conversion required
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -1787,7 +1787,7 @@ public class AnalyzerTests
         var error = result.Errors[0];
         Assert.Equal(ErrorCode.RequiredParameterAfterOptional, error.Code);
         Assert.Contains("'b'", error.Message);
-        Assert.Contains("cannot appear after optional", error.Message);
+        Assert.Contains("can't come after optional", error.Message);
     }
 
     [Fact]
@@ -1880,7 +1880,7 @@ public class AnalyzerTests
         Assert.NotEmpty(result.Errors);
         var error = result.Errors.FirstOrDefault(e => e.Code == ErrorCode.InvalidDefaultParameterValue);
         Assert.NotNull(error);
-        Assert.Contains("compile-time constant", error.Message);
+        Assert.Contains("default value for", error.Message);
     }
 
     [Fact]
@@ -2055,7 +2055,7 @@ public class AnalyzerTests
 
             func Main() {
             }
-        ", "Cannot import type 'System.Console'");
+        ", "is a type, not a namespace");
     }
 
     [Fact]
@@ -3240,7 +3240,7 @@ func Hello(): string {
                 p := new Processor()
                 p.Process(true)
             }
-        ", "No matching overload");
+        ", "None of the overloads");
     }
 
     [Fact]
@@ -3479,7 +3479,7 @@ func Hello(): string {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "does not satisfy constraint");
+        ", "doesn't implement");
     }
 
     [Fact]
@@ -3668,7 +3668,7 @@ func Hello(): string {
             func Main() {
                 Process(true)
             }
-        ", "No matching overload");
+        ", "None of the overloads");
     }
 
     [Fact]
@@ -3693,7 +3693,7 @@ func Hello(): string {
             func Main() {
                 5.Format(true)
             }
-        ", "No matching overload");
+        ", "None of the overloads");
     }
 
     // ================================================================
@@ -3709,7 +3709,7 @@ func Hello(): string {
             func Main() {
                 let s: string = 5.Double()
             }
-        ", "assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -3721,7 +3721,7 @@ func Hello(): string {
                 let x: int = 5
                 let s: string = x.Double()
             }
-        ", "assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -3732,7 +3732,7 @@ func Hello(): string {
             func Main() {
                 let n: int = true.Toggle()
             }
-        ", "assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -3743,7 +3743,7 @@ func Hello(): string {
             func Main() {
                 let n: int = ""hello"".Upper()
             }
-        ", "assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -3768,7 +3768,7 @@ func Hello(): string {
             func Main() {
                 TakesString(5.Double())
             }
-        ", "not assignable");
+        ", "but parameter");
     }
 
     [Fact]
@@ -4434,7 +4434,7 @@ func Hello(): string {
                 x: int = 42
                 y: byte = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4446,7 +4446,7 @@ func Hello(): string {
                 x: short = GetShort()
                 y: byte = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4458,7 +4458,7 @@ func Hello(): string {
                 x: long = GetLong()
                 y: int = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4469,7 +4469,7 @@ func Hello(): string {
                 x: double = 3.14
                 y: float = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4481,7 +4481,7 @@ func Hello(): string {
                 x: decimal = GetDecimal()
                 y: double = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4492,7 +4492,7 @@ func Hello(): string {
                 x: int = 42
                 y: short = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4503,7 +4503,7 @@ func Hello(): string {
                 x: double = 3.14
                 y: int = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4515,7 +4515,7 @@ func Hello(): string {
                 x: float = GetFloat()
                 y: int = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4527,7 +4527,7 @@ func Hello(): string {
                 x: decimal = GetDecimal()
                 y: int = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -4539,7 +4539,7 @@ func Hello(): string {
                 x: long = GetLong()
                 y: short = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     #endregion
@@ -4609,7 +4609,7 @@ func Hello(): string {
             func Main() {
                 x: int = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     // Inner type widening: int? -> long? (should work)
@@ -4741,7 +4741,7 @@ func Hello(): string {
                     Status.Inactive => ""off""
                 }
             }
-        ", "not exhaustive");
+        ", "doesn't cover all");
     }
 
     [Fact]
@@ -4775,7 +4775,7 @@ func Hello(): string {
         ");
         // Should have error for undefined function but NOT for x assignment
         Assert.True(result.HasErrors);
-        Assert.DoesNotContain(result.Errors, e => e.Message.Contains("Cannot assign"));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
     }
 
     #endregion
@@ -4830,7 +4830,7 @@ func Hello(): string {
                     b: string = x
                 }
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     #endregion
@@ -4929,7 +4929,7 @@ func Hello(): string {
                     a: string = x
                 }
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5071,7 +5071,7 @@ func Hello(): string {
             func Main() {
                 let f: Func<int, string> = (x, y) => ""hello""
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5127,7 +5127,7 @@ func Hello(): string {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "does not satisfy constraint");
+        ", "doesn't implement");
     }
 
     // --- Special constraint tests ---
@@ -5155,7 +5155,7 @@ func Hello(): string {
             func Main() {
                 result := Identity(42)
             }
-        ", "must be a reference type");
+        ", "is a value type, but type parameter");
     }
 
     [Fact]
@@ -5181,7 +5181,7 @@ func Hello(): string {
             func Main() {
                 result := Box(""hello"")
             }
-        ", "must be a non-nullable value type");
+        ", "is not a non-nullable value type");
     }
 
     [Fact]
@@ -5214,7 +5214,7 @@ func Hello(): string {
                 p := new Point(1, 2)
                 result := Create<Point>(p)
             }
-        ", "must have a parameterless constructor");
+        ", "doesn't have a parameterless constructor");
     }
 
     [Fact]
@@ -5308,7 +5308,7 @@ func Hello(): string {
                 r := new RequiresPrimary(1)
                 result := Create<RequiresPrimary>(r)
             }
-        ", "must have a parameterless constructor");
+        ", "doesn't have a parameterless constructor");
     }
 
     [Fact]
@@ -5343,7 +5343,7 @@ func Hello(): string {
             func Main() {
                 c: Color = ""red""
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5358,7 +5358,7 @@ func Hello(): string {
             func Main() {
                 c: Color = 0
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5404,7 +5404,7 @@ func Hello(): string {
             func Main() {
                 c: Color = ""red""
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     #endregion
@@ -5562,7 +5562,7 @@ func Hello(): string {
             func Main() {
                 x: bool = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5573,7 +5573,7 @@ func Hello(): string {
             func Main() {
                 x: double = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5625,7 +5625,7 @@ func Hello(): string {
                 x: long? = GetNullableLong()
                 y: int? = x
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5640,7 +5640,7 @@ func Hello(): string {
             func Main() {
                 p: Point = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5669,7 +5669,7 @@ func Hello(): string {
             func Main() {
                 p: Point = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
@@ -5716,7 +5716,7 @@ func Hello(): string {
                 x: int = 42
                 result := x is string
             }
-        ", "will never succeed");
+        ", "will always be false");
     }
 
     [Fact]
@@ -5728,7 +5728,7 @@ func Hello(): string {
                 flag: bool = true
                 result := flag is int
             }
-        ", "will never succeed");
+        ", "will always be false");
     }
 
     [Fact]
@@ -5795,7 +5795,7 @@ func Hello(): string {
                 c: Cat = new Cat { Name: ""Whiskers"" }
                 result := c is Dog
             }
-        ", "will never");
+        ", "will always be false");
     }
 
     [Fact]
@@ -5840,7 +5840,7 @@ func Hello(): string {
                     len: int = s.Length
                 }
             }
-        ", "will never succeed");
+        ", "will always be false");
     }
 
     [Fact]
@@ -5867,7 +5867,7 @@ func Hello(): string {
                 x: int = 5
                 result := x is double
             }
-        ", "will never succeed");
+        ", "will always be false");
     }
 
     #endregion
@@ -6025,7 +6025,7 @@ func Hello(): string {
             func Main() {
                 x := default
             }
-        ", "Cannot determine type for 'default'");
+        ", "can't figure out what type 'default' should be");
     }
 
     [Fact]
@@ -6114,7 +6114,7 @@ func Hello(): string {
             func Main() {
                 x: int = null
             }
-        ", "Cannot assign");
+        ", "is typed as");
     }
 
     [Fact]
