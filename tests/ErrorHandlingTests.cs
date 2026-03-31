@@ -438,7 +438,7 @@ func after() {
         // Linter should warn about unreachable code
         var linter = new Linter();
         var diagnostics = linter.Lint(unit);
-        Assert.Contains(diagnostics, d => d.Message.Contains("unreachable"));
+        Assert.Contains(diagnostics, d => d.Message.Contains("will never run"));
 
         // Analyzer should error about unreachable code
         var analyzer = new Analyzer();

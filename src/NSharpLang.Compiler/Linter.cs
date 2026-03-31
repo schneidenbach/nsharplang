@@ -50,9 +50,7 @@ public class LinterConfig
                 { "NL004", DiagnosticSeverity.Warning }, // Async without await
                 { "NL005", DiagnosticSeverity.Info },    // Use pattern matching
                 { "NL006", DiagnosticSeverity.Warning }, // Unreachable code
-                { "NL007", DiagnosticSeverity.Warning }, // Pascal-case type
                 { "NL008", DiagnosticSeverity.Info },    // Camel-case local
-                { "NL009", DiagnosticSeverity.Warning }, // Pascal-case function
                 { "NL011", DiagnosticSeverity.Warning }, // Empty catch
                 { "NL012", DiagnosticSeverity.Info },    // Unused parameter
                 { "NL013", DiagnosticSeverity.Info },    // Prefer interpolation
@@ -289,9 +287,10 @@ internal class LintVisitor
             {
                 AddDiagnostic(
                     "NL001",
-                    $"Unused variable '{varName}'",
+                    $"Variable '{varName}' is declared but never read",
                     new Location(line, column, _filePath),
-                    _config.GetSeverity("NL001"));
+                    _config.GetSeverity("NL001"),
+                    $"If this is intentional, prefix it with '_' to indicate it's unused: '_{varName}'");
             }
         }
     }
@@ -415,37 +414,23 @@ internal class LintVisitor
         switch (declaration)
         {
             case FunctionDeclaration func:
-                // NL009: Pascal-case function
-                CheckPascalCaseFunction(func.Name, func.Line, func.Column);
                 VisitFunction(func);
                 break;
             case ClassDeclaration classDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(classDecl.Name, "class", classDecl.Line, classDecl.Column);
                 VisitClass(classDecl);
                 break;
             case StructDeclaration structDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(structDecl.Name, "struct", structDecl.Line, structDecl.Column);
                 VisitStruct(structDecl);
                 break;
             case RecordDeclaration recordDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(recordDecl.Name, "record", recordDecl.Line, recordDecl.Column);
                 VisitRecord(recordDecl);
                 break;
             case InterfaceDeclaration interfaceDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(interfaceDecl.Name, "interface", interfaceDecl.Line, interfaceDecl.Column);
                 VisitInterface(interfaceDecl);
                 break;
             case UnionDeclaration unionDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(unionDecl.Name, "union", unionDecl.Line, unionDecl.Column);
                 break;
             case EnumDeclaration enumDecl:
-                // NL007: Pascal-case type
-                CheckPascalCaseType(enumDecl.Name, "enum", enumDecl.Line, enumDecl.Column);
                 break;
             case FieldDeclaration field:
                 if (field.Initializer != null)
@@ -465,46 +450,6 @@ internal class LintVisitor
                 VisitStatement(ctor.Body);
                 _inConstructor = wasInCtor;
                 break;
-        }
-    }
-
-    private void CheckPascalCaseType(string name, string kind, int line, int column)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL007"))
-            return;
-        if (string.IsNullOrEmpty(name))
-            return;
-        if (!char.IsUpper(name[0]))
-        {
-            AddDiagnostic(
-                "NL007",
-                $"{kind} '{name}' should use PascalCase naming",
-                new Location(line, column, _filePath),
-                _config.GetSeverity("NL007"),
-                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
-        }
-    }
-
-    private void CheckPascalCaseFunction(string name, int line, int column)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL009"))
-            return;
-        if (string.IsNullOrEmpty(name))
-            return;
-        // Skip operator overloads (name may start with non-letter)
-        if (!char.IsLetter(name[0]))
-            return;
-        // 'main' is a special entry-point identifier, exempt from PascalCase (like Go)
-        if (name == "main")
-            return;
-        if (!char.IsUpper(name[0]))
-        {
-            AddDiagnostic(
-                "NL009",
-                $"Function '{name}' should use PascalCase naming",
-                new Location(line, column, _filePath),
-                _config.GetSeverity("NL009"),
-                $"Rename '{name}' to '{char.ToUpperInvariant(name[0])}{name[1..]}'");
         }
     }
 
@@ -582,10 +527,10 @@ internal class LintVisitor
             {
                 AddDiagnostic(
                     "NL004",
-                    $"Async function '{func.Name}' does not use 'await'",
+                    $"Function '{func.Name}' is marked 'async' but never uses 'await' — it will run synchronously",
                     new Location(func.Line, func.Column, _filePath),
                     _config.GetSeverity("NL004"),
-                    "Consider removing 'async' or use 'await' with async operations");
+                    $"Either add an 'await' expression inside '{func.Name}', or remove the 'async' modifier if this function doesn't need to be asynchronous");
             }
         }
 
@@ -613,10 +558,10 @@ internal class LintVisitor
             {
                 AddDiagnostic(
                     "NL012",
-                    $"Parameter '{name}' in function '{functionName}' is never used",
+                    $"Parameter '{name}' in '{functionName}' is never read — is it needed?",
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL012"),
-                    $"Prefix with '_' to suppress: '_{name}'");
+                    $"If the parameter is required by an interface or override, prefix with '_' to suppress this: '_{name}'");
             }
         }
     }
@@ -696,9 +641,10 @@ internal class LintVisitor
                 {
                     AddDiagnostic(
                         "NL019",
-                        "Empty block body — consider adding a comment or removing the block",
+                        "This block is empty — it doesn't do anything",
                         new Location(block.Line, block.Column, _filePath),
-                        _config.GetSeverity("NL019"));
+                        _config.GetSeverity("NL019"),
+                        "Add code to the block, or remove it if it's not needed");
                 }
 
                 PushScope();
@@ -713,9 +659,10 @@ internal class LintVisitor
                         {
                             AddDiagnostic(
                                 "NL006",
-                                "unreachable code detected",
+                                "This code will never run — there's a 'return' or 'throw' above it",
                                 new Location(stmt.Line, stmt.Column, _filePath),
-                                _config.GetSeverity("NL006"));
+                                _config.GetSeverity("NL006"),
+                                "Remove the unreachable code, or move it before the return/throw if it should execute");
                             unreachableReported = true;
                         }
 
@@ -791,10 +738,10 @@ internal class LintVisitor
                     {
                         AddDiagnostic(
                             "NL011",
-                            "Empty catch block swallows exceptions silently",
+                            "This catch block is empty — exceptions will be silently swallowed",
                             new Location(catchClause.Block.Line, catchClause.Block.Column, _filePath),
                             _config.GetSeverity("NL011"),
-                            "Add error handling or at minimum a comment explaining why the exception is ignored");
+                            "Log the error, handle it, or add a comment explaining why it's safe to ignore");
                     }
 
                     PushScope();
@@ -924,9 +871,10 @@ internal class LintVisitor
 
                         AddDiagnostic(
                             "NL003",
-                            $"Unnecessary null check: '{typeName}' is never null",
+                            $"This null check is unnecessary — '{typeName}' is a value type and can never be null",
                             new Location(condition.Line, condition.Column, _filePath),
-                            _config.GetSeverity("NL003"));
+                            _config.GetSeverity("NL003"),
+                            "You can safely remove this null check");
                     }
                 }
             }
@@ -1178,10 +1126,10 @@ internal class LintVisitor
         {
             AddDiagnostic(
                 "NL008",
-                $"Local variable '{name}' should use camelCase naming",
+                $"Local variable '{name}' starts with an uppercase letter — locals use camelCase in N#",
                 new Location(line, column, _filePath),
                 _config.GetSeverity("NL008"),
-                $"Rename '{name}' to '{char.ToLowerInvariant(name[0])}{name[1..]}'");
+                $"Rename to '{char.ToLowerInvariant(name[0])}{name[1..]}' — in N#, PascalCase is reserved for exported (public) declarations");
         }
     }
 
@@ -1200,10 +1148,10 @@ internal class LintVisitor
         {
             AddDiagnostic(
                 "NL013",
-                "String concatenation with '+' — consider using string interpolation ($\"...\")",
+                "String concatenation with '+' is harder to read than interpolation",
                 new Location(binary.Line, binary.Column, _filePath),
                 _config.GetSeverity("NL013"),
-                "Replace with $\"...{expr}...\" interpolated string");
+                "Try $\"...{expr}...\" — string interpolation is easier to read and less error-prone");
         }
     }
 
@@ -1231,9 +1179,10 @@ internal class LintVisitor
             {
                 AddDiagnostic(
                     "NL020",
-                    $"Variable '{name}' shadows a variable declared in an outer scope",
+                    $"Variable '{name}' shadows another '{name}' from an outer scope — this can lead to confusing bugs",
                     new Location(line, column, _filePath),
-                    _config.GetSeverity("NL020"));
+                    _config.GetSeverity("NL020"),
+                    $"Consider renaming to avoid confusion with the outer '{name}'");
                 return;
             }
         }
@@ -1310,10 +1259,10 @@ internal class LintVisitor
             {
                 AddDiagnostic(
                     "NL002",
-                    $"'{ident.Name}' not found",
+                    $"I can't find '{ident.Name}' — it looks like a missing import",
                     new Location(ident.Line, ident.Column, _filePath),
                     _config.GetSeverity("NL002"),
-                    $"Add 'import {requiredNamespace}'");
+                    $"Add 'import {requiredNamespace}' at the top of the file");
             }
         }
     }
@@ -1361,10 +1310,10 @@ internal class LintVisitor
                 {
                     AddDiagnostic(
                         "NL002",
-                        $"'{typeName}' not found",
+                        $"I can't find '{typeName}' — it looks like a missing import",
                         new Location(line, column, _filePath),
                         _config.GetSeverity("NL002"),
-                        $"Add 'import {requiredNamespace}'");
+                        $"Add 'import {requiredNamespace}' at the top of the file");
                 }
             }
         }
@@ -1588,10 +1537,10 @@ internal class LintVisitor
                 var label = isFile ? $"import \"{ns}\"" : $"import {ns}";
                 AddDiagnostic(
                     "NL010",
-                    $"Unused import: '{label}'",
+                    $"The import '{label}' is not used by any code in this file",
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL010"),
-                    $"Remove unused import '{label}'");
+                    $"Remove '{label}' to keep your imports clean");
             }
         }
     }
@@ -1619,10 +1568,10 @@ internal class LintVisitor
         {
             AddDiagnostic(
                 "NL014",
-                $"Unnecessary type annotation: type '{literalTypeName}' is inferred from the literal",
+                $"You don't need the type annotation here — N# already infers '{literalTypeName}' from the value",
                 new Location(line, column, _filePath),
                 _config.GetSeverity("NL014"),
-                $"Remove ': {literalTypeName}' — the type is obvious from the initializer");
+                $"Remove ': {literalTypeName}' to keep things clean — the type is obvious from the initializer");
         }
     }
 
@@ -1658,10 +1607,10 @@ internal class LintVisitor
 
             AddDiagnostic(
                 "NL015",
-                $"Variable '{name}' is never reassigned — consider using 'const'",
+                $"Variable '{name}' is never reassigned after its declaration",
                 new Location(line, column, _filePath),
                 _config.GetSeverity("NL015"),
-                $"Replace 'let {name}' with 'const {name}'");
+                $"Use 'const {name}' instead of 'let {name}' to make the intent clear and prevent accidental reassignment");
         }
     }
 
@@ -1701,7 +1650,7 @@ internal class LintVisitor
             var verb = binary.Operator == BinaryOperator.NotEqual ? "always true" : "always false";
             AddDiagnostic(
                 "NL016",
-                $"Redundant null check: this expression is never null ({verb})",
+                $"This null check is redundant — the expression was just created and can never be null (this is {verb})",
                 new Location(condition.Line, condition.Column, _filePath),
                 _config.GetSeverity("NL016"),
                 "Remove the null check — the value cannot be null");
@@ -1759,10 +1708,10 @@ internal class LintVisitor
 
                 AddDiagnostic(
                     "NL018",
-                    $"Field '{fieldName}' is only assigned in the constructor — consider marking it 'readonly'",
+                    $"Field '{fieldName}' is only assigned in the constructor and never changed after that",
                     loc,
                     _config.GetSeverity("NL018"),
-                    $"Add 'readonly' modifier to field '{fieldName}'");
+                    $"Mark '{fieldName}' as 'readonly' to make the intent clear and prevent accidental mutation");
             }
         }
 
