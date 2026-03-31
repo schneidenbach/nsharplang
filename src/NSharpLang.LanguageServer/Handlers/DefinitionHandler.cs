@@ -42,7 +42,7 @@ public class DefinitionHandler : DefinitionHandlerBase
         try
         {
             // Get the word at the cursor position
-            var word = GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
+            var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
             if (string.IsNullOrWhiteSpace(word))
             {
                 return Task.FromResult<LocationOrLocationLinks?>(null);
@@ -119,37 +119,6 @@ public class DefinitionHandler : DefinitionHandlerBase
         ClientCapabilities clientCapabilities)
     {
         return new DefinitionRegistrationOptions();
-    }
-
-    private string GetWordAtPosition(string text, int line, int character)
-    {
-        var lines = text.Split('\n');
-        if (line >= lines.Length) return string.Empty;
-
-        var lineText = lines[line];
-        if (lineText.Length == 0) return string.Empty;
-        if (character < 0 || character >= lineText.Length) return string.Empty;
-        if (!IsIdentifierChar(lineText[character])) return string.Empty;
-
-        // Find word boundaries
-        int start = character;
-        while (start > 0 && IsIdentifierChar(lineText[start - 1]))
-        {
-            start--;
-        }
-
-        int end = character;
-        while (end < lineText.Length && IsIdentifierChar(lineText[end]))
-        {
-            end++;
-        }
-
-        return lineText.Substring(start, end - start);
-    }
-
-    private bool IsIdentifierChar(char c)
-    {
-        return char.IsLetterOrDigit(c) || c == '_';
     }
 
     private static SymbolLocation? PickBestLocation(

@@ -1,7 +1,5 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
-import { execSync } from 'child_process';
 import * as vscode from 'vscode';
 import {
     LanguageClient,
@@ -96,29 +94,6 @@ export function activate(context: vscode.ExtensionContext) {
         'N# Language Server',
         serverOptions,
         clientOptions
-    );
-
-    // Register formatter
-    context.subscriptions.push(
-        vscode.languages.registerDocumentFormattingEditProvider('nsharp', {
-            provideDocumentFormattingEdits(document: vscode.TextDocument): vscode.TextEdit[] {
-                const config = vscode.workspace.getConfiguration('nsharp');
-                const enabled = config.get<boolean>('format.enable', true);
-                if (!enabled) return [];
-
-                try {
-                    const formatted = formatDocument(document);
-                    const fullRange = new vscode.Range(
-                        document.positionAt(0),
-                        document.positionAt(document.getText().length)
-                    );
-                    return [vscode.TextEdit.replace(fullRange, formatted)];
-                } catch (error) {
-                    vscode.window.showErrorMessage(`N# Format failed: ${error}`);
-                    return [];
-                }
-            }
-        })
     );
 
     // Register debug configuration command
@@ -245,38 +220,6 @@ export function activate(context: vscode.ExtensionContext) {
     client.start();
 
     console.log('N# Language Server started');
-}
-
-function formatDocument(document: vscode.TextDocument): string {
-    // Create a temp file with the document content
-    const tempFile = path.join(os.tmpdir(), `nsharp-format-${Date.now()}.nl`);
-
-    try {
-        // Write document content to temp file
-        fs.writeFileSync(tempFile, document.getText(), 'utf-8');
-
-        // Run nsharp format on the temp file
-        // The format command formats in-place
-        execSync(`nsharp format "${tempFile}"`, {
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        // Read the formatted content
-        const formatted = fs.readFileSync(tempFile, 'utf-8');
-        return formatted;
-    } catch (error) {
-        throw new Error(`Failed to format document: ${error}`);
-    } finally {
-        // Clean up temp file
-        try {
-            if (fs.existsSync(tempFile)) {
-                fs.unlinkSync(tempFile);
-            }
-        } catch {
-            // Ignore cleanup errors
-        }
-    }
 }
 
 async function generateDebugConfig() {

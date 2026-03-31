@@ -47,7 +47,7 @@ public class HoverHandler : HoverHandlerBase
         _logger.LogDebug("Hover request at {Line}:{Character}", line, character);
 
         // Get the word at the cursor position for fallback lookup
-        var word = GetWordAtPosition(doc.Text, line, character);
+        var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
 
         // Try AST-based resolution first (most precise)
         if (doc.CompilationUnit != null && doc.SemanticModel != null)
@@ -58,6 +58,15 @@ public class HoverHandler : HoverHandlerBase
                 var hover = TryResolveExpression(expression, word, doc);
                 if (hover != null)
                 {
+                    // Ensure Range is set for consistent behavior
+                    if (hover.Range == null && !string.IsNullOrWhiteSpace(word))
+                    {
+                        hover = new Hover
+                        {
+                            Contents = hover.Contents,
+                            Range = GetWordRange(doc.Text, line, character, word)
+                        };
+                    }
                     return Task.FromResult<Hover?>(hover);
                 }
             }
@@ -121,7 +130,8 @@ public class HoverHandler : HoverHandlerBase
                     {
                         Kind = MarkupKind.Markdown,
                         Value = $"**{word}** *(keyword)*"
-                    })
+                    }),
+                    Range = GetWordRange(doc.Text, line, character, word)
                 });
             }
 
@@ -139,7 +149,8 @@ public class HoverHandler : HoverHandlerBase
                     {
                         Kind = MarkupKind.Markdown,
                         Value = $"**{word}** *(primitive type)*"
-                    })
+                    }),
+                    Range = GetWordRange(doc.Text, line, character, word)
                 });
             }
         }
@@ -324,34 +335,6 @@ public class HoverHandler : HoverHandlerBase
         };
     }
 
-    private string GetWordAtPosition(string text, int line, int character)
-    {
-        var lines = text.Split('\n');
-        if (line >= lines.Length) return string.Empty;
-
-        var lineText = lines[line];
-        if (lineText.Length == 0) return string.Empty;
-
-        // LSP positions can be at end-of-line; treat that as "after the last character".
-        character = Math.Min(character, lineText.Length);
-        if (character == lineText.Length) character = Math.Max(0, character - 1);
-
-        // Find word boundaries
-        int start = character;
-        while (start > 0 && IsIdentifierChar(lineText[start - 1]))
-        {
-            start--;
-        }
-
-        int end = character;
-        while (end < lineText.Length && IsIdentifierChar(lineText[end]))
-        {
-            end++;
-        }
-
-        return lineText.Substring(start, end - start);
-    }
-
     private LspRange GetWordRange(string text, int line, int character, string word)
     {
         var lines = text.Split('\n');
@@ -363,11 +346,6 @@ public class HoverHandler : HoverHandlerBase
         if (startChar < 0) startChar = character;
 
         return new LspRange(line, startChar, line, startChar + word.Length);
-    }
-
-    private bool IsIdentifierChar(char c)
-    {
-        return char.IsLetterOrDigit(c) || c == '_';
     }
 
     private string FormatTypeInfo(string name, Compiler.TypeInfo typeInfo)
