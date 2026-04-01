@@ -1,0 +1,46 @@
+name: Publish to GitHub Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore -c Release
+
+    - name: Test
+      run: dotnet test --no-build -c Release --verbosity normal
+
+    - name: Pack all packages
+      run: ./scripts/pack-nuget.sh
+
+    - name: Push to GitHub Packages
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        FEED="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+        for pkg in artifacts/nuget/*.nupkg; do
+          echo "Publishing $(basename "$pkg")..."
+          dotnet nuget push "$pkg" \
+            --api-key "$GITHUB_TOKEN" \
+            --source "$FEED" \
+            --skip-duplicate
+        done
