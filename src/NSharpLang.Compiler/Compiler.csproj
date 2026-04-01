@@ -11,8 +11,8 @@
     <Version>1.0.0</Version>
     <Authors>N# Team</Authors>
     <Description>N# compiler API - Parse, analyze, and transpile N# code to C#</Description>
-    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>nsharp;dotnet;compiler;transpiler;csharp</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>

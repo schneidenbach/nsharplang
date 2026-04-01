@@ -94,6 +94,16 @@ Process(new FileReader())  // Works via structural typing!
 
 ## Installation
 
+### One-Liner (Private Feed)
+
+Requires the [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`:
+
+```bash
+bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
+```
+
+This installs the templates, CLI (`nlc`), and language server, and writes a reusable `NuGet.config` to `~/.nsharp/`.
+
 ### From Templates
 
 ```bash

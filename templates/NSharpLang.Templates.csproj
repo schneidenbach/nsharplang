@@ -8,8 +8,8 @@
     <Authors>N# Team</Authors>
     <Description>Templates for creating N# projects with 'dotnet new'.</Description>
     <PackageTags>nsharp;dotnet;templates;dotnet-new</PackageTags>
-    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 
