@@ -92,6 +92,47 @@ dotnet nuget push artifacts/nuget/NSharpLang.Cli.0.1.0.nupkg --api-key "$NUGET_A
 dotnet nuget push artifacts/nuget/NSharpLang.LanguageServer.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
 ```
 
+## Publish to GitHub Packages (Private Feed)
+
+For private consumption across machines, packages are published to GitHub Packages.
+
+### Automated (CI)
+
+Push a version tag to trigger the publish workflow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This runs `.github/workflows/publish.yml` which builds, tests, packs, and pushes all packages to `https://nuget.pkg.github.com/schneidenbach/index.json`.
+
+### Manual
+
+```bash
+export GITHUB_TOKEN=ghp_your_pat_with_write_packages
+./scripts/pack-nuget.sh
+./scripts/publish-github-packages.sh
+```
+
+The script pushes all `.nupkg` files from `artifacts/nuget/` with `--skip-duplicate` to handle re-publishes gracefully.
+
+### Consuming from Another Machine
+
+**One-liner** (requires `gh` CLI authenticated with `gh auth login`):
+
+```bash
+bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
+```
+
+This auto-detects your `gh` token, registers the feed, and installs templates + CLI + language server. It also writes a reusable `NuGet.config` to `~/.nsharp/NuGet.config` for new projects.
+
+If you have the repo cloned locally, you can also run:
+
+```bash
+./scripts/setup-consumer.sh
+```
+
 ## After Publishing
 
 Verify the packages are searchable on NuGet.org, then update any external install docs to use:

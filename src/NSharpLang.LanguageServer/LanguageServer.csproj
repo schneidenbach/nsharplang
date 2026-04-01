@@ -17,8 +17,8 @@
     <Version>1.0.0</Version>
     <Authors>N# Team</Authors>
     <Description>N# Language Server Protocol (LSP) server - Provides IntelliSense for N# in any LSP-compatible editor</Description>
-    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>nsharp;dotnet;lsp;language-server;intellisense</PackageTags>
   </PropertyGroup>

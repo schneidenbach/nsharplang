@@ -7,8 +7,8 @@
     <Authors>N# Team</Authors>
     <Description>MSBuild SDK for N# language - enables dotnet build with project.yml</Description>
     <PackageTags>nsharp;dotnet;sdk;msbuild;nsharplang</PackageTags>
-    <PackageProjectUrl>https://github.com/nsharp-lang/nsharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/nsharp-lang/nsharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
 
     <!-- This is an SDK package -->
