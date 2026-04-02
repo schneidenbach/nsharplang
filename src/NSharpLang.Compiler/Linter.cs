@@ -197,7 +197,7 @@ internal class LintVisitor
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
     // NL010: Track imports and identifiers used in code for unused-import detection
-    private readonly List<(string Namespace, int Line, int Column, bool IsFile)> _allImports = new();
+    private readonly List<(string Namespace, int Line, int Column, bool IsFile, string? FilePath)> _allImports = new();
     private readonly HashSet<string> _allCodeIdentifiers = new();
 
     // NL015: Track let declarations and assignments within functions
@@ -229,7 +229,7 @@ internal class LintVisitor
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
-            _allImports.Add((import.Namespace, import.Line, import.Column, false));
+            _allImports.Add((import.Namespace, import.Line, import.Column, false, null));
         }
 
         foreach (var fileImport in unit.FileImports.OfType<FileImport>())
@@ -238,7 +238,7 @@ internal class LintVisitor
             if (!string.IsNullOrWhiteSpace(importedSymbol))
             {
                 _importedFileSymbols.Add(importedSymbol!);
-                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.Column, true));
+                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.Column, true, fileImport.Path));
             }
         }
 
@@ -433,10 +433,12 @@ internal class LintVisitor
             case EnumDeclaration enumDecl:
                 break;
             case FieldDeclaration field:
+                TrackTypeReference(field.Type);
                 if (field.Initializer != null)
                     VisitExpression(field.Initializer);
                 break;
             case PropertyDeclaration prop:
+                TrackTypeReference(prop.Type);
                 if (prop.ExpressionBody != null)
                     VisitExpression(prop.ExpressionBody);
                 if (prop.GetBody != null)
@@ -455,6 +457,11 @@ internal class LintVisitor
 
     private void VisitFunction(FunctionDeclaration func)
     {
+        // NL010: Track type references in function signature
+        TrackTypeReference(func.ReturnType);
+        foreach (var param in func.Parameters)
+            TrackTypeReference(param.Type);
+
         // NL004: Check for async without await
         var wasInAsync = _inAsyncFunction;
         var hadAwait = _hasAwaitInFunction;
@@ -601,6 +608,8 @@ internal class LintVisitor
         switch (statement)
         {
             case VariableDeclarationStatement varDecl:
+                // NL010: Track type references in variable declarations
+                TrackTypeReference(varDecl.Type);
                 // Calculate column of variable name, not the keyword
                 // For "let x = 1", if let starts at column 10, then x starts at column 14 (10 + "let" + space)
                 // For "const x = 1", if const starts at column 10, then x starts at column 16 (10 + "const" + space)
@@ -1331,6 +1340,42 @@ internal class LintVisitor
         };
     }
 
+    /// <summary>
+    /// NL010: Track all type names in a type reference as used code identifiers.
+    /// This ensures that types used in field declarations, parameter types, return types, etc.
+    /// are recognized as usages for unused-import detection.
+    /// </summary>
+    private void TrackTypeReference(TypeReference? type)
+    {
+        if (type == null) return;
+        switch (type)
+        {
+            case SimpleTypeReference simple:
+                _allCodeIdentifiers.Add(simple.Name);
+                break;
+            case GenericTypeReference generic:
+                _allCodeIdentifiers.Add(generic.Name);
+                foreach (var arg in generic.TypeArguments)
+                    TrackTypeReference(arg);
+                break;
+            case NullableTypeReference nullable:
+                TrackTypeReference(nullable.InnerType);
+                break;
+            case ArrayTypeReference array:
+                TrackTypeReference(array.ElementType);
+                break;
+            case TupleTypeReference tuple:
+                foreach (var element in tuple.Elements)
+                    TrackTypeReference(element.Type);
+                break;
+            case FunctionTypeReference funcType:
+                TrackTypeReference(funcType.ReturnType);
+                foreach (var paramType in funcType.ParameterTypes)
+                    TrackTypeReference(paramType);
+                break;
+        }
+    }
+
     private static string? ExtractImportedFileSymbolName(FileImport fileImport)
     {
         if (!string.IsNullOrWhiteSpace(fileImport.Alias))
@@ -1505,13 +1550,14 @@ internal class LintVisitor
         if (!_config.RuleSeverities.ContainsKey("NL010"))
             return;
 
-        foreach (var (ns, line, column, isFile) in _allImports)
+        foreach (var (ns, line, column, isFile, filePath) in _allImports)
         {
             bool used;
             if (isFile)
             {
-                // File import: used if the symbol name appears in code identifiers
-                used = _allCodeIdentifiers.Contains(ns);
+                // File import: resolve the imported file and check if any of its
+                // exported symbols are used in this file's code identifiers.
+                used = IsFileImportUsed(ns, filePath);
             }
             else
             {
@@ -1543,6 +1589,91 @@ internal class LintVisitor
                     $"Remove '{label}' to keep your imports clean");
             }
         }
+    }
+
+    private bool IsFileImportUsed(string importSymbol, string? importPath)
+    {
+        // If the import name itself is used as an identifier, it's used
+        if (_allCodeIdentifiers.Contains(importSymbol))
+            return true;
+
+        // Try to resolve the file and check if any of its exported symbols are used
+        if (importPath != null && _filePath != null)
+        {
+            var resolvedPath = ResolveFileImportPath(importPath);
+            if (resolvedPath != null)
+            {
+                var exportedSymbols = ExtractExportedSymbols(resolvedPath);
+                if (exportedSymbols.Count > 0)
+                    return exportedSymbols.Any(s => _allCodeIdentifiers.Contains(s));
+            }
+        }
+
+        // Can't resolve file — be conservative, don't flag
+        return true;
+    }
+
+    private string? ResolveFileImportPath(string importPath)
+    {
+        if (_filePath == null)
+            return null;
+
+        var fileDir = Path.GetDirectoryName(_filePath);
+        if (fileDir == null)
+            return null;
+
+        // Try with and without .nl extension
+        var candidates = new[]
+        {
+            Path.GetFullPath(Path.Combine(fileDir, importPath)),
+            Path.GetFullPath(Path.Combine(fileDir, importPath + ".nl")),
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static List<string> ExtractExportedSymbols(string filePath)
+    {
+        var symbols = new List<string>();
+        try
+        {
+            var source = File.ReadAllText(filePath);
+            var lexer = new Lexer(source, filePath);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, filePath, source);
+            var result = parser.ParseCompilationUnit();
+            if (result.CompilationUnit == null)
+                return symbols;
+
+            foreach (var decl in result.CompilationUnit.Declarations)
+            {
+                var name = decl switch
+                {
+                    ClassDeclaration c => c.Name,
+                    StructDeclaration s => s.Name,
+                    RecordDeclaration r => r.Name,
+                    InterfaceDeclaration i => i.Name,
+                    EnumDeclaration e => e.Name,
+                    UnionDeclaration u => u.Name,
+                    FunctionDeclaration f => f.Name,
+                    TypeAliasDeclaration t => t.Name,
+                    _ => null
+                };
+                if (name != null)
+                    symbols.Add(name);
+            }
+        }
+        catch
+        {
+            // If we can't parse the file, return empty (caller will be conservative)
+        }
+        return symbols;
     }
 
     // -------------------------------------------------------------------------

@@ -2,9 +2,12 @@
 
 namespace IssueTracker
 
-import System
 import Microsoft.AspNetCore.Builder
 import Microsoft.Extensions.Hosting
+import "Database"
+import "Notifier"
+import "Service"
+import "Endpoints"
 
 func main(args: string[]) {
     builder := WebApplication.CreateBuilder(args)
