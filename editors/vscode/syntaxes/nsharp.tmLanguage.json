@@ -56,7 +56,13 @@
           },
           "patterns": [
             {
+              "comment": "Escaped brace: {{ is a literal {",
+              "name": "constant.character.escape.nsharp",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
               "name": "meta.interpolation.nsharp",
+              "contentName": "meta.embedded.line.nsharp",
               "begin": "\\{",
               "beginCaptures": {
                 "0": { "name": "punctuation.definition.interpolation.begin.nsharp" }
@@ -92,7 +98,13 @@
               "match": "\\\\."
             },
             {
+              "comment": "Escaped brace: {{ is a literal {",
+              "name": "constant.character.escape.nsharp",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
               "name": "meta.interpolation.nsharp",
+              "contentName": "meta.embedded.line.nsharp",
               "begin": "\\{",
               "beginCaptures": {
                 "0": { "name": "punctuation.definition.interpolation.begin.nsharp" }
