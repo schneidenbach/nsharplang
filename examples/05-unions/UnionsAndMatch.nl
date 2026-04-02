@@ -1,6 +1,5 @@
 namespace UnionsDemo
 
-import System
 
 
 // Discriminated union example

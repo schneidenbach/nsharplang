@@ -1,6 +1,6 @@
 // Generic Method Calls Example
 // Demonstrates type inference and explicit type argument syntax for generic methods
-import System
+
 import System.Collections.Generic
 import System.Linq
 

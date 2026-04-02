@@ -19,11 +19,14 @@ public class ExampleLintTests
 {
     private static readonly string ExamplesDir = FindExamplesDir();
 
-    // ── NL010: Print statement should mark Console as used ──────────
+    // ── NL010: Print is a language primitive — does NOT require import System ──
 
     [Fact]
-    public void NL010_PrintStatement_SystemImportNotFlaggedAsUnused()
+    public void NL010_PrintStatement_SystemImportFlaggedAsUnused()
     {
+        // print is a language primitive (like int, string). The transpiler
+        // auto-injects 'using System;', so the user never needs import System
+        // just for print.
         var source = @"
 import System
 
@@ -31,11 +34,11 @@ func main() {
     print ""Hello, world!""
 }";
         var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+        Assert.Contains(diagnostics, d => d.Code == "NL010");
     }
 
     [Fact]
-    public void NL010_PrintStatement_MultipleStatements_SystemImportNotFlagged()
+    public void NL010_PrintOnly_SystemImportFlagged()
     {
         var source = @"
 import System
@@ -46,7 +49,7 @@ func main() {
     print ""Done""
 }";
         var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+        Assert.Contains(diagnostics, d => d.Code == "NL010");
     }
 
     [Fact]
@@ -92,6 +95,25 @@ func main() {
     }
 
     [Fact]
+    public void NL010_SystemCollectionsGeneric_WithIAsyncEnumerable_NotFlagged()
+    {
+        var source = @"
+import System.Collections.Generic
+import System.Threading.Tasks
+
+async func* GetNumbers(): IAsyncEnumerable<int> {
+    await Task.Delay(100)
+    yield 1
+}
+
+func main() {
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010" &&
+            d.Message.Contains("System.Collections.Generic"));
+    }
+
+    [Fact]
     public void NL010_SystemLinq_TreatedConservatively_NotFlagged()
     {
         // System.Linq is not in the known types map because LINQ extension
@@ -130,6 +152,25 @@ import System
 
 func main() {
     throw new Exception(""error"")
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_SystemImport_WithArgumentException_NotFlagged()
+    {
+        var source = @"
+import System
+
+func Validate(x: int) {
+    if x < 0 {
+        throw new ArgumentException(""must be non-negative"")
+    }
+}
+
+func main() {
+    Validate(1)
 }";
         var diagnostics = Lint(source);
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
@@ -384,8 +425,6 @@ func main() {
     {
         // Pattern from issue-tracker Models.nl: exhaustive match on union
         var source = @"
-import System
-
 union IssueError {
     NotFound { id: int }
     InvalidTransition { from: string, to: string }
@@ -405,7 +444,6 @@ func main() {
     print msg
 }";
         var diagnostics = Lint(source);
-        // Should not flag FormatError as unused, and import System should be used (via print)
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
     }
 
@@ -413,9 +451,8 @@ func main() {
     public void Lint_RecordWithMethods_NoWarnings()
     {
         // Pattern from task-cli: record with methods
+        // No import System needed — print is a language primitive
         var source = @"
-import System
-
 record TaskItem {
     Id: int
     Title: string
@@ -500,8 +537,8 @@ func main() {
     public void Lint_ClassWithStaticMethods_NoWarnings()
     {
         // Pattern that was in task-cli: class with all static methods
+        // No import System needed — print is a primitive, StringBuilder is System.Text
         var source = @"
-import System
 import System.Text
 
 class Formatter {

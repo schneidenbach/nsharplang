@@ -803,9 +803,6 @@ internal class LintVisitor
                 break;
 
             case PrintStatement printStmt:
-                // print maps to Console.WriteLine in generated C#,
-                // so track Console as used for NL010 (unused import)
-                _allCodeIdentifiers.Add("Console");
                 VisitExpression(printStmt.Value);
                 break;
 
@@ -1539,9 +1536,36 @@ internal class LintVisitor
             { "Console", "System" },
             { "Math", "System" },
             { "Exception", "System" },
+            { "ArgumentException", "System" },
+            { "ArgumentNullException", "System" },
+            { "ArgumentOutOfRangeException", "System" },
+            { "InvalidOperationException", "System" },
+            { "NotSupportedException", "System" },
+            { "NotImplementedException", "System" },
+            { "FormatException", "System" },
+            { "OverflowException", "System" },
+            { "Random", "System" },
+            { "Convert", "System" },
+            { "Array", "System" },
+            { "Type", "System" },
+            { "Attribute", "System" },
             { "Environment", "System" },
             { "Int32", "System" },
             { "String", "System" },
+            { "IEnumerable", "System.Collections.Generic" },
+            { "IList", "System.Collections.Generic" },
+            { "ICollection", "System.Collections.Generic" },
+            { "IReadOnlyList", "System.Collections.Generic" },
+            { "IReadOnlyCollection", "System.Collections.Generic" },
+            { "IAsyncEnumerable", "System.Collections.Generic" },
+            { "KeyValuePair", "System.Collections.Generic" },
+            { "SortedDictionary", "System.Collections.Generic" },
+            { "SortedSet", "System.Collections.Generic" },
+            { "Thread", "System.Threading" },
+            { "Monitor", "System.Threading" },
+            { "Mutex", "System.Threading" },
+            { "Semaphore", "System.Threading" },
+            { "SemaphoreSlim", "System.Threading" },
             // System.Linq is intentionally omitted — LINQ extension methods
             // (.Where, .Select, .ToList, etc.) aren't tracked as identifiers,
             // so we can't determine usage. Treat it conservatively (unknown).

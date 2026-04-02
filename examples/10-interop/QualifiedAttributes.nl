@@ -1,6 +1,5 @@
 // Qualified Attribute Names Example
 // Demonstrates support for fully-qualified attribute names in N#
-import System
 import System.Diagnostics.CodeAnalysis
 import System.Runtime.CompilerServices
 
