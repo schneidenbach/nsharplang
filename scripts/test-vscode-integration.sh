@@ -33,9 +33,15 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
-echo -e "${YELLOW}Step 1: Building Language Server${NC}"
-dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -v q
-echo -e "${GREEN}✓ Language Server built${NC}"
+# Check if Language Server is already built (e.g., by test-all.sh step 2)
+LS_DLL="src/NSharpLang.LanguageServer/bin/Debug/net9.0/LanguageServer.dll"
+if [ -f "$LS_DLL" ] && [ "$SKIP_LS_BUILD" = "1" ]; then
+    echo -e "${GREEN}✓ Language Server already built (skipping rebuild)${NC}"
+else
+    echo -e "${YELLOW}Step 1: Building Language Server${NC}"
+    dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -v q
+    echo -e "${GREEN}✓ Language Server built${NC}"
+fi
 
 echo
 echo -e "${YELLOW}Step 2: Installing npm dependencies${NC}"

@@ -38,6 +38,14 @@ if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
 fi
 DOTNET_STABLE_FLAGS="--disable-build-servers"
 
+# Parse arguments
+CLEAN_BUILD=0
+for arg in "$@"; do
+    case "$arg" in
+        --clean) CLEAN_BUILD=1 ;;
+    esac
+done
+
 # Function to print section headers
 section() {
     echo
@@ -62,14 +70,19 @@ REPO_ROOT=$(pwd)
 CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll"
 
 section "Step 1: Clean Previous Build Artifacts"
-echo "Cleaning bin/ and obj/ directories..."
-find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
-    if [[ "$dir" == "./node_modules"* ]] || [[ "$dir" == *".vscode-test"* ]] || [[ "$dir" == *"node_modules"* ]]; then
-        continue
-    fi
-    rm -rf "$dir"
-done
-handle_success "Cleaned build artifacts"
+if [ "$CLEAN_BUILD" = "1" ]; then
+    echo "Cleaning bin/ and obj/ directories..."
+    find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
+        if [[ "$dir" == "./node_modules"* ]] || [[ "$dir" == *".vscode-test"* ]] || [[ "$dir" == *"node_modules"* ]]; then
+            continue
+        fi
+        rm -rf "$dir"
+    done
+    handle_success "Cleaned build artifacts"
+else
+    echo "Incremental build (use --clean for full clean)"
+    handle_success "Skipped clean (incremental)"
+fi
 
 section "Step 2: Build N# Compiler"
 echo "Building compiler and CLI..."
@@ -142,11 +155,11 @@ else
         VSCODE_OUTPUT=$(mktemp)
         if [ "$VSCODE_TEST_MODE" = "smoke" ]; then
             echo "Running VS Code smoke tests (extension, diagnostics, hover, completion)..."
-            TEST_SUITE="extension,diagnostics,hover,completion" \
+            SKIP_LS_BUILD=1 TEST_SUITE="extension,diagnostics,hover,completion" \
                 "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
         else
             echo "Running full VS Code integration tests..."
-            "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
+            SKIP_LS_BUILD=1 "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
         fi
 
         if [ "$VSCODE_OK" = "1" ]; then
@@ -184,9 +197,9 @@ else
     handle_error "Templates pack"
 fi
 
-echo "Clearing NuGet caches..."
-dotnet nuget locals all --clear > /dev/null 2>&1
-handle_success "NuGet caches cleared"
+echo "Clearing NuGet global-packages cache..."
+dotnet nuget locals global-packages --clear > /dev/null 2>&1
+handle_success "NuGet global-packages cache cleared"
 
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local feed..."
@@ -443,13 +456,37 @@ $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.g
 #   17-issue-tracker        - parent dir has no project.yml (backend/ is the actual project)
 CHECK_KNOWN_FAILURES="02-variables-and-types$|12-multi-file-projects$|17-issue-tracker$"
 
-CHECK_OUTPUT=$(mktemp)
-CHECK_FAIL=0
+echo "Using up to $MAX_JOBS parallel workers for nlc check..."
+CHECK_RESULTS_DIR=$(mktemp -d)
+CHECK_LIST="$CHECK_RESULTS_DIR/items.txt"
+i=0
 while IFS= read -r check_dir; do
     [ -z "$check_dir" ] && continue
-    dir_name=$(echo "$check_dir" | sed 's|examples/||')
-    result=$(dotnet "$CLI_DLL" check "$check_dir/" 2>&1 || true)
-    errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['summary']['errors'])" 2>/dev/null || echo "?")
+    i=$((i + 1))
+    printf '%04d|%s\n' "$i" "$check_dir"
+done <<< "$CHECK_DIRS" > "$CHECK_LIST"
+
+xargs -P "$MAX_JOBS" -I{} bash -lc '
+    entry="$1"
+    repo_root="$2"
+    results_dir="$3"
+    cli_dll="$4"
+    idx="${entry%%|*}"
+    check_dir="${entry#*|}"
+    result_file="$results_dir/$idx.result"
+
+    result=$(dotnet "$cli_dll" check "$check_dir/" 2>&1 || true)
+    errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['\''summary'\'']['\''errors'\''])" 2>/dev/null || echo "?")
+    dir_name=$(echo "$check_dir" | sed "s|examples/||")
+    printf "%s|%s|%s\n" "$errors" "$dir_name" "$check_dir" > "$result_file"
+' _ {} "$REPO_ROOT" "$CHECK_RESULTS_DIR" "$CLI_DLL" < "$CHECK_LIST"
+
+CHECK_FAIL=0
+while IFS='|' read -r idx check_dir_unused; do
+    result_file="$CHECK_RESULTS_DIR/$idx.result"
+    [ ! -f "$result_file" ] && continue
+    errors=$(cut -d'|' -f1 "$result_file")
+    dir_name=$(cut -d'|' -f2 "$result_file")
 
     if [ "$errors" = "0" ]; then
         echo -e "  ${GREEN}✓${NC} $dir_name"
@@ -459,8 +496,9 @@ while IFS= read -r check_dir; do
         echo -e "  ${RED}✗${NC} $dir_name ($errors errors)"
         CHECK_FAIL=1
     fi
-done <<< "$CHECK_DIRS"
-rm -f "$CHECK_OUTPUT"
+done < "$CHECK_LIST"
+
+rm -rf "$CHECK_RESULTS_DIR"
 
 if [ "$CHECK_FAIL" = "0" ]; then
     handle_success "nlc check on examples"
