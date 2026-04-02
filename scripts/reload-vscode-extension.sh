@@ -34,11 +34,9 @@ echo "   - Copying language server..."
 mkdir -p server
 cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net9.0"/* server/ 2>/dev/null || true
 
-# Install npm dependencies if needed
-if [ ! -d "node_modules" ]; then
-    echo "   - Installing npm dependencies..."
-    npm install
-fi
+# Install npm dependencies (fast no-op when already up to date)
+echo "   - Installing npm dependencies..."
+npm install --silent
 
 # Compile TypeScript
 echo "   - Compiling TypeScript..."
