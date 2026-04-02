@@ -16,7 +16,7 @@ import {
  * The RenameHandler is fully implemented:
  * - Returns WorkspaceEdit with changes per file
  * - Cross-file rename support
- * - No PrepareProvider (renames work directly)
+ * - PrepareProvider validates symbol is renamable before showing dialog
  *
  * Tests validate that rename produces correct edits at correct locations.
  */
@@ -180,11 +180,10 @@ func Main() {
                     'Rename at whitespace should produce no edits');
             }
         } catch (e: any) {
-            // VS Code throws "No result" when no rename provider claims the position,
-            // or the LS may return "The element can't be renamed."
-            assert.ok(
-                e.message?.includes('No result') || e.message?.includes("can't be renamed"),
-                `Unexpected error: ${e.message}`);
+            // VS Code throws "No result" (no PrepareProvider) or "can't be renamed" (PrepareProvider returns null)
+            const msg = e.message ?? '';
+            assert.ok(msg.includes('No result') || msg.includes("can't be renamed"),
+                `Unexpected error: ${msg}`);
         }
     });
 
@@ -202,9 +201,9 @@ func Main() {
                     'Rename on string literal should produce no edits');
             }
         } catch (e: any) {
-            assert.ok(
-                e.message?.includes('No result') || e.message?.includes("can't be renamed"),
-                `Unexpected error: ${e.message}`);
+            const msg = e.message ?? '';
+            assert.ok(msg.includes('No result') || msg.includes("can't be renamed"),
+                `Unexpected error: ${msg}`);
         }
     });
 });
