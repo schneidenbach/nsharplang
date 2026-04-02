@@ -34,9 +34,15 @@ echo "   - Copying language server..."
 mkdir -p server
 cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net9.0"/* server/ 2>/dev/null || true
 
+# Install npm dependencies if needed
+if [ ! -d "node_modules" ]; then
+    echo "   - Installing npm dependencies..."
+    npm install
+fi
+
 # Compile TypeScript
 echo "   - Compiling TypeScript..."
-npm run compile > /dev/null 2>&1 || echo "   ⚠️  TypeScript compile failed (continuing anyway)"
+npm run compile || { echo "   ❌ TypeScript compile failed"; exit 1; }
 
 # Package VSIX
 echo "   - Creating VSIX package..."
