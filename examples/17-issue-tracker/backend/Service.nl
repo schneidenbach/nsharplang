@@ -6,6 +6,10 @@ namespace IssueTracker
 import System
 import System.Linq
 import System.Collections.Generic
+import "Models"
+import "Database"
+import "Notifier"
+import "Workflow"
 
 class IssueService {
     store: IssueStore

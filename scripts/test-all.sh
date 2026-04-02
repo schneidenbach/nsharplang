@@ -430,6 +430,9 @@ CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
 # Sub-projects in 12-multi-file-projects need individual checking
 CHECK_DIRS="$CHECK_DIRS
 $(find examples/12-multi-file-projects -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
+# Sub-projects in 17-issue-tracker (backend has its own project.yml)
+CHECK_DIRS="$CHECK_DIRS
+$(find examples/17-issue-tracker -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
 # Test fixture projects
 CHECK_DIRS="$CHECK_DIRS
 $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
@@ -437,7 +440,8 @@ $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.g
 # Known check failures:
 #   02-variables-and-types  - contains TestErrors.nl (intentionally broken)
 #   12-multi-file-projects  - parent dir has cross-project symbol conflicts (sub-dirs pass individually)
-CHECK_KNOWN_FAILURES="02-variables-and-types$|12-multi-file-projects$"
+#   17-issue-tracker        - parent dir has no project.yml (backend/ is the actual project)
+CHECK_KNOWN_FAILURES="02-variables-and-types$|12-multi-file-projects$|17-issue-tracker$"
 
 CHECK_OUTPUT=$(mktemp)
 CHECK_FAIL=0
