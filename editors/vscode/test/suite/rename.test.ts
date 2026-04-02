@@ -180,8 +180,10 @@ func Main() {
                     'Rename at whitespace should produce no edits');
             }
         } catch (e: any) {
-            // VS Code throws "No result" when no rename provider claims the position
-            assert.ok(e.message?.includes('No result'),
+            // VS Code throws "No result" when no rename provider claims the position,
+            // or the LS may return "The element can't be renamed."
+            assert.ok(
+                e.message?.includes('No result') || e.message?.includes("can't be renamed"),
                 `Unexpected error: ${e.message}`);
         }
     });
@@ -200,7 +202,8 @@ func Main() {
                     'Rename on string literal should produce no edits');
             }
         } catch (e: any) {
-            assert.ok(e.message?.includes('No result'),
+            assert.ok(
+                e.message?.includes('No result') || e.message?.includes("can't be renamed"),
                 `Unexpected error: ${e.message}`);
         }
     });

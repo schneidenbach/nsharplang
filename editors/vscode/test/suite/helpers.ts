@@ -4,9 +4,9 @@ import * as fs from 'fs';
 import * as assert from 'assert';
 
 const LANGUAGE_SERVER_TIMEOUT = 60_000;
-const DIAGNOSTICS_SETTLE_DELAY = 2_000;
+const DIAGNOSTICS_SETTLE_DELAY = 1_000;
 const DIAGNOSTICS_TIMEOUT = 30_000;
-const LSP_READY_POLL_INTERVAL = 500;
+const LSP_READY_POLL_INTERVAL = 200;
 const LSP_READY_TIMEOUT = 30_000;
 
 // ================================================================
