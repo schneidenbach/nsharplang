@@ -468,6 +468,10 @@ internal class LintVisitor
         _inAsyncFunction = func.Modifiers.HasFlag(Modifiers.Async);
         _hasAwaitInFunction = false;
 
+        // Async functions implicitly use Task from System.Threading.Tasks
+        if (_inAsyncFunction)
+            _allCodeIdentifiers.Add("Task");
+
         // NL012: Save outer param tracking state
         var outerParams = _currentFunctionParams;
         var outerParamUsages = _currentFunctionParamUsages;
@@ -799,6 +803,9 @@ internal class LintVisitor
                 break;
 
             case PrintStatement printStmt:
+                // print maps to Console.WriteLine in generated C#,
+                // so track Console as used for NL010 (unused import)
+                _allCodeIdentifiers.Add("Console");
                 VisitExpression(printStmt.Value);
                 break;
 
@@ -1507,16 +1514,20 @@ internal class LintVisitor
             { "Stack", "System.Collections.Generic" },
             { "LinkedList", "System.Collections.Generic" },
             { "StringBuilder", "System.Text" },
+            { "Encoding", "System.Text" },
             { "Regex", "System.Text.RegularExpressions" },
             { "File", "System.IO" },
             { "Directory", "System.IO" },
             { "Path", "System.IO" },
             { "Stream", "System.IO" },
+            { "StreamReader", "System.IO" },
+            { "StreamWriter", "System.IO" },
             { "HttpClient", "System.Net.Http" },
             { "JsonSerializer", "System.Text.Json" },
+            { "JsonSerializerOptions", "System.Text.Json" },
+            { "JsonNamingPolicy", "System.Text.Json" },
             { "Task", "System.Threading.Tasks" },
             { "CancellationToken", "System.Threading" },
-            { "Encoding", "System.Text" },
             { "DateTime", "System" },
             { "TimeSpan", "System" },
             { "Guid", "System" },
@@ -1529,7 +1540,11 @@ internal class LintVisitor
             { "Math", "System" },
             { "Exception", "System" },
             { "Environment", "System" },
-            { "Enumerable", "System.Linq" },
+            { "Int32", "System" },
+            { "String", "System" },
+            // System.Linq is intentionally omitted — LINQ extension methods
+            // (.Where, .Select, .ToList, etc.) aren't tracked as identifiers,
+            // so we can't determine usage. Treat it conservatively (unknown).
         };
 
         var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);

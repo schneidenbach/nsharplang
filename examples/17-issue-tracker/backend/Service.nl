@@ -52,7 +52,7 @@ class IssueService {
         index := store.FindById(id)
         if index < 0 {
             throw new Exception(
-                Errors.Format(new IssueError.NotFound(id))
+                FormatError(new IssueError.NotFound(id))
             )
         }
         issue := store.GetAt(index)
@@ -81,12 +81,12 @@ class IssueService {
     func validate(title: string): Exception {
         if title == null || title.Length == 0 {
             return new Exception(
-                Errors.Format(new IssueError.ValidationFailed("title", "cannot be empty"))
+                FormatError(new IssueError.ValidationFailed("title", "cannot be empty"))
             )
         }
         if title.Length > 200 {
             return new Exception(
-                Errors.Format(new IssueError.ValidationFailed("title", "must be under 200 characters"))
+                FormatError(new IssueError.ValidationFailed("title", "must be under 200 characters"))
             )
         }
         return null

@@ -5,9 +5,6 @@ import System.Collections.Generic
 import System.Linq
 import System.Threading.Tasks
 import TaskCli.Models
-import "../Models/Task"
-import "../Models/Filter"
-import "./Store"
 
 // Business logic for task management
 class TaskService {
