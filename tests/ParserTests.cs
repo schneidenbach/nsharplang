@@ -1177,6 +1177,30 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestNewtypeDeclaration()
+    {
+        var source = @"
+            type UserId = newtype int
+            type Email = newtype string
+        ";
+
+        var cu = Parse(source);
+        Assert.Equal(2, cu.Declarations.Count);
+
+        var nt1 = cu.Declarations[0] as NewtypeDeclaration;
+        Assert.NotNull(nt1);
+        Assert.Equal("UserId", nt1!.Name);
+        Assert.IsType<SimpleTypeReference>(nt1.UnderlyingType);
+        Assert.Equal("int", ((SimpleTypeReference)nt1.UnderlyingType).Name);
+
+        var nt2 = cu.Declarations[1] as NewtypeDeclaration;
+        Assert.NotNull(nt2);
+        Assert.Equal("Email", nt2!.Name);
+        Assert.IsType<SimpleTypeReference>(nt2.UnderlyingType);
+        Assert.Equal("string", ((SimpleTypeReference)nt2.UnderlyingType).Name);
+    }
+
+    [Fact]
     public void TestAttributes()
     {
         var source = @"

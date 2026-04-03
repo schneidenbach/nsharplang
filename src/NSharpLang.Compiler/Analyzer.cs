@@ -148,6 +148,8 @@ public class Analyzer : IDisposable
                 DeclareType(enumDecl.Name, new EnumTypeInfo(enumDecl), decl.Line, decl.Column);
             else if (decl is TypeAliasDeclaration aliasDecl)
                 DeclareType(aliasDecl.Name, new AliasTypeInfo(aliasDecl.Type), decl.Line, decl.Column);
+            else if (decl is NewtypeDeclaration newtypeDecl)
+                DeclareType(newtypeDecl.Name, new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType), decl.Line, decl.Column);
             else if (decl is FunctionDeclaration func)
             {
                 // Add function signatures to enable forward references
@@ -2537,6 +2539,7 @@ public class Analyzer : IDisposable
         EnumDeclaration enumDecl => enumDecl.Name,
         UnionDeclaration unionDecl => unionDecl.Name,
         TypeAliasDeclaration aliasDecl => aliasDecl.Name,
+        NewtypeDeclaration newtypeDecl => newtypeDecl.Name,
         _ => null
     };
 
@@ -2552,6 +2555,7 @@ public class Analyzer : IDisposable
         EnumDeclaration => "enum",
         UnionDeclaration => "union",
         TypeAliasDeclaration => "typeAlias",
+        NewtypeDeclaration => "newtype",
         _ => "variable"
     };
 
@@ -2643,6 +2647,15 @@ public class Analyzer : IDisposable
         if (objectType is UnionTypeInfo)
         {
             return objectType;
+        }
+
+        // Handle newtype .Value access
+        if (objectType is NewtypeInfo newtypeInfo)
+        {
+            if (memberName == "Value")
+                return ResolveType(newtypeInfo.UnderlyingType);
+            // For other members (like ToString, Equals, GetHashCode), delegate to the underlying record struct
+            // which will be resolved via reflection at runtime
         }
 
         // Handle array types
@@ -3316,6 +3329,27 @@ public class Analyzer : IDisposable
 
             if (methodGroup.Methods.Length > 0)
                 return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
+        }
+
+        // Handle newtype construction: UserId(42)
+        if (calleeType is NewtypeInfo newtypeInfo)
+        {
+            if (call.Arguments.Count != 1)
+            {
+                Error($"Newtype '{newtypeInfo.Name}' constructor expects exactly 1 argument but got {call.Arguments.Count}",
+                    call.Line, call.Column);
+            }
+            else
+            {
+                var underlyingType = ResolveType(newtypeInfo.UnderlyingType);
+                if (!IsAssignable(underlyingType, argTypes[0]))
+                {
+                    Error(ErrorCode.TypeMismatch,
+                        $"Cannot construct '{newtypeInfo.Name}': argument of type '{argTypes[0]}' is not assignable to underlying type '{underlyingType}'",
+                        call.Line, call.Column);
+                }
+            }
+            return newtypeInfo;
         }
 
         // Handle N#-declared method group (overloaded N# methods)
@@ -7065,6 +7099,7 @@ public class Analyzer : IDisposable
                 UnionDeclaration u => u.Name,
                 EnumDeclaration e => e.Name,
                 TypeAliasDeclaration a => a.Name,
+                NewtypeDeclaration n => n.Name,
                 FunctionDeclaration f => f.Name,
                 _ => null
             };
@@ -7081,6 +7116,7 @@ public class Analyzer : IDisposable
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => new EnumTypeInfo(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
+                    NewtypeDeclaration n => new NewtypeInfo(n.Name, n.UnderlyingType),
                     FunctionDeclaration f => CreateFunctionTypeInfo(f),
                     _ => null
                 };
@@ -7121,6 +7157,7 @@ public class Analyzer : IDisposable
                 UnionDeclaration u => u.Name,
                 EnumDeclaration e => e.Name,
                 TypeAliasDeclaration a => a.Name,
+                NewtypeDeclaration n => n.Name,
                 FunctionDeclaration f => f.Name,
                 _ => null
             };
@@ -7136,6 +7173,7 @@ public class Analyzer : IDisposable
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => new EnumTypeInfo(e),
                     TypeAliasDeclaration a => new AliasTypeInfo(a.Type),
+                    NewtypeDeclaration n => new NewtypeInfo(n.Name, n.UnderlyingType),
                     FunctionDeclaration f => new FunctionTypeInfo(f)
                     {
                         ParameterTypes = new List<TypeInfo>(), // Resolved during analysis
@@ -7966,6 +8004,15 @@ public record EnumTypeInfo(EnumDeclaration Declaration) : TypeInfo
 }
 
 public record AliasTypeInfo(TypeReference AliasedType) : TypeInfo;
+
+/// <summary>
+/// Represents a newtype (distinct wrapper type).
+/// Unlike AliasTypeInfo, newtypes are NOT transparent — they are distinct from their underlying type.
+/// </summary>
+public record NewtypeInfo(string Name, TypeReference UnderlyingType) : TypeInfo
+{
+    public override string ToString() => Name;
+}
 
 /// <summary>
 /// Represents a type resolved via .NET reflection (external types like System.Console)

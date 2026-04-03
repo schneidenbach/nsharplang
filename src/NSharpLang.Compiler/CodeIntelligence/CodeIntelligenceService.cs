@@ -1827,6 +1827,13 @@ public class CodeIntelligenceService
                 Members: null,
                 Parameters: null),
 
+            NewtypeDeclaration nt => new SymbolResult(
+                nt.Name, SymbolKind.Struct, file, nt.Line, nt.Column,
+                TypeName: FormatTypeReference(nt.UnderlyingType),
+                Modifiers: null,
+                Members: null,
+                Parameters: null),
+
             TestDeclaration td => new SymbolResult(
                 td.Description, SymbolKind.Test, file, td.Line, td.Column,
                 TypeName: null,
@@ -2059,6 +2066,7 @@ public class CodeIntelligenceService
         FieldDeclaration fd => fd.Name,
         PropertyDeclaration pd => pd.Name,
         TypeAliasDeclaration ta => ta.Name,
+        NewtypeDeclaration nt => nt.Name,
         TestDeclaration td => td.Description,
         SetupDeclaration => "setup",
         _ => null
@@ -2077,6 +2085,7 @@ public class CodeIntelligenceService
         PropertyDeclaration => "property",
         ConstructorDeclaration => "constructor",
         TypeAliasDeclaration => "typeAlias",
+        NewtypeDeclaration => "newtype",
         TestDeclaration => "test",
         SetupDeclaration => "setup",
         _ => "unknown"
@@ -2360,6 +2369,7 @@ public class CodeIntelligenceService
             FieldDeclaration fd when fd.Name == name && fd.Type != null => ResolveTypeReferenceToTypeInfo(fd.Type, snapshot),
             PropertyDeclaration pd when pd.Name == name => ResolveTypeReferenceToTypeInfo(pd.Type, snapshot),
             TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
+            NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),
             _ => null
         };
     }
@@ -2392,6 +2402,7 @@ public class CodeIntelligenceService
                     EnumDeclaration e when e.Name == name => new EnumTypeInfo(e),
                     UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
                     TypeAliasDeclaration ta when ta.Name == name => ResolveTypeReferenceToTypeInfo(ta.Type, snapshot),
+                    NewtypeDeclaration nt when nt.Name == name => new NewtypeInfo(nt.Name, nt.UnderlyingType),
                     _ => null
                 };
 
