@@ -181,7 +181,7 @@ public static class LintCommand
                 }
             }
 
-            return (hadErrors || allDiagnostics.Any(d => d.Severity == "error" || d.Severity == "warning")) ? 1 : 0;
+            return (hadErrors || allDiagnostics.Any(d => d.Severity == "error")) ? 1 : 0;
         }
         catch (Exception ex)
         {
@@ -224,8 +224,8 @@ Examples:
   nlc lint --project examples/16-task-cli
 
 Exit codes:
-  0  No lint issues found (or only info-level)
-  1  One or more warnings or errors were reported");
+  0  No errors found (warnings and info are non-blocking)
+  1  One or more errors were reported");
 
         return 0;
     }

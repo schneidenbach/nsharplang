@@ -35,4 +35,3 @@ jobs:
 
     - name: Lint
       run: nlc lint
-      continue-on-error: true
