@@ -27,6 +27,12 @@ jobs:
     - name: Test
       run: dotnet test --no-build --verbosity normal
 
+    - name: Pack CLI
+      run: dotnet pack src/NSharpLang.Cli/Cli.csproj -o artifacts/nuget --no-build
+
+    - name: Install nlc
+      run: dotnet tool install --global NSharpLang.Cli --no-cache --add-source artifacts/nuget
+
     - name: Lint
-      run: nsharp lint
+      run: nlc lint
       continue-on-error: true
