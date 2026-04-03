@@ -3,9 +3,6 @@ namespace TaskCli.Commands
 import System
 import TaskCli.Models
 import TaskCli.Services
-import "../Models/Task"
-import "../Services/TaskService"
-import "../Services/Formatter"
 
 // Handle the "delete" command
 class DeleteCommand {

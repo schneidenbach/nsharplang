@@ -3431,7 +3431,7 @@ func Test() {
 
         var result = Transpile(source);
 
-        Assert.Contains("internal static class _TopLevel", result);
+        Assert.Contains("internal static partial class _TopLevel", result);
         Assert.Contains("internal static int Add(int a, int b)", result);
     }
 

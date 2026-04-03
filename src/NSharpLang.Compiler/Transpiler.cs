@@ -117,9 +117,10 @@ public class Transpiler
         var nonMainFunctions = topLevelFunctions.Where(f =>
             !f.Name.Equals("main", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        // Add 'using static' for top-level functions class (but only if there are non-main functions)
-        // This allows top-level functions to be called from within classes without qualification
-        if (nonMainFunctions.Count > 0)
+        // Add 'using static' for top-level functions class.
+        // Always emit when a namespace/package exists so that cross-file top-level
+        // function calls work (file A defines FormatError, file B calls it).
+        if (nonMainFunctions.Count > 0 || _compilationUnit.Namespace != null || _compilationUnit.Package != null)
         {
             EmitLineHidden();
             if (_compilationUnit.Package != null)
@@ -192,49 +193,58 @@ public class Transpiler
             WriteLine();
         }
 
-        // Wrap remaining top-level functions in a generated static class
-        if (nonMainFunctions.Count > 0)
+        // Wrap remaining top-level functions in a generated static partial class.
+        // Always use 'partial' so the class can exist across files — one file defines
+        // the functions, others get an empty stub enabling cross-file top-level calls.
         {
             string className;
             string visibility;
-            string partial = "";
 
-            // Use Functions_ prefix with package name if available, otherwise use _TopLevel
-            // The Functions_ prefix avoids conflict with the namespace name (can't use 'using static' on a namespace)
             if (_compilationUnit.Package != null)
             {
                 className = $"Functions_{_compilationUnit.Package.Name}";
                 visibility = "public";
-                partial = "partial "; // Always make package classes partial
+            }
+            else if (_compilationUnit.Namespace != null)
+            {
+                className = $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel";
+                visibility = "internal";
             }
             else
             {
-                className = _compilationUnit.Namespace != null
-                    ? $"_{_compilationUnit.Namespace.Name.Replace(".", "_")}_TopLevel"
-                    : "_TopLevel";
+                className = "_TopLevel";
                 visibility = "internal";
             }
 
-            EmitLineHidden();
-            WriteLine($"{visibility} static {partial}class {className}");
-            WriteLine("{");
-            _indentLevel++;
-
-            foreach (var func in nonMainFunctions)
+            if (nonMainFunctions.Count > 0)
             {
-                // Package functions are public static, others are internal static
-                var originalModifiers = func.Modifiers;
-                var staticModifier = Modifiers.Static;
-                var visibilityModifier = _compilationUnit.Package != null ? Modifiers.Public : Modifiers.Internal;
-                var modifiedFunc = func with { Modifiers = originalModifiers | staticModifier | visibilityModifier };
-                EmitLineDirective(func.Line);
-                TranspileFunctionDeclaration(modifiedFunc);
-                WriteLine();
-            }
+                EmitLineHidden();
+                WriteLine($"{visibility} static partial class {className}");
+                WriteLine("{");
+                _indentLevel++;
 
-            EmitLineHidden();
-            _indentLevel--;
-            WriteLine("}");
+                foreach (var func in nonMainFunctions)
+                {
+                    var originalModifiers = func.Modifiers;
+                    var staticModifier = Modifiers.Static;
+                    var visibilityModifier = _compilationUnit.Package != null ? Modifiers.Public : Modifiers.Internal;
+                    var modifiedFunc = func with { Modifiers = originalModifiers | staticModifier | visibilityModifier };
+                    EmitLineDirective(func.Line);
+                    TranspileFunctionDeclaration(modifiedFunc);
+                    WriteLine();
+                }
+
+                EmitLineHidden();
+                _indentLevel--;
+                WriteLine("}");
+            }
+            else if (_compilationUnit.Namespace != null || _compilationUnit.Package != null)
+            {
+                // Emit empty partial class stub so 'using static' resolves even when
+                // this file has no top-level functions (the real methods live in another file).
+                EmitLineHidden();
+                WriteLine($"{visibility} static partial class {className} {{ }}");
+            }
         }
 
         // Wrap test declarations in a public test class

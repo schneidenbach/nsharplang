@@ -72,13 +72,13 @@ test "TransitionIssue rejects invalid transition" {
 }
 
 test "FormatError produces correct messages for each variant" {
-    notFound := Errors.Format(new IssueError.NotFound(42))
+    notFound := FormatError(new IssueError.NotFound(42))
     assert notFound.Contains("42")
 
-    invalid := Errors.Format(new IssueError.InvalidTransition("Open", "Open"))
+    invalid := FormatError(new IssueError.InvalidTransition("Open", "Open"))
     assert invalid.Contains("Open")
 
-    validation := Errors.Format(new IssueError.ValidationFailed("title", "cannot be empty"))
+    validation := FormatError(new IssueError.ValidationFailed("title", "cannot be empty"))
     assert validation.Contains("title")
     assert validation.Contains("cannot be empty")
 }

@@ -1,6 +1,5 @@
 // Inline Out Variable Declarations (C# 7+)
 // Demonstrates declaring variables inline with out parameters
-import System.Collections.Generic
 
 
 // TryParse pattern - very common in .NET

@@ -1,5 +1,4 @@
 // Program.nl - Uses imports to access types from Models.nl
-import System
 import "./Models"
 
 func Main() {

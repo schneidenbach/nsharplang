@@ -1,5 +1,4 @@
 import System
-import System.Threading
 import System.Threading.Tasks
 
 // Thread-safe counter using lock statement

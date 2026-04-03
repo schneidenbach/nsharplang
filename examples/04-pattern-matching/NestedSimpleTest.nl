@@ -1,5 +1,3 @@
-import System
-
 class Address {
     City: string
 }

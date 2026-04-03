@@ -1,13 +1,7 @@
 namespace TaskCli.Commands
 
-import System
-import System.Collections.Generic
 import TaskCli.Models
 import TaskCli.Services
-import "../Models/Task"
-import "../Models/Filter"
-import "../Services/TaskService"
-import "../Services/Formatter"
 
 // Handle the "list" and "search" commands
 class ListCommand {

@@ -1,21 +1,10 @@
 namespace TaskCli
 
 import System
-import System.Linq
 import System.Threading.Tasks
 import TaskCli.Models
 import TaskCli.Services
 import TaskCli.Commands
-import "Models/Task"
-import "Models/Filter"
-import "Services/Store"
-import "Services/TaskService"
-import "Services/Formatter"
-import "Commands/AddCommand"
-import "Commands/ListCommand"
-import "Commands/DoneCommand"
-import "Commands/DeleteCommand"
-import "Commands/StatsCommand"
 
 func async Main() {
     rawArgs := Environment.GetCommandLineArgs()

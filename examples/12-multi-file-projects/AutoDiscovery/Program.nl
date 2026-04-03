@@ -3,8 +3,6 @@
 
 namespace AutoDiscovery
 
-import System
-
 func Main() {
     print "=== Auto-Discovery Demo ==="
     print "No file imports needed - types found automatically!"
