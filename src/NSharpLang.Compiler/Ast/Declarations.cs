@@ -241,6 +241,14 @@ public record TypeAliasDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
+// Newtype declaration (distinct wrapper type)
+// `type UserId = newtype int` → `readonly record struct UserId(int Value);`
+public record NewtypeDeclaration(
+    string Name,
+    TypeReference UnderlyingType,
+    int Line,
+    int Column) : Declaration(Line, Column);
+
 // Preprocessor directive wrapper (for top-level preprocessor directives)
 public record PreprocessorDeclaration(
     string Directive,  // Full directive text including # (e.g., "#if DEBUG", "#region Helpers")

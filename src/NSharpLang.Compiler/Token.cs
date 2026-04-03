@@ -88,6 +88,7 @@ public enum TokenType
     Unchecked,
     Implicit,
     Explicit,
+    Newtype,
 
     // Operators
     Plus,           // +
