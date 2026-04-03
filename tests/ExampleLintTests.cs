@@ -114,11 +114,11 @@ func main() {
     }
 
     [Fact]
-    public void NL010_SystemLinq_TreatedConservatively_NotFlagged()
+    public void NL010_SystemLinq_WithoutUsage_Flagged()
     {
-        // System.Linq is not in the known types map because LINQ extension
-        // methods (.Where, .Select, .ToList) can't be tracked via identifiers.
-        // It's treated as an unknown namespace — conservatively marked as used.
+        // System.Linq is now properly tracked via known types (Enumerable,
+        // IQueryable, etc.) and known members (extension methods like .Where,
+        // .Select). Unused import should be flagged.
         var source = @"
 import System.Linq
 
@@ -127,7 +127,7 @@ func main() {
     y := x + 1
 }";
         var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+        Assert.Contains(diagnostics, d => d.Code == "NL010");
     }
 
     [Fact]

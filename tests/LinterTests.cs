@@ -785,6 +785,82 @@ func Main() {
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
     }
 
+    [Fact]
+    public void NL010_UnusedImport_NoWarnWhenLinqExtensionMethodUsed()
+    {
+        // System.Linq should not be flagged when LINQ extension methods are called
+        var source = @"
+import System.Collections.Generic
+import System.Linq
+
+func Main() {
+    items := new List<int>()
+    filtered := items.Where(x => x > 1)
+    result := filtered.Select(x => x * 2)
+    _ := result
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_NoWarnWhenToListUsed()
+    {
+        var source = @"
+import System.Collections.Generic
+import System.Linq
+
+func Main() {
+    items := new List<int>()
+    result := items.ToList()
+    _ := result
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_NoWarnForGenericInterfaceTypes()
+    {
+        // IEnumerable<>, IList<>, etc. should count as usage of System.Collections.Generic
+        var source = @"
+import System.Collections.Generic
+
+func GetItems(): IEnumerable<int> {
+    return new List<int>()
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_NoWarnForIAsyncEnumerable()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func GetItems(): IAsyncEnumerable<string> {
+    return nil
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_WarnsWhenLinqNotActuallyUsed()
+    {
+        // System.Linq should still be flagged when no LINQ methods are called
+        var source = @"
+import System.Linq
+
+func Main() {
+    x := 5
+    y := x + 1
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL010");
+    }
+
     #endregion
 
     #region NL014: Unnecessary Type Annotation Tests

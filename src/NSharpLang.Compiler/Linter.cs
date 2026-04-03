@@ -199,6 +199,7 @@ internal class LintVisitor
     // NL010: Track imports and identifiers used in code for unused-import detection
     private readonly List<(string Namespace, int Line, int Column, bool IsFile, string? FilePath)> _allImports = new();
     private readonly HashSet<string> _allCodeIdentifiers = new();
+    private readonly HashSet<string> _allMemberAccessNames = new();
 
     // NL015: Track let declarations and assignments within functions
     // Maps variable name → (Line, Col, HasInitializer, InLambda)
@@ -1003,6 +1004,8 @@ internal class LintVisitor
 
             case MemberAccessExpression member:
                 VisitExpression(member.Object);
+                // NL010: Track member names for extension method detection
+                _allMemberAccessNames.Add(member.MemberName);
                 break;
 
             case IndexAccessExpression index:
@@ -1504,28 +1507,87 @@ internal class LintVisitor
     {
         var map = new Dictionary<string, string>
         {
+            // System.Collections.Generic — concrete types
             { "List", "System.Collections.Generic" },
             { "Dictionary", "System.Collections.Generic" },
             { "HashSet", "System.Collections.Generic" },
             { "Queue", "System.Collections.Generic" },
             { "Stack", "System.Collections.Generic" },
             { "LinkedList", "System.Collections.Generic" },
+            { "SortedDictionary", "System.Collections.Generic" },
+            { "SortedList", "System.Collections.Generic" },
+            { "SortedSet", "System.Collections.Generic" },
+            { "KeyValuePair", "System.Collections.Generic" },
+            // System.Collections.Generic — interfaces
+            { "IEnumerable", "System.Collections.Generic" },
+            { "IList", "System.Collections.Generic" },
+            { "ICollection", "System.Collections.Generic" },
+            { "IDictionary", "System.Collections.Generic" },
+            { "ISet", "System.Collections.Generic" },
+            { "IReadOnlyList", "System.Collections.Generic" },
+            { "IReadOnlyCollection", "System.Collections.Generic" },
+            { "IReadOnlyDictionary", "System.Collections.Generic" },
+            { "IAsyncEnumerable", "System.Collections.Generic" },
+            { "IEnumerator", "System.Collections.Generic" },
+            { "IComparer", "System.Collections.Generic" },
+            { "IEqualityComparer", "System.Collections.Generic" },
+
+            // System.Text
             { "StringBuilder", "System.Text" },
             { "Encoding", "System.Text" },
+
+            // System.Text.RegularExpressions
             { "Regex", "System.Text.RegularExpressions" },
+            { "Match", "System.Text.RegularExpressions" },
+            { "MatchCollection", "System.Text.RegularExpressions" },
+
+            // System.IO
             { "File", "System.IO" },
             { "Directory", "System.IO" },
             { "Path", "System.IO" },
             { "Stream", "System.IO" },
             { "StreamReader", "System.IO" },
             { "StreamWriter", "System.IO" },
+            { "FileStream", "System.IO" },
+            { "MemoryStream", "System.IO" },
+            { "BinaryReader", "System.IO" },
+            { "BinaryWriter", "System.IO" },
+            { "FileInfo", "System.IO" },
+            { "DirectoryInfo", "System.IO" },
+            { "TextReader", "System.IO" },
+            { "TextWriter", "System.IO" },
+
+            // System.Net.Http
             { "HttpClient", "System.Net.Http" },
+            { "HttpResponseMessage", "System.Net.Http" },
+            { "HttpRequestMessage", "System.Net.Http" },
+            { "HttpContent", "System.Net.Http" },
+            { "StringContent", "System.Net.Http" },
+
+            // System.Text.Json
             { "JsonSerializer", "System.Text.Json" },
             { "JsonSerializerOptions", "System.Text.Json" },
             { "JsonNamingPolicy", "System.Text.Json" },
+            { "JsonElement", "System.Text.Json" },
+            { "JsonDocument", "System.Text.Json" },
+            { "JsonNode", "System.Text.Json" },
+
+            // System.Threading.Tasks
             { "Task", "System.Threading.Tasks" },
+            { "ValueTask", "System.Threading.Tasks" },
+            { "TaskCompletionSource", "System.Threading.Tasks" },
+
+            // System.Threading
             { "CancellationToken", "System.Threading" },
+            { "CancellationTokenSource", "System.Threading" },
+            { "SemaphoreSlim", "System.Threading" },
+            { "Mutex", "System.Threading" },
+            { "Timer", "System.Threading" },
+            { "Thread", "System.Threading" },
+
+            // System
             { "DateTime", "System" },
+            { "DateTimeOffset", "System" },
             { "TimeSpan", "System" },
             { "Guid", "System" },
             { "Uri", "System" },
@@ -1552,23 +1614,23 @@ internal class LintVisitor
             { "Environment", "System" },
             { "Int32", "System" },
             { "String", "System" },
-            { "IEnumerable", "System.Collections.Generic" },
-            { "IList", "System.Collections.Generic" },
-            { "ICollection", "System.Collections.Generic" },
-            { "IReadOnlyList", "System.Collections.Generic" },
-            { "IReadOnlyCollection", "System.Collections.Generic" },
-            { "IAsyncEnumerable", "System.Collections.Generic" },
-            { "KeyValuePair", "System.Collections.Generic" },
-            { "SortedDictionary", "System.Collections.Generic" },
-            { "SortedSet", "System.Collections.Generic" },
-            { "Thread", "System.Threading" },
-            { "Monitor", "System.Threading" },
-            { "Mutex", "System.Threading" },
-            { "Semaphore", "System.Threading" },
-            { "SemaphoreSlim", "System.Threading" },
-            // System.Linq is intentionally omitted — LINQ extension methods
-            // (.Where, .Select, .ToList, etc.) aren't tracked as identifiers,
-            // so we can't determine usage. Treat it conservatively (unknown).
+            { "IDisposable", "System" },
+            { "IComparable", "System" },
+            { "IEquatable", "System" },
+            { "EventHandler", "System" },
+            { "Nullable", "System" },
+            { "Span", "System" },
+            { "Memory", "System" },
+            { "ReadOnlySpan", "System" },
+            { "ReadOnlyMemory", "System" },
+            // System.Linq
+            { "Enumerable", "System.Linq" },
+            { "Queryable", "System.Linq" },
+            { "IQueryable", "System.Linq" },
+            { "IOrderedEnumerable", "System.Linq" },
+            { "IGrouping", "System.Linq" },
+            { "ILookup", "System.Linq" },
+            { "Lookup", "System.Linq" },
         };
 
         var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -1580,6 +1642,101 @@ internal class LintVisitor
                 result[ns] = set;
             }
             set.Add(typeName);
+        }
+        return result;
+    }
+
+    // Maps namespace → set of extension method / static method names that belong to it.
+    // Used to detect import usage through method calls like .Select(), .Where(), etc.
+    private static readonly Dictionary<string, HashSet<string>> _knownNamespaceMembers =
+        BuildKnownNamespaceMembers();
+
+    private static Dictionary<string, HashSet<string>> BuildKnownNamespaceMembers()
+    {
+        // Maps method names to their providing namespace.
+        // A method name can appear in multiple namespaces — that's fine, we just mark
+        // the import as used if the method name appears in member access expressions.
+        var map = new (string MethodName, string Namespace)[]
+        {
+            // System.Linq — LINQ extension methods
+            ("Select", "System.Linq"),
+            ("SelectMany", "System.Linq"),
+            ("Where", "System.Linq"),
+            ("OrderBy", "System.Linq"),
+            ("OrderByDescending", "System.Linq"),
+            ("ThenBy", "System.Linq"),
+            ("ThenByDescending", "System.Linq"),
+            ("GroupBy", "System.Linq"),
+            ("GroupJoin", "System.Linq"),
+            ("Join", "System.Linq"),
+            ("Distinct", "System.Linq"),
+            ("DistinctBy", "System.Linq"),
+            ("Union", "System.Linq"),
+            ("UnionBy", "System.Linq"),
+            ("Intersect", "System.Linq"),
+            ("IntersectBy", "System.Linq"),
+            ("Except", "System.Linq"),
+            ("ExceptBy", "System.Linq"),
+            ("Skip", "System.Linq"),
+            ("SkipWhile", "System.Linq"),
+            ("Take", "System.Linq"),
+            ("TakeWhile", "System.Linq"),
+            ("First", "System.Linq"),
+            ("FirstOrDefault", "System.Linq"),
+            ("Last", "System.Linq"),
+            ("LastOrDefault", "System.Linq"),
+            ("Single", "System.Linq"),
+            ("SingleOrDefault", "System.Linq"),
+            ("ElementAt", "System.Linq"),
+            ("ElementAtOrDefault", "System.Linq"),
+            ("Count", "System.Linq"),
+            ("LongCount", "System.Linq"),
+            ("Sum", "System.Linq"),
+            ("Min", "System.Linq"),
+            ("MinBy", "System.Linq"),
+            ("Max", "System.Linq"),
+            ("MaxBy", "System.Linq"),
+            ("Average", "System.Linq"),
+            ("Aggregate", "System.Linq"),
+            ("Any", "System.Linq"),
+            ("All", "System.Linq"),
+            ("Contains", "System.Linq"),
+            ("ToList", "System.Linq"),
+            ("ToArray", "System.Linq"),
+            ("ToDictionary", "System.Linq"),
+            ("ToHashSet", "System.Linq"),
+            ("ToLookup", "System.Linq"),
+            ("Zip", "System.Linq"),
+            ("Concat", "System.Linq"),
+            ("Append", "System.Linq"),
+            ("Prepend", "System.Linq"),
+            ("Reverse", "System.Linq"),
+            ("SequenceEqual", "System.Linq"),
+            ("DefaultIfEmpty", "System.Linq"),
+            ("OfType", "System.Linq"),
+            ("Cast", "System.Linq"),
+            ("AsEnumerable", "System.Linq"),
+            ("Chunk", "System.Linq"),
+            // net8+/net9+ additions
+            ("SkipLast", "System.Linq"),
+            ("TakeLast", "System.Linq"),
+            ("TryGetNonEnumeratedCount", "System.Linq"),
+            ("CountBy", "System.Linq"),
+            ("AggregateBy", "System.Linq"),
+            ("Index", "System.Linq"),
+            ("Order", "System.Linq"),
+            ("OrderDescending", "System.Linq"),
+        };
+
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var (methodName, ns) in map)
+        {
+            if (!result.TryGetValue(ns, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                result[ns] = set;
+            }
+            set.Add(methodName);
         }
         return result;
     }
@@ -1601,14 +1758,20 @@ internal class LintVisitor
             else
             {
                 // Namespace import strategy:
-                // 1. If the namespace is in our known-types map, check if any of its known
-                //    types appear in the code identifiers. If we can't find ANY, flag it.
-                // 2. If the namespace is NOT in our known-types map, we can't determine usage
-                //    → conservatively mark as used (avoid false positives).
-                if (_knownNamespaceTypes.TryGetValue(ns, out var knownTypes))
+                // 1. Check if any known types from this namespace appear in code identifiers.
+                // 2. Check if any known extension/static methods from this namespace appear
+                //    in member access expressions (e.g. .Select(), .Where()).
+                // 3. If namespace is not in any known map, conservatively mark as used.
+                var hasKnownTypes = _knownNamespaceTypes.TryGetValue(ns, out var knownTypes);
+                var hasKnownMembers = _knownNamespaceMembers.TryGetValue(ns, out var knownMembers);
+
+                if (hasKnownTypes || hasKnownMembers)
                 {
-                    // Used if any known type from this namespace appears in the code
-                    used = knownTypes.Any(t => _allCodeIdentifiers.Contains(t));
+                    used = false;
+                    if (hasKnownTypes)
+                        used = knownTypes!.Any(t => _allCodeIdentifiers.Contains(t));
+                    if (!used && hasKnownMembers)
+                        used = knownMembers!.Any(m => _allMemberAccessNames.Contains(m));
                 }
                 else
                 {
