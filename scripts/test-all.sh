@@ -355,12 +355,11 @@ fi
 section "Step 9: Build Single-File Examples (CLI-based)"
 
 # Known failures that are NOT example bugs:
-#   TestErrors.nl              - intentionally broken (demonstrates error messages)
 #   PrintNameofTypeof.nl       - compiler bug: nameof(instance.Property) transpiles incorrectly
 #   ConstructorChaining.nl     - compiler bug: interface accessibility in transpiled C#
 # Multi-file examples that cannot be built as single files:
 #   12-multi-file-projects/imports/  - requires multi-file compilation
-KNOWN_FAILURES="TestErrors.nl|PrintNameofTypeof.nl|ConstructorChaining.nl|12-multi-file-projects/imports/"
+KNOWN_FAILURES="PrintNameofTypeof.nl|ConstructorChaining.nl|12-multi-file-projects/imports/"
 
 # Find single .nl files outside of project.yml directories.
 # Skip files inside project-based directories (they're tested in Step 8).
@@ -451,10 +450,9 @@ CHECK_DIRS="$CHECK_DIRS
 $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
 
 # Known check failures:
-#   02-variables-and-types  - contains TestErrors.nl (intentionally broken)
 #   12-multi-file-projects  - parent dir has cross-project symbol conflicts (sub-dirs pass individually)
 #   17-issue-tracker        - parent dir has no project.yml (backend/ is the actual project)
-CHECK_KNOWN_FAILURES="02-variables-and-types$|12-multi-file-projects$|17-issue-tracker$"
+CHECK_KNOWN_FAILURES="12-multi-file-projects$|17-issue-tracker$"
 
 echo "Using up to $MAX_JOBS parallel workers for nlc check..."
 CHECK_RESULTS_DIR=$(mktemp -d)

@@ -12,7 +12,7 @@ class Workflow {
     // Returns the new status or throws on invalid transition.
     static func Transition(issue: Issue, to: IssueStatus): IssueStatus {
         if !isValid(issue.Status, to) {
-            throw new Exception(Errors.Format(
+            throw new Exception(FormatError(
                 new IssueError.InvalidTransition(describe(issue.Status), describe(to))
             ))
         }

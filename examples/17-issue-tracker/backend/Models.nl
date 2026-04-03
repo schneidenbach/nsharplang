@@ -58,12 +58,10 @@ record Comment {
 // Format an error for API responses — exhaustive match means
 // the compiler forces you to handle every variant. Add a new
 // IssueError case and every match breaks until you handle it.
-class Errors {
-    static func Format(err: IssueError): string {
-        return match err {
-            IssueError.NotFound { id } => $"Issue #{id} not found",
-            IssueError.InvalidTransition { from, to } => $"Cannot move from {from} to {to}",
-            IssueError.ValidationFailed { field, reason } => $"{field}: {reason}"
-        }
+func FormatError(err: IssueError): string {
+    return match err {
+        IssueError.NotFound { id } => $"Issue #{id} not found",
+        IssueError.InvalidTransition { from, to } => $"Cannot move from {from} to {to}",
+        IssueError.ValidationFailed { field, reason } => $"{field}: {reason}"
     }
 }

@@ -5,7 +5,6 @@ import System.IO
 import System.Collections.Generic
 import System.Threading.Tasks
 import TaskCli.Models
-import "../Models/Task"
 
 // Persists tasks to a pipe-delimited file with async I/O
 class TaskStore {

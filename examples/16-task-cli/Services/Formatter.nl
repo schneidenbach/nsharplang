@@ -1,11 +1,8 @@
 namespace TaskCli.Services
 
-import System
 import System.Collections.Generic
 import System.Text
 import TaskCli.Models
-import "../Models/Task"
-import "./TaskService"
 
 // Pretty-print formatting for task output
 class Formatter {

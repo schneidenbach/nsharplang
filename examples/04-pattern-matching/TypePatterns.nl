@@ -1,7 +1,5 @@
 // Type Pattern Matching Example
 // Demonstrates C# 8+ type patterns in match expressions
-import System
-import System.Collections.Generic
 
 
 // Example 1: Type pattern matching with strings

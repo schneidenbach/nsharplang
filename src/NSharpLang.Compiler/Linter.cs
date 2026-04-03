@@ -469,6 +469,10 @@ internal class LintVisitor
         _inAsyncFunction = func.Modifiers.HasFlag(Modifiers.Async);
         _hasAwaitInFunction = false;
 
+        // Async functions implicitly use Task from System.Threading.Tasks
+        if (_inAsyncFunction)
+            _allCodeIdentifiers.Add("Task");
+
         // NL012: Save outer param tracking state
         var outerParams = _currentFunctionParams;
         var outerParamUsages = _currentFunctionParamUsages;
@@ -1563,6 +1567,7 @@ internal class LintVisitor
             // System.Text.Json
             { "JsonSerializer", "System.Text.Json" },
             { "JsonSerializerOptions", "System.Text.Json" },
+            { "JsonNamingPolicy", "System.Text.Json" },
             { "JsonElement", "System.Text.Json" },
             { "JsonDocument", "System.Text.Json" },
             { "JsonNode", "System.Text.Json" },
@@ -1593,22 +1598,31 @@ internal class LintVisitor
             { "Console", "System" },
             { "Math", "System" },
             { "Exception", "System" },
-            { "Environment", "System" },
+            { "ArgumentException", "System" },
+            { "ArgumentNullException", "System" },
+            { "ArgumentOutOfRangeException", "System" },
+            { "InvalidOperationException", "System" },
+            { "NotSupportedException", "System" },
+            { "NotImplementedException", "System" },
+            { "FormatException", "System" },
+            { "OverflowException", "System" },
+            { "Random", "System" },
+            { "Convert", "System" },
+            { "Array", "System" },
             { "Type", "System" },
             { "Attribute", "System" },
+            { "Environment", "System" },
+            { "Int32", "System" },
+            { "String", "System" },
             { "IDisposable", "System" },
             { "IComparable", "System" },
             { "IEquatable", "System" },
             { "EventHandler", "System" },
-            { "Convert", "System" },
-            { "Random", "System" },
-            { "Array", "System" },
             { "Nullable", "System" },
             { "Span", "System" },
             { "Memory", "System" },
             { "ReadOnlySpan", "System" },
             { "ReadOnlyMemory", "System" },
-
             // System.Linq
             { "Enumerable", "System.Linq" },
             { "Queryable", "System.Linq" },

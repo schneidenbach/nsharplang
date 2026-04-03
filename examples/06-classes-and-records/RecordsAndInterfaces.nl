@@ -1,5 +1,4 @@
 // Demonstrates records, with expressions, interfaces, and inheritance
-import System
 
 
 // Record type with value equality

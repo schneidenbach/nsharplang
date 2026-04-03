@@ -4,10 +4,6 @@ import System
 import System.Collections.Generic
 import TaskCli.Models
 import TaskCli.Services
-import "Models/Task"
-import "Models/Filter"
-import "Services/Store"
-import "Services/TaskService"
 
 test "AddTask creates a task with correct fields" {
     store := new TaskStore()
