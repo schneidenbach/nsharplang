@@ -204,6 +204,53 @@ Transpiled to C# file-scoped `using` alias directives with fully qualified type 
 
 Using aliases are emitted at the top of the generated C# file, after namespace imports but before namespace/class declarations.
 
+## Newtypes (Branded Types)
+
+Newtypes create **distinct wrapper types** that are NOT interchangeable with their underlying type. Unlike type aliases (which are transparent), newtypes enforce nominal type safety at compile time.
+
+### Declaration
+```
+type UserId = newtype int
+type Email = newtype string
+type OrderId = newtype int
+```
+
+### Construction & Unwrapping
+```
+id := UserId(42)           // Explicit construction
+let raw: int = id.Value    // Explicit unwrapping via .Value
+```
+
+### Type Safety
+Newtypes are NOT assignable to/from their underlying type or other newtypes with the same underlying type:
+```
+id := UserId(42)
+// let x: int = id          // ERROR: Cannot assign 'UserId' to 'int'
+// let id2: UserId = 42     // ERROR: Cannot assign 'int' to 'UserId'
+// let oid: OrderId = id    // ERROR: Cannot assign 'UserId' to 'OrderId'
+```
+
+### C# Emission
+```
+type UserId = newtype int
+```
+Transpiles to:
+```csharp
+public readonly record struct UserId(int Value);
+```
+
+This gives C# consumers:
+- Constructor: `new UserId(42)`
+- `.Value` property for unwrapping
+- Value equality (`==`, `!=`, `Equals`, `GetHashCode`)
+- `ToString()`, `IEquatable<UserId>`
+
+### Design Decisions
+- **No auto-forwarded arithmetic**: `UserId + 1` is not valid — use `.Value` for math
+- **No implicit conversions**: Both construction and unwrapping are explicit
+- **No serialization magic**: Use library-level converters (e.g., `JsonConverter<UserId>`)
+- **Visibility**: PascalCase = public, camelCase = file-private (standard N# convention)
+
 ## Nullable Types
 
 ```

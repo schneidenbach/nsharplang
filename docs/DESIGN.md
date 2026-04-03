@@ -1145,19 +1145,33 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   ```
 
 #### Type Aliases
-- Create shorthand names for types
-- Makes complex types more readable
+- Create shorthand names for types (transparent — fully interchangeable with underlying type)
 - Examples:
   ```
   type UserId = int
   type Handler = Func<string, void>
   type StringDict = Dictionary<string, string>
-  type Result<T> = (value: T, error: Exception?)
-
-  func ProcessUser(id: UserId) { }
-
-  callback: Handler = msg => Console.WriteLine(msg)
   ```
+
+#### Newtypes (Branded Types)
+- Create **distinct wrapper types** that prevent accidental type confusion
+- NOT interchangeable with underlying type (compile-time enforcement)
+- Emits as `readonly record struct` with value equality
+- Examples:
+  ```
+  type UserId = newtype int
+  type OrderId = newtype int
+  type Email = newtype string
+
+  id := UserId(42)            // explicit construction
+  let raw: int = id.Value     // explicit unwrapping
+  // let x: int = id          // ERROR: UserId is not int
+  // let y: OrderId = id      // ERROR: UserId is not OrderId
+  ```
+- Design:
+  - No auto-forwarded arithmetic operators
+  - No implicit conversions in either direction
+  - No built-in serialization magic
 
 #### Partial Classes
 - Split class definitions across multiple files

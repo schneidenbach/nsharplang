@@ -810,6 +810,53 @@ type UserId = int
     }
 
     [Fact]
+    public void TestNewtypeTranspilation()
+    {
+        var source = @"
+type UserId = newtype int
+        ";
+
+        var result = Transpile(source);
+
+        // Newtypes emit as readonly record struct wrappers
+        Assert.Contains("public readonly record struct UserId(int Value);", result);
+        // Should NOT emit as a using alias
+        Assert.DoesNotContain("using UserId", result);
+    }
+
+    [Fact]
+    public void TestNewtypeConstruction()
+    {
+        var source = @"
+type UserId = newtype int
+
+func main() {
+    id := UserId(42)
+    let raw: int = id.Value
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Construction should emit as new
+        Assert.Contains("new UserId(42)", result);
+        // .Value access should work
+        Assert.Contains(".Value", result);
+    }
+
+    [Fact]
+    public void TestNewtypeStringUnderlying()
+    {
+        var source = @"
+type Email = newtype string
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("public readonly record struct Email(string Value);", result);
+    }
+
+    [Fact]
     public void TestAttributeTranspilation()
     {
         var source = @"

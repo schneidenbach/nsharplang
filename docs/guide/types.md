@@ -14,6 +14,8 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Interfaces](#interfaces)
 - [Generics](#generics)
 - [Nullable Types](#nullable-types)
+- [Type Aliases](#type-aliases)
+- [Newtypes (Branded Types)](#newtypes-branded-types)
 
 ## Basic Types
 
@@ -719,12 +721,39 @@ name: string = optionalName!
 
 ## Type Aliases
 
+Create transparent type aliases (interchangeable with the underlying type):
+
 ```n#
-// Not yet supported in N# - use C# using directives
-// Future feature:
-// type UserId = Guid
-// type EmailAddress = string
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
 ```
+
+Type aliases transpile to C# `using` directives — they're purely cosmetic.
+
+## Newtypes (Branded Types)
+
+Create **distinct wrapper types** that prevent accidental type confusion:
+
+```n#
+type UserId = newtype int
+type OrderId = newtype int
+type Email = newtype string
+```
+
+Unlike type aliases, newtypes are **not interchangeable** with their underlying type:
+
+```n#
+id := UserId(42)           // Explicit construction
+let raw: int = id.Value    // Explicit unwrapping
+
+// These are compile errors:
+// let x: int = id          // ERROR: UserId is not int
+// let y: UserId = 42       // ERROR: int is not UserId
+// let z: OrderId = id      // ERROR: UserId is not OrderId
+```
+
+Newtypes transpile to `readonly record struct` wrappers, giving C# consumers value equality, `ToString()`, and familiar record semantics.
 
 ## Complete Example
 

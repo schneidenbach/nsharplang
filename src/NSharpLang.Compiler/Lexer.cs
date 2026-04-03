@@ -91,6 +91,7 @@ public class Lexer
         { "unchecked", TokenType.Unchecked },
         { "implicit", TokenType.Implicit },
         { "explicit", TokenType.Explicit },
+        { "newtype", TokenType.Newtype },
     };
 
     /// <summary>

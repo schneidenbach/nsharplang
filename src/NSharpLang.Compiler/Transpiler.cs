@@ -22,6 +22,7 @@ public class Transpiler
     private readonly string? _sourceFilePath; // Source .nl file path for #line directives
     private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
     private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
+    private readonly HashSet<string> _newtypeNames = new(); // Track newtype names for constructor call transpilation
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null)
     {
@@ -106,6 +107,9 @@ public class Transpiler
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
         var setupDeclaration = _compilationUnit.Declarations.OfType<SetupDeclaration>().FirstOrDefault();
         var typeAliases = _compilationUnit.Declarations.OfType<TypeAliasDeclaration>().ToList();
+        // Collect newtype names for constructor call transpilation
+        foreach (var nt in _compilationUnit.Declarations.OfType<NewtypeDeclaration>())
+            _newtypeNames.Add(nt.Name);
         var otherDeclarations = _compilationUnit.Declarations
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration
                 && d is not SetupDeclaration && d is not TypeAliasDeclaration)
@@ -320,6 +324,9 @@ public class Transpiler
                 break;
             case TypeAliasDeclaration alias:
                 TranspileTypeAlias(alias);
+                break;
+            case NewtypeDeclaration newtype:
+                TranspileNewtypeDeclaration(newtype);
                 break;
             case PreprocessorDeclaration preprocessor:
                 TranspilePreprocessorDeclaration(preprocessor);
@@ -991,6 +998,17 @@ public class Transpiler
         // Emit as C# file-scoped using alias with fully qualified type names
         var fqnType = TranspileTypeReferenceForUsing(alias.Type);
         WriteLine($"using {alias.Name} = {fqnType};");
+    }
+
+    private void TranspileNewtypeDeclaration(NewtypeDeclaration newtype)
+    {
+        var underlyingType = TranspileTypeReference(newtype.UnderlyingType);
+
+        // Infer visibility from naming convention (PascalCase = public, camelCase = file-private)
+        var visibility = char.IsUpper(newtype.Name[0]) ? "public " : "";
+
+        // Emit as readonly record struct with a single Value property
+        WriteLine($"{visibility}readonly record struct {newtype.Name}({underlyingType} Value);");
     }
 
     // Well-known .NET type names mapped to their fully qualified names
@@ -2262,6 +2280,13 @@ public class Transpiler
     private string TranspileCallExpression(CallExpression call)
     {
         var callee = TranspileExpression(call.Callee);
+
+        // Newtype construction: UserId(42) → new UserId(42)
+        if (call.Callee is IdentifierExpression id && _newtypeNames.Contains(id.Name))
+        {
+            var ctorArgs = string.Join(", ", call.Arguments.Select(arg => TranspileExpression(arg.Value)));
+            return $"new {callee}({ctorArgs})";
+        }
 
         // Add generic type arguments if present
         var typeArgs = "";

@@ -989,7 +989,7 @@ public class Parser
         return new EnumDeclaration(name, members, enumType, modifiers, attributes, line, column);
     }
 
-    private TypeAliasDeclaration ParseTypeAliasDeclaration()
+    private Declaration ParseTypeAliasDeclaration()
     {
         var line = Current.Line;
         var column = Current.Column;
@@ -997,6 +997,15 @@ public class Parser
 
         var name = ConsumeIdentifier("Expected type alias name");
         Consume(TokenType.Assign, "Expected '='");
+
+        // Check for newtype keyword: type X = newtype Y
+        if (Check(TokenType.Newtype))
+        {
+            Advance(); // consume 'newtype'
+            var underlyingType = ParseTypeReference();
+            return new NewtypeDeclaration(name, underlyingType, line, column);
+        }
+
         var type = ParseTypeReference();
 
         return new TypeAliasDeclaration(name, type, line, column);

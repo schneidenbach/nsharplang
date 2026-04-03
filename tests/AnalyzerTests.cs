@@ -4650,4 +4650,95 @@ func Hello(): string {
             }
         ");
     }
+
+    // ===== Newtype Tests =====
+
+    [Fact]
+    public void Newtype_ConstructionWithCorrectType_NoError()
+    {
+        AssertNoErrors(@"
+            type UserId = newtype int
+
+            func Main() {
+                id := UserId(42)
+            }
+        ");
+    }
+
+    [Fact]
+    public void Newtype_ValueAccess_ReturnsUnderlyingType()
+    {
+        AssertNoErrors(@"
+            type UserId = newtype int
+
+            func Main() {
+                id := UserId(42)
+                let raw: int = id.Value
+            }
+        ");
+    }
+
+    [Fact]
+    public void Newtype_NotAssignableFromUnderlying()
+    {
+        AssertHasError(@"
+            type UserId = newtype int
+
+            func Main() {
+                let id: UserId = 42
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void Newtype_NotAssignableToUnderlying()
+    {
+        AssertHasError(@"
+            type UserId = newtype int
+
+            func Main() {
+                id := UserId(42)
+                let raw: int = id
+            }
+        ", "Cannot assign");
+    }
+
+    [Fact]
+    public void Newtype_ConstructionWithWrongType_Error()
+    {
+        AssertHasError(@"
+            type UserId = newtype int
+
+            func Main() {
+                id := UserId(""hello"")
+            }
+        ", "not assignable");
+    }
+
+    [Fact]
+    public void Newtype_SameNewtypeAssignable()
+    {
+        AssertNoErrors(@"
+            type UserId = newtype int
+
+            func Main() {
+                id1 := UserId(1)
+                let id2: UserId = id1
+            }
+        ");
+    }
+
+    [Fact]
+    public void Newtype_DifferentNewtypeNotAssignable()
+    {
+        AssertHasError(@"
+            type UserId = newtype int
+            type OrderId = newtype int
+
+            func Main() {
+                userId := UserId(1)
+                let orderId: OrderId = userId
+            }
+        ", "Cannot assign");
+    }
 }
