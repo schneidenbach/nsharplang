@@ -6264,7 +6264,7 @@ func Hello(): string {
             func Main() {
                 let id: UserId = 42
             }
-        ", "Cannot assign");
+        ", "is typed as 'UserId', but the value is 'int'");
     }
 
     [Fact]
@@ -6277,7 +6277,7 @@ func Hello(): string {
                 id := UserId(42)
                 let raw: int = id
             }
-        ", "Cannot assign");
+        ", "is typed as 'int', but the value is 'UserId'");
     }
 
     [Fact]
@@ -6316,6 +6316,6 @@ func Hello(): string {
                 userId := UserId(1)
                 let orderId: OrderId = userId
             }
-        ", "Cannot assign");
+        ", "is typed as 'OrderId', but the value is 'UserId'");
     }
 }

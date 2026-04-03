@@ -1336,13 +1336,13 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 18 col 21 (0-indexed): service := new IssueService(store, hub) — "IssueService" at col ~21
-        var definition = await harness.GetDefinitionAsync(uri, 18, 21);
+        // Line 22 col 21 (0-indexed: 21): service := new IssueService(store, hub) — "IssueService" at col ~21
+        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
         Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(9, location.Range.Start.Line); // class IssueService on line 10 (0-indexed: 9)
+        Assert.Equal(13, location.Range.Start.Line); // class IssueService on line 14 (0-indexed: 13)
         Assert.Equal(0, location.Range.Start.Character);
     }
 
@@ -1356,13 +1356,13 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 18 col 21 (0-indexed): service := new IssueService(store, hub) — "IssueService" at col ~21
-        var definition = await harness.GetDefinitionAsync(uri, 18, 21);
+        // Line 22 col 21 (0-indexed: 21): service := new IssueService(store, hub) — "IssueService" at col ~21
+        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
         Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(9, location.Range.Start.Line); // class IssueService on line 10 (0-indexed: 9)
+        Assert.Equal(13, location.Range.Start.Line); // class IssueService on line 14 (0-indexed: 13)
         Assert.Equal(0, location.Range.Start.Character);
     }
 
@@ -1400,8 +1400,8 @@ func Foo(): void {
         // The disk-based fallback should still resolve cross-file definitions.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
-        // F12 on IssueService at line 19 col 21 (0-indexed: 18, 21)
-        var definition = await harness.GetDefinitionAsync(uri, 18, 21);
+        // F12 on IssueService at line 22 col 21 (0-indexed: 21, 21)
+        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1420,9 +1420,9 @@ func Foo(): void {
         // Make the buffer differ from disk to force disk fallback
         harness.OpenDocument(uri, source + "\n// modified");
 
-        // F12 on IssueStore at line 18 col 14 (0-indexed: 17, 14)
+        // F12 on IssueStore at line 21 col 14 (0-indexed: 20, 14)
         // IssueStore is defined in Database.nl
-        var definition = await harness.GetDefinitionAsync(uri, 17, 14);
+        var definition = await harness.GetDefinitionAsync(uri, 20, 14);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
