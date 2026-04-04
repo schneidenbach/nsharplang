@@ -7,8 +7,10 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
+import { createTestController } from './testController';
 
 let client: LanguageClient;
+
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('N# language extension is now active');
@@ -221,7 +223,12 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     // Start the client (this will also launch the server)
-    client.start();
+    client.start().then(() => {
+        // Register test controller after LSP is ready
+        const testDisposable = createTestController(context);
+        context.subscriptions.push(testDisposable);
+        console.log('N# Test Controller registered');
+    });
 
     console.log('N# Language Server started');
 }

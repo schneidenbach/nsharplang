@@ -88,6 +88,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable/disable N# code formatting."
+        },
+        "nsharp.cli.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the nlc executable. Leave empty to use nlc from PATH."
         }
       }
     },

@@ -1285,8 +1285,9 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
 
 #### Testing
 - Test files: `.tests.nl` extension
-- Compiled as XUnit test projects
+- Compiled as XUnit test projects (NUnit also supported via `project.yml`)
 - Inline with source code (no separate test projects needed)
+- **VS Code integration**: Test Explorer sidebar, CodeLens (Run/Debug above each test), pass/fail indicators
 - Syntax:
   ```
   test "should add two numbers correctly" {
@@ -1301,6 +1302,25 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
       assert value.Length > 0
   }
   ```
+- **Setup/Teardown**: Per-file initialization and cleanup with async support
+  ```
+  setup {
+      db := new Database()
+      await db.ConnectAsync()
+  }
+
+  teardown {
+      await db.DisconnectAsync()
+  }
+
+  test "should query" {
+      result := db.Query("SELECT 1")
+      assert result != null
+  }
+  ```
+  - `setup {}` — runs before each test. Transpiles to constructor (sync xUnit), `IAsyncLifetime.InitializeAsync` (async xUnit), or `[SetUp]` (NUnit)
+  - `teardown {}` — runs after each test. Transpiles to `IDisposable.Dispose` (sync xUnit), `IAsyncLifetime.DisposeAsync` (async xUnit), or `[TearDown]` (NUnit)
+  - Variables declared in `setup` are shared with all tests and `teardown` as class fields
 - **Assert syntax**:
   - Boolean expressions transpile to appropriate XUnit Assert calls
   - `assert x == y` → `Assert.Equal(y, x)`

@@ -188,5 +188,23 @@
       "type ${1:Name} = ${2:existingType}"
     ],
     "description": "Type alias"
+  },
+  "Setup Block": {
+    "prefix": "setup",
+    "body": [
+      "setup {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Setup block for test initialization"
+  },
+  "Teardown Block": {
+    "prefix": "teardown",
+    "body": [
+      "teardown {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Teardown block for test cleanup"
   }
 }

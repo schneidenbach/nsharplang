@@ -3461,6 +3461,58 @@ test ""should add task"" {
     }
 
     [Fact]
+    public void TestTeardownBlock()
+    {
+        var source = @"
+teardown {
+    store.Dispose()
+}
+
+test ""should work"" {
+    assert true
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        Assert.Equal(2, unit.Declarations.Count);
+        var teardown = unit.Declarations[0] as TeardownDeclaration;
+        Assert.NotNull(teardown);
+        Assert.Single(teardown!.Body.Statements);
+    }
+
+    [Fact]
+    public void TestSetupAndTeardownTogether()
+    {
+        var source = @"
+setup {
+    db := new Database()
+}
+
+teardown {
+    db.Dispose()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var lexer = new Lexer(source);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var unit = result.CompilationUnit!;
+
+        Assert.Equal(3, unit.Declarations.Count);
+        Assert.IsType<SetupDeclaration>(unit.Declarations[0]);
+        Assert.IsType<TeardownDeclaration>(unit.Declarations[1]);
+        Assert.IsType<TestDeclaration>(unit.Declarations[2]);
+    }
+
+    [Fact]
     public void TestTableDrivenWithSkip()
     {
         var source = @"

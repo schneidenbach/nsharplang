@@ -225,6 +225,9 @@ public class Formatter
             case SetupDeclaration setup:
                 FormatSetup(setup, sb);
                 break;
+            case TeardownDeclaration teardown:
+                FormatTeardown(teardown, sb);
+                break;
             case PreprocessorDeclaration preproc:
                 Indent(sb);
                 sb.AppendLine(preproc.Directive);
@@ -829,6 +832,17 @@ public class Formatter
         sb.AppendLine("setup {");
         _indent++;
         FormatBlock(setup.Body, sb);
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
+    }
+
+    private void FormatTeardown(TeardownDeclaration teardown, StringBuilder sb)
+    {
+        Indent(sb);
+        sb.AppendLine("teardown {");
+        _indent++;
+        FormatBlock(teardown.Body, sb);
         _indent--;
         Indent(sb);
         sb.AppendLine("}");

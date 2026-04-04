@@ -217,6 +217,10 @@ public class Parser
         if (IsSetupDeclarationStart())
             return ParseSetupDeclaration();
 
+        // Teardown block declarations (contextual keyword "teardown")
+        if (IsTeardownDeclarationStart())
+            return ParseTeardownDeclaration();
+
         // Preprocessor directives can appear at top level
         if (Check(TokenType.PreprocessorDirective))
         {
@@ -614,6 +618,21 @@ public class Parser
         Advance(); // consume 'setup'
         var body = ParseBlock();
         return new SetupDeclaration(body, line, column);
+    }
+
+    private bool IsTeardownDeclarationStart()
+    {
+        return Current.Type == TokenType.Identifier && Current.Value == "teardown"
+            && LookAhead(1).Type == TokenType.LeftBrace;
+    }
+
+    private TeardownDeclaration ParseTeardownDeclaration()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // consume 'teardown'
+        var body = ParseBlock();
+        return new TeardownDeclaration(body, line, column);
     }
 
     private List<TypeParameter>? ParseTypeParameters()

@@ -102,17 +102,19 @@ public class Transpiler
             }
         }
 
-        // Separate top-level functions, tests, setup blocks, and type aliases from other declarations
+        // Separate top-level functions, tests, setup/teardown blocks, and type aliases from other declarations
         var topLevelFunctions = _compilationUnit.Declarations.OfType<FunctionDeclaration>().ToList();
         var testDeclarations = _compilationUnit.Declarations.OfType<TestDeclaration>().ToList();
         var setupDeclaration = _compilationUnit.Declarations.OfType<SetupDeclaration>().FirstOrDefault();
+        var teardownDeclaration = _compilationUnit.Declarations.OfType<TeardownDeclaration>().FirstOrDefault();
         var typeAliases = _compilationUnit.Declarations.OfType<TypeAliasDeclaration>().ToList();
         // Collect newtype names for constructor call transpilation
         foreach (var nt in _compilationUnit.Declarations.OfType<NewtypeDeclaration>())
             _newtypeNames.Add(nt.Name);
         var otherDeclarations = _compilationUnit.Declarations
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration
-                && d is not SetupDeclaration && d is not TypeAliasDeclaration)
+                && d is not SetupDeclaration && d is not TeardownDeclaration
+                && d is not TypeAliasDeclaration)
             .ToList();
 
         // Separate main function from other top-level functions (main goes in Program class)
@@ -258,19 +260,34 @@ public class Transpiler
                 ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
                 : "Tests";
 
+            var isNUnit = _projectConfig?.TestFramework == "nunit";
+            var setupHasAwait = setupDeclaration != null && ContainsAwait(setupDeclaration.Body);
+            var teardownHasAwait = teardownDeclaration != null && ContainsAwait(teardownDeclaration.Body);
+            var needsAsyncLifetime = !isNUnit && (setupHasAwait || teardownHasAwait);
+            var needsDisposable = !isNUnit && teardownDeclaration != null && !needsAsyncLifetime;
+
             EmitLineHidden();
-            if (_projectConfig?.TestFramework == "nunit")
+            if (isNUnit)
             {
                 WriteLine("[TestFixture]");
             }
-            WriteLine($"public class {className}");
+
+            // Determine base class/interface
+            if (needsAsyncLifetime)
+                WriteLine($"public class {className} : IAsyncLifetime");
+            else if (needsDisposable)
+                WriteLine($"public class {className} : IDisposable");
+            else
+                WriteLine($"public class {className}");
+
             WriteLine("{");
             _indentLevel++;
 
-            // Emit setup block as fields + constructor
-            if (setupDeclaration != null)
+            // Emit setup/teardown
+            if (setupDeclaration != null || teardownDeclaration != null)
             {
-                TranspileSetupDeclaration(setupDeclaration);
+                TranspileSetupAndTeardown(setupDeclaration, teardownDeclaration, className,
+                    isNUnit, needsAsyncLifetime, needsDisposable);
             }
 
             foreach (var test in testDeclarations)
@@ -354,7 +371,8 @@ public class Transpiler
                 TranspileIndexerDeclaration(indexer);
                 break;
             case SetupDeclaration:
-                // Setup declarations are handled in the test class generation
+            case TeardownDeclaration:
+                // Setup/teardown declarations are handled in the test class generation
                 break;
             default:
                 throw new Exception($"Unsupported declaration type: {declaration.GetType().Name}");
@@ -437,18 +455,23 @@ public class Transpiler
         WriteLine();
     }
 
-    private void TranspileSetupDeclaration(SetupDeclaration setup)
+    private void TranspileSetupAndTeardown(
+        SetupDeclaration? setup, TeardownDeclaration? teardown,
+        string className, bool isNUnit, bool needsAsyncLifetime, bool needsDisposable)
     {
         // Extract variable declarations from setup body as class fields
         var varDecls = new List<VariableDeclarationStatement>();
-        var otherStatements = new List<Statement>();
+        var setupOtherStatements = new List<Statement>();
 
-        foreach (var stmt in setup.Body.Statements)
+        if (setup != null)
         {
-            if (stmt is VariableDeclarationStatement varDecl)
-                varDecls.Add(varDecl);
-            else
-                otherStatements.Add(stmt);
+            foreach (var stmt in setup.Body.Statements)
+            {
+                if (stmt is VariableDeclarationStatement varDecl)
+                    varDecls.Add(varDecl);
+                else
+                    setupOtherStatements.Add(stmt);
+            }
         }
 
         // Emit fields for each variable declaration
@@ -456,16 +479,7 @@ public class Transpiler
         {
             var typeName = varDecl.Type != null
                 ? TranspileTypeReference(varDecl.Type)
-                : "var";
-
-            // For fields, we need an explicit type (can't use 'var')
-            // If type is inferred, try to use the initializer to determine the type
-            if (typeName == "var" && varDecl.Initializer != null)
-            {
-                // Use 'object' as fallback since we don't have type inference in the transpiler
-                // The C# compiler will catch type mismatches
-                typeName = "dynamic";
-            }
+                : InferFieldType(varDecl.Initializer);
 
             WriteLine($"private {typeName} {varDecl.Name};");
         }
@@ -473,12 +487,97 @@ public class Transpiler
         if (varDecls.Count > 0)
             WriteLine();
 
-        // Emit constructor
-        var className = _compilationUnit.Namespace != null
-            ? $"{_compilationUnit.Namespace.Name.Replace(".", "_")}_Tests"
-            : "Tests";
+        // Emit setup method/constructor
+        if (setup != null)
+        {
+            EmitSetupMethod(varDecls, setupOtherStatements, className, isNUnit, needsAsyncLifetime);
+        }
+        else if (needsAsyncLifetime)
+        {
+            // No setup but async teardown requires IAsyncLifetime — emit empty InitializeAsync
+            WriteLine("public Task InitializeAsync() => Task.CompletedTask;");
+            WriteLine();
+        }
 
-        WriteLine($"public {className}()");
+        // Emit teardown method
+        if (teardown != null)
+        {
+            EmitTeardownMethod(teardown, isNUnit, needsAsyncLifetime, needsDisposable);
+        }
+        else if (needsAsyncLifetime)
+        {
+            // Async setup but no teardown — emit empty DisposeAsync
+            WriteLine("public Task DisposeAsync() => Task.CompletedTask;");
+            WriteLine();
+        }
+    }
+
+    private string InferFieldType(Expression? initializer)
+    {
+        if (initializer == null) return "dynamic";
+
+        return initializer switch
+        {
+            NewExpression newExpr when newExpr.Type != null => TranspileTypeReference(newExpr.Type),
+            IntLiteralExpression => "int",
+            FloatLiteralExpression => "double",
+            StringLiteralExpression => "string",
+            BoolLiteralExpression => "bool",
+            ArrayLiteralExpression arr => InferArrayFieldType(arr),
+            _ => "dynamic"
+        };
+    }
+
+    private string InferArrayFieldType(ArrayLiteralExpression arr)
+    {
+        if (arr.Elements.Count == 0) return "dynamic[]";
+
+        // Infer element type from first element
+        var elementType = arr.Elements[0] switch
+        {
+            IntLiteralExpression => "int",
+            FloatLiteralExpression => "double",
+            StringLiteralExpression => "string",
+            BoolLiteralExpression => "bool",
+            _ => "dynamic"
+        };
+
+        return $"{elementType}[]";
+    }
+
+    private void EmitSetupMethod(
+        List<VariableDeclarationStatement> varDecls,
+        List<Statement> otherStatements,
+        string className, bool isNUnit, bool needsAsyncLifetime)
+    {
+        if (isNUnit)
+        {
+            // NUnit: [SetUp] method (per-test semantics)
+            var setupHasAwait = otherStatements.Any(ContainsAwait) ||
+                varDecls.Any(v => v.Initializer != null && ContainsAwaitInExpression(v.Initializer));
+
+            if (setupHasAwait)
+            {
+                WriteLine("[SetUp]");
+                WriteLine("public async Task Setup()");
+            }
+            else
+            {
+                WriteLine("[SetUp]");
+                WriteLine("public void Setup()");
+            }
+        }
+        else if (needsAsyncLifetime)
+        {
+            // xUnit with async: IAsyncLifetime.InitializeAsync
+            WriteLine("public async Task InitializeAsync()");
+        }
+        else
+        {
+            // xUnit sync: constructor
+            WriteLine($"public {className}()");
+        }
+
         WriteLine("{");
         _indentLevel++;
 
@@ -493,6 +592,50 @@ public class Transpiler
 
         // Emit other statements
         foreach (var stmt in otherStatements)
+        {
+            TranspileStatement(stmt);
+        }
+
+        _indentLevel--;
+        WriteLine("}");
+        WriteLine();
+    }
+
+    private void EmitTeardownMethod(
+        TeardownDeclaration teardown, bool isNUnit,
+        bool needsAsyncLifetime, bool needsDisposable)
+    {
+        var teardownHasAwait = ContainsAwait(teardown.Body);
+
+        if (isNUnit)
+        {
+            // NUnit: [TearDown] method
+            if (teardownHasAwait)
+            {
+                WriteLine("[TearDown]");
+                WriteLine("public async Task Teardown()");
+            }
+            else
+            {
+                WriteLine("[TearDown]");
+                WriteLine("public void Teardown()");
+            }
+        }
+        else if (needsAsyncLifetime)
+        {
+            // xUnit async: IAsyncLifetime.DisposeAsync
+            WriteLine("public async Task DisposeAsync()");
+        }
+        else if (needsDisposable)
+        {
+            // xUnit sync: IDisposable.Dispose
+            WriteLine("public void Dispose()");
+        }
+
+        WriteLine("{");
+        _indentLevel++;
+
+        foreach (var stmt in teardown.Body.Statements)
         {
             TranspileStatement(stmt);
         }
