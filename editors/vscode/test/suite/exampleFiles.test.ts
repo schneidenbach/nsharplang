@@ -17,7 +17,6 @@ import {
  * Map from relative path (from repo root) to reason for allow-listing.
  */
 const EXPECTED_ERROR_FILES: Record<string, string> = {
-    'examples/02-variables-and-types/TestErrors.nl': 'Intentional error demonstration file',
     'editors/vscode/test/fixtures/errors/HasErrors.nl': 'Test fixture with intentional errors',
     // Parser doesn't yet support params collections syntax
     'examples/03-functions/ParamsCollections.nl': 'Parser: params collections not yet supported',

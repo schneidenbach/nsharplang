@@ -546,8 +546,8 @@ public class QueryIntegrationTests : IDisposable
         // NOTE: Currently the BindingMap records the usage site as the declaration
         // when cross-file resolution via file-path imports is unavailable.
         // The text-based fallback in FindReferences still finds cross-file usages.
-        var memberColumn = FindColumnInFile(programPath, 27, "GetPeople");
-        var declaration = bindings.GetBindingAt(programPath, 27, memberColumn);
+        var memberColumn = FindColumnInFile(programPath, 26, "GetPeople");
+        var declaration = bindings.GetBindingAt(programPath, 26, memberColumn);
 
         Assert.NotNull(declaration);
         Assert.Equal("GetPeople", declaration!.Name);
@@ -637,9 +637,9 @@ public class QueryIntegrationTests : IDisposable
     public void Definition_MultiFile_ImportedMemberUseSite_Resolves()
     {
         var programPath = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Program.nl");
-        var memberColumn = FindColumnInFile(programPath, 27, "GetPeople");
+        var memberColumn = FindColumnInFile(programPath, 26, "GetPeople");
 
-        var result = _service.FindDefinition(MultiFile, "Program.nl", 27, memberColumn);
+        var result = _service.FindDefinition(MultiFile, "Program.nl", 26, memberColumn);
 
         // After file-path imports were removed, cross-file member resolution
         // falls back to the local binding. The text-based FindReferences still

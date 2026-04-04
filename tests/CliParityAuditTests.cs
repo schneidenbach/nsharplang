@@ -303,7 +303,7 @@ func Main() {
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "--json" }));
 
-            Assert.Equal(1, exitCode);
+            Assert.Equal(0, exitCode); // warnings are non-blocking
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
             Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
@@ -334,7 +334,7 @@ func Main() {
             var (exitCode, _, stderr) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "--text" }));
 
-            Assert.Equal(1, exitCode);
+            Assert.Equal(0, exitCode); // warnings are non-blocking
             Assert.Contains("NL001", stderr);
             Assert.Contains("value", stderr);
         }
@@ -423,7 +423,7 @@ func Main() {
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "Program.nl" }));
 
-            Assert.Equal(1, exitCode);
+            Assert.Equal(0, exitCode); // warnings are non-blocking
             using var doc = JsonDocument.Parse(stdout);
             Assert.Equal("lint", doc.RootElement.GetProperty("command").GetString());
         }

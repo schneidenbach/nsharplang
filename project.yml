@@ -1,0 +1,5 @@
+name: NSharpLang
+version: 0.1.0
+targetFramework: net9.0
+exclude:
+  - editors/vscode/test/fixtures/errors/*.nl
