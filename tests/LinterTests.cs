@@ -861,6 +861,36 @@ func Main() {
         Assert.Contains(diagnostics, d => d.Code == "NL010");
     }
 
+    [Fact]
+    public void NL010_UnusedImport_NoWarnWhenUsedInTestBlock()
+    {
+        // Imports used only inside test blocks should not be flagged
+        var source = @"
+import System.Collections.Generic
+
+test ""uses list from import"" {
+    items := new List<int>()
+    assert items.Count == 0
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_WarnsWhenUnusedWithTestBlock()
+    {
+        // Imports not used in test blocks should still be flagged
+        var source = @"
+import System.Collections.Generic
+
+test ""does not use the import"" {
+    x := 5
+    assert x == 5
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL010");
+    }
+
     #endregion
 
     #region NL014: Unnecessary Type Annotation Tests

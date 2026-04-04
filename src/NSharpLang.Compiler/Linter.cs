@@ -453,6 +453,26 @@ internal class LintVisitor
                 VisitStatement(ctor.Body);
                 _inConstructor = wasInCtor;
                 break;
+            case TestDeclaration test:
+                if (test.TableParameters != null)
+                {
+                    foreach (var param in test.TableParameters)
+                        TrackTypeReference(param.Type);
+                }
+                if (test.TableCases != null)
+                {
+                    foreach (var row in test.TableCases)
+                        foreach (var expr in row)
+                            VisitExpression(expr);
+                }
+                VisitStatement(test.Body);
+                break;
+            case SetupDeclaration setup:
+                VisitStatement(setup.Body);
+                break;
+            case TeardownDeclaration teardown:
+                VisitStatement(teardown.Body);
+                break;
         }
     }
 
