@@ -76,9 +76,6 @@ const KNOWN_ERROR_FILES: Record<string, string> = {
         'Test fixture: intentional type error',
     'editors/vscode/test/fixtures/errors/MultipleSyntaxErrors.nl':
         'Test fixture: intentional multiple syntax errors',
-    'examples/02-variables-and-types/TestErrors.nl':
-        'Example: intentional error demonstrations',
-
     // Parser limitations — features not yet supported in LSP analysis
     'examples/03-functions/ParamsCollections.nl':
         'Parser: params collections not yet supported',
