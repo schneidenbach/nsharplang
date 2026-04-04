@@ -39,7 +39,7 @@ public class CodeLensHandler : CodeLensHandlerBase
 
         foreach (var decl in doc.CompilationUnit.Declarations)
         {
-            CollectCodeLenses(decl, lenses);
+            CollectCodeLenses(decl, lenses, uri);
         }
 
         _logger.LogDebug("Returning {Count} code lenses for {Uri}", lenses.Count, uri);
@@ -59,12 +59,41 @@ public class CodeLensHandler : CodeLensHandlerBase
         return new CodeLensRegistrationOptions { ResolveProvider = false };
     }
 
-    private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses)
+    private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses, string uri)
     {
+        // Test declarations get Run/Debug lenses instead of reference counts
+        if (decl is TestDeclaration test)
+        {
+            var line = decl.Line - 1; // Convert to 0-based
+            lenses.Add(new CodeLens
+            {
+                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
+                    line, 0, line, 0),
+                Command = new Command
+                {
+                    Title = "$(play) Run Test",
+                    Name = "nsharp.runTest",
+                    Arguments = new Newtonsoft.Json.Linq.JArray(test.Description, uri)
+                }
+            });
+            lenses.Add(new CodeLens
+            {
+                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
+                    line, 0, line, 0),
+                Command = new Command
+                {
+                    Title = "$(debug-alt) Debug Test",
+                    Name = "nsharp.debugTest",
+                    Arguments = new Newtonsoft.Json.Linq.JArray(test.Description, uri)
+                }
+            });
+            return;
+        }
+
         var name = GetDeclarationName(decl);
         if (name == null) return;
 
-        var line = decl.Line - 1; // Convert to 0-based
+        var line2 = decl.Line - 1; // Convert to 0-based
 
         // Count actual references across all open documents using text-based search
         var refCount = 0;
@@ -77,7 +106,7 @@ public class CodeLensHandler : CodeLensHandlerBase
         lenses.Add(new CodeLens
         {
             Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                line, 0, line, 0),
+                line2, 0, line2, 0),
             Command = new Command
             {
                 Title = $"{refCount} reference{(refCount == 1 ? "" : "s")}",
@@ -99,7 +128,7 @@ public class CodeLensHandler : CodeLensHandlerBase
         {
             foreach (var member in members)
             {
-                CollectCodeLenses(member, lenses);
+                CollectCodeLenses(member, lenses, uri);
             }
         }
     }

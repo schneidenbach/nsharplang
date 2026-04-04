@@ -34,7 +34,8 @@ public class CompletionHandler : CompletionHandlerBase
         "file", "duck", "public", "private", "internal", "protected", "required",
         "init", "let", "var", "type", "out", "ref", "params", "true", "false",
         "null", "is", "as", "typeof", "nameof", "checked", "unchecked", "and",
-        "or", "not", "with", "immutable", "print", "test", "assert", "implicit", "explicit"
+        "or", "not", "with", "immutable", "print", "test", "assert", "implicit", "explicit",
+        "setup", "teardown"
     };
 
     private static readonly string[] PrimitiveTypes = {

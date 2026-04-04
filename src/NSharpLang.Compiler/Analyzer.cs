@@ -158,13 +158,31 @@ public class Analyzer : IDisposable
             }
         }
 
-        // Collect setup symbols first (so tests can reference them)
+        // Validate and collect setup/teardown blocks (only one of each allowed)
         _setupSymbols = new List<(string Name, TypeInfo Type, int Line, int Column)>();
+        bool foundSetup = false;
+        bool foundTeardown = false;
         foreach (var decl in unit.Declarations)
         {
             if (decl is SetupDeclaration setup)
             {
-                CollectSetupSymbols(setup);
+                if (foundSetup)
+                {
+                    Error("Only one setup block is allowed per test file", setup.Line, setup.Column);
+                }
+                else
+                {
+                    foundSetup = true;
+                    CollectSetupSymbols(setup);
+                }
+            }
+            else if (decl is TeardownDeclaration teardown)
+            {
+                if (foundTeardown)
+                {
+                    Error("Only one teardown block is allowed per test file", teardown.Line, teardown.Column);
+                }
+                foundTeardown = true;
             }
         }
 
@@ -193,6 +211,9 @@ public class Analyzer : IDisposable
                 break;
             case SetupDeclaration setup:
                 AnalyzeSetupDeclaration(setup);
+                break;
+            case TeardownDeclaration teardown:
+                AnalyzeTeardownDeclaration(teardown);
                 break;
             case FunctionDeclaration func:
                 AnalyzeFunctionDeclaration(func);
@@ -280,6 +301,23 @@ public class Analyzer : IDisposable
         PushScope(new Scope(ScopeKind.Function), setup.Line, setup.Column);
 
         AnalyzeStatements(setup.Body.Statements);
+
+        PopScope();
+    }
+
+    private void AnalyzeTeardownDeclaration(TeardownDeclaration teardown)
+    {
+        // Analyze teardown body in its own scope
+        // Inject setup symbols so teardown can reference setup-created variables
+        PushScope(new Scope(ScopeKind.Function), teardown.Line, teardown.Column);
+
+        foreach (var (name, type, line, column) in _setupSymbols)
+        {
+            DeclareSymbol(name, type, line, column);
+            RecordVariableInCurrentScope(name, type);
+        }
+
+        AnalyzeStatements(teardown.Body.Statements);
 
         PopScope();
     }

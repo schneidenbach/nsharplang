@@ -122,6 +122,10 @@ public class DocumentSymbolHandler : DocumentSymbolHandlerBase
                 "setup", LspSymbolKind.Constructor, sd.Line,
                 EstimateEndLine(sd, sourceLines), sourceLines, "setup"),
 
+            TeardownDeclaration td2 => MakeSymbol(
+                "teardown", LspSymbolKind.Constructor, td2.Line,
+                EstimateEndLine(td2, sourceLines), sourceLines, "teardown"),
+
             _ => null
         };
     }

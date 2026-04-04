@@ -320,3 +320,9 @@ public record SetupDeclaration(
     BlockStatement Body,
     int Line,
     int Column) : Declaration(Line, Column);
+
+// Teardown block declaration (for .tests.nl files) - shared cleanup for all tests in a file
+public record TeardownDeclaration(
+    BlockStatement Body,
+    int Line,
+    int Column) : Declaration(Line, Column);
