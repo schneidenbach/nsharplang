@@ -6318,4 +6318,40 @@ func Hello(): string {
             }
         ", "Cannot assign");
     }
+
+    [Fact]
+    public void DuplicateSetupBlock_ReportsError()
+    {
+        AssertHasError(@"
+setup {
+    x := 1
+}
+
+setup {
+    y := 2
+}
+
+test ""should work"" {
+    assert true
+}
+        ", "Only one setup block is allowed per test file");
+    }
+
+    [Fact]
+    public void DuplicateTeardownBlock_ReportsError()
+    {
+        AssertHasError(@"
+teardown {
+    Cleanup()
+}
+
+teardown {
+    Cleanup2()
+}
+
+test ""should work"" {
+    assert true
+}
+        ", "Only one teardown block is allowed per test file");
+    }
 }

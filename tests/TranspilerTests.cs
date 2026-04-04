@@ -2183,12 +2183,207 @@ test ""should work"" {
 }";
 
         var result = Transpile(source);
-        // Should have a field and constructor
-        Assert.Contains("private dynamic store;", result);
+        // Should have a field and constructor (type inferred from new expression)
+        Assert.Contains("private TaskStore store;", result);
         Assert.Contains("store = new TaskStore();", result);
         // Should still have the test method
         Assert.Contains("[Fact]", result);
         Assert.Contains("public void ShouldWork()", result);
+    }
+
+    [Fact]
+    public void TestSetupBlockTypeInferenceNewExpression()
+    {
+        var source = @"
+setup {
+    store := new TaskStore()
+}
+
+test ""should work"" {
+    assert store != null
+}";
+
+        var result = Transpile(source);
+        // new TaskStore() should infer TaskStore, not dynamic
+        Assert.Contains("private TaskStore store;", result);
+        Assert.DoesNotContain("dynamic", result);
+    }
+
+    [Fact]
+    public void TestSetupBlockTypeInferenceLiterals()
+    {
+        var source = @"
+setup {
+    count := 42
+    name := ""hello""
+    flag := true
+}
+
+test ""should work"" {
+    assert count == 42
+}";
+
+        var result = Transpile(source);
+        Assert.Contains("private int count;", result);
+        Assert.Contains("private string name;", result);
+        Assert.Contains("private bool flag;", result);
+    }
+
+    [Fact]
+    public void TestTeardownBlockSyncXUnit()
+    {
+        var source = @"
+setup {
+    db := new Database()
+}
+
+teardown {
+    db.Close()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var result = Transpile(source);
+        // Should implement IDisposable for sync teardown
+        Assert.Contains(": IDisposable", result);
+        Assert.Contains("public void Dispose()", result);
+        Assert.Contains("db.Close();", result);
+        // Setup still in constructor
+        Assert.Contains("public Tests()", result);
+    }
+
+    [Fact]
+    public void TestAsyncSetupXUnit()
+    {
+        var source = @"
+setup {
+    db := new Database()
+    await db.ConnectAsync()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var result = Transpile(source);
+        // Should implement IAsyncLifetime for async setup
+        Assert.Contains(": IAsyncLifetime", result);
+        Assert.Contains("public async Task InitializeAsync()", result);
+        Assert.Contains("await db.ConnectAsync();", result);
+        // Empty DisposeAsync since no teardown
+        Assert.Contains("public Task DisposeAsync() => Task.CompletedTask;", result);
+    }
+
+    [Fact]
+    public void TestAsyncSetupAndTeardownXUnit()
+    {
+        var source = @"
+setup {
+    db := new Database()
+    await db.ConnectAsync()
+}
+
+teardown {
+    await db.DisconnectAsync()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var result = Transpile(source);
+        Assert.Contains(": IAsyncLifetime", result);
+        Assert.Contains("public async Task InitializeAsync()", result);
+        Assert.Contains("public async Task DisposeAsync()", result);
+        Assert.Contains("await db.ConnectAsync();", result);
+        Assert.Contains("await db.DisconnectAsync();", result);
+    }
+
+    [Fact]
+    public void TestSyncSetupSyncTeardownNUnit()
+    {
+        var source = @"
+setup {
+    db := new Database()
+}
+
+teardown {
+    db.Close()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("[TestFixture]", result);
+        Assert.Contains("[SetUp]", result);
+        Assert.Contains("public void Setup()", result);
+        Assert.Contains("[TearDown]", result);
+        Assert.Contains("public void Teardown()", result);
+        Assert.Contains("db.Close();", result);
+    }
+
+    [Fact]
+    public void TestAsyncSetupNUnit()
+    {
+        var source = @"
+setup {
+    db := new Database()
+    await db.ConnectAsync()
+}
+
+test ""should query"" {
+    assert db != null
+}";
+
+        var config = new ProjectConfig { TestFramework = "nunit" };
+        var result = TranspileWithConfig(source, config);
+        Assert.Contains("[SetUp]", result);
+        Assert.Contains("public async Task Setup()", result);
+        Assert.Contains("await db.ConnectAsync();", result);
+    }
+
+    [Fact]
+    public void TestTeardownOnlyXUnit()
+    {
+        var source = @"
+teardown {
+    TempFile.Delete()
+}
+
+test ""should work"" {
+    assert true
+}";
+
+        var result = Transpile(source);
+        Assert.Contains(": IDisposable", result);
+        Assert.Contains("public void Dispose()", result);
+        Assert.Contains("TempFile.Delete();", result);
+        // No constructor or InitializeAsync since no setup
+        Assert.DoesNotContain("InitializeAsync", result);
+    }
+
+    [Fact]
+    public void TestAsyncTeardownOnlyXUnit()
+    {
+        var source = @"
+teardown {
+    await Cleanup()
+}
+
+test ""should work"" {
+    assert true
+}";
+
+        var result = Transpile(source);
+        Assert.Contains(": IAsyncLifetime", result);
+        Assert.Contains("public async Task DisposeAsync()", result);
+        // Empty InitializeAsync since no setup
+        Assert.Contains("public Task InitializeAsync() => Task.CompletedTask;", result);
     }
 
     [Fact]

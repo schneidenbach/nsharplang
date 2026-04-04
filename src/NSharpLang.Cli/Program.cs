@@ -1086,10 +1086,16 @@ Exit codes:
 
             if (!jsonOutput) Console.WriteLine();
 
-            // Run tests
-            var dotnetFilter = string.IsNullOrWhiteSpace(filter)
-                ? null
-                : $"DisplayName~{filter}|FullyQualifiedName~{filter}";
+            // Run tests — build dotnet test filter expression
+            // If filter contains '|', treat each segment as a separate test name
+            string? dotnetFilter = null;
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                var filterParts = filter.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                var predicates = filterParts.Select(f =>
+                    $"(DisplayName~{f.Trim()}|FullyQualifiedName~{f.Trim()})");
+                dotnetFilter = string.Join("|", predicates);
+            }
             var trxFile = Path.Combine(tempDir, "results.trx");
             var testArguments = new List<string>
             {
@@ -1414,6 +1420,26 @@ Exit codes:
                 var doc = System.Xml.Linq.XDocument.Load(trxFile);
                 var ns = doc.Root?.Name.Namespace ?? System.Xml.Linq.XNamespace.None;
 
+                // Build a lookup of test ID → NSharpDescription trait from TestDefinitions
+                var traitLookup = new Dictionary<string, string>();
+                foreach (var unitTest in doc.Descendants(ns + "UnitTest"))
+                {
+                    var testId = unitTest.Attribute("id")?.Value;
+                    if (testId == null) continue;
+
+                    var properties = unitTest.Descendants(ns + "Property");
+                    foreach (var prop in properties)
+                    {
+                        var key = prop.Element(ns + "Key")?.Value;
+                        var value = prop.Element(ns + "Value")?.Value;
+                        if (key == "NSharpDescription" && value != null)
+                        {
+                            traitLookup[testId] = value;
+                            break;
+                        }
+                    }
+                }
+
                 // Parse test results
                 var testResults = doc.Descendants(ns + "UnitTestResult");
                 foreach (var tr in testResults)
@@ -1427,9 +1453,16 @@ Exit codes:
                         case "notexecuted": skipped++; break;
                     }
 
-                    // Try to get the NSharpDescription trait
                     var testName = tr.Attribute("testName")?.Value ?? "";
                     var displayName = testName;
+                    var testId = tr.Attribute("testId")?.Value ?? "";
+
+                    // Look up the NSharpDescription trait for this test
+                    string? nsharpDescription = null;
+                    if (testId != "" && traitLookup.TryGetValue(testId, out var desc))
+                    {
+                        nsharpDescription = desc;
+                    }
 
                     // Extract error message if failed
                     string? testErrorMsg = null;
@@ -1451,7 +1484,8 @@ Exit codes:
                         displayName,
                         outcome = outcome.ToLower(),
                         duration = testDuration,
-                        errorMessage = testErrorMsg
+                        errorMessage = testErrorMsg,
+                        nsharpDescription
                     });
                 }
 
