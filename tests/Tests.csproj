@@ -9,13 +9,14 @@
     <!-- Disable test parallelization to avoid resource contention -->
     <ParallelizeTestCollections>false</ParallelizeTestCollections>
     <ParallelizeAssembly>false</ParallelizeAssembly>
-    <!-- Exclude integration tests (they have their own project) -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**</DefaultItemExcludes>
+    <!-- Exclude sub-projects that have their own .csproj -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <!-- Exclude integration tests — they have their own project (IntegrationTests.csproj) -->
+  <!-- Exclude sub-projects — they have their own .csproj files -->
   <ItemGroup>
     <Compile Remove="NSharpLang.IntegrationTests/**" />
+    <Compile Remove="NSharpLang.CSharpInteropTests/**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -52,9 +53,10 @@
     </None>
   </ItemGroup>
 
-  <!-- Exclude integration tests - they have their own .csproj with Testcontainers dependency -->
+  <!-- Exclude sub-projects - they have their own .csproj files -->
   <ItemGroup>
     <Compile Remove="NSharpLang.IntegrationTests\**" />
+    <Compile Remove="NSharpLang.CSharpInteropTests\**" />
   </ItemGroup>
 
 </Project>

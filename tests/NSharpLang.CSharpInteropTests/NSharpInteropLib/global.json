@@ -1,0 +1,8 @@
+{
+  "sdk": {
+    "version": "9.0.100"
+  },
+  "msbuild-sdks": {
+    "NSharpLang.Sdk": "0.1.0"
+  }
+}
