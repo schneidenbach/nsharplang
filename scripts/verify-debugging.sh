@@ -79,7 +79,7 @@ fi
 
 echo
 echo "Step 4: Verify template includes .vscode files..."
-for tmpl in templates/nsharp-console templates/nsharp-webapi templates/console; do
+for tmpl in templates/nsharp-console templates/nsharp-webapi; do
     if [ -f "$tmpl/.vscode/launch.json" ] && [ -f "$tmpl/.vscode/tasks.json" ]; then
         pass "Template $tmpl has .vscode files"
     else

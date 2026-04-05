@@ -9,8 +9,8 @@
     <!-- Disable test parallelization to avoid resource contention -->
     <ParallelizeTestCollections>false</ParallelizeTestCollections>
     <ParallelizeAssembly>false</ParallelizeAssembly>
-    <!-- Exclude sub-projects that have their own .csproj -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**</DefaultItemExcludes>
+    <!-- Exclude sub-projects that have their own .csproj, and fixture build artifacts -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**;fixtures/**/obj/**;fixtures/**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Exclude sub-projects — they have their own .csproj files -->
