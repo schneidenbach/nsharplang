@@ -4886,6 +4886,20 @@ public class Analyzer : IDisposable
         {
             CheckEnumMatchExhaustiveness(match, enumType);
         }
+        else
+        {
+            // For non-union/non-enum types, mark exhaustive if there's a wildcard or catch-all
+            foreach (var matchCase in match.Cases)
+            {
+                if (matchCase.Guard != null) continue;
+                if (matchCase.Pattern is IdentifierPattern id &&
+                    (id.Name == "_" || !id.Name.Contains('.')))
+                {
+                    match.IsExhaustive = true;
+                    break;
+                }
+            }
+        }
 
         return resultType ?? BuiltInTypes.Unknown;
     }
@@ -4916,6 +4930,7 @@ public class Analyzer : IDisposable
                 if (identPattern.Name == "_")
                 {
                     // Unguarded wildcard pattern covers all remaining cases
+                    match.IsExhaustive = true;
                     return;
                 }
                 else if (identPattern.Name.Contains('.'))
@@ -4928,6 +4943,7 @@ public class Analyzer : IDisposable
                 {
                     // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
                     // that matches everything at runtime — treat it the same as `_`
+                    match.IsExhaustive = true;
                     return;
                 }
             }
@@ -4962,6 +4978,12 @@ public class Analyzer : IDisposable
                     match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
             }
         }
+        else
+        {
+            // All union cases covered by unguarded arms — mark exhaustive so the transpiler
+            // emits a discard arm instead of relying on C# exhaustiveness analysis
+            match.IsExhaustive = true;
+        }
     }
 
     /// <summary>
@@ -4981,7 +5003,10 @@ public class Analyzer : IDisposable
             if (matchCase.Pattern is IdentifierPattern identPattern)
             {
                 if (identPattern.Name == "_")
+                {
+                    match.IsExhaustive = true;
                     return; // Wildcard covers all
+                }
 
                 // Check for qualified enum member (e.g., Status.Active)
                 if (identPattern.Name.Contains('.'))
@@ -4999,6 +5024,7 @@ public class Analyzer : IDisposable
                 else
                 {
                     // Unqualified non-wildcard identifier — catch-all binding
+                    match.IsExhaustive = true;
                     return;
                 }
             }
@@ -5051,6 +5077,12 @@ public class Analyzer : IDisposable
                 Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all enum members — missing: {missingStr}",
                     match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr));
             }
+        }
+        else
+        {
+            // All enum members covered by unguarded arms — mark exhaustive so the transpiler
+            // emits a discard arm instead of relying on C# exhaustiveness analysis
+            match.IsExhaustive = true;
         }
     }
 

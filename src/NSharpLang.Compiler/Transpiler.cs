@@ -17,6 +17,7 @@ public class Transpiler
     private const string IndentString = "    ";
     private string? _currentTypeName; // Track current class/struct/record for constructor names
     private bool _inInterface; // Track if we're currently inside an interface
+    private bool _inStruct; // Track if we're inside a struct/record struct (field initializers require explicit ctor)
     private HashSet<string>? _duckInterfaceMethodNames; // Methods that must be public for duck interface compliance
     private bool _needsExplicitArrayType; // Track if array literals need explicit type (for var declarations)
     private readonly string? _sourceFilePath; // Source .nl file path for #line directives
@@ -913,7 +914,9 @@ public class Transpiler
 
         var previousTypeName = _currentTypeName;
         var previousDuckMethodNames = _duckInterfaceMethodNames;
+        var previousInStruct = _inStruct;
         _currentTypeName = str.Name;
+        _inStruct = true;
         foreach (var member in str.Members)
         {
             TranspileDeclaration(member);
@@ -921,6 +924,7 @@ public class Transpiler
         }
         _currentTypeName = previousTypeName;
         _duckInterfaceMethodNames = previousDuckMethodNames;
+        _inStruct = previousInStruct;
 
         _indentLevel--;
         WriteLine("}");
@@ -987,7 +991,9 @@ public class Transpiler
 
         var previousTypeName = _currentTypeName;
         var previousDuckMethodNames = _duckInterfaceMethodNames;
+        var previousInStruct = _inStruct;
         _currentTypeName = rec.Name;
+        _inStruct = rec.IsStruct;
         foreach (var member in rec.Members)
         {
             TranspileDeclaration(member);
@@ -995,6 +1001,7 @@ public class Transpiler
         }
         _currentTypeName = previousTypeName;
         _duckInterfaceMethodNames = previousDuckMethodNames;
+        _inStruct = previousInStruct;
 
         _indentLevel--;
         WriteLine("}");
@@ -1364,9 +1371,17 @@ public class Transpiler
         {
             WriteLine($"{modifiers}{type} {field.Name} {accessors} = {TranspileExpression(field.Initializer)};");
         }
+        else if (_inStruct)
+        {
+            // Structs with field initializers require an explicit constructor (CS8983),
+            // so we must not add = default!; — emit without initializer instead.
+            WriteLine($"{modifiers}{type} {field.Name} {accessors}");
+        }
         else
         {
-            WriteLine($"{modifiers}{type} {field.Name} {accessors}");
+            // Use = default!; to suppress CS8618 (non-nullable property without initializer).
+            // Safe for all types: no-op for value types, null-forgiving for reference types.
+            WriteLine($"{modifiers}{type} {field.Name} {accessors} = default!;");
         }
     }
 
@@ -1402,7 +1417,17 @@ public class Transpiler
         {
             var type = TranspileTypeReference(prop.Type!);
             var accessors = hasInit ? "{ get; init; }" : "{ get; set; }";
-            WriteLine($"{modifiers}{type} {prop.Name} {accessors}");
+            if (_inStruct)
+            {
+                // Structs with field initializers require an explicit constructor (CS8983)
+                WriteLine($"{modifiers}{type} {prop.Name} {accessors}");
+            }
+            else
+            {
+                // Use = default!; to suppress CS8618 (non-nullable property without initializer).
+                // Safe for all types: no-op for value types, null-forgiving for reference types.
+                WriteLine($"{modifiers}{type} {prop.Name} {accessors} = default!;");
+            }
         }
         else
         {
@@ -2072,6 +2097,10 @@ public class Transpiler
             // Hide variable declarations and try-catch scaffolding from debugger
             EmitLineHidden();
 
+            // Null initialization is required by the error tuple pattern; suppress
+            // CS8600/CS8601 on the null-initializer declarations only (not user code).
+            WriteLine("#pragma warning disable CS8600, CS8601");
+
             // Declare variables (skip result var if it's discarded)
             if (resultVar != "_")
             {
@@ -2093,6 +2122,7 @@ public class Transpiler
                 WriteLine($"{resultType} {resultVar} = {resultInitializer};");
             }
             WriteLine($"Exception? {errVar} = null;");
+            WriteLine("#pragma warning restore CS8600, CS8601");
             WriteLine("try");
             WriteLine("{");
             _indentLevel++;
@@ -2745,15 +2775,39 @@ public class Transpiler
     {
         // Match expressions transpile to switch expressions in C#
         var value = TranspileExpression(match.Value);
-        var cases = string.Join(",\n" + GetIndent(), match.Cases.Select(c =>
+
+        // Check if the match already has a wildcard/catch-all arm
+        bool hasWildcardOrCatchAll = match.Cases.Any(c =>
+            c.Guard == null &&
+            c.Pattern is IdentifierPattern id &&
+            (id.Name == "_" || !id.Name.Contains('.')));
+
+        var caseStrings = match.Cases.Select(c =>
         {
             var pattern = TranspilePattern(c.Pattern);
             var guard = c.Guard != null ? $" when {TranspileExpression(c.Guard)}" : "";
             var expression = TranspileExpression(c.Expression);
             return $"{pattern}{guard} => {expression}";
-        }));
+        }).ToList();
 
-        return $"{value} switch {{\n{GetIndent()}{cases}\n{GetIndent()}}}";
+        // For analyzer-verified exhaustive matches without a wildcard, add an unreachable
+        // discard arm so C# doesn't warn CS8509 (it can't verify abstract record exhaustiveness)
+        if (match.IsExhaustive && !hasWildcardOrCatchAll)
+        {
+            caseStrings.Add("_ => throw new System.InvalidOperationException(\"Unreachable\")");
+        }
+
+        var cases = string.Join(",\n" + GetIndent(), caseStrings);
+        var switchExpr = $"{value} switch {{\n{GetIndent()}{cases}\n{GetIndent()}}}";
+
+        // For non-exhaustive matches without a wildcard (e.g., open matching on non-union types),
+        // suppress CS8509 with targeted pragma so users don't see warnings they can't act on
+        if (!match.IsExhaustive && !hasWildcardOrCatchAll)
+        {
+            switchExpr = $"\n#pragma warning disable CS8509\n{GetIndent()}{switchExpr}\n#pragma warning restore CS8509\n{GetIndent()}";
+        }
+
+        return switchExpr;
     }
 
     private string TranspileWithExpression(WithExpression with)
