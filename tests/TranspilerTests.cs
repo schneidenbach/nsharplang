@@ -4284,4 +4284,208 @@ func Main() {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Warning suppression tests
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Transpile helper that runs the analyzer first (like the real build pipeline),
+    /// so that IsExhaustive flags are set on match expressions.
+    /// </summary>
+    private static string TranspileWithAnalysis(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var parseResult = parser.ParseCompilationUnit();
+        var unit = parseResult.CompilationUnit!;
+
+        // Run the analyzer to set IsExhaustive and other semantic flags
+        using var analyzer = new Analyzer();
+        analyzer.Analyze(unit, "test.nl", null, source);
+
+        var transpiler = new Transpiler(unit);
+        return transpiler.Transpile();
+    }
+
+    [Fact]
+    public void TestExhaustiveUnionMatch_EmitsDiscardArm()
+    {
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+
+func ProcessResult(r: Result): string {
+    return match r {
+        Result.Success { value } => $""ok: {value}"",
+        Result.Failure { error } => $""err: {error}""
+    }
+}
+        ";
+
+        var result = TranspileWithAnalysis(source);
+
+        // Exhaustive union match should have a discard arm, not a pragma
+        Assert.Contains("_ => throw new System.InvalidOperationException(\"Unreachable\")", result);
+        Assert.DoesNotContain("#pragma warning disable CS8509", result);
+    }
+
+    [Fact]
+    public void TestExhaustiveUnionMatch_WithWildcard_NoDiscardArm()
+    {
+        var source = @"
+union Shape {
+    Circle { radius: float }
+    Square { side: float }
+}
+
+func Describe(s: Shape): string {
+    return match s {
+        Shape.Circle { radius } => $""circle r={radius}"",
+        _ => ""other""
+    }
+}
+        ";
+
+        var result = TranspileWithAnalysis(source);
+
+        // Match has an explicit wildcard — should NOT add a second discard arm
+        Assert.DoesNotContain("InvalidOperationException", result);
+        Assert.DoesNotContain("#pragma warning disable CS8509", result);
+        Assert.Contains("_ => \"other\"", result);
+    }
+
+    [Fact]
+    public void TestNonExhaustiveMatch_EmitsPragma()
+    {
+        // Match on a non-union type with no wildcard — non-exhaustive by design
+        var source = @"
+func Describe(x: int): string {
+    return match x {
+        1 => ""one"",
+        2 => ""two""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Non-exhaustive match without wildcard should get pragma suppression
+        Assert.Contains("#pragma warning disable CS8509", result);
+        Assert.Contains("#pragma warning restore CS8509", result);
+        // Should NOT have a discard arm
+        Assert.DoesNotContain("InvalidOperationException", result);
+    }
+
+    [Fact]
+    public void TestErrorTupleLowering_EmitsNullabilityPragma()
+    {
+        var source = @"
+func MightFail(): string {
+    throw new Exception(""oops"")
+}
+
+func Test() {
+    result, err := MightFail()
+    if err != null {
+        Console.WriteLine(err.Message)
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Error tuple lowering should wrap with nullability pragma
+        Assert.Contains("#pragma warning disable CS8600, CS8601", result);
+        Assert.Contains("#pragma warning restore CS8600, CS8601", result);
+
+        // The pragma should wrap only the variable declarations, not the user's code
+        var disableIdx = result.IndexOf("#pragma warning disable CS8600");
+        var restoreIdx = result.IndexOf("#pragma warning restore CS8600");
+        var tryIdx = result.IndexOf("try");
+
+        Assert.True(disableIdx < restoreIdx, "Pragma disable should appear before restore");
+        Assert.True(restoreIdx < tryIdx, "Pragma restore should appear before try (only declarations suppressed)");
+    }
+
+    [Fact]
+    public void TestFieldWithoutInitializer_EmitsDefaultBang()
+    {
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Fields without initializers should use = default!; to suppress CS8618
+        Assert.Contains("Name { get; set; } = default!;", result);
+        Assert.Contains("Age { get; set; } = default!;", result);
+    }
+
+    [Fact]
+    public void TestFieldWithInitializer_NoDefaultBang()
+    {
+        var source = @"
+class Config {
+    Name: string = ""default""
+    Count: int = 0
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Fields WITH initializers should keep their initializer, not default!
+        Assert.Contains("Name { get; set; } = \"default\";", result);
+        Assert.Contains("Count { get; set; } = 0;", result);
+        // Only one occurrence of each field — no double default!
+        Assert.DoesNotContain("default!", result);
+    }
+
+    [Fact]
+    public void TestWarningSuppressionIsTargeted_NotBlanket()
+    {
+        // This test verifies that suppression is scoped, not file-level.
+        // The pragma disable/restore pairs are matched, so warnings outside
+        // the suppressed region are still active.
+        var source = @"
+func MightFail(): string {
+    throw new Exception(""oops"")
+}
+
+func Test() {
+    result, err := MightFail()
+    x := 10
+}
+        ";
+
+        var result = Transpile(source);
+
+        // The pragma pair should be matched (disable + restore)
+        var disableCount = CountOccurrences(result, "#pragma warning disable CS8600, CS8601");
+        var restoreCount = CountOccurrences(result, "#pragma warning restore CS8600, CS8601");
+        Assert.Equal(disableCount, restoreCount);
+        Assert.True(disableCount > 0, "Should have at least one pragma disable for error tuple");
+
+        // No file-level or project-level suppression
+        Assert.DoesNotContain("NoWarn", result);
+        Assert.DoesNotContain("#pragma warning disable\n", result); // No blanket disable-all
+    }
+
+    private static int CountOccurrences(string text, string pattern)
+    {
+        int count = 0;
+        int index = 0;
+        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
+        {
+            count++;
+            index += pattern.Length;
+        }
+        return count;
+    }
+
 }
