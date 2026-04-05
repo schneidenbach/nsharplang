@@ -152,14 +152,20 @@ public class CodeActionHandler : CodeActionHandlerBase
 
         changes[uri] = textEdits;
 
+        var isSuggestionOnly = action.Safety == Compiler.FixSafety.SuggestionOnly;
+
         var lspAction = new LspCodeAction
         {
             Title = action.Title,
             Kind = ConvertCodeActionKind(action.Kind),
-            Edit = new WorkspaceEdit
-            {
-                Changes = changes
-            },
+            // Omit workspace edit for SuggestionOnly to prevent non-conformant clients from applying
+            Edit = isSuggestionOnly ? null : new WorkspaceEdit { Changes = changes },
+            // Safe fixes are preferred (shown first / auto-applicable)
+            IsPreferred = action.Safety == Compiler.FixSafety.Safe,
+            // SuggestionOnly fixes are disabled — the user must handle them manually
+            Disabled = isSuggestionOnly
+                ? new CodeActionDisabled { Reason = "Suggestion only — manual review required" }
+                : null,
             // Link to the diagnostic if provided
             Diagnostics = diagnostic != null ? new Container<LspDiagnostic>(diagnostic) : null
         };

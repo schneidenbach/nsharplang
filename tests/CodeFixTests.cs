@@ -208,9 +208,24 @@ func main() {
     [Fact]
     public void CodeFixService_ReturnsMultipleFixes_WhenAvailable()
     {
-        // Future: When we have multiple fixes for the same diagnostic
-        // For now, each diagnostic code has one fix
-        Assert.True(true);
+        // Each diagnostic code currently has one provider, so we verify that
+        // the service dispatches correctly to the matching provider.
+        var sourceCode = @"func main() {
+    let unused = 42
+    print ""hello""
+}";
+        var diagnostic = new Diagnostic(
+            "NL001",
+            "Variable 'unused' is declared but never read",
+            new Location(2, 9),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var service = new CodeFixService();
+        var fixes = service.GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal("NL001", fixes[0].DiagnosticCode);
     }
 
     [Fact]
@@ -330,6 +345,158 @@ func main() {
         // Assert - should return empty list when line is out of range
         Assert.Empty(fixes);
     }
+
+    // ── Safety level tests ──────────────────────────────────────────────
+
+    [Fact]
+    public void RemoveUnusedImport_HasReviewNeededSafety()
+    {
+        var sourceCode = @"import System.IO
+
+func main() {
+    print ""hello""
+}";
+        var diagnostic = new Diagnostic(
+            "NL010",
+            "Import 'System.IO' is not used",
+            new Location(1, 1),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var provider = new RemoveUnusedImportCodeFixProvider();
+        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.ReviewNeeded, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void RemoveUnusedVariable_HasReviewNeededSafety()
+    {
+        var sourceCode = @"func main() {
+    let unused = 42
+    print ""hello""
+}";
+        var diagnostic = new Diagnostic(
+            "NL001",
+            "Variable 'unused' is declared but never read",
+            new Location(2, 9),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.ReviewNeeded, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void AddMissingImport_HasSafeSafety()
+    {
+        var sourceCode = @"func main() {
+    let list = new List<int>()
+}";
+        var diagnostic = new Diagnostic(
+            "NL002",
+            "'List' not found",
+            new Location(2, 20),
+            DiagnosticSeverity.Error,
+            "Add 'import System.Collections.Generic'");
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.Safe, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void ConvertToInterpolation_HasSuggestionOnlySafety()
+    {
+        var sourceCode = @"func main() {
+    let name = ""world""
+    let greeting = ""hello "" + name
+}";
+        var diagnostic = new Diagnostic(
+            "NL013",
+            "Prefer string interpolation",
+            new Location(3, 20),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var provider = new ConvertToInterpolationCodeFixProvider();
+        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.SuggestionOnly, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void AddCommentToEmptyCatch_HasSafeSafety()
+    {
+        var sourceCode = @"func main() {
+    try {
+    } catch {
+    }
+}";
+        var diagnostic = new Diagnostic(
+            "NL011",
+            "Empty catch block",
+            new Location(3, 7),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var provider = new AddCommentToEmptyCatchCodeFixProvider();
+        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.Safe, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void ChangeLetToConst_HasSafeSafety()
+    {
+        var sourceCode = @"func main() {
+    let MAX = 100
+    print MAX
+}";
+        var diagnostic = new Diagnostic(
+            "NL015",
+            "'MAX' is never reassigned; use const",
+            new Location(2, 5),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var provider = new ChangeLetToConstCodeFixProvider();
+        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.Safe, fixes[0].Safety);
+    }
+
+    [Fact]
+    public void NullCheck_HasSafeSafety()
+    {
+        var sourceCode = @"func main() {
+    let x = 42
+    if x != null {
+        print x
+    }
+}";
+        var diagnostic = new Diagnostic(
+            "NL003",
+            "Unnecessary null check: 'int' is never null",
+            new Location(3, 8),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Single(fixes);
+        Assert.Equal(FixSafety.Safe, fixes[0].Safety);
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────
 
     private CompilationUnit ParseCode(string code)
     {
