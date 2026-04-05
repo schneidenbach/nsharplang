@@ -17,8 +17,8 @@ Creates a simple N# console application.
 ```bash
 dotnet new nsharp-console -o MyApp
 cd MyApp
-dotnet build
-dotnet run
+nlc build
+nlc run
 ```
 
 **Template short name:** `nsharp-console`
@@ -26,7 +26,8 @@ dotnet run
 **What's included:**
 - `Program.nl` - Entry point with Hello World
 - `project.yml` - Project configuration
-- `.csproj` - MSBuild project file with SDK reference
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
 
 ### Web API Application
 
@@ -35,16 +36,18 @@ Creates a minimal ASP.NET Core N# web API.
 ```bash
 dotnet new nsharp-webapi -o MyApi
 cd MyApi
-dotnet build
-dotnet run
+nlc build
+nlc run
 ```
 
 **Template short name:** `nsharp-webapi`
 
 **What's included:**
 - `Program.nl` - API startup and route setup
-- `project.yml` - Project configuration and web SDK settings
-- `.csproj` - MSBuild project file with SDK reference
+- `Controllers/WeatherController.nl` - Sample controller
+- `project.yml` - Project configuration with web SDK settings
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
 
 ## Uninstall
 
