@@ -192,7 +192,10 @@ public class AddMissingImportCodeFixProvider : CodeFixProvider
 }
 
 /// <summary>
-/// Code fix provider for NL001: Unused Variable
+/// Code fix provider for NL001: Unused Variable.
+/// Marked ReviewNeeded because it removes entire lines via string matching
+/// (`sourceLine.Contains("let {name}")`) which could match inside comments
+/// or strings, and breaks if a line contains multiple statements.
 /// </summary>
 public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
 {
@@ -241,7 +244,8 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
                         $"Remove unused variable '{variableName}'",
                         "NL001",
                         new List<TextEdit> { edit },
-                        CodeActionKind.QuickFix));
+                        CodeActionKind.QuickFix,
+                        FixSafety.ReviewNeeded));
                 }
             }
         }
@@ -392,7 +396,9 @@ public class ConvertToInterpolationCodeFixProvider : CodeFixProvider
 
 /// <summary>
 /// Code fix provider for NL010: Unused Import.
-/// Deletes the entire import line. Safe to apply automatically.
+/// Deletes the entire import line. Marked ReviewNeeded because the underlying
+/// NL010 analysis has known false positives (hardcoded type maps, missing
+/// extension method tracking, etc.).
 /// </summary>
 public class RemoveUnusedImportCodeFixProvider : CodeFixProvider
 {
@@ -417,7 +423,7 @@ public class RemoveUnusedImportCodeFixProvider : CodeFixProvider
             "NL010",
             new List<TextEdit> { edit },
             CodeActionKind.SourceOrganizeImports,
-            FixSafety.Safe));
+            FixSafety.ReviewNeeded));
 
         return actions;
     }
