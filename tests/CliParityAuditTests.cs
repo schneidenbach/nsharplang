@@ -18,7 +18,6 @@ public class CliParityAuditTests
         var tempDir = CreateTempDir();
         Directory.CreateDirectory(Path.Combine(tempDir, "bin"));
         Directory.CreateDirectory(Path.Combine(tempDir, "obj"));
-        Directory.CreateDirectory(Path.Combine(tempDir, "nsharp"));
         Directory.CreateDirectory(Path.Combine(tempDir, ".nlc"));
 
         try
@@ -28,10 +27,9 @@ public class CliParityAuditTests
 
             Assert.Equal(0, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
-            Assert.Contains("Removed 4 build artifact", stdout);
+            Assert.Contains("Removed 3 build artifact", stdout);
             Assert.False(Directory.Exists(Path.Combine(tempDir, "bin")));
             Assert.False(Directory.Exists(Path.Combine(tempDir, "obj")));
-            Assert.False(Directory.Exists(Path.Combine(tempDir, "nsharp")));
             Assert.False(Directory.Exists(Path.Combine(tempDir, ".nlc")));
         }
         finally

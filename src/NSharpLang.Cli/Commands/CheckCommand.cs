@@ -22,6 +22,10 @@ public static class CheckCommand
             return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
         }
 
+        // Generate build config so that check-then-build workflows work
+        // (nlc check -> dotnet build should succeed without a separate nlc restore)
+        RestoreCommand.Restore(projectDir, quiet: true);
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
