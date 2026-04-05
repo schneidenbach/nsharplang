@@ -11,7 +11,6 @@ public static class CleanCommand
     {
         "bin",
         "obj",
-        "nsharp",
         ".nlc"
     };
 
