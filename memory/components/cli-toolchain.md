@@ -129,31 +129,46 @@ Undefined identifier 'unknownVar'
 
 The N# equivalent of `cargo clippy --fix`. Reads diagnostics, finds available code fixes, and applies them to source files.
 
+**Safety contract** — `nlc fix` never applies destructive edits by default:
+- **Default (no flags):** applies only `Safe`-level fixes
+- **`--include-review-needed`:** also applies `ReviewNeeded` fixes (e.g. unused import removal, unused variable removal)
+- **`SuggestionOnly`:** never written to files — reported in `results` only
+
 ```bash
 $ nlc fix
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "command": "fix",
   "ok": true,
   "dryRun": false,
+  "includeReviewNeeded": false,
   "projectRoot": "/abs/path/to/project",
   "filesModified": 1,
   "results": [
-    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Collections.Generic" }
+    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Text", "safety": "safe", "edits": [...] },
+    { "file": "Program.nl", "diagnostic": "NL010", "title": "Remove unused import", "safety": "reviewNeeded", "edits": [...] }
   ],
   "fixesApplied": [
-    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Collections.Generic" }
+    { "file": "Program.nl", "diagnostic": "NL002", "title": "Add import System.Text", "safety": "safe", "edits": [...] }
   ]
 }
 
 $ nlc fix --text
 Fixed 1 issue in 1 file:
   Program.nl:
-    [NL002] Add import System.Collections.Generic
+    [NL002] Add import System.Text
 
-$ nlc fix --dry-run    # preview without applying; exits 1 if fixes are available
-$ nlc fix --file F     # fix single file
+Skipped 1 fix:
+  [NL010] Remove unused import (requires --include-review-needed flag)
+
+$ nlc fix --include-review-needed   # also applies ReviewNeeded fixes
+$ nlc fix --dry-run                 # preview without applying; exits 1 if fixes are available
+$ nlc fix --file F                  # fix single file
 ```
+
+**`results` vs `fixesApplied`:**
+- `results` — every discovered fix regardless of safety level
+- `fixesApplied` — only fixes that passed the safety gate and were (or would be) written to disk
 
 **Built-in lint rules:**
 
@@ -178,18 +193,23 @@ $ nlc fix --file F     # fix single file
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
 **Currently supported auto-fixes (`nlc fix`):**
-- **NL001** — Unused variable: removes the declaration line
-- **NL002** — Missing import: auto-adds `import System.Collections.Generic`, `import System.IO`, etc.
-- **NL003** — Unnecessary null check: removes the `== null` / `!= null` clause
-- **NL010** — Unused import: removes the entire import line (`Safe`)
-- **NL011** — Empty catch: inserts `// TODO: handle exception` comment
-- **NL013** — Prefer interpolation: suggestion-only hint (full conversion requires manual review)
-- **NL015** — Prefer const: replaces `let` with `const` on the declaration line (`Safe`)
+
+| Code | Fix | Safety | Notes |
+|------|-----|--------|-------|
+| NL001 | Remove unused variable declaration line | `ReviewNeeded` | Uses string matching (may match inside comments/strings) |
+| NL002 | Add missing `import` statement | `Safe` | |
+| NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
+| NL010 | Remove unused import line | `ReviewNeeded` | Known false positives in NL010 analysis |
+| NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
+| NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
+| NL015 | Replace `let` with `const` | `Safe` | |
 
 **`FixSafety` levels** (on `CodeAction`):
-- `Safe` — always correct to apply automatically
-- `ReviewNeeded` — likely correct but may need follow-up (e.g. callers that reference the renamed symbol)
-- `SuggestionOnly` — provides a hint only; no edits are applied
+- `Safe` — always correct to apply automatically (default `nlc fix` behavior)
+- `ReviewNeeded` — likely correct but may need follow-up; requires `--include-review-needed` flag
+- `SuggestionOnly` — provides a hint only; never written to files
+
+**LSP behavior:** Safe fixes are marked `isPreferred` in the code action response. SuggestionOnly fixes are marked `disabled` with a reason. ReviewNeeded fixes are neither preferred nor disabled — they appear as normal code actions.
 
 Inline lint suppression is also supported for specific warnings:
 

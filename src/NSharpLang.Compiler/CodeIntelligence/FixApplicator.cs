@@ -5,24 +5,6 @@ using System.Linq;
 namespace NSharpLang.Compiler.CodeIntelligence;
 
 /// <summary>
-/// Result of applying fixes to a file.
-/// </summary>
-public record FixResult(
-    string File,
-    string OriginalSource,
-    string FixedSource,
-    List<AppliedFix> AppliedFixes);
-
-/// <summary>
-/// A single fix that was applied (or would be applied in dry-run mode).
-/// </summary>
-public record AppliedFix(
-    string File,
-    string DiagnosticCode,
-    string Title,
-    List<TextEdit> Edits);
-
-/// <summary>
 /// Applies TextEdits to source files. Handles the tricky parts:
 /// - Multiple edits per file (applied bottom-to-top so line numbers stay valid)
 /// - Overlapping edit detection
@@ -184,8 +166,7 @@ public static class FixApplicator
         foreach (var diagnostic in diagnostics)
         {
             var actions = fixService.GetCodeActions(diagnostic, parseResult.CompilationUnit, source);
-            // Only include actions that have actual edits
-            allActions.AddRange(actions.Where(a => a.Edits.Count > 0));
+            allActions.AddRange(actions);
         }
 
         return allActions;

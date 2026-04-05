@@ -13,7 +13,12 @@ namespace NSharpLang.Cli.Commands;
 /// Handles the 'nlc fix' command — auto-applies compiler suggestions.
 /// The N# equivalent of `cargo clippy --fix`.
 ///
-/// Pipeline: discover files → parse → lint → get fixes → apply edits → write back
+/// Safety contract:
+///   - Default (no flags):  applies only FixSafety.Safe fixes
+///   - --include-review-needed: also applies FixSafety.ReviewNeeded fixes
+///   - FixSafety.SuggestionOnly: never written — reported in results only
+///
+/// Pipeline: discover files → parse → lint → get fixes → filter by safety → apply edits → write back
 /// </summary>
 public static class FixCommand
 {
@@ -32,6 +37,7 @@ public static class FixCommand
 
         var dryRun = args.Contains("--dry-run");
         var useText = args.Contains("--text");
+        var includeReviewNeeded = args.Contains("--include-review-needed");
         var fileArg = GetOption(args, "--file");
         var projectDir = GetProjectDir(args);
 
@@ -66,12 +72,14 @@ public static class FixCommand
                 if (useText)
                     Console.Error.WriteLine("No .nl files found.");
                 else
-                    Console.Write(ResultJson(projectDir, dryRun, Array.Empty<AppliedFix>(), 0));
+                    Console.Write(ResultJson(projectDir, dryRun, includeReviewNeeded,
+                        Array.Empty<FixEntry>(), Array.Empty<FixEntry>(), 0));
                 return 0;
             }
 
-            // Collect and apply fixes
-            var allAppliedFixes = new List<AppliedFix>();
+            // Collect fixes per file, then filter by safety
+            var allResults = new List<FixEntry>();    // every discovered fix
+            var allApplied = new List<FixEntry>();     // only fixes that pass the safety gate
             var filesModified = 0;
 
             foreach (var file in files)
@@ -82,15 +90,27 @@ public static class FixCommand
                 if (fixes.Count == 0) continue;
 
                 var relativeFile = NormalizePath(Path.GetRelativePath(projectDir, file));
-                var appliedForFile = fixes.Select(f => new AppliedFix(
-                    relativeFile, f.DiagnosticCode, f.Title, f.Edits)).ToList();
 
-                allAppliedFixes.AddRange(appliedForFile);
-
-                if (!dryRun)
+                // Classify every fix
+                var fileApplied = new List<FixEntry>();
+                foreach (var fix in fixes)
                 {
-                    // Collect all edits for this file and apply them
-                    var allEdits = fixes.SelectMany(f => f.Edits).ToList();
+                    var entry = ToFixEntry(relativeFile, fix);
+                    allResults.Add(entry);
+
+                    if (ShouldApply(fix.Safety, includeReviewNeeded))
+                    {
+                        fileApplied.Add(entry);
+                    }
+                }
+
+                allApplied.AddRange(fileApplied);
+
+                if (fileApplied.Count > 0 && !dryRun)
+                {
+                    // Collect only edits from fixes that passed the safety gate
+                    var safeActions = fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
+                    var allEdits = safeActions.SelectMany(f => f.Edits).ToList();
                     var fixedSource = FixApplicator.ApplyEdits(source, allEdits);
 
                     if (fixedSource != source)
@@ -99,7 +119,7 @@ public static class FixCommand
                         filesModified++;
                     }
                 }
-                else
+                else if (fileApplied.Count > 0)
                 {
                     filesModified++; // Would modify
                 }
@@ -108,11 +128,11 @@ public static class FixCommand
             // Output results
             if (useText)
             {
-                OutputText(allAppliedFixes, filesModified, dryRun);
+                OutputText(allResults, allApplied, filesModified, dryRun, includeReviewNeeded);
             }
             else
             {
-                Console.Write(ResultJson(projectDir, dryRun, allAppliedFixes, filesModified));
+                Console.Write(ResultJson(projectDir, dryRun, includeReviewNeeded, allResults, allApplied, filesModified));
             }
 
             return dryRun && filesModified > 0 ? 1 : 0;
@@ -123,6 +143,20 @@ public static class FixCommand
         }
     }
 
+    /// <summary>
+    /// Returns true when a fix at the given safety level should be written to disk.
+    /// </summary>
+    public static bool ShouldApply(FixSafety safety, bool includeReviewNeeded)
+    {
+        return safety switch
+        {
+            FixSafety.Safe => true,
+            FixSafety.ReviewNeeded => includeReviewNeeded,
+            FixSafety.SuggestionOnly => false,
+            _ => false
+        };
+    }
+
     public static int ShowHelp()
     {
         Console.WriteLine(@"N# Auto-Fix
@@ -130,53 +164,109 @@ public static class FixCommand
 Usage: nlc fix [options] [project-dir]
 
 Options:
-  --json        Output as JSON (default)
-  --text        Output as human-readable summary
-  --project     Project root directory (default: current directory)
-  --file        Fix a single file
-  --dry-run     Preview fixes without writing files
-  --help, -h    Show this help text
+  --json                    Output as JSON (default)
+  --text                    Output as human-readable summary
+  --project                 Project root directory (default: current directory)
+  --file                    Fix a single file
+  --dry-run                 Preview fixes without writing files
+  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)
+  --help, -h                Show this help text
+
+Safety levels:
+  Safe              Always applied by default
+  ReviewNeeded      Only applied with --include-review-needed flag
+  SuggestionOnly    Never applied automatically — reported in results only
 
 Examples:
   nlc fix
   nlc fix --dry-run --text
+  nlc fix --include-review-needed
   nlc fix --file Program.nl
   nlc fix --project examples/16-task-cli");
 
         return 0;
     }
 
-    private static void OutputText(List<AppliedFix> fixes, int filesModified, bool dryRun)
+    private static void OutputText(
+        List<FixEntry> results,
+        List<FixEntry> applied,
+        int filesModified,
+        bool dryRun,
+        bool includeReviewNeeded)
     {
-        if (fixes.Count == 0)
+        if (results.Count == 0)
         {
             Console.Error.WriteLine("Nothing to fix.");
             return;
         }
 
-        var verb = dryRun ? "Would fix" : "Fixed";
-        var fileWord = filesModified == 1 ? "file" : "files";
-        Console.Error.WriteLine($"{verb} {fixes.Count} issue{(fixes.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
-
-        var byFile = fixes.GroupBy(f => f.File);
-        foreach (var group in byFile)
+        // Report applied fixes
+        if (applied.Count > 0)
         {
-            Console.Error.WriteLine($"  {group.Key}:");
-            foreach (var fix in group)
+            var verb = dryRun ? "Would fix" : "Fixed";
+            var fileWord = filesModified == 1 ? "file" : "files";
+            Console.Error.WriteLine($"{verb} {applied.Count} issue{(applied.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
+
+            var byFile = applied.GroupBy(f => f.File);
+            foreach (var group in byFile)
             {
-                Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                Console.Error.WriteLine($"  {group.Key}:");
+                foreach (var fix in group)
+                {
+                    Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                }
+            }
+        }
+
+        // Report skipped fixes
+        var skipped = results.Where(r => !applied.Contains(r)).ToList();
+        if (skipped.Count > 0)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"Skipped {skipped.Count} fix{(skipped.Count == 1 ? "" : "es")}:");
+            foreach (var fix in skipped)
+            {
+                var reason = fix.Safety == "suggestionOnly"
+                    ? "suggestion only — manual review required"
+                    : "requires --include-review-needed flag";
+                Console.Error.WriteLine($"  [{fix.DiagnosticCode}] {fix.Title} ({reason})");
             }
         }
     }
 
-    private static string ResultJson(string projectDir, bool dryRun, IReadOnlyCollection<AppliedFix> fixes, int filesModified)
+    private static string ResultJson(
+        string projectDir,
+        bool dryRun,
+        bool includeReviewNeeded,
+        IReadOnlyCollection<FixEntry> results,
+        IReadOnlyCollection<FixEntry> applied,
+        int filesModified)
     {
         var normalizedProjectRoot = NormalizePath(Path.GetFullPath(projectDir));
-        var normalizedFixes = fixes.Select(f => new
+
+        var envelope = new
+        {
+            schemaVersion = 2,
+            command = "fix",
+            projectRoot = normalizedProjectRoot,
+            dryRun,
+            includeReviewNeeded,
+            ok = !dryRun || filesModified == 0,
+            filesModified,
+            results = results.Select(ToJsonEntry).ToList(),
+            fixesApplied = applied.Select(ToJsonEntry).ToList()
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static object ToJsonEntry(FixEntry f)
+    {
+        return new
         {
             file = NormalizePath(f.File),
             diagnostic = f.DiagnosticCode,
             title = f.Title,
+            safety = f.Safety,
             edits = f.Edits.Select(e => new
             {
                 startLine = e.StartLine,
@@ -185,20 +275,20 @@ Examples:
                 endColumn = e.EndColumn,
                 newText = e.NewText
             }).ToList()
-        }).ToList();
-
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "fix",
-            projectRoot = normalizedProjectRoot,
-            dryRun,
-            ok = !dryRun || filesModified == 0,
-            filesModified,
-            results = normalizedFixes,
-            fixesApplied = normalizedFixes
         };
-        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static FixEntry ToFixEntry(string relativeFile, CodeAction fix)
+    {
+        var safetyStr = fix.Safety switch
+        {
+            FixSafety.Safe => "safe",
+            FixSafety.ReviewNeeded => "reviewNeeded",
+            FixSafety.SuggestionOnly => "suggestionOnly",
+            _ => "unknown"
+        };
+
+        return new FixEntry(relativeFile, fix.DiagnosticCode, fix.Title, fix.Edits, safetyStr);
     }
 
     private static string GetProjectDir(string[] args)
@@ -254,3 +344,13 @@ Examples:
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }
+
+/// <summary>
+/// Serialization-friendly representation of a fix for JSON/text output.
+/// </summary>
+internal record FixEntry(
+    string File,
+    string DiagnosticCode,
+    string Title,
+    List<TextEdit> Edits,
+    string Safety);

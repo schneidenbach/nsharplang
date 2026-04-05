@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using NSharpLang.Cli.Commands;
+using NSharpLang.Compiler;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -378,7 +379,7 @@ func B() {
                 FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
 
             var doc = JsonDocument.Parse(stdout);
-            Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(2, doc.RootElement.GetProperty("schemaVersion").GetInt32());
         }
         finally
         {
@@ -442,6 +443,235 @@ func Main() {
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    // ── Safety filtering ───────────────���────────────────────────────────
+
+    [Fact]
+    public void FixCommand_Default_OnlyAppliesSafeFixes()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // unused import (NL010 → ReviewNeeded) + unused let variable (NL001 → ReviewNeeded)
+            // The let-based var also triggers NL002 (add import, Safe) for StringBuilder
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.IO
+
+func Main() {
+    let unused = 42
+}
+""");
+
+            var (_, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
+
+            var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            var applied = doc.RootElement.GetProperty("fixesApplied").EnumerateArray().ToArray();
+
+            // results should contain more fixes than fixesApplied (ReviewNeeded ones are skipped)
+            Assert.True(results.Length > applied.Length,
+                $"Expected results ({results.Length}) > fixesApplied ({applied.Length})");
+
+            // All applied fixes must be safe
+            foreach (var fix in applied)
+            {
+                Assert.Equal("safe", fix.GetProperty("safety").GetString());
+            }
+
+            // results should contain some non-safe fixes
+            Assert.Contains(results, r => r.GetProperty("safety").GetString() != "safe");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FixCommand_IncludeReviewNeeded_AppliesReviewNeededFixes()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // unused import (NL010 → ReviewNeeded)
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.IO
+
+func Main() {
+    let unused = 42
+}
+""");
+
+            var (_, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run", "--include-review-needed" }));
+
+            var doc = JsonDocument.Parse(stdout);
+            var applied = doc.RootElement.GetProperty("fixesApplied").EnumerateArray().ToArray();
+
+            // With --include-review-needed, ReviewNeeded fixes should also be applied
+            Assert.Contains(applied, f => f.GetProperty("safety").GetString() == "reviewNeeded");
+            Assert.True(doc.RootElement.GetProperty("includeReviewNeeded").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FixCommand_SuggestionOnly_NeverApplied()
+    {
+        // SuggestionOnly fixes (NL013) should never be in fixesApplied, even with --include-review-needed
+        var tempDir = CreateTempDir();
+        try
+        {
+            // String concatenation triggers NL013 (SuggestionOnly)
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    let name = "world"
+    let greeting = "hello " + name
+    print greeting
+}
+""");
+
+            var (_, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run", "--include-review-needed" }));
+
+            var doc = JsonDocument.Parse(stdout);
+            var applied = doc.RootElement.GetProperty("fixesApplied").EnumerateArray().ToArray();
+
+            // No SuggestionOnly fixes should appear in fixesApplied
+            Assert.DoesNotContain(applied, f => f.GetProperty("safety").GetString() == "suggestionOnly");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FixCommand_ResultsVsFixesApplied_AreDifferentiated()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // unused import (NL010 → ReviewNeeded) to ensure results != fixesApplied
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.IO
+
+func Main() {
+    let unused = 42
+}
+""");
+
+            var (_, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
+
+            var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results");
+            var applied = doc.RootElement.GetProperty("fixesApplied");
+
+            // They should NOT be identical — results includes ReviewNeeded fixes
+            var resultsJson = results.GetRawText();
+            var appliedJson = applied.GetRawText();
+            Assert.NotEqual(resultsJson, appliedJson);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FixCommand_SafetyFieldInJsonOutput()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    sb := new StringBuilder()
+}
+""");
+
+            var (_, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
+
+            var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+
+            // Every result must have a safety field
+            foreach (var result in results)
+            {
+                Assert.True(result.TryGetProperty("safety", out var safety));
+                var val = safety.GetString();
+                Assert.True(val == "safe" || val == "reviewNeeded" || val == "suggestionOnly",
+                    $"Unexpected safety value: {val}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void FixCommand_Help_DocumentsIncludeReviewNeeded()
+    {
+        var (_, stdout, _) = CaptureConsole(() => FixCommand.Execute(new[] { "--help" }));
+
+        Assert.Contains("--include-review-needed", stdout);
+    }
+
+    [Fact]
+    public void FixCommand_TextMode_ShowsSkippedFixes()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // unused import (NL010 → ReviewNeeded) gets skipped without --include-review-needed
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.IO
+
+func Main() {
+    let unused = 42
+}
+""");
+
+            var (_, _, stderr) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--text" }));
+
+            // Should mention skipped fixes
+            Assert.Contains("Skipped", stderr);
+            Assert.Contains("--include-review-needed", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ShouldApply_SafeIsAlwaysApplied()
+    {
+        Assert.True(FixCommand.ShouldApply(FixSafety.Safe, includeReviewNeeded: false));
+        Assert.True(FixCommand.ShouldApply(FixSafety.Safe, includeReviewNeeded: true));
+    }
+
+    [Fact]
+    public void ShouldApply_ReviewNeededRequiresFlag()
+    {
+        Assert.False(FixCommand.ShouldApply(FixSafety.ReviewNeeded, includeReviewNeeded: false));
+        Assert.True(FixCommand.ShouldApply(FixSafety.ReviewNeeded, includeReviewNeeded: true));
+    }
+
+    [Fact]
+    public void ShouldApply_SuggestionOnlyNeverApplied()
+    {
+        Assert.False(FixCommand.ShouldApply(FixSafety.SuggestionOnly, includeReviewNeeded: false));
+        Assert.False(FixCommand.ShouldApply(FixSafety.SuggestionOnly, includeReviewNeeded: true));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
