@@ -208,7 +208,15 @@ public record MatchExpression(
     Expression Value,
     List<MatchCase> Cases,
     int Line,
-    int Column) : Expression(Line, Column);
+    int Column) : Expression(Line, Column)
+{
+    /// <summary>
+    /// Set by the analyzer when all cases are verified covered (union/enum exhaustiveness
+    /// or wildcard/catch-all present). The transpiler uses this to emit a discard arm
+    /// instead of a #pragma warning disable CS8509.
+    /// </summary>
+    public bool IsExhaustive { get; set; }
+}
 
 public record MatchCase(Pattern Pattern, Expression? Guard, Expression Expression);
 
