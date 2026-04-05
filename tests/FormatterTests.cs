@@ -255,8 +255,8 @@ Success { value: int }
 Error { message: string }
 }";
         var expected = @"union Result {
-    Success(value: int)
-    Error(message: string)
+    Success { value: int }
+    Error { message: string }
 }";
 
         var result = Format(input).Trim();
@@ -306,9 +306,9 @@ _ => ""other""
 }
 }";
         var expected = @"func Test(x: int): string {
-    return x match {
-        0 => ""zero""
-        1 => ""one""
+    return match x {
+        0 => ""zero"",
+        1 => ""one"",
         _ => ""other""
     }
 }";
@@ -1020,9 +1020,9 @@ _ => ""other""
 }
 }";
         var expected = @"func Test(x: int): string {
-    return x match {
-        0 => ""zero""
-        1 => ""one""
+    return match x {
+        0 => ""zero"",
+        1 => ""one"",
         _ => ""other""
     }
 }";
@@ -1049,5 +1049,411 @@ print i
 
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
+    }
+
+    // ── Regression tests: bug-014 (union case formatting) ───────────
+
+    [Fact]
+    public void Format_UnionCases_UsesBraces_NotParens()
+    {
+        // Bug-014: formatter was emitting Success(value: int) which the parser rejects
+        var input = @"union Shape {
+Circle { radius: float }
+Rectangle { width: float, height: float }
+Point
+}";
+        var expected = @"union Shape {
+    Circle { radius: float }
+    Rectangle { width: float, height: float }
+    Point
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_UnionCases_RoundTrip()
+    {
+        // The formatted output must re-parse without errors
+        var input = @"union Result {
+Success { value: int }
+Error { message: string }
+}";
+        var formatted = Format(input).Trim();
+        // Re-parse the formatted output
+        var lexer = new Lexer(formatted, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
+    }
+
+    // ── Regression tests: bug-015 (match expression formatting) ─────
+
+    [Fact]
+    public void Format_ReturnMatch_UsesMatchPrefix()
+    {
+        // Bug-015: formatter was emitting `return x match {` which the parser rejects
+        var input = @"func Test(x: int): string {
+return match x {
+0 => ""zero"",
+_ => ""other""
+}
+}";
+        var expected = @"func Test(x: int): string {
+    return match x {
+        0 => ""zero"",
+        _ => ""other""
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_MatchExpression_HasCommasBetweenCases()
+    {
+        var input = @"func Test(x: int): string {
+return match x {
+0 => ""zero"",
+1 => ""one"",
+_ => ""other""
+}
+}";
+        var formatted = Format(input).Trim();
+        // Verify commas between cases (but not after last)
+        Assert.Contains(@"0 => ""zero"",", formatted);
+        Assert.Contains(@"1 => ""one"",", formatted);
+        // Last case should NOT have a trailing comma
+        Assert.Contains(@"_ => ""other""", formatted);
+        Assert.DoesNotContain(@"_ => ""other"",", formatted);
+    }
+
+    [Fact]
+    public void Format_MatchExpression_RoundTrip()
+    {
+        var input = @"func Test(x: int): string {
+return match x {
+0 => ""zero"",
+1 => ""one"",
+_ => ""other""
+}
+}";
+        var formatted = Format(input).Trim();
+        var lexer = new Lexer(formatted, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
+    }
+
+    [Fact]
+    public void Format_MatchWithGuard()
+    {
+        var input = @"func Test(x: int): string {
+return match x {
+_ when x > 0 => ""positive"",
+_ => ""non-positive""
+}
+}";
+        var expected = @"func Test(x: int): string {
+    return match x {
+        _ when x > 0 => ""positive"",
+        _ => ""non-positive""
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Regression tests: bug-016 (for-loop := declaration) ─────────
+
+    [Fact]
+    public void Format_ForLoop_ShorthandDeclaration_UsesColonEquals()
+    {
+        // Bug-016: formatter was emitting `for i = 0` instead of `for i := 0`
+        var input = @"func Test() {
+for i := 0; i < 10; i++ {
+print i
+}
+}";
+        var expected = @"func Test() {
+    for i := 0; i < 10; i++ {
+        print i
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ForLoop_ShorthandDecl_RoundTrip()
+    {
+        var input = @"func Test() {
+for i := 0; i < 10; i++ {
+print i
+}
+}";
+        var formatted = Format(input).Trim();
+        var lexer = new Lexer(formatted, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl");
+        var result = parser.ParseCompilationUnit();
+        Assert.Empty(result.Errors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
+    }
+
+    // ── Regression tests: let declarations ──────────────────────────
+
+    [Fact]
+    public void Format_LetDeclaration_ShorthandPreserved()
+    {
+        // Shorthand let (no type) must use :=
+        var input = @"func Test() {
+x := 42
+print x
+}";
+        var expected = @"func Test() {
+    x := 42
+    print x
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_LetDeclaration_TypedUsesEquals()
+    {
+        // Typed let must use =
+        var input = @"func Test() {
+x: int = 42
+print x
+}";
+        var expected = @"func Test() {
+    x: int = 42
+    print x
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Regression tests: lambda formatting ─────────────────────────
+
+    [Fact]
+    public void Format_Lambda_BlockBody()
+    {
+        var input = @"func Test() {
+f := (x, y) => {
+return x + y
+}
+}";
+        var expected = @"func Test() {
+    f := (x, y) => {
+        return x + y
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_Lambda_SingleParam_InferredType()
+    {
+        var input = @"func Test() {
+f := x => x * 2
+}";
+        var expected = @"func Test() {
+    f := x => x * 2
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Regression tests: every loop form ───────────────────────────
+
+    [Fact]
+    public void Format_ForInLoop()
+    {
+        var input = @"func Test(items: int[]) {
+for item in items {
+print item
+}
+}";
+        var expected = @"func Test(items: int[]) {
+    for item in items {
+        print item
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Regression tests: every declaration type ────────────────────
+
+    [Fact]
+    public void Format_TypeAlias()
+    {
+        var input = @"type UserId = int";
+        var expected = @"type UserId = int";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_DuckInterface()
+    {
+        var input = @"duck interface Printable {
+func Print(): string
+}";
+        var expected = @"duck interface Printable {
+    func Print(): string
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_RecordStruct()
+    {
+        var input = @"record struct Point {
+X: int
+Y: int
+}";
+        var expected = @"record struct Point {
+    X: int
+    Y: int
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_StringEnum()
+    {
+        var input = @"enum Status: string {
+Pending = ""pending"",
+Active = ""active"",
+Done = ""done""
+}";
+        var expected = @"enum Status: string {
+    Pending = ""pending"",
+    Active = ""active"",
+    Done = ""done""
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Safety gate tests ───────────────────────────────────────────
+
+    [Fact]
+    public void FormatSafe_ValidCode_ReturnsFormatted()
+    {
+        var source = "func main(){print 5}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success);
+        Assert.Contains("func main() {", result.Text);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void FormatSafe_IdempotentOutput()
+    {
+        var source = @"func Test(x: int): string {
+    return match x {
+        0 => ""zero"",
+        _ => ""other""
+    }
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success);
+
+        // Format again — must be identical
+        var ast2 = Parse(result.Text);
+        var result2 = formatter.FormatSafe(result.Text, ast2, null, "test.nl");
+        Assert.True(result2.Success);
+        Assert.Equal(result.Text, result2.Text);
+    }
+
+    // ── Idempotence: format twice always identical ──────────────────
+
+    [Fact]
+    public void Format_Idempotent_Union()
+    {
+        var input = @"union Result {
+    Success { value: int }
+    Error { message: string }
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Format_Idempotent_MatchExpression()
+    {
+        var input = @"func Test(x: int): string {
+    return match x {
+        0 => ""zero"",
+        1 => ""one"",
+        _ => ""other""
+    }
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Format_Idempotent_ForLoop()
+    {
+        var input = @"func Test() {
+    for i := 0; i < 10; i++ {
+        print i
+    }
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Format_Idempotent_AllLoopForms()
+    {
+        // for...in
+        var forIn = @"func Test(items: int[]) {
+    for item in items {
+        print item
+    }
+}";
+        var first1 = Format(forIn).Trim();
+        Assert.Equal(first1, Format(first1).Trim());
+
+        // while
+        var whileLoop = @"func Test() {
+    i := 0
+    while i < 10 {
+        print i
+        i = i + 1
+    }
+}";
+        var first2 = Format(whileLoop).Trim();
+        Assert.Equal(first2, Format(first2).Trim());
     }
 }
