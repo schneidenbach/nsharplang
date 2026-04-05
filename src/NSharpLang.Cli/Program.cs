@@ -315,7 +315,7 @@ Build timings:
     /// a corresponding .nl source file. Prevents stale generated code from
     /// being compiled after source files are deleted.
     /// </summary>
-    static void CleanStaleGeneratedFiles(string projectRoot)
+    internal static void CleanStaleGeneratedFiles(string projectRoot)
     {
         var objDir = Path.Combine(projectRoot, "obj");
         if (!Directory.Exists(objDir))
@@ -615,6 +615,9 @@ Exit codes:
 
             var config = ProjectFileParser.Parse(projectYmlPath);
             var csprojPath = EnsureProjectFiles(projectRoot, config);
+
+            // Clean up stale .g.cs files from deleted .nl sources
+            CleanStaleGeneratedFiles(projectRoot);
 
             // Build publish arguments
             var publishArgs = new List<string> { "publish", $"\"{csprojPath}\"", "-p:NSharpExcludeTests=true" };
