@@ -6,6 +6,10 @@ COPY packages/ /packages/
 # Register the local package source so dotnet restore/build can find our packages
 RUN dotnet nuget add source /packages --name local
 
+# Template NuGet.config files use <clear/> and reference ~/.nuget/local-feed,
+# so symlink that path to /packages/ so SDK resolution works after <clear/>
+RUN mkdir -p /root/.nuget && ln -s /packages /root/.nuget/local-feed
+
 # Ensure global tools are on PATH
 ENV PATH="${PATH}:/root/.dotnet/tools"
 
