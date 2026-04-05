@@ -1971,7 +1971,7 @@ public class Parser
         }
 
         Expression? initializer = null;
-        if (Check(TokenType.Assign))
+        if (Check(TokenType.Assign) || Check(TokenType.ColonAssign))
         {
             Advance();
             initializer = ParseExpression();
