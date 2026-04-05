@@ -48,7 +48,17 @@ public class DocumentFormattingHandler : DocumentFormattingHandlerBase
         string formattedText;
         try
         {
-            formattedText = new Formatter(config).Format(doc.CompilationUnit, doc.Comments);
+            var result = new Formatter(config).FormatSafe(doc.Text, doc.CompilationUnit, doc.Comments, uri);
+            foreach (var warning in result.Warnings)
+            {
+                _logger.LogWarning("Formatter safety warning for {Uri}: {Warning}", uri, warning);
+            }
+            if (!result.Success)
+            {
+                _logger.LogWarning("Formatting aborted for {Uri}: safety checks failed", uri);
+                return Task.FromResult<TextEditContainer?>(null);
+            }
+            formattedText = result.Text;
         }
         catch (Exception ex)
         {

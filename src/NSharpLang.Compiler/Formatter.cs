@@ -6,6 +6,21 @@ using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
 
+/// <summary>
+/// Result of a safe formatting operation.
+/// </summary>
+public class FormatResult
+{
+    /// <summary>The formatted (or original, if formatting was unsafe) source text.</summary>
+    public required string Text { get; init; }
+
+    /// <summary>True if the formatter produced valid output and the result is formatted text.</summary>
+    public bool Success { get; init; }
+
+    /// <summary>Warning messages about formatting issues (e.g., reparse failures).</summary>
+    public List<string> Warnings { get; init; } = new();
+}
+
 public class Formatter
 {
     private int _indent = 0;
@@ -18,6 +33,48 @@ public class Formatter
     {
         config ??= new FormatterConfig();
         _indentString = config.GetIndentString();
+    }
+
+    /// <summary>
+    /// Format source safely: formats the AST, then verifies the output re-parses without errors
+    /// and is idempotent. If either check fails, returns the original source with warnings.
+    /// </summary>
+    public FormatResult FormatSafe(string originalSource, CompilationUnit ast, List<CommentTrivia>? comments = null, string fileName = "formatted.nl")
+    {
+        var warnings = new List<string>();
+
+        try
+        {
+            var formatted = Format(ast, comments);
+            var lexer = new Lexer(formatted, fileName);
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens, fileName, formatted);
+            var reparseResult = parser.ParseCompilationUnit();
+
+            if (reparseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+            {
+                var errorMessages = string.Join("; ", reparseResult.Errors.Where(e => e.Severity == ErrorSeverity.Error).Select(e => e.Message));
+                warnings.Add($"Formatter would produce invalid output (reparse errors: {errorMessages}). Returning original source.");
+                return new FormatResult { Text = originalSource, Success = false, Warnings = warnings };
+            }
+
+            // Safety gate 2: Idempotence check — format the output again and verify identical
+            var reformatter = new Formatter(new FormatterConfig { IndentSize = _indentString.Contains('\t') ? 1 : _indentString.Length, UseSpaces = !_indentString.Contains('\t') });
+            var reformatted = reformatter.Format(reparseResult.CompilationUnit!, lexer.Comments);
+
+            if (!string.Equals(formatted, reformatted, StringComparison.Ordinal))
+            {
+                warnings.Add("Formatter output is not idempotent (formatting again produces different output). Returning original source.");
+                return new FormatResult { Text = originalSource, Success = false, Warnings = warnings };
+            }
+
+            return new FormatResult { Text = formatted, Success = true, Warnings = warnings };
+        }
+        catch (Exception ex)
+        {
+            warnings.Add($"Formatter safety check failed ({ex.Message}). Returning original source.");
+            return new FormatResult { Text = originalSource, Success = false, Warnings = warnings };
+        }
     }
 
     public string Format(CompilationUnit ast, List<CommentTrivia>? comments = null)
@@ -228,10 +285,16 @@ public class Formatter
             case TeardownDeclaration teardown:
                 FormatTeardown(teardown, sb);
                 break;
+            case NewtypeDeclaration newtype:
+                Indent(sb);
+                sb.AppendLine($"type {newtype.Name} = newtype {FormatTypeReference(newtype.UnderlyingType)}");
+                break;
             case PreprocessorDeclaration preproc:
                 Indent(sb);
                 sb.AppendLine(preproc.Directive);
                 break;
+            default:
+                throw new InvalidOperationException($"Formatter does not handle declaration type: {decl.GetType().Name}");
         }
     }
 
@@ -525,7 +588,7 @@ public class Formatter
 
             if (c.Properties != null && c.Properties.Count > 0)
             {
-                sb.Append("(");
+                sb.Append(" { ");
                 for (int j = 0; j < c.Properties.Count; j++)
                 {
                     var prop = c.Properties[j];
@@ -537,7 +600,7 @@ public class Formatter
                         sb.Append(", ");
                     }
                 }
-                sb.Append(")");
+                sb.Append(" }");
             }
 
             sb.AppendLine();
@@ -1000,7 +1063,8 @@ public class Formatter
                         }
                         if (vd.Initializer != null)
                         {
-                            sb.Append(" = ");
+                            // Use := for shorthand declarations (no explicit type), = for typed declarations
+                            sb.Append(vd.Type == null ? " := " : " = ");
                             FormatExpression(vd.Initializer, sb);
                         }
                     }
@@ -1037,6 +1101,27 @@ public class Formatter
             case ForeachStatement foreachStmt:
                 Indent(sb);
                 FormatForeachBody(foreachStmt, sb);
+                break;
+
+            case AwaitForEachStatement awaitForeach:
+                Indent(sb);
+                sb.Append("await foreach ");
+                sb.Append(awaitForeach.VariableName);
+                sb.Append(" in ");
+                FormatExpression(awaitForeach.Collection, sb);
+                sb.AppendLine(" {");
+                _indent++;
+                if (awaitForeach.Body is BlockStatement awaitForBlock)
+                {
+                    FormatBlock(awaitForBlock, sb);
+                }
+                else
+                {
+                    FormatStatement(awaitForeach.Body, sb);
+                }
+                _indent--;
+                Indent(sb);
+                sb.AppendLine("}");
                 break;
 
             case WhileStatement whileStmt:
@@ -1272,6 +1357,8 @@ public class Formatter
 
             case EmptyStatement:
                 break;
+            default:
+                throw new InvalidOperationException($"Formatter does not handle statement type: {stmt.GetType().Name}");
         }
     }
 
@@ -1561,11 +1648,13 @@ public class Formatter
                 }
                 break;
             case MatchExpression match:
+                sb.Append("match ");
                 FormatExpression(match.Value, sb);
-                sb.AppendLine(" match {");
+                sb.AppendLine(" {");
                 _indent++;
-                foreach (var caseExpr in match.Cases)
+                for (int i = 0; i < match.Cases.Count; i++)
                 {
+                    var caseExpr = match.Cases[i];
                     Indent(sb);
                     FormatPattern(caseExpr.Pattern, sb);
                     if (caseExpr.Guard != null)
@@ -1575,6 +1664,11 @@ public class Formatter
                     }
                     sb.Append(" => ");
                     FormatExpression(caseExpr.Expression, sb);
+                    // Commas required between cases (not after last)
+                    if (i < match.Cases.Count - 1)
+                    {
+                        sb.Append(",");
+                    }
                     sb.AppendLine();
                 }
                 _indent--;
@@ -1657,11 +1751,26 @@ public class Formatter
                 }
                 sb.Append(outVar.VariableName);
                 break;
+            case CheckedExpression checkedExpr:
+                sb.Append("checked(");
+                FormatExpression(checkedExpr.Expression, sb);
+                sb.Append(")");
+                break;
+            case UncheckedExpression uncheckedExpr:
+                sb.Append("unchecked(");
+                FormatExpression(uncheckedExpr.Expression, sb);
+                sb.Append(")");
+                break;
+            case DefaultExpression:
+                sb.Append("default");
+                break;
             case ParenthesizedExpression paren:
                 sb.Append("(");
                 FormatExpression(paren.Inner, sb);
                 sb.Append(")");
                 break;
+            default:
+                throw new InvalidOperationException($"Formatter does not handle expression type: {expr.GetType().Name}");
         }
     }
 
@@ -1782,6 +1891,8 @@ public class Formatter
                     sb.Append(type.BindingName);
                 }
                 break;
+            default:
+                throw new InvalidOperationException($"Formatter does not handle pattern type: {pattern.GetType().Name}");
         }
     }
 
@@ -1842,7 +1953,7 @@ public class Formatter
             NullableTypeReference nullable => $"{FormatTypeReference(nullable.InnerType)}?",
             TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
             FunctionTypeReference func => $"({string.Join(", ", func.ParameterTypes.Select(FormatTypeReference))}) => {FormatTypeReference(func.ReturnType)}",
-            _ => "unknown"
+            _ => throw new InvalidOperationException($"Formatter does not handle type reference: {type.GetType().Name}")
         };
     }
 
@@ -1892,7 +2003,7 @@ public class Formatter
             BinaryOperator.RightShift => ">>",
             BinaryOperator.NullCoalesce => "??",
             BinaryOperator.Range => "..",
-            _ => "?"
+            _ => throw new InvalidOperationException($"Formatter does not handle binary operator: {op}")
         };
     }
 
@@ -1908,7 +2019,7 @@ public class Formatter
             UnaryOperator.PostIncrement => "++",
             UnaryOperator.PostDecrement => "--",
             UnaryOperator.IndexFromEnd => "^",
-            _ => "?"
+            _ => throw new InvalidOperationException($"Formatter does not handle unary operator: {op}")
         };
     }
 
@@ -1922,7 +2033,7 @@ public class Formatter
             AssignmentOperator.MultiplyAssign => "*=",
             AssignmentOperator.DivideAssign => "/=",
             AssignmentOperator.NullCoalesceAssign => "??=",
-            _ => "="
+            _ => throw new InvalidOperationException($"Formatter does not handle assignment operator: {op}")
         };
     }
 
