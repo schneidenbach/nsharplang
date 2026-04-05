@@ -1635,7 +1635,19 @@ Exit codes:
         var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;
         var config = FormatterConfig.FromEditorConfig(fileDir);
         var formatter = new Formatter(config);
-        return formatter.Format(parseResult.CompilationUnit!);
+        var result = formatter.FormatSafe(source, parseResult.CompilationUnit!, lexer.Comments, file);
+
+        foreach (var warning in result.Warnings)
+        {
+            Console.Error.WriteLine($"Warning [{NormalizePath(Path.GetRelativePath(projectRoot, file))}]: {warning}");
+        }
+
+        if (!result.Success)
+        {
+            throw new Exception($"Formatter safety check failed: {string.Join("; ", result.Warnings)}");
+        }
+
+        return result.Text;
     }
 
     static string? GetOptionValue(string[] args, string flag)
