@@ -80,6 +80,9 @@ public static class PackCommand
             var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
             var csprojPath = EnsurePackProjectFiles(projectRoot, config, projectName);
 
+            // Clean up stale .g.cs files from deleted .nl sources
+            Program.CleanStaleGeneratedFiles(projectRoot);
+
             // Build 'dotnet pack' arguments
             var packArgs = new List<string> { "pack", $"\"{csprojPath}\"" };
             packArgs.Add($"--configuration {configuration}");
