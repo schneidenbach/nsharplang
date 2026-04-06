@@ -2828,10 +2828,12 @@ public class Transpiler
 
             // String enum members are static readonly fields (not constants), so they
             // can't be used as C# constant patterns. Transform to when-guard patterns.
+            // This handles simple (Status.Active), composite (Status.Active or Status.Inactive),
+            // and negated (not Status.Active) patterns.
             if (IsStringEnumPattern(c.Pattern))
             {
                 var varName = $"_se{idx}";
-                var enumGuard = $"{varName} == {pattern}";
+                var enumGuard = BuildStringEnumGuard(c.Pattern, varName);
                 var userGuard = c.Guard != null ? TranspileExpression(c.Guard) : null;
                 var fullGuard = userGuard != null ? $"{enumGuard} && {userGuard}" : enumGuard;
                 return $"var {varName} when {fullGuard} => {expression}";
@@ -2899,10 +2901,24 @@ public class Transpiler
         };
     }
 
-    private bool IsStringEnumPattern(Pattern pattern) =>
-        pattern is IdentifierPattern id &&
-        id.Name.Contains('.') &&
-        _stringEnumNames.Contains(id.Name.Split('.')[0]);
+    private bool IsStringEnumPattern(Pattern pattern) => pattern switch
+    {
+        IdentifierPattern id => id.Name.Contains('.') && _stringEnumNames.Contains(id.Name.Split('.')[0]),
+        OrPattern or => IsStringEnumPattern(or.Left) || IsStringEnumPattern(or.Right),
+        AndPattern and => IsStringEnumPattern(and.Left) || IsStringEnumPattern(and.Right),
+        NotPattern not => IsStringEnumPattern(not.Pattern),
+        _ => false
+    };
+
+    private string BuildStringEnumGuard(Pattern pattern, string varName) => pattern switch
+    {
+        IdentifierPattern id when id.Name.Contains('.') && _stringEnumNames.Contains(id.Name.Split('.')[0])
+            => $"{varName} == {id.Name}",
+        OrPattern or => $"({BuildStringEnumGuard(or.Left, varName)} || {BuildStringEnumGuard(or.Right, varName)})",
+        AndPattern and => $"({BuildStringEnumGuard(and.Left, varName)} && {BuildStringEnumGuard(and.Right, varName)})",
+        NotPattern not => $"!({BuildStringEnumGuard(not.Pattern, varName)})",
+        _ => $"{varName} == {TranspilePattern(pattern)}" // fallback: treat as equality check
+    };
 
     private string TranspileIdentifierPattern(IdentifierPattern pattern)
     {

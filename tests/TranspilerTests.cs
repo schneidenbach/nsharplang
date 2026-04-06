@@ -4576,6 +4576,31 @@ func Describe(s: Status): string {
     }
 
     [Fact]
+    public void TestStringEnumOrPatternUsesWhenGuard()
+    {
+        var source = @"
+enum Status: string {
+    Active = ""active"",
+    Inactive = ""inactive"",
+    Pending = ""pending""
+}
+
+func Describe(s: Status): string {
+    return match s {
+        Status.Active or Status.Pending => ""present"",
+        Status.Inactive => ""absent""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // Or-pattern should be decomposed into when-guard with ||
+        Assert.Contains("var _se0 when (_se0 == Status.Active || _se0 == Status.Pending)", result);
+        Assert.Contains("var _se1 when _se1 == Status.Inactive", result);
+    }
+
+    [Fact]
     public void TestIntEnumNotAffected()
     {
         var source = @"
