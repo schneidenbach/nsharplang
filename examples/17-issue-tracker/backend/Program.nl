@@ -13,6 +13,10 @@ func main(args: string[]) {
     builder := WebApplication.CreateBuilder(args)
     app := builder.Build()
 
+    // Serve built frontend from wwwroot/ (production path)
+    app.UseDefaultFiles()
+    app.UseStaticFiles()
+
     // Wire up duck-typed notifiers — no interface declarations needed
     hub := new NotifierHub()
     hub.Register(new ConsoleNotifier())
@@ -24,8 +28,11 @@ func main(args: string[]) {
 
     routes.Map(app)
 
+    // SPA fallback — unmatched routes serve index.html for client-side routing
+    app.MapFallbackToFile("index.html")
+
     if app.Environment.IsDevelopment() {
-        print "Issue Tracker running at http://localhost:5000"
+        print "Issue Tracker started"
     }
 
     app.Run()
