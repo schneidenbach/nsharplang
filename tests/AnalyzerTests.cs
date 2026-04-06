@@ -2207,6 +2207,101 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void GenericMethodReturnType_NSharpTypeArg_ReturnsCorrectType()
+    {
+        // Bug: JsonSerializer.Deserialize<NSharpType>(body) returned object instead of NSharpType
+        AssertNoErrors(@"
+            import System.Text.Json
+
+            class MyRequest {
+                Name: string
+            }
+
+            func DoWork(body: string) {
+                request := JsonSerializer.Deserialize<MyRequest>(body)
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_NSharpElementType_InfersParameterTypes()
+    {
+        // Bug: .Where(r => r.Name.Contains(q)) on List<NSharpClass> produced NL103
+        // because lambda parameter type was 'unknown' instead of the N# class type
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Recipe {
+                Title: string
+                Description: string
+            }
+
+            func Search(recipes: List<Recipe>, query: string) {
+                lower := query.ToLower()
+                results := recipes.Where(r => r.Title.ToLower().Contains(lower)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_SimpleContains_NSharpType()
+    {
+        // Intermediate test: single Contains without ||
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Item {
+                Name: string
+                Tag: string
+            }
+
+            func Search(items: List<Item>, q: string) {
+                results := items.Where(x => x.Name.Contains(q)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_BooleanOrInLambda_NSharpType()
+    {
+        // Bug: || and && failed inside LINQ lambdas with NL103 when used on N# types
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Item {
+                Name: string
+                Tag: string
+            }
+
+            func Search(items: List<Item>, q: string) {
+                results := items.Where(x => x.Name.Contains(q) || x.Tag.Contains(q)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqSelect_NSharpType_InfersLambdaReturnType()
+    {
+        // Select on a collection of N# types should correctly infer lambda parameter types
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Person {
+                Name: string
+                Age: int
+            }
+
+            func GetNames(people: List<Person>): List<string> {
+                return people.Select(p => p.Name).ToList()
+            }
+        ");
+    }
+
+    [Fact]
     public void AssemblyResolution_SystemText_Resolved()
     {
         AssertNoErrors(@"
@@ -6353,5 +6448,92 @@ test ""should work"" {
     assert true
 }
         ", "Only one teardown block is allowed per test file");
+    }
+
+    // ── Bug regression tests ────────────────────────────────────────────
+
+    [Fact]
+    public void IntParse_NoUndefinedVariableError()
+    {
+        // Bug 001: int.Parse() should resolve int as System.Int32, not "Variable 'int' not found"
+        AssertNoErrors(@"
+func Main() {
+    x := int.Parse(""42"")
+}
+        ");
+    }
+
+    [Fact]
+    public void StringIsNullOrEmpty_NoUndefinedVariableError()
+    {
+        // Same fix as int.Parse — all built-in type keywords should support static method access
+        AssertNoErrors(@"
+func Main() {
+    result := string.IsNullOrEmpty(""hello"")
+}
+        ");
+    }
+
+    [Fact]
+    public void IntTryParse_WithOutVar_NoErrors()
+    {
+        // Bug 076: int.TryParse with out var should work
+        AssertNoErrors(@"
+func Main() {
+    if int.TryParse(""123"", out var result) {
+        print result
+    }
+}
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_MultipleArities_SelectsCorrectOverload()
+    {
+        // Bug 074: 3-arg call should resolve to 3-arg overload, not error
+        AssertNoErrors(@"
+class Formatter {
+    static func Format(a: string): string {
+        return a
+    }
+    static func Format(a: string, b: string): string {
+        return a
+    }
+    static func Format(a: string, b: string, c: string): string {
+        return a
+    }
+}
+
+func Main() {
+    Formatter.Format(""a"")
+    Formatter.Format(""a"", ""b"")
+    Formatter.Format(""a"", ""b"", ""c"")
+}
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_TopLevelFunctions_MultipleArities()
+    {
+        // Bug 074: top-level function overloads with different arities
+        AssertNoErrors(@"
+func Helper(a: int): int {
+    return a
+}
+
+func Helper(a: int, b: int): int {
+    return a + b
+}
+
+func Helper(a: int, b: int, c: int): int {
+    return a + b + c
+}
+
+func Main() {
+    Helper(1)
+    Helper(1, 2)
+    Helper(1, 2, 3)
+}
+        ");
     }
 }
