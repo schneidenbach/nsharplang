@@ -2207,6 +2207,101 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void GenericMethodReturnType_NSharpTypeArg_ReturnsCorrectType()
+    {
+        // Bug: JsonSerializer.Deserialize<NSharpType>(body) returned object instead of NSharpType
+        AssertNoErrors(@"
+            import System.Text.Json
+
+            class MyRequest {
+                Name: string
+            }
+
+            func DoWork(body: string) {
+                request := JsonSerializer.Deserialize<MyRequest>(body)
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_NSharpElementType_InfersParameterTypes()
+    {
+        // Bug: .Where(r => r.Name.Contains(q)) on List<NSharpClass> produced NL103
+        // because lambda parameter type was 'unknown' instead of the N# class type
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Recipe {
+                Title: string
+                Description: string
+            }
+
+            func Search(recipes: List<Recipe>, query: string) {
+                lower := query.ToLower()
+                results := recipes.Where(r => r.Title.ToLower().Contains(lower)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_SimpleContains_NSharpType()
+    {
+        // Intermediate test: single Contains without ||
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Item {
+                Name: string
+                Tag: string
+            }
+
+            func Search(items: List<Item>, q: string) {
+                results := items.Where(x => x.Name.Contains(q)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqLambda_BooleanOrInLambda_NSharpType()
+    {
+        // Bug: || and && failed inside LINQ lambdas with NL103 when used on N# types
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Item {
+                Name: string
+                Tag: string
+            }
+
+            func Search(items: List<Item>, q: string) {
+                results := items.Where(x => x.Name.Contains(q) || x.Tag.Contains(q)).ToList()
+            }
+        ");
+    }
+
+    [Fact]
+    public void LinqSelect_NSharpType_InfersLambdaReturnType()
+    {
+        // Select on a collection of N# types should correctly infer lambda parameter types
+        AssertNoErrors(@"
+            import System.Linq
+            import System.Collections.Generic
+
+            class Person {
+                Name: string
+                Age: int
+            }
+
+            func GetNames(people: List<Person>): List<string> {
+                return people.Select(p => p.Name).ToList()
+            }
+        ");
+    }
+
+    [Fact]
     public void AssemblyResolution_SystemText_Resolved()
     {
         AssertNoErrors(@"
