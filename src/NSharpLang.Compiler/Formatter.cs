@@ -25,6 +25,7 @@ public class Formatter
 {
     private int _indent = 0;
     private readonly string _indentString;
+    private readonly int _maxLineLength;
     private List<CommentTrivia> _comments = new();
     private int _commentIndex = 0;
     private int _lastEmittedSourceLine = 0;
@@ -33,6 +34,7 @@ public class Formatter
     {
         config ??= new FormatterConfig();
         _indentString = config.GetIndentString();
+        _maxLineLength = config.MaxLineLength;
     }
 
     /// <summary>
@@ -59,7 +61,7 @@ public class Formatter
             }
 
             // Safety gate 2: Idempotence check — format the output again and verify identical
-            var reformatter = new Formatter(new FormatterConfig { IndentSize = _indentString.Contains('\t') ? 1 : _indentString.Length, UseSpaces = !_indentString.Contains('\t') });
+            var reformatter = new Formatter(new FormatterConfig { IndentSize = _indentString.Contains('\t') ? 1 : _indentString.Length, UseSpaces = !_indentString.Contains('\t'), MaxLineLength = _maxLineLength });
             var reformatted = reformatter.Format(reparseResult.CompilationUnit!, lexer.Comments);
 
             if (!string.Equals(formatted, reformatted, StringComparison.Ordinal))
@@ -88,6 +90,10 @@ public class Formatter
         if (ast.Package != null)
         {
             EmitCommentsBefore(ast.Package.Line, sb);
+            if (_lastEmittedSourceLine > 0 && ast.Package.Line - _lastEmittedSourceLine > 1)
+            {
+                sb.AppendLine();
+            }
             sb.AppendLine($"package {ast.Package.Name}");
             _lastEmittedSourceLine = ast.Package.Line;
             sb.AppendLine();
@@ -97,6 +103,10 @@ public class Formatter
         if (ast.Namespace != null)
         {
             EmitCommentsBefore(ast.Namespace.Line, sb);
+            if (_lastEmittedSourceLine > 0 && ast.Namespace.Line - _lastEmittedSourceLine > 1)
+            {
+                sb.AppendLine();
+            }
             sb.AppendLine($"namespace {ast.Namespace.Name}");
             _lastEmittedSourceLine = ast.Namespace.Line;
             sb.AppendLine();
@@ -1605,22 +1615,7 @@ public class Formatter
                 sb.Append(")");
                 if (newExpr.Initializer != null)
                 {
-                    sb.Append(" { ");
-                    for (int i = 0; i < newExpr.Initializer.Properties.Count; i++)
-                    {
-                        var prop = newExpr.Initializer.Properties[i];
-                        if (prop.Name != null)
-                        {
-                            sb.Append(prop.Name);
-                            sb.Append(": ");
-                        }
-                        FormatExpression(prop.Value, sb);
-                        if (i < newExpr.Initializer.Properties.Count - 1)
-                        {
-                            sb.Append(", ");
-                        }
-                    }
-                    sb.Append(" }");
+                    FormatObjectInitializer(newExpr.Initializer, sb);
                 }
                 break;
             case CastExpression cast:
@@ -2041,5 +2036,111 @@ public class Formatter
         {
             sb.Append(_indentString);
         }
+    }
+
+    /// <summary>
+    /// Format an object initializer, choosing inline or multi-line based on line length.
+    /// Inline: { Prop1: val1, Prop2: val2 }
+    /// Multi-line:
+    ///   {
+    ///       Prop1: val1,
+    ///       Prop2: val2
+    ///   }
+    /// </summary>
+    private void FormatObjectInitializer(ObjectInitializerExpression initializer, StringBuilder sb)
+    {
+        // First, measure the inline form to decide if it fits
+        var inlineSb = new StringBuilder();
+        inlineSb.Append(" { ");
+        for (int i = 0; i < initializer.Properties.Count; i++)
+        {
+            var prop = initializer.Properties[i];
+            if (prop.Name != null)
+            {
+                inlineSb.Append(prop.Name);
+                inlineSb.Append(": ");
+            }
+            if (prop.IsIndexerInitializer)
+            {
+                inlineSb.Append("[");
+                inlineSb.Append(FormatExpressionToString(prop.IndexExpression!));
+                inlineSb.Append("] = ");
+            }
+            inlineSb.Append(FormatExpressionToString(prop.Value));
+            if (i < initializer.Properties.Count - 1)
+            {
+                inlineSb.Append(", ");
+            }
+        }
+        inlineSb.Append(" }");
+
+        int currentCol = GetCurrentColumn(sb);
+        bool fitsOnLine = currentCol + inlineSb.Length <= _maxLineLength;
+
+        if (fitsOnLine || initializer.Properties.Count <= 1)
+        {
+            // Inline form
+            sb.Append(inlineSb);
+        }
+        else
+        {
+            // Multi-line form
+            sb.Append(" {");
+            _indent++;
+            for (int i = 0; i < initializer.Properties.Count; i++)
+            {
+                sb.AppendLine();
+                Indent(sb);
+                var prop = initializer.Properties[i];
+                if (prop.Name != null)
+                {
+                    sb.Append(prop.Name);
+                    sb.Append(": ");
+                }
+                if (prop.IsIndexerInitializer)
+                {
+                    sb.Append("[");
+                    FormatExpression(prop.IndexExpression!, sb);
+                    sb.Append("] = ");
+                }
+                FormatExpression(prop.Value, sb);
+                if (i < initializer.Properties.Count - 1)
+                {
+                    sb.Append(",");
+                }
+            }
+            _indent--;
+            sb.AppendLine();
+            Indent(sb);
+            sb.Append("}");
+        }
+    }
+
+    /// <summary>
+    /// Returns the column position (characters since last newline) in the StringBuilder.
+    /// </summary>
+    private static int GetCurrentColumn(StringBuilder sb)
+    {
+        for (int i = sb.Length - 1; i >= 0; i--)
+        {
+            if (sb[i] == '\n')
+                return sb.Length - i - 1;
+        }
+        return sb.Length;
+    }
+
+    /// <summary>
+    /// Format an expression to a standalone string (for measuring inline length).
+    /// Saves and restores formatter state so the measurement pass has no side effects.
+    /// </summary>
+    private string FormatExpressionToString(Expression expr)
+    {
+        var savedCommentIndex = _commentIndex;
+        var savedLastEmittedSourceLine = _lastEmittedSourceLine;
+        var tempSb = new StringBuilder();
+        FormatExpression(expr, tempSb);
+        _commentIndex = savedCommentIndex;
+        _lastEmittedSourceLine = savedLastEmittedSourceLine;
+        return tempSb.ToString();
     }
 }
