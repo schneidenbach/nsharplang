@@ -362,7 +362,7 @@ print e
         var expected = @"func Test() {
     try {
         print ""trying""
-    } catch Exception e {
+    } catch (Exception e) {
         print e
     }
 }";
@@ -1455,5 +1455,121 @@ Done = ""done""
 }";
         var first2 = Format(whileLoop).Trim();
         Assert.Equal(first2, Format(first2).Trim());
+    }
+
+    [Fact]
+    public void FormatSafe_MatchWithUnionCasePattern_ProducesValidOutput()
+    {
+        // Regression: Dubai bug-005, bug-009 — formatter emitted UnionCasePattern
+        // with parentheses instead of braces, causing reparse error:
+        // "Expected '=>'. Expected 'arrow', got '('"
+        var source = @"union Shape {
+    Circle { radius: float }
+    Rect { w: float, h: float }
+}
+
+func Describe(s: Shape): string {
+    return match s {
+        Circle { radius: r } => ""circle"",
+        Rect { w: w, h: h } => ""rect""
+    }
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
+        // Verify idempotence
+        var ast2 = Parse(result.Text);
+        var result2 = formatter.FormatSafe(result.Text, ast2, null, "test.nl");
+        Assert.True(result2.Success, $"FormatSafe not idempotent: {string.Join("; ", result2.Warnings)}");
+        Assert.Equal(result.Text, result2.Text);
+    }
+
+    [Fact]
+    public void FormatSafe_CatchWithExceptionType_ProducesValidOutput()
+    {
+        // Regression: Tripoli bug-071 — formatter omitted parentheses
+        // around catch clause exception type
+        var source = @"func Test() {
+    try {
+        print ""trying""
+    } catch (Exception ex) {
+        print ex
+    }
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
+        Assert.Contains("catch (Exception ex)", result.Text);
+    }
+
+    [Fact]
+    public void FormatSafe_MatchWithMultiplePatternTypes_ProducesValidOutput()
+    {
+        // Regression: Tripoli bug-070 — various pattern types in match
+        var source = @"func Classify(x: int): string {
+    return match x {
+        0 => ""zero"",
+        > 0 => ""positive"",
+        _ => ""negative""
+    }
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
+        var ast2 = Parse(result.Text);
+        var result2 = formatter.FormatSafe(result.Text, ast2, null, "test.nl");
+        Assert.True(result2.Success, $"FormatSafe not idempotent: {string.Join("; ", result2.Warnings)}");
+        Assert.Equal(result.Text, result2.Text);
+    }
+
+    [Fact]
+    public void FormatSafe_RealWorldApp_TryCatchAndMatch()
+    {
+        // Regression: Tripoli bug-096 — formatter could not handle
+        // a normal real-world app combining try/catch and match
+        var source = @"func ProcessRequest(req: Request): Response {
+    try {
+        result := match req.Type {
+            ""GET"" => HandleGet(req),
+            ""POST"" => HandlePost(req),
+            _ => BadRequest()
+        }
+        return result
+    } catch (HttpException ex) {
+        return ErrorResponse(ex.StatusCode)
+    } catch (Exception ex) {
+        return ErrorResponse(500)
+    }
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+        Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
+        Assert.Contains("catch (HttpException ex)", result.Text);
+        Assert.Contains("catch (Exception ex)", result.Text);
+        // Verify idempotence
+        var ast2 = Parse(result.Text);
+        var result2 = formatter.FormatSafe(result.Text, ast2, null, "test.nl");
+        Assert.True(result2.Success, $"FormatSafe not idempotent: {string.Join("; ", result2.Warnings)}");
+        Assert.Equal(result.Text, result2.Text);
+    }
+
+    [Fact]
+    public void Format_CatchWithoutType_NoParen()
+    {
+        // Bare catch (no exception type) should not have parentheses
+        var source = @"func Test() {
+    try {
+        print ""trying""
+    } catch {
+        print ""caught""
+    }
+}";
+        var result = Format(source).Trim();
+        Assert.Contains("} catch {", result);
+        Assert.DoesNotContain("catch ()", result);
     }
 }

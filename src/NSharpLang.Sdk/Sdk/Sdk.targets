@@ -3,6 +3,15 @@
   <!-- Import base SDK targets (dynamic based on project.yml sdk field, set in Sdk.props) -->
   <Import Project="Sdk.targets" Sdk="$(_NSharpBaseSdk)" />
 
+  <!-- Disable native executable generation in Debug to avoid NETSDK1177 signing
+       errors when rebuilding while the app is still running. In Debug, apps are
+       launched via 'dotnet run' which doesn't need the apphost. Release builds
+       still produce a native executable for deployment.
+       Placed after base SDK import so $(Configuration) has its resolved value. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <UseAppHost Condition="'$(UseAppHost)' == ''">false</UseAppHost>
+  </PropertyGroup>
+
   <PropertyGroup>
     <!-- Output path for generated C# files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
     <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>

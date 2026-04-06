@@ -9,8 +9,18 @@ npm run setup    # Install all dependencies
 npm run dev      # Start backend + frontend concurrently
 ```
 
-Backend: http://localhost:5000
 Frontend: http://localhost:3000 (proxies API calls to backend)
+Backend: http://localhost:5167
+
+The backend defaults to port 5167 (not 5000, which conflicts with AirPlay on macOS). To change it, edit the `--urls` value in `package.json` and the `backendPort` default in `frontend/vite.config.ts`.
+
+## Production Build
+
+```bash
+npm run build    # Builds frontend first, then backend
+```
+
+The `build` script enforces correct ordering: frontend assets are compiled into `backend/wwwroot/` before the backend build runs. Do not run `dotnet build` directly in the backend directory unless you have already built the frontend — the backend serves the frontend from `wwwroot/` via static file middleware.
 
 ## What to Look For
 
@@ -43,7 +53,9 @@ Each backend file showcases specific N# features. This isn't C# with different s
 - Request DTOs as records — one-line immutable types.
 
 ### `Program.nl` — Entry point
-- The entire app bootstrap in ~15 lines.
+- The entire app bootstrap in ~20 lines.
+- Static file middleware serves the built frontend from `wwwroot/`.
+- SPA fallback routes unmatched paths to `index.html` for client-side routing.
 
 ### `frontend/src/types.ts` — TypeScript mirror
 - N# unions map naturally to TypeScript discriminated unions.
@@ -61,7 +73,7 @@ Each backend file showcases specific N# features. This isn't C# with different s
 │   ├── Service.nl        ← Business logic (error tuples, private helpers)
 │   ├── Database.nl       ← In-memory store
 │   ├── Endpoints.nl      ← Minimal API routes
-│   ├── Program.nl        ← Entry point
+│   ├── Program.nl        ← Entry point (static files + SPA fallback)
 │   └── project.yml       ← Project config (not .csproj properties)
 └── frontend/
     ├── src/

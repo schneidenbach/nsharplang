@@ -1129,6 +1129,7 @@ Exit codes:
             {
                 var msg = $"Test build failed:\n{testBuildCapture.Stderr}{testBuildCapture.Stdout}";
                 if (jsonOutput) { OutputTestJson(null, projectRoot, false, msg); return 1; }
+                return Error(msg);
             }
 
             if (!jsonOutput) Console.WriteLine();
@@ -1144,46 +1145,29 @@ Exit codes:
                 dotnetFilter = string.Join("|", predicates);
             }
             var trxFile = Path.Combine(tempDir, "results.trx");
-            var testArguments = new List<string>
-            {
-                "test",
-                QuoteArgument(projectFile),
-                "--no-build",
-                "-v",
-                verbose ? "normal" : "minimal"
-            };
+            var testArgs = $"test \"{projectFile}\" --no-build -v {(verbose ? "normal" : "minimal")}";
 
             if (!string.IsNullOrWhiteSpace(dotnetFilter))
-            {
-                testArguments.Add("--filter");
-                testArguments.Add(QuoteArgument(dotnetFilter));
-            }
+                testArgs += $" --filter \"{dotnetFilter}\"";
 
-            // Add TRX logger for JSON output parsing
             if (jsonOutput)
-            {
-                testArguments.Add("--logger");
-                testArguments.Add(QuoteArgument($"trx;LogFileName={trxFile}"));
-            }
+                testArgs += $" --logger \"trx;LogFileName={trxFile}\"";
 
             // Pass-through arguments (after --)
             var needsPassThrough = collectCoverage || timeoutMs.HasValue;
             if (needsPassThrough)
             {
-                testArguments.Add("--");
+                testArgs += " --";
 
-                // Add timeout
                 if (timeoutMs.HasValue)
-                    testArguments.Add($"RunConfiguration.TestSessionTimeout={timeoutMs.Value}");
+                    testArgs += $" RunConfiguration.TestSessionTimeout={timeoutMs.Value}";
 
-                // Add Coverlet properties for coverage
                 if (collectCoverage)
                 {
                     var coverageOutputFile = Path.Combine(tempDir, "coverage.opencover.xml");
-                    testArguments.Add("/p:CollectCoverage=true");
-                    testArguments.Add("/p:CoverletOutputFormat=opencover");
-                    testArguments.Add($"/p:CoverletOutput={coverageOutputFile}");
-                    testArguments.Add("/p:ExcludeByFile=**/*.g.cs");
+                    testArgs += " /p:CollectCoverage=true /p:CoverletOutputFormat=opencover";
+                    testArgs += $" /p:CoverletOutput={coverageOutputFile}";
+                    testArgs += " /p:ExcludeByFile=**/*.g.cs";
                 }
             }
 
@@ -1191,13 +1175,13 @@ Exit codes:
             if (jsonOutput)
             {
                 // Capture output so we can parse the TRX file without console noise
-                var testRunCapture = DotnetRunner.Run(string.Join(" ", testArguments));
+                var testRunCapture = DotnetRunner.Run(testArgs);
                 exitCode = testRunCapture.ExitCode;
             }
             else
             {
                 // Forward output live so the user sees test progress
-                exitCode = DotnetRunner.RunPassthrough(string.Join(" ", testArguments));
+                exitCode = DotnetRunner.RunPassthrough(testArgs);
             }
 
             // JSON output: parse TRX and emit structured JSON
@@ -1765,9 +1749,6 @@ Exit codes:
         }
         return result.ToArray();
     }
-
-    static string QuoteArgument(string value)
-        => $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 
     static string NormalizePath(string path) => path.Replace('\\', '/');
 

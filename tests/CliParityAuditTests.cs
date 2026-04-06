@@ -683,6 +683,70 @@ func benchMultiply() {
         Assert.Contains("--path", stdout);
     }
 
+    // ── Test command: build failure properly returns error ────────────
+
+    [Fact]
+    public void TestCommand_NoTestFiles_ReturnsZero()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // A project with no .tests.nl files should exit cleanly
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "hello"
+}
+""");
+
+            var (exitCode, _, _) = CaptureConsole(() =>
+                ExecuteProgram("test", "--project", tempDir));
+
+            Assert.Equal(0, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestCommand_CompilationError_ReturnsNonZero()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // project.yml is needed so the test command discovers source files
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TestProject
+outputType: library
+targetFramework: net9.0
+""");
+            // Source file with a type error the analyzer catches
+            File.WriteAllText(Path.Combine(tempDir, "Lib.nl"), """
+func Add(a int, b int) int {
+    return a + b
+}
+""");
+            // Test file that references an undefined function
+            File.WriteAllText(Path.Combine(tempDir, "Lib.tests.nl"), """
+test "add works" {
+    result := Multiply(2, 3)
+}
+""");
+
+            var (exitCode, _, _) = CaptureConsole(() =>
+                ExecuteProgram("test", "--project", tempDir));
+
+            // Must return non-zero when compilation fails — previously fell through
+            // to dotnet test and produced an "invalid DLL argument" error
+            Assert.NotEqual(0, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
