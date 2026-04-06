@@ -355,11 +355,28 @@ public class Analyzer : IDisposable
             ValidateOperatorOverload(func);
         }
 
-        // Declare function in current scope (if not already declared in first pass)
+        // Declare function in current scope if not already registered (e.g., by a first pass).
+        // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
         var funcType = CreateFunctionTypeInfo(func);
         var existingSymbol = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
         if (existingSymbol == null)
         {
+            DeclareSymbol(func.Name, funcType, func.Line, func.Column);
+        }
+        else if (existingSymbol is NSharpMethodGroupInfo group)
+        {
+            // Already in a method group (registered by class first pass) — skip
+        }
+        else if (existingSymbol is FunctionTypeInfo existingFunc
+                 && existingFunc.Declaration != null
+                 && funcType.Declaration != null
+                 && ParameterSignaturesMatch(existingFunc.Declaration, funcType.Declaration))
+        {
+            // Same function already declared (by class first pass) — skip
+        }
+        else
+        {
+            // Not yet declared (struct/record/top-level) — declare now
             DeclareSymbol(func.Name, funcType, func.Line, func.Column);
         }
 
@@ -564,19 +581,15 @@ public class Analyzer : IDisposable
         }
 
         // Two-pass analysis for forward references
-        // First pass: Collect all function signatures
+        // First pass: Collect all function signatures (including overloads)
         foreach (var member in classDecl.Members)
         {
             if (member is FunctionDeclaration func)
             {
-                // Add function to scope so it can be referenced by other members
+                // Add function to scope so it can be referenced by other members.
+                // DeclareSymbol handles overload merging into NSharpMethodGroupInfo.
                 var funcTypeInfo = CreateFunctionTypeInfo(func);
-                // Only declare if not already declared (avoid duplicates)
-                var existingType = _scopes.Peek().Symbols.GetValueOrDefault(func.Name);
-                if (existingType == null)
-                {
-                    DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
-                }
+                DeclareSymbol(func.Name, funcTypeInfo, func.Line, func.Column);
             }
         }
 
@@ -2182,11 +2195,16 @@ public class Analyzer : IDisposable
             varType = BuiltInTypes.Unknown;
         }
 
-        // Declare the variable in the current scope
-        DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
-        RecordVariableInCurrentScope(outVar.VariableName, varType);
+        // Declare the variable in the current scope (skip if already declared,
+        // since BindReflectionCall may re-analyze arguments)
+        var existingSymbol = LookupSymbol(outVar.VariableName);
+        if (existingSymbol == null)
+        {
+            DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
+            RecordVariableInCurrentScope(outVar.VariableName, varType);
+        }
 
-        return varType;
+        return existingSymbol ?? varType;
     }
 
     private TypeInfo AnalyzeSpreadExpression(SpreadExpression spread)
@@ -5190,6 +5208,35 @@ public class Analyzer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Maps built-in type keywords (int, string, bool, etc.) to their CLR System.Type.
+    /// Enables static member access like int.Parse(), string.IsNullOrEmpty(), etc.
+    /// </summary>
+    private Type? TryResolveBuiltInTypeKeyword(string name)
+    {
+        if (_wellKnownTypes == null) return null;
+
+        return name switch
+        {
+            "int" => _wellKnownTypes.Int32,
+            "long" => _wellKnownTypes.Int64,
+            "float" => _wellKnownTypes.Single,
+            "double" => _wellKnownTypes.Double,
+            "decimal" => _wellKnownTypes.Decimal,
+            "byte" => _wellKnownTypes.Byte,
+            "sbyte" => _wellKnownTypes.SByte,
+            "short" => _wellKnownTypes.Int16,
+            "ushort" => _wellKnownTypes.UInt16,
+            "uint" => _wellKnownTypes.UInt32,
+            "ulong" => _wellKnownTypes.UInt64,
+            "char" => _wellKnownTypes.Char,
+            "bool" => _wellKnownTypes.Boolean,
+            "string" => _wellKnownTypes.String,
+            "object" => _wellKnownTypes.Object,
+            _ => null
+        };
+    }
+
     private TypeInfo? TryResolveExternalType(string name)
     {
         // Check cache first
@@ -5277,6 +5324,15 @@ public class Analyzer : IDisposable
                 }
                 return true;
             }
+        }
+
+        // Resolve built-in type keywords (int, string, bool, etc.) for static member access
+        // e.g., int.Parse(...), string.IsNullOrEmpty(...), int.TryParse(...)
+        var builtInClrType = TryResolveBuiltInTypeKeyword(name);
+        if (builtInClrType != null)
+        {
+            type = new ReflectionTypeInfo(builtInClrType);
+            return true;
         }
 
         // Try to resolve as external type (for static class access like Console)
