@@ -184,7 +184,7 @@ enum Color: string {
 }
 ```
 
-Transpiled to static class with const string fields.
+Transpiled to `readonly struct` wrapping a `string Value` property, with implicit string conversion, `IEquatable<T>`, equality operators, and a nested `JsonConverter` for System.Text.Json serialization. This allows string enums to be used as parameter types, return types, and record properties.
 
 ## Type Aliases
 

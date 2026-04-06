@@ -232,6 +232,14 @@ public class MultiFileCompiler
     /// </summary>
     private void TranspileAllFiles()
     {
+        // Collect all string enum names across all files so each transpiler
+        // can emit correct when-guard patterns for cross-file enum references
+        var allStringEnumNames = new HashSet<string>();
+        foreach (var cu in _compilationUnits.Values)
+            foreach (var enm in cu.Declarations.OfType<EnumDeclaration>()
+                .Where(e => e.Type == EnumType.String))
+                allStringEnumNames.Add(enm.Name);
+
         foreach (var kvp in _compilationUnits)
         {
             var sourceFile = kvp.Key;
@@ -245,7 +253,7 @@ public class MultiFileCompiler
                 // Get auto-resolved namespaces for this file (if any)
                 _autoResolvedNamespaces.TryGetValue(sourceFile, out var autoNamespaces);
 
-                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces);
+                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces, allStringEnumNames);
                 var csharpCode = transpiler.Transpile();
 
                 _transpiledFiles[sourceFile] = csharpCode;

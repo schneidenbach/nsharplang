@@ -24,8 +24,9 @@ public class Transpiler
     private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
     private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
     private readonly HashSet<string> _newtypeNames = new(); // Track newtype names for constructor call transpilation
+    private readonly HashSet<string> _stringEnumNames = new(); // Track string enum names for pattern matching transpilation
 
-    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null)
+    public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null, HashSet<string>? externalStringEnumNames = null)
     {
         _compilationUnit = compilationUnit;
         _projectConfig = projectConfig;
@@ -35,6 +36,8 @@ public class Transpiler
         _indentLevel = 0;
         _sourceFilePath = sourceFilePath;
         _autoResolvedNamespaces = autoResolvedNamespaces;
+        if (externalStringEnumNames != null)
+            _stringEnumNames.UnionWith(externalStringEnumNames);
     }
 
     public string Transpile()
@@ -125,6 +128,10 @@ public class Transpiler
         // Collect newtype names for constructor call transpilation
         foreach (var nt in _compilationUnit.Declarations.OfType<NewtypeDeclaration>())
             _newtypeNames.Add(nt.Name);
+        // Collect string enum names for pattern matching transpilation
+        foreach (var enm in _compilationUnit.Declarations.OfType<EnumDeclaration>()
+            .Where(e => e.Type == EnumType.String))
+            _stringEnumNames.Add(enm.Name);
         var otherDeclarations = _compilationUnit.Declarations
             .Where(d => d is not FunctionDeclaration && d is not TestDeclaration
                 && d is not SetupDeclaration && d is not TeardownDeclaration
@@ -1106,19 +1113,51 @@ public class Transpiler
             }
         }
 
-        // String enums in C# need to be handled differently (using constants or records)
+        // String enums compile to readonly structs wrapping a string value,
+        // with implicit string conversion, equality, and JSON serialization support
         if (enm.Type == EnumType.String)
         {
-            // For string enums, we'll generate a static class with string constants
-            WriteLine($"{modifiers}static class {enm.Name}");
+            WriteLine($"[System.Text.Json.Serialization.JsonConverter(typeof({enm.Name}JsonConverter))]");
+            WriteLine($"{modifiers}readonly struct {enm.Name} : System.IEquatable<{enm.Name}>");
             WriteLine("{");
             _indentLevel++;
 
+            // Static readonly members for each enum value
             foreach (var member in enm.Members)
             {
                 var value = member.Value != null ? TranspileExpression(member.Value) : $"\"{member.Name}\"";
-                WriteLine($"public const string {member.Name} = {value};");
+                WriteLine($"public static readonly {enm.Name} {member.Name} = new {enm.Name}({value});");
             }
+            WriteLine();
+
+            // Value property and private constructor
+            WriteLine("public string Value { get; }");
+            WriteLine($"private {enm.Name}(string value) => Value = value;");
+            WriteLine();
+
+            // Implicit conversion to string
+            WriteLine($"public static implicit operator string({enm.Name} value) => value.Value;");
+            WriteLine();
+
+            // Equality and comparison
+            WriteLine($"public override string ToString() => Value ?? \"\";");
+            WriteLine($"public bool Equals({enm.Name} other) => Value == other.Value;");
+            WriteLine($"public override bool Equals(object? obj) => obj is {enm.Name} other && Equals(other);");
+            WriteLine("public override int GetHashCode() => Value?.GetHashCode() ?? 0;");
+            WriteLine($"public static bool operator ==({enm.Name} left, {enm.Name} right) => left.Equals(right);");
+            WriteLine($"public static bool operator !=({enm.Name} left, {enm.Name} right) => !left.Equals(right);");
+            WriteLine();
+
+            // Nested JSON converter (has access to private constructor)
+            WriteLine($"private sealed class {enm.Name}JsonConverter : System.Text.Json.Serialization.JsonConverter<{enm.Name}>");
+            WriteLine("{");
+            _indentLevel++;
+            WriteLine($"public override {enm.Name} Read(ref System.Text.Json.Utf8JsonReader reader, System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)");
+            WriteLine($"    => new {enm.Name}(reader.GetString()!);");
+            WriteLine($"public override void Write(System.Text.Json.Utf8JsonWriter writer, {enm.Name} value, System.Text.Json.JsonSerializerOptions options)");
+            WriteLine("    => writer.WriteStringValue(value.Value);");
+            _indentLevel--;
+            WriteLine("}");
 
             _indentLevel--;
             WriteLine("}");
@@ -2819,11 +2858,25 @@ public class Transpiler
             c.Pattern is IdentifierPattern id &&
             (id.Name == "_" || !id.Name.Contains('.')));
 
-        var caseStrings = match.Cases.Select(c =>
+        var caseStrings = match.Cases.Select((c, idx) =>
         {
             var pattern = TranspilePattern(c.Pattern);
-            var guard = c.Guard != null ? $" when {TranspileExpression(c.Guard)}" : "";
             var expression = TranspileExpression(c.Expression);
+
+            // String enum members are static readonly fields (not constants), so they
+            // can't be used as C# constant patterns. Transform to when-guard patterns.
+            // This handles simple (Status.Active), composite (Status.Active or Status.Inactive),
+            // and negated (not Status.Active) patterns.
+            if (IsStringEnumPattern(c.Pattern))
+            {
+                var varName = $"_se{idx}";
+                var enumGuard = BuildStringEnumGuard(c.Pattern, varName);
+                var userGuard = c.Guard != null ? TranspileExpression(c.Guard) : null;
+                var fullGuard = userGuard != null ? $"{enumGuard} && {userGuard}" : enumGuard;
+                return $"var {varName} when {fullGuard} => {expression}";
+            }
+
+            var guard = c.Guard != null ? $" when {TranspileExpression(c.Guard)}" : "";
             return $"{pattern}{guard} => {expression}";
         }).ToList();
 
@@ -2884,6 +2937,25 @@ public class Transpiler
             _ => throw new Exception($"Unsupported pattern type: {pattern.GetType().Name}")
         };
     }
+
+    private bool IsStringEnumPattern(Pattern pattern) => pattern switch
+    {
+        IdentifierPattern id => id.Name.Contains('.') && _stringEnumNames.Contains(id.Name.Split('.')[0]),
+        OrPattern or => IsStringEnumPattern(or.Left) || IsStringEnumPattern(or.Right),
+        AndPattern and => IsStringEnumPattern(and.Left) || IsStringEnumPattern(and.Right),
+        NotPattern not => IsStringEnumPattern(not.Pattern),
+        _ => false
+    };
+
+    private string BuildStringEnumGuard(Pattern pattern, string varName) => pattern switch
+    {
+        IdentifierPattern id when id.Name.Contains('.') && _stringEnumNames.Contains(id.Name.Split('.')[0])
+            => $"{varName} == {id.Name}",
+        OrPattern or => $"({BuildStringEnumGuard(or.Left, varName)} || {BuildStringEnumGuard(or.Right, varName)})",
+        AndPattern and => $"({BuildStringEnumGuard(and.Left, varName)} && {BuildStringEnumGuard(and.Right, varName)})",
+        NotPattern not => $"!({BuildStringEnumGuard(not.Pattern, varName)})",
+        _ => $"{varName} == {TranspilePattern(pattern)}" // fallback: treat as equality check
+    };
 
     private string TranspileIdentifierPattern(IdentifierPattern pattern)
     {
