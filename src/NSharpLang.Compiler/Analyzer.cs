@@ -4693,8 +4693,8 @@ public class Analyzer : IDisposable
                     expectedSignature = CreateFunctionTypeInfoFromDelegate(rawParameterType);
                 }
 
-                if (expectedSignature != null)
-                    parameterTypes.Add(expectedSignature);
+                // Always add to parameterTypes to keep parallel with validatedArgumentTypes
+                parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown });
 
                 var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
                 validatedArgumentTypes.Add(lambdaArgumentType);
