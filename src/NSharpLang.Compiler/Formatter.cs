@@ -61,7 +61,7 @@ public class Formatter
             }
 
             // Safety gate 2: Idempotence check — format the output again and verify identical
-            var reformatter = new Formatter(new FormatterConfig { IndentSize = _indentString.Contains('\t') ? 1 : _indentString.Length, UseSpaces = !_indentString.Contains('\t') });
+            var reformatter = new Formatter(new FormatterConfig { IndentSize = _indentString.Contains('\t') ? 1 : _indentString.Length, UseSpaces = !_indentString.Contains('\t'), MaxLineLength = _maxLineLength });
             var reformatted = reformatter.Format(reparseResult.CompilationUnit!, lexer.Comments);
 
             if (!string.Equals(formatted, reformatted, StringComparison.Ordinal))
@@ -2066,7 +2066,7 @@ public class Formatter
             {
                 inlineSb.Append("[");
                 inlineSb.Append(FormatExpressionToString(prop.IndexExpression!));
-                inlineSb.Append("]: ");
+                inlineSb.Append("] = ");
             }
             inlineSb.Append(FormatExpressionToString(prop.Value));
             if (i < initializer.Properties.Count - 1)
@@ -2103,7 +2103,7 @@ public class Formatter
                 {
                     sb.Append("[");
                     FormatExpression(prop.IndexExpression!, sb);
-                    sb.Append("]: ");
+                    sb.Append("] = ");
                 }
                 FormatExpression(prop.Value, sb);
                 if (i < initializer.Properties.Count - 1)
@@ -2133,11 +2133,16 @@ public class Formatter
 
     /// <summary>
     /// Format an expression to a standalone string (for measuring inline length).
+    /// Saves and restores formatter state so the measurement pass has no side effects.
     /// </summary>
     private string FormatExpressionToString(Expression expr)
     {
+        var savedCommentIndex = _commentIndex;
+        var savedLastEmittedSourceLine = _lastEmittedSourceLine;
         var tempSb = new StringBuilder();
         FormatExpression(expr, tempSb);
+        _commentIndex = savedCommentIndex;
+        _lastEmittedSourceLine = savedLastEmittedSourceLine;
         return tempSb.ToString();
     }
 }
