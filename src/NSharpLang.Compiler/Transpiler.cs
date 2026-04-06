@@ -49,6 +49,9 @@ public class Transpiler
         // Check if we have test declarations to add Xunit using
         var hasTests = _compilationUnit.Declarations.OfType<TestDeclaration>().Any();
 
+        // Check if we have enums or unions that need JSON serialization attributes (including nested in classes/structs/records)
+        var hasJsonTypes = HasJsonSerializableTypes(_compilationUnit.Declarations);
+
         // Collect all import directives (deduplicate System if already present)
         var hasSystemImport = _compilationUnit.Imports.Any(i => i.Namespace == "System" && i.Alias == null);
 
@@ -68,6 +71,16 @@ public class Transpiler
             else
             {
                 WriteLine("using Xunit;");
+            }
+        }
+
+        // Add JSON serialization using if we have enum or union types
+        if (hasJsonTypes)
+        {
+            var hasJsonImport = _compilationUnit.Imports.Any(i => i.Namespace == "System.Text.Json.Serialization" && i.Alias == null);
+            if (!hasJsonImport)
+            {
+                WriteLine("using System.Text.Json.Serialization;");
             }
         }
 
@@ -1112,6 +1125,8 @@ public class Transpiler
         }
         else
         {
+            // Emit JsonStringEnumConverter so enum values serialize as strings in JSON APIs
+            WriteLine("[JsonConverter(typeof(JsonStringEnumConverter))]");
             WriteLine($"{modifiers}enum {enm.Name}");
             WriteLine("{");
             _indentLevel++;
@@ -1165,6 +1180,12 @@ public class Transpiler
             }
         }
 
+        // Emit polymorphic JSON serialization attributes for discriminated union shape
+        WriteLine($"[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]");
+        foreach (var unionCase in union.Cases)
+        {
+            WriteLine($"[JsonDerivedType(typeof({union.Name}.{unionCase.Name}), \"{unionCase.Name}\")]");
+        }
         WriteLine($"{modifiers}abstract record {union.Name}");
         WriteLine("{");
         _indentLevel++;
@@ -3197,6 +3218,26 @@ public class Transpiler
         // so strip characters that would break the directive (quotes, newlines)
         var safePath = _sourceFilePath.Replace("\"", "").Replace("\n", "").Replace("\r", "");
         _output.AppendLine($"#line {line} \"{safePath}\"");
+    }
+
+    private static bool HasJsonSerializableTypes(IEnumerable<Declaration> declarations)
+    {
+        foreach (var d in declarations)
+        {
+            if (d is EnumDeclaration { Type: EnumType.Int } or UnionDeclaration)
+                return true;
+            // Check nested members in classes, structs, and records
+            var members = d switch
+            {
+                ClassDeclaration cls => cls.Members,
+                StructDeclaration str => str.Members,
+                RecordDeclaration rec => rec.Members,
+                _ => null
+            };
+            if (members != null && HasJsonSerializableTypes(members))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
