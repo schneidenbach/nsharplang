@@ -4488,4 +4488,110 @@ func Test() {
         return count;
     }
 
+    #region String Enum Transpilation
+
+    [Fact]
+    public void TestStringEnumTranspilesToReadonlyStruct()
+    {
+        var source = @"
+enum Status: string {
+    Active = ""active"",
+    Inactive = ""inactive""
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("readonly struct Status : System.IEquatable<Status>", result);
+        Assert.Contains("public static readonly Status Active = new Status(\"active\")", result);
+        Assert.Contains("public static readonly Status Inactive = new Status(\"inactive\")", result);
+        Assert.Contains("public string Value { get; }", result);
+        Assert.Contains("private Status(string value) => Value = value;", result);
+        Assert.Contains("public static implicit operator string(Status value) => value.Value;", result);
+        Assert.Contains("public bool Equals(Status other) => Value == other.Value;", result);
+        Assert.Contains("public static bool operator ==(Status left, Status right) => left.Equals(right);", result);
+        Assert.Contains("public static bool operator !=(Status left, Status right) => !left.Equals(right);", result);
+        Assert.DoesNotContain("static class", result);
+        Assert.DoesNotContain("const string", result);
+    }
+
+    [Fact]
+    public void TestStringEnumHasJsonConverter()
+    {
+        var source = @"
+enum Color: string {
+    Red = ""red"",
+    Blue = ""blue""
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[System.Text.Json.Serialization.JsonConverter(typeof(ColorJsonConverter))]", result);
+        Assert.Contains("private sealed class ColorJsonConverter : System.Text.Json.Serialization.JsonConverter<Color>", result);
+        Assert.Contains("reader.GetString()!", result);
+        Assert.Contains("writer.WriteStringValue(value.Value)", result);
+    }
+
+    [Fact]
+    public void TestStringEnumDefaultValueUsesName()
+    {
+        var source = @"
+enum Direction: string {
+    North,
+    South
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("public static readonly Direction North = new Direction(\"North\")", result);
+        Assert.Contains("public static readonly Direction South = new Direction(\"South\")", result);
+    }
+
+    [Fact]
+    public void TestStringEnumPatternMatchUsesWhenGuard()
+    {
+        var source = @"
+enum Status: string {
+    Active = ""active"",
+    Inactive = ""inactive""
+}
+
+func Describe(s: Status): string {
+    return match s {
+        Status.Active => ""yes"",
+        Status.Inactive => ""no""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("var _se0 when _se0 == Status.Active", result);
+        Assert.Contains("var _se1 when _se1 == Status.Inactive", result);
+        // Bare constant patterns (without when guard) should not appear
+        Assert.DoesNotContain("Status.Active,", result);
+        Assert.DoesNotContain("Status.Inactive,", result);
+    }
+
+    [Fact]
+    public void TestIntEnumNotAffected()
+    {
+        var source = @"
+enum Priority {
+    Low = 0,
+    High = 1
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("enum Priority", result);
+        Assert.DoesNotContain("readonly struct", result);
+        Assert.DoesNotContain("JsonConverter", result);
+    }
+
+    #endregion
+
 }
