@@ -33,21 +33,12 @@ func ProcessResult(r: Result): string {
     }
 }
 
-func GetStatusMessage(status: string): string {
-    // Simple if-else chain
-    if status == "pending" {
-        return "Waiting to start"
+func GetStatusMessage(status: Status): string {
+    return match status {
+        Status.Pending => "Waiting to start",
+        Status.Active => "Currently running",
+        Status.Done => "Completed"
     }
-
-    if status == "active" {
-        return "Currently running"
-    }
-
-    if status == "done" {
-        return "Completed"
-    }
-
-    return "Unknown status"
 }
 
 func Main() {
@@ -63,9 +54,9 @@ func Main() {
     failureResult := new Result.Failure("File not found", 404)
     print ProcessResult(failureResult)
 
-    // Test string values (enum simulation)
-    print "\n3. String values:"
-    currentStatus := "active"
+    // Test string enum as a real type
+    print "\n3. String enum:"
+    currentStatus := Status.Active
     print $"Status: {currentStatus} - {GetStatusMessage(currentStatus)}"
 
     // Test int enum
