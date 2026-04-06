@@ -1457,6 +1457,107 @@ Done = ""done""
         Assert.Equal(first2, Format(first2).Trim());
     }
 
+    // ── Object initializer wrapping ─────────────────────────────────────
+
+    [Fact]
+    public void Format_ObjectInitializer_ShortFitsOnOneLine()
+    {
+        var input = @"func Test() {
+    x := new Foo() { A: 1, B: 2 }
+}";
+        var expected = @"func Test() {
+    x := new Foo() { A: 1, B: 2 }
+}";
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ObjectInitializer_LongWrapsToMultipleLines()
+    {
+        var input = @"func Test() {
+    options := new JsonSerializerOptions() { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }
+}";
+        var expected = @"func Test() {
+    options := new JsonSerializerOptions() {
+        PropertyNameCaseInsensitive: true,
+        PropertyNamingPolicy: someLongValue
+    }
+}";
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ObjectInitializer_SinglePropertyStaysInline()
+    {
+        // Single property always stays inline, even if line is long
+        var input = @"func Test() {
+    x := new SomeVeryLongTypeName() { SomeVeryLongPropertyNameThatExceedsLimit: true }
+}";
+        var expected = @"func Test() {
+    x := new SomeVeryLongTypeName() { SomeVeryLongPropertyNameThatExceedsLimit: true }
+}";
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ObjectInitializer_MultiLine_Idempotent()
+    {
+        // Multi-line format should be stable when re-formatted
+        var input = @"func Test() {
+    options := new JsonSerializerOptions() { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }
+}";
+        var first = Format(input).Trim();
+        var second = Format(first).Trim();
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Format_ObjectInitializer_AlreadyMultiLine_StaysMultiLine()
+    {
+        var input = @"func Test() {
+    options := new JsonSerializerOptions() {
+        PropertyNameCaseInsensitive: true,
+        PropertyNamingPolicy: someLongValue
+    }
+}";
+        var expected = @"func Test() {
+    options := new JsonSerializerOptions() {
+        PropertyNameCaseInsensitive: true,
+        PropertyNamingPolicy: someLongValue
+    }
+}";
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    // ── Blank line between header comment and namespace ─────────────────
+
+    [Fact]
+    public void Format_PreservesBlankLine_BetweenHeaderCommentAndNamespace()
+    {
+        var input = @"// File header comment
+
+namespace MyApp";
+        var result = FormatWithComments(input).Trim();
+        // Blank line between comment and namespace should be preserved
+        Assert.Contains("// File header comment\n\nnamespace MyApp", result);
+    }
+
+    [Fact]
+    public void Format_NoBlankLine_BetweenCommentAndNamespace_WhenSourceHasNone()
+    {
+        var input = @"// File header comment
+namespace MyApp";
+        var result = FormatWithComments(input).Trim();
+        // No blank line should be inserted when source has none
+        Assert.Equal("// File header comment\nnamespace MyApp", result);
+    }
+
+    // ── FormatSafe regression tests ─────────────────────────────────────
+
     [Fact]
     public void FormatSafe_MatchWithUnionCasePattern_ProducesValidOutput()
     {
