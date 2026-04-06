@@ -4476,6 +4476,190 @@ func Test() {
         Assert.DoesNotContain("#pragma warning disable\n", result); // No blanket disable-all
     }
 
+    [Fact]
+    public void TestIntEnumEmitsJsonStringEnumConverter()
+    {
+        var source = @"
+enum Priority {
+    Low,
+    Medium,
+    High
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using System.Text.Json.Serialization;", result);
+        Assert.Contains("[JsonConverter(typeof(JsonStringEnumConverter))]", result);
+        Assert.Contains("public enum Priority", result);
+    }
+
+    [Fact]
+    public void TestStringEnumEmitsOwnJsonConverter()
+    {
+        var source = @"
+enum Status: string {
+    Active = ""active"",
+    Inactive = ""inactive""
+}
+        ";
+
+        var result = Transpile(source);
+
+        // String enums transpile to readonly struct with their own nested JsonConverter
+        Assert.Contains("JsonConverter(typeof(StatusJsonConverter))", result);
+        Assert.Contains("readonly struct Status", result);
+        Assert.DoesNotContain("static class Status", result);
+    }
+
+    [Fact]
+    public void TestUnionEmitsPolymorphicJsonAttributes()
+    {
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using System.Text.Json.Serialization;", result);
+        Assert.Contains("[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]", result);
+        Assert.Contains("[JsonDerivedType(typeof(Result.Success), \"Success\")]", result);
+        Assert.Contains("[JsonDerivedType(typeof(Result.Failure), \"Failure\")]", result);
+        Assert.Contains("public abstract record Result", result);
+    }
+
+    [Fact]
+    public void TestUnionWithNoCasesEmitsPolymorphicAttribute()
+    {
+        var source = @"
+union Empty {
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]", result);
+        Assert.DoesNotContain("[JsonDerivedType", result);
+    }
+
+    [Fact]
+    public void TestFileEnumStillEmitsJsonConverter()
+    {
+        var source = @"
+file enum Status {
+    Active,
+    Inactive
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[JsonConverter(typeof(JsonStringEnumConverter))]", result);
+        Assert.Contains("file enum Status", result);
+    }
+
+    [Fact]
+    public void TestFileUnionStillEmitsPolymorphicAttributes()
+    {
+        var source = @"
+file union Result {
+    Success { value: int }
+    Failure { error: string }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]", result);
+        Assert.Contains("[JsonDerivedType(typeof(Result.Success), \"Success\")]", result);
+        Assert.Contains("[JsonDerivedType(typeof(Result.Failure), \"Failure\")]", result);
+        Assert.Contains("file abstract record Result", result);
+    }
+
+    [Fact]
+    public void TestNestedEnumInClassEmitsJsonUsing()
+    {
+        var source = @"
+class Container {
+    enum Status {
+        Active,
+        Inactive
+    }
+
+    CurrentStatus: Status
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("using System.Text.Json.Serialization;", result);
+        Assert.Contains("[JsonConverter(typeof(JsonStringEnumConverter))]", result);
+    }
+
+    [Fact]
+    public void TestNoJsonUsingWhenNoEnumsOrUnions()
+    {
+        var source = @"
+func main() {
+    println(""hello"")
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.DoesNotContain("System.Text.Json.Serialization", result);
+    }
+
+    [Fact]
+    public void TestJsonConverterAppearsBeforeEnumDeclaration()
+    {
+        var source = @"
+enum Priority {
+    Low,
+    Medium,
+    High
+}
+        ";
+
+        var result = Transpile(source);
+
+        // JsonConverter attribute must appear before the enum declaration
+        var converterIndex = result.IndexOf("[JsonConverter(typeof(JsonStringEnumConverter))]");
+        var enumIndex = result.IndexOf("public enum Priority");
+        Assert.True(converterIndex >= 0, "JsonConverter attribute should be present");
+        Assert.True(enumIndex >= 0, "enum declaration should be present");
+        Assert.True(converterIndex < enumIndex, "JsonConverter should appear before enum declaration");
+    }
+
+    [Fact]
+    public void TestPolymorphicAttributesAppearBeforeUnionDeclaration()
+    {
+        var source = @"
+union Shape {
+    Circle { radius: float }
+    Rectangle { width: float, height: float }
+}
+        ";
+
+        var result = Transpile(source);
+
+        var polymorphicIndex = result.IndexOf("[JsonPolymorphic");
+        var derivedCircle = result.IndexOf("[JsonDerivedType(typeof(Shape.Circle)");
+        var derivedRect = result.IndexOf("[JsonDerivedType(typeof(Shape.Rectangle)");
+        var recordIndex = result.IndexOf("public abstract record Shape");
+
+        Assert.True(polymorphicIndex >= 0);
+        Assert.True(derivedCircle >= 0);
+        Assert.True(derivedRect >= 0);
+        Assert.True(recordIndex >= 0);
+        Assert.True(polymorphicIndex < derivedCircle);
+        Assert.True(derivedCircle < derivedRect);
+        Assert.True(derivedRect < recordIndex);
+    }
+
     private static int CountOccurrences(string text, string pattern)
     {
         int count = 0;
@@ -4486,6 +4670,86 @@ func Test() {
             index += pattern.Length;
         }
         return count;
+    }
+
+    // ── Bug regression tests ────────────────────────────────────────────
+
+    [Fact]
+    public void TestNewArrayInitializerSyntax()
+    {
+        // Bug 075: new string[] { "a", "b" } was parsed as object initializer
+        var source = @"
+func Test() {
+    names := new string[] { ""Alice"", ""Bob"", ""Charlie"" }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("new string[] { \"Alice\", \"Bob\", \"Charlie\" }", result);
+    }
+
+    [Fact]
+    public void TestNewIntArrayInitializerSyntax()
+    {
+        // Bug 075: array initializer with int values
+        var source = @"
+func Test() {
+    nums := new int[] { 1, 2, 3 }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("new int[] { 1, 2, 3 }", result);
+    }
+
+    [Fact]
+    public void TestIntParseTranspilation()
+    {
+        // Bug 001: int.Parse should transpile as-is (C# resolves int to System.Int32)
+        var source = @"
+func Main() {
+    x := int.Parse(""42"")
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("int.Parse(\"42\")", result);
+    }
+
+    [Fact]
+    public void TestIntTryParseWithOutVarTranspilation()
+    {
+        // Bug 076: int.TryParse with out var should work
+        var source = @"
+func Main() {
+    if int.TryParse(""123"", out var result) {
+        print result
+    }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("int.TryParse(\"123\", out var result)", result);
+    }
+
+    [Fact]
+    public void TestOverloadedMethodsInClassTranspilation()
+    {
+        // Bug 074: multiple overloads with different arities in a class
+        var source = @"
+class Helper {
+    static func Format(a: string): string {
+        return a
+    }
+    static func Format(a: string, b: string): string {
+        return a
+    }
+    static func Format(a: string, b: string, c: string): string {
+        return a
+    }
+}
+        ";
+        var result = Transpile(source);
+        // All three overloads should be emitted
+        Assert.Contains("Format(string a)", result);
+        Assert.Contains("Format(string a, string b)", result);
+        Assert.Contains("Format(string a, string b, string c)", result);
     }
 
     #region String Enum Transpilation
@@ -4614,7 +4878,8 @@ enum Priority {
 
         Assert.Contains("enum Priority", result);
         Assert.DoesNotContain("readonly struct", result);
-        Assert.DoesNotContain("JsonConverter", result);
+        // Int enums use JsonStringEnumConverter, not a custom nested converter
+        Assert.DoesNotContain("PriorityJsonConverter", result);
     }
 
     #endregion

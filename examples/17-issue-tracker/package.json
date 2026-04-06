@@ -3,10 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && dotnet run",
+    "dev:backend": "cd backend && nlc restore && dotnet watch run --urls http://localhost:5167",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "npm run build:frontend && npm run build:backend",
-    "build:backend": "cd backend && dotnet build",
+    "build:backend": "cd backend && nlc restore && dotnet build",
     "build:frontend": "cd frontend && npm run build",
     "install:frontend": "cd frontend && npm install",
     "setup": "npm install && npm run install:frontend"

@@ -3953,14 +3953,24 @@ public class Parser
         ObjectInitializerExpression? initializer = null;
         if (Check(TokenType.LeftBrace))
         {
+            // For array types (e.g., new string[] { "a", "b" }), parse as collection initializer
+            bool isCollectionInit = type is ArrayTypeReference;
+
             Advance();
             var props = new List<PropertyInitializer>();
 
             while (!Check(TokenType.RightBrace) && !IsAtEnd())
             {
                 var startPosition = _position;
+
+                if (isCollectionInit)
+                {
+                    // Collection initializer: bare values
+                    var value = ParseExpression();
+                    props.Add(new PropertyInitializer(null, null, value));
+                }
                 // Check if this is an indexer initializer (starts with '[')
-                if (Check(TokenType.LeftBracket))
+                else if (Check(TokenType.LeftBracket))
                 {
                     Advance(); // consume '['
                     var indexExpr = ParseExpression();
