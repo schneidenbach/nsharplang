@@ -6354,4 +6354,91 @@ test ""should work"" {
 }
         ", "Only one teardown block is allowed per test file");
     }
+
+    // ── Bug regression tests ────────────────────────────────────────────
+
+    [Fact]
+    public void IntParse_NoUndefinedVariableError()
+    {
+        // Bug 001: int.Parse() should resolve int as System.Int32, not "Variable 'int' not found"
+        AssertNoErrors(@"
+func Main() {
+    x := int.Parse(""42"")
+}
+        ");
+    }
+
+    [Fact]
+    public void StringIsNullOrEmpty_NoUndefinedVariableError()
+    {
+        // Same fix as int.Parse — all built-in type keywords should support static method access
+        AssertNoErrors(@"
+func Main() {
+    result := string.IsNullOrEmpty(""hello"")
+}
+        ");
+    }
+
+    [Fact]
+    public void IntTryParse_WithOutVar_NoErrors()
+    {
+        // Bug 076: int.TryParse with out var should work
+        AssertNoErrors(@"
+func Main() {
+    if int.TryParse(""123"", out var result) {
+        print result
+    }
+}
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_MultipleArities_SelectsCorrectOverload()
+    {
+        // Bug 074: 3-arg call should resolve to 3-arg overload, not error
+        AssertNoErrors(@"
+class Formatter {
+    static func Format(a: string): string {
+        return a
+    }
+    static func Format(a: string, b: string): string {
+        return a
+    }
+    static func Format(a: string, b: string, c: string): string {
+        return a
+    }
+}
+
+func Main() {
+    Formatter.Format(""a"")
+    Formatter.Format(""a"", ""b"")
+    Formatter.Format(""a"", ""b"", ""c"")
+}
+        ");
+    }
+
+    [Fact]
+    public void OverloadResolution_TopLevelFunctions_MultipleArities()
+    {
+        // Bug 074: top-level function overloads with different arities
+        AssertNoErrors(@"
+func Helper(a: int): int {
+    return a
+}
+
+func Helper(a: int, b: int): int {
+    return a + b
+}
+
+func Helper(a: int, b: int, c: int): int {
+    return a + b + c
+}
+
+func Main() {
+    Helper(1)
+    Helper(1, 2)
+    Helper(1, 2, 3)
+}
+        ");
+    }
 }
