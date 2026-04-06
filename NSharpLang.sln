@@ -27,6 +27,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "visualstudio", "visualstudi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpLang.VisualStudio", "editors\visualstudio\NSharp.VisualStudio\NSharpLang.VisualStudio.csproj", "{FAC91F47-E97B-4A88-8652-7392A47F9138}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpInteropLib", "tests\NSharpLang.CSharpInteropTests\NSharpInteropLib\NSharpInteropLib.csproj", "{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSharpInteropTests", "tests\NSharpLang.CSharpInteropTests\CSharpInteropTests.csproj", "{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -72,6 +76,14 @@ Global
 		{B8F4C9D2-7A3E-4C1B-9F5D-6E8A0B2C4D7F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B8F4C9D2-7A3E-4C1B-9F5D-6E8A0B2C4D7F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B8F4C9D2-7A3E-4C1B-9F5D-6E8A0B2C4D7F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-4789-ABCD-EF0123456789}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{78BD85CE-6F75-4949-88AB-8DDCC1A61616} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
