@@ -230,6 +230,23 @@ else
 fi
 rm -f "$INTEROP_BUILD_OUTPUT"
 
+section "Step 4c: C# Interop Tests"
+echo "Running C# interop tests..."
+INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
+
+INTEROP_OUTPUT=$(mktemp)
+if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo > "$INTEROP_OUTPUT" 2>&1; then
+    TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
+    if [ -n "$TEST_RESULT" ]; then
+        echo "$TEST_RESULT"
+    fi
+    handle_success "C# interop tests passed"
+else
+    cat "$INTEROP_OUTPUT"
+    handle_error "C# interop tests"
+fi
+rm -f "$INTEROP_OUTPUT"
+
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local feed..."
 if dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force > /dev/null 2>&1; then
