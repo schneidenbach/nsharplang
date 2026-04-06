@@ -1206,13 +1206,14 @@ public class Formatter
                     sb.Append(" catch");
                     if (catchClause.ExceptionType != null)
                     {
-                        sb.Append(" ");
+                        sb.Append(" (");
                         sb.Append(FormatTypeReference(catchClause.ExceptionType));
                         if (catchClause.VariableName != null)
                         {
                             sb.Append(" ");
                             sb.Append(catchClause.VariableName);
                         }
+                        sb.Append(")");
                     }
                     sb.AppendLine(" {");
                     _indent++;
@@ -1788,26 +1789,17 @@ public class Formatter
                 sb.Append(unionCase.CaseName);
                 if (unionCase.Properties != null && unionCase.Properties.Count > 0)
                 {
-                    sb.Append("(");
+                    sb.Append(" { ");
                     for (int i = 0; i < unionCase.Properties.Count; i++)
                     {
                         var prop = unionCase.Properties[i];
-                        sb.Append(prop.Name);
-                        sb.Append(": ");
-                        if (prop.Pattern != null)
-                        {
-                            FormatPattern(prop.Pattern, sb);
-                        }
-                        else if (prop.BindingName != null)
-                        {
-                            sb.Append(prop.BindingName);
-                        }
+                        FormatPropertyPattern(prop, sb);
                         if (i < unionCase.Properties.Count - 1)
                         {
                             sb.Append(", ");
                         }
                     }
-                    sb.Append(")");
+                    sb.Append(" }");
                 }
                 break;
             case RelationalPattern rel:
@@ -1845,17 +1837,7 @@ public class Formatter
                 sb.Append("{ ");
                 for (int i = 0; i < obj.Properties.Count; i++)
                 {
-                    var prop = obj.Properties[i];
-                    sb.Append(prop.Name);
-                    sb.Append(": ");
-                    if (prop.Pattern != null)
-                    {
-                        FormatPattern(prop.Pattern, sb);
-                    }
-                    else if (prop.BindingName != null)
-                    {
-                        sb.Append(prop.BindingName);
-                    }
+                    FormatPropertyPattern(obj.Properties[i], sb);
                     if (i < obj.Properties.Count - 1)
                     {
                         sb.Append(", ");
@@ -1894,6 +1876,22 @@ public class Formatter
             default:
                 throw new InvalidOperationException($"Formatter does not handle pattern type: {pattern.GetType().Name}");
         }
+    }
+
+    private void FormatPropertyPattern(PropertyPattern prop, StringBuilder sb)
+    {
+        sb.Append(prop.Name);
+        if (prop.Pattern != null)
+        {
+            sb.Append(": ");
+            FormatPattern(prop.Pattern, sb);
+        }
+        else if (prop.BindingName != null)
+        {
+            sb.Append(": ");
+            sb.Append(prop.BindingName);
+        }
+        // When both Pattern and BindingName are null, it's a simple binding: { Name }
     }
 
     private void FormatParameter(Parameter param, StringBuilder sb)
