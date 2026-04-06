@@ -4671,4 +4671,84 @@ union Shape {
         return count;
     }
 
+    // ── Bug regression tests ────────────────────────────────────────────
+
+    [Fact]
+    public void TestNewArrayInitializerSyntax()
+    {
+        // Bug 075: new string[] { "a", "b" } was parsed as object initializer
+        var source = @"
+func Test() {
+    names := new string[] { ""Alice"", ""Bob"", ""Charlie"" }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("new string[] { \"Alice\", \"Bob\", \"Charlie\" }", result);
+    }
+
+    [Fact]
+    public void TestNewIntArrayInitializerSyntax()
+    {
+        // Bug 075: array initializer with int values
+        var source = @"
+func Test() {
+    nums := new int[] { 1, 2, 3 }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("new int[] { 1, 2, 3 }", result);
+    }
+
+    [Fact]
+    public void TestIntParseTranspilation()
+    {
+        // Bug 001: int.Parse should transpile as-is (C# resolves int to System.Int32)
+        var source = @"
+func Main() {
+    x := int.Parse(""42"")
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("int.Parse(\"42\")", result);
+    }
+
+    [Fact]
+    public void TestIntTryParseWithOutVarTranspilation()
+    {
+        // Bug 076: int.TryParse with out var should work
+        var source = @"
+func Main() {
+    if int.TryParse(""123"", out var result) {
+        print result
+    }
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("int.TryParse(\"123\", out var result)", result);
+    }
+
+    [Fact]
+    public void TestOverloadedMethodsInClassTranspilation()
+    {
+        // Bug 074: multiple overloads with different arities in a class
+        var source = @"
+class Helper {
+    static func Format(a: string): string {
+        return a
+    }
+    static func Format(a: string, b: string): string {
+        return a
+    }
+    static func Format(a: string, b: string, c: string): string {
+        return a
+    }
+}
+        ";
+        var result = Transpile(source);
+        // All three overloads should be emitted
+        Assert.Contains("Format(string a)", result);
+        Assert.Contains("Format(string a, string b)", result);
+        Assert.Contains("Format(string a, string b, string c)", result);
+    }
+
 }

@@ -2125,17 +2125,24 @@ public class Transpiler
             // Declare variables (skip result var if it's discarded)
             if (resultVar != "_")
             {
-                // Try to resolve the actual return type
+                // Try to resolve the actual return type from the semantic model
                 string resultType = "object?";
                 string resultInitializer = "null";
 
-                if (_typeResolver != null)
+                // First try the semantic model's expression types (populated by the Analyzer)
+                var resolvedFromSemantic = TryResolveErrorTupleResultType(tupleDecl.Initializer);
+                if (resolvedFromSemantic != null)
                 {
+                    resultType = resolvedFromSemantic.Value.TypeName;
+                    resultInitializer = resolvedFromSemantic.Value.Initializer;
+                }
+                else if (_typeResolver != null)
+                {
+                    // Fall back to the ExpressionTypeResolver for CLR types
                     var returnType = _typeResolver.ResolveExpressionType(tupleDecl.Initializer);
                     if (returnType != null)
                     {
                         resultType = GetCSharpTypeName(returnType);
-                        // Use default for value types, null for reference types
                         resultInitializer = returnType.IsValueType ? "default" : "null";
                     }
                 }
@@ -2689,7 +2696,11 @@ public class Transpiler
                 return arg.Name != null ? $"{arg.Name}: {argResult}" : argResult;
             }));
 
-            result = $"new {type}({args})";
+            // For array types with initializers (new int[] { 1, 2, 3 }), omit parens
+            if (newExpr.Type is ArrayTypeReference && newExpr.Initializer != null && args.Length == 0)
+                result = $"new {type}";
+            else
+                result = $"new {type}({args})";
         }
 
         if (newExpr.Initializer != null)
@@ -2701,10 +2712,15 @@ public class Transpiler
                     // Indexer initializer: ["key"] = value
                     return $"[{TranspileExpression(p.IndexExpression)}] = {TranspileExpression(p.Value)}";
                 }
-                else
+                else if (p.Name != null)
                 {
                     // Property initializer: Name = value
                     return $"{p.Name} = {TranspileExpression(p.Value)}";
+                }
+                else
+                {
+                    // Collection initializer: bare value
+                    return TranspileExpression(p.Value);
                 }
             }));
             result += $" {{ {props} }}";
@@ -3379,6 +3395,99 @@ public class Transpiler
             MemberAccessExpression member => ContainsAwaitInExpression(member.Object),
             AssignmentExpression assign => ContainsAwaitInExpression(assign.Target) || ContainsAwaitInExpression(assign.Value),
             NewExpression newExpr => newExpr.Initializer != null && ContainsAwaitInExpression(newExpr.Initializer),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Resolves the result type for an error tuple pattern using the semantic model.
+    /// Returns a C# type name and initializer, or null if the type cannot be resolved.
+    /// </summary>
+    private (string TypeName, string Initializer)? TryResolveErrorTupleResultType(Expression initializer)
+    {
+        if (_semanticModel == null)
+            return null;
+
+        // Look up the expression type recorded by the Analyzer
+        if (!_semanticModel.ExpressionTypes.TryGetValue((initializer.Line, initializer.Column), out var typeInfo))
+            return null;
+
+        if (typeInfo is UnknownTypeInfo)
+            return null;
+
+        var typeName = TypeInfoToCSharpName(typeInfo);
+        if (typeName == null)
+            return null;
+
+        var isValueType = IsValueTypeInfo(typeInfo);
+        var initialValue = isValueType ? "default" : "null";
+
+        // Make reference types nullable for the error tuple pattern
+        if (!isValueType && !typeName.EndsWith("?"))
+            typeName += "?";
+
+        return (typeName, initialValue);
+    }
+
+    /// <summary>
+    /// Converts a TypeInfo to its C# type name string.
+    /// </summary>
+    private string? TypeInfoToCSharpName(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            SimpleTypeInfo simple => simple.Name switch
+            {
+                "Int32" or "int" => "int",
+                "Int64" or "long" => "long",
+                "Int16" or "short" => "short",
+                "Byte" or "byte" => "byte",
+                "SByte" or "sbyte" => "sbyte",
+                "UInt16" or "ushort" => "ushort",
+                "UInt32" or "uint" => "uint",
+                "UInt64" or "ulong" => "ulong",
+                "Single" or "float" => "float",
+                "Double" or "double" => "double",
+                "Decimal" or "decimal" => "decimal",
+                "Char" or "char" => "char",
+                "Boolean" or "bool" => "bool",
+                "String" or "string" => "string",
+                "Void" or "void" => "void",
+                "Object" or "object" => "object",
+                _ => simple.Name
+            },
+            ClassTypeInfo classType => classType.Declaration.Name,
+            StructTypeInfo structType => structType.Declaration.Name,
+            RecordTypeInfo recordType => recordType.Declaration.Name,
+            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Name,
+            EnumTypeInfo enumType => enumType.Declaration.Name,
+            UnionTypeInfo unionType => unionType.Declaration.Name,
+            ArrayTypeInfo arrayType => TypeInfoToCSharpName(arrayType.ElementType) is string elemName ? $"{elemName}[]" : null,
+            NullableTypeInfo nullable => TypeInfoToCSharpName(nullable.InnerType) is string innerName ? $"{innerName}?" : null,
+            GenericTypeInfo generic =>
+                generic.TypeArguments.All(a => TypeInfoToCSharpName(a) != null)
+                    ? $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(a => TypeInfoToCSharpName(a)))}>"
+                    : null,
+            ReflectionTypeInfo reflection => GetCSharpTypeName(reflection.Type),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Determines if a TypeInfo represents a value type.
+    /// </summary>
+    private static bool IsValueTypeInfo(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            SimpleTypeInfo simple => simple.Name is "int" or "Int32" or "long" or "Int64" or "short" or "Int16"
+                or "byte" or "Byte" or "sbyte" or "SByte" or "ushort" or "UInt16" or "uint" or "UInt32"
+                or "ulong" or "UInt64" or "float" or "Single" or "double" or "Double" or "decimal" or "Decimal"
+                or "char" or "Char" or "bool" or "Boolean",
+            StructTypeInfo => true,
+            EnumTypeInfo => true,
+            ReflectionTypeInfo reflection => reflection.Type.IsValueType,
+            NullableTypeInfo => true,
             _ => false
         };
     }
