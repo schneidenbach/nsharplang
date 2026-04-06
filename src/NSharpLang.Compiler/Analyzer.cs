@@ -2802,7 +2802,8 @@ public class Analyzer : IDisposable
 
     private List<MethodInfo> FindExternalExtensionMethods(TypeInfo targetType, string methodName)
     {
-        var targetClrType = TryConvertTypeInfoToClrType(targetType);
+        var targetClrType = TryConvertTypeInfoToClrType(targetType)
+            ?? TryConvertTypeInfoToClrTypeForBinding(targetType);
         if (targetClrType == null)
             return new List<MethodInfo>();
 
@@ -2927,6 +2928,255 @@ public class Analyzer : IDisposable
                 type.Name[..type.Name.IndexOf('`')],
                 type.GetGenericArguments().Select(ConvertReflectionType).ToList()),
             _ => new ReflectionTypeInfo(type)
+        };
+    }
+
+    /// <summary>
+    /// Converts a CLR type to TypeInfo, substituting generic parameters using TypeInfo overrides first,
+    /// then falling back to CLR bindings. Used to produce correct TypeInfo for return types and
+    /// delegate signatures when some generic parameters are bound to N# types.
+    /// </summary>
+    private TypeInfo ConvertReflectionTypeWithOverrides(
+        Type type,
+        Dictionary<Type, TypeInfo> typeInfoOverrides,
+        Dictionary<Type, Type>? clrBindings = null)
+    {
+        if (typeInfoOverrides.Count == 0 && (clrBindings == null || clrBindings.Count == 0))
+            return ConvertReflectionType(type);
+
+        // Generic parameter with TypeInfo override takes priority
+        if (type.IsGenericParameter && typeInfoOverrides.TryGetValue(type, out var overrideType))
+            return overrideType;
+
+        // Generic parameter with CLR binding
+        if (type.IsGenericParameter && clrBindings != null && clrBindings.TryGetValue(type, out var boundClrType))
+            return ConvertReflectionType(boundClrType);
+
+        if (type.IsArray)
+            return new ArrayTypeInfo(ConvertReflectionTypeWithOverrides(type.GetElementType()!, typeInfoOverrides, clrBindings));
+
+        if (type.IsGenericType)
+        {
+            var typeArgs = type.GetGenericArguments()
+                .Select(a => ConvertReflectionTypeWithOverrides(a, typeInfoOverrides, clrBindings))
+                .ToList();
+            var name = type.Name.Contains('`') ? type.Name[..type.Name.IndexOf('`')] : type.Name;
+            return new GenericTypeInfo(name, typeArgs);
+        }
+
+        return ConvertReflectionType(type);
+    }
+
+    /// <summary>
+    /// Like TryConvertTypeInfoToClrType but uses typeof(object) as a surrogate for N# user-defined types.
+    /// This enables CLR-level method binding to proceed even when some types are N#-defined.
+    /// The real N# types are tracked separately via TypeInfo bindings.
+    /// </summary>
+    private Type? TryConvertTypeInfoToClrTypeForBinding(TypeInfo typeInfo)
+    {
+        var result = TryConvertTypeInfoToClrType(typeInfo);
+        if (result != null) return result;
+
+        if (_wellKnownTypes == null) return null;
+
+        var resolvedType = ResolveTypeAlias(typeInfo);
+
+        // N# user-defined types → object surrogate for CLR binding
+        if (resolvedType is ClassTypeInfo or RecordTypeInfo or StructTypeInfo
+            or InterfaceTypeInfo or UnionTypeInfo or EnumTypeInfo or NewtypeInfo)
+            return _wellKnownTypes.Object;
+
+        // Generic types with N# type arguments - construct with surrogates
+        if (resolvedType is GenericTypeInfo genericType)
+        {
+            var wkt = _wellKnownTypes;
+            var typeDefinition = genericType.Name switch
+            {
+                "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
+                "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
+                "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
+                "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
+                "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
+                "IDictionary" when genericType.TypeArguments.Count == 2 => wkt.IDictionaryOpen,
+                "Task" when genericType.TypeArguments.Count == 1 => wkt.TaskOpen,
+                "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
+                "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
+                "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
+                "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
+                "Func" when genericType.TypeArguments.Count == 4 => wkt.Func4,
+                "Func" when genericType.TypeArguments.Count == 5 => wkt.Func5,
+                "Action" when genericType.TypeArguments.Count == 1 => wkt.Action1,
+                "Action" when genericType.TypeArguments.Count == 2 => wkt.Action2,
+                "Action" when genericType.TypeArguments.Count == 3 => wkt.Action3,
+                "Action" when genericType.TypeArguments.Count == 4 => wkt.Action4,
+                _ => null
+            };
+
+            if (typeDefinition == null) return null;
+
+            var typeArguments = new List<Type>();
+            foreach (var typeArgument in genericType.TypeArguments)
+            {
+                var clrTypeArgument = TryConvertTypeInfoToClrTypeForBinding(typeArgument);
+                if (clrTypeArgument == null) return null;
+                typeArguments.Add(clrTypeArgument);
+            }
+            return typeDefinition.MakeGenericType(typeArguments.ToArray());
+        }
+
+        // Nullable with N# inner type
+        if (resolvedType is NullableTypeInfo nullable)
+        {
+            var clrInnerType = TryConvertTypeInfoToClrTypeForBinding(nullable.InnerType);
+            if (clrInnerType == null || _wellKnownTypes.NullableOpen == null) return null;
+            return clrInnerType.IsValueType
+                ? _wellKnownTypes.NullableOpen.MakeGenericType(clrInnerType)
+                : clrInnerType;
+        }
+
+        // Array with N# element type
+        if (resolvedType is ArrayTypeInfo array)
+            return TryConvertTypeInfoToClrTypeForBinding(array.ElementType)?.MakeArrayType();
+
+        return null;
+    }
+
+    /// <summary>
+    /// Walks a CLR parameter type and a TypeInfo argument in parallel to extract TypeInfo bindings
+    /// for generic parameters. Handles interface compatibility (e.g., List&lt;T&gt; matching IEnumerable&lt;TSource&gt;).
+    /// </summary>
+    private void PopulateTypeInfoBindingsFromType(
+        Type openParameterType,
+        TypeInfo argumentTypeInfo,
+        Dictionary<Type, TypeInfo> typeInfoBindings)
+    {
+        if (openParameterType.IsGenericParameter)
+        {
+            if (!typeInfoBindings.ContainsKey(openParameterType))
+                typeInfoBindings[openParameterType] = argumentTypeInfo;
+            return;
+        }
+
+        if (!openParameterType.IsGenericType || argumentTypeInfo is not GenericTypeInfo argGeneric)
+            return;
+
+        var openParamGenDef = openParameterType.GetGenericTypeDefinition();
+        var openParamArgs = openParameterType.GetGenericArguments();
+
+        // Direct match: same generic type definition name
+        var paramName = openParamGenDef.Name.Contains('`')
+            ? openParamGenDef.Name[..openParamGenDef.Name.IndexOf('`')]
+            : openParamGenDef.Name;
+
+        if (argGeneric.Name == paramName && openParamArgs.Length == argGeneric.TypeArguments.Count)
+        {
+            for (int i = 0; i < openParamArgs.Length; i++)
+                PopulateTypeInfoBindingsFromType(openParamArgs[i], argGeneric.TypeArguments[i], typeInfoBindings);
+            return;
+        }
+
+        // Interface/base class match: trace through the CLR type hierarchy to map type arguments
+        var argClrType = TryConvertTypeInfoToClrTypeForBinding(argumentTypeInfo);
+        if (argClrType == null || !argClrType.IsGenericType) return;
+
+        var argGenDef = argClrType.GetGenericTypeDefinition();
+
+        // Find the interface on the open generic definition that matches the parameter type
+        Type? openImpl = argGenDef.GetInterfaces()
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == openParamGenDef);
+
+        if (openImpl == null)
+        {
+            var baseType = argGenDef.BaseType;
+            while (baseType != null)
+            {
+                if (baseType.IsGenericType && baseType.GetGenericTypeDefinition() == openParamGenDef)
+                {
+                    openImpl = baseType;
+                    break;
+                }
+                baseType = baseType.BaseType;
+            }
+        }
+
+        if (openImpl == null) return;
+
+        // Map through the interface implementation: e.g. List<T> : IEnumerable<T>
+        // openImpl is IEnumerable<T_0> where T_0 is List's open type param
+        var implArgs = openImpl.GetGenericArguments();
+        var argDefGenArgs = argGenDef.GetGenericArguments();
+
+        for (int i = 0; i < openParamArgs.Length && i < implArgs.Length; i++)
+        {
+            if (implArgs[i].IsGenericParameter)
+            {
+                for (int j = 0; j < argDefGenArgs.Length; j++)
+                {
+                    if (implArgs[i] == argDefGenArgs[j] && j < argGeneric.TypeArguments.Count)
+                    {
+                        PopulateTypeInfoBindingsFromType(openParamArgs[i], argGeneric.TypeArguments[j], typeInfoBindings);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a FunctionTypeInfo from an open delegate type, using TypeInfo overrides for generic
+    /// parameters that were bound to N# types. Falls back to CLR bindings for other parameters.
+    /// </summary>
+    private FunctionTypeInfo? CreateDelegateSignatureFromOpenType(
+        Type openDelegateType,
+        Dictionary<Type, TypeInfo> typeInfoOverrides,
+        Dictionary<Type, Type> clrBindings)
+    {
+        var resolvedType = ApplyReflectionBindings(openDelegateType, clrBindings);
+        if (!IsDelegateType(resolvedType))
+            return null;
+
+        if (resolvedType.IsGenericType)
+        {
+            var genDef = resolvedType.GetGenericTypeDefinition();
+            var genDefName = genDef.FullName;
+
+            var openTypeArgs = openDelegateType.IsGenericType
+                ? openDelegateType.GetGenericArguments()
+                : resolvedType.GetGenericArguments();
+
+            var typeArgs = openTypeArgs
+                .Select(a => ConvertReflectionTypeWithOverrides(a, typeInfoOverrides, clrBindings))
+                .ToList();
+
+            if (genDefName is "System.Action`1" or "System.Action`2" or "System.Action`3" or "System.Action`4")
+            {
+                return new FunctionTypeInfo(null)
+                {
+                    ParameterTypes = typeArgs,
+                    ReturnType = BuiltInTypes.Void
+                };
+            }
+            if (genDefName is "System.Func`1" or "System.Func`2" or "System.Func`3" or "System.Func`4" or "System.Func`5")
+            {
+                return new FunctionTypeInfo(null)
+                {
+                    ParameterTypes = typeArgs.Take(typeArgs.Count - 1).ToList(),
+                    ReturnType = typeArgs[^1]
+                };
+            }
+        }
+
+        // Fallback: use the Invoke method on the resolved delegate type
+        var invokeMethod = resolvedType.GetMethod("Invoke");
+        if (invokeMethod == null)
+            return new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown };
+
+        return new FunctionTypeInfo(null)
+        {
+            ParameterTypes = invokeMethod.GetParameters()
+                .Select(p => ConvertReflectionTypeWithOverrides(p.ParameterType, typeInfoOverrides, clrBindings))
+                .ToList(),
+            ReturnType = ConvertReflectionTypeWithOverrides(invokeMethod.ReturnType, typeInfoOverrides, clrBindings)
         };
     }
 
@@ -3137,8 +3387,19 @@ public class Analyzer : IDisposable
         }
         else
         {
+            // When the callee is a method group, lambdas will be analyzed later during
+            // method binding with proper delegate type context. Analyzing them here with
+            // null expected type would give lambda parameters 'unknown' type, producing
+            // spurious errors for operators like || and && inside the lambda body.
+            var isMethodGroup = calleeType is ReflectionMethodGroupInfo or NSharpMethodGroupInfo
+                or ReflectionMethodInfo;
             foreach (var arg in call.Arguments)
             {
+                if (isMethodGroup && arg.Value is LambdaExpression)
+                {
+                    argTypes.Add(BuiltInTypes.Unknown);
+                    continue;
+                }
                 argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null));
             }
         }
@@ -4161,9 +4422,14 @@ public class Analyzer : IDisposable
 
     private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
     {
-        var receiverClrType = call.Callee is MemberAccessExpression memberAccess
-            ? TryConvertTypeInfoToClrType(AnalyzeExpression(memberAccess.Object))
-            : null;
+        TypeInfo? receiverTypeInfo = null;
+        Type? receiverClrType = null;
+        if (call.Callee is MemberAccessExpression memberAccess)
+        {
+            receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
+            receiverClrType = TryConvertTypeInfoToClrType(receiverTypeInfo)
+                ?? TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
+        }
 
         var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
         for (int i = 0; i < call.Arguments.Count; i++)
@@ -4174,11 +4440,11 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
         }
 
-        (MethodInfo Method, Dictionary<Type, Type> Bindings, int Score)? selected = null;
+        (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings, int Score)? selected = null;
 
         foreach (var method in methodGroup.Methods)
         {
-            var candidate = PreBindReflectionMethod(method, call, receiverClrType, analyzedNonLambdaArguments);
+            var candidate = PreBindReflectionMethod(method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
             if (candidate == null)
                 continue;
 
@@ -4189,14 +4455,19 @@ public class Analyzer : IDisposable
         if (selected == null)
             return null;
 
-        return FinalizeBoundReflectionCall(selected.Value.Method, call, selected.Value.Bindings);
+        return FinalizeBoundReflectionCall(selected.Value.Method, call, selected.Value.Bindings, selected.Value.TypeInfoBindings);
     }
 
     private FunctionTypeInfo? BindSingleReflectionMethod(MethodInfo method, CallExpression call)
     {
-        var receiverClrType = call.Callee is MemberAccessExpression memberAccess
-            ? TryConvertTypeInfoToClrType(AnalyzeExpression(memberAccess.Object))
-            : null;
+        TypeInfo? receiverTypeInfo = null;
+        Type? receiverClrType = null;
+        if (call.Callee is MemberAccessExpression memberAccess)
+        {
+            receiverTypeInfo = AnalyzeExpression(memberAccess.Object);
+            receiverClrType = TryConvertTypeInfoToClrType(receiverTypeInfo)
+                ?? TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo);
+        }
 
         var analyzedNonLambdaArguments = new TypeInfo?[call.Arguments.Count];
         for (int i = 0; i < call.Arguments.Count; i++)
@@ -4207,20 +4478,22 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
         }
 
-        var preBound = PreBindReflectionMethod(method, call, receiverClrType, analyzedNonLambdaArguments);
+        var preBound = PreBindReflectionMethod(method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);
         if (preBound == null)
             return null;
 
-        return FinalizeBoundReflectionCall(preBound.Value.Method, call, preBound.Value.Bindings);
+        return FinalizeBoundReflectionCall(preBound.Value.Method, call, preBound.Value.Bindings, preBound.Value.TypeInfoBindings);
     }
 
-    private (MethodInfo Method, Dictionary<Type, Type> Bindings, int Score)? PreBindReflectionMethod(
+    private (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings, int Score)? PreBindReflectionMethod(
         MethodInfo method,
         CallExpression call,
         Type? receiverClrType,
+        TypeInfo? receiverTypeInfo,
         TypeInfo?[] analyzedNonLambdaArguments)
     {
         var bindings = new Dictionary<Type, Type>();
+        var typeInfoBindings = new Dictionary<Type, TypeInfo>();
         var openMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
         var parameterOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
         var parameters = openMethod.GetParameters();
@@ -4229,6 +4502,10 @@ public class Analyzer : IDisposable
         {
             if (receiverClrType == null || !TryMatchReflectionParameter(parameters[0].ParameterType, receiverClrType, bindings))
                 return null;
+
+            // Track N# TypeInfo bindings from the receiver type
+            if (receiverTypeInfo != null)
+                PopulateTypeInfoBindingsFromType(parameters[0].ParameterType, receiverTypeInfo, typeInfoBindings);
         }
 
         if (call.TypeArguments != null && call.TypeArguments.Count > 0)
@@ -4242,11 +4519,18 @@ public class Analyzer : IDisposable
 
             for (int i = 0; i < genericParameters.Length; i++)
             {
-                var typeArgument = TryConvertTypeInfoToClrType(ResolveType(call.TypeArguments[i]));
+                var resolvedTypeInfo = ResolveType(call.TypeArguments[i]);
+                var typeArgument = TryConvertTypeInfoToClrType(resolvedTypeInfo);
                 if (typeArgument == null)
-                    return null;
+                {
+                    // N# type - use object as CLR surrogate for binding
+                    typeArgument = TryConvertTypeInfoToClrTypeForBinding(resolvedTypeInfo);
+                    if (typeArgument == null)
+                        return null;
+                }
 
                 bindings[genericParameters[i]] = typeArgument;
+                typeInfoBindings[genericParameters[i]] = resolvedTypeInfo;
             }
         }
 
@@ -4281,11 +4565,16 @@ public class Analyzer : IDisposable
             if (argumentType == null)
                 return null;
 
-            var argumentClrType = TryConvertTypeInfoToClrType(argumentType);
+            var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
+                ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
             if (argumentClrType != null)
             {
                 if (!TryMatchReflectionParameter(parameterType, argumentClrType, bindings))
                     return null;
+
+                // Track TypeInfo bindings from this argument
+                if (argumentType != null)
+                    PopulateTypeInfoBindingsFromType(parameterType, argumentType, typeInfoBindings);
 
                 score += GetReflectionMatchScore(ApplyReflectionBindings(parameterType, bindings), argumentClrType);
                 continue;
@@ -4298,14 +4587,20 @@ public class Analyzer : IDisposable
             score += 1;
         }
 
-        return (openMethod, bindings, score);
+        return (openMethod, bindings, typeInfoBindings, score);
     }
 
-    private FunctionTypeInfo? FinalizeBoundReflectionCall(MethodInfo method, CallExpression call, Dictionary<Type, Type> bindings)
+    private FunctionTypeInfo? FinalizeBoundReflectionCall(
+        MethodInfo method, CallExpression call,
+        Dictionary<Type, Type> bindings,
+        Dictionary<Type, TypeInfo> typeInfoBindings)
     {
         var workingBindings = new Dictionary<Type, Type>(bindings);
+        var workingTypeInfoBindings = new Dictionary<Type, TypeInfo>(typeInfoBindings);
+        var openMethod = method; // Preserve the open method for TypeInfo-based resolution
         var parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
         var parameters = method.GetParameters();
+        var hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
@@ -4320,14 +4615,22 @@ public class Analyzer : IDisposable
             if (!IsDelegateType(delegateType))
                 return null;
 
-            var expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
+            // Use TypeInfo overrides for lambda parameter types when N# types are involved
+            FunctionTypeInfo? expectedSignature;
+            if (hasTypeInfoOverrides)
+                expectedSignature = CreateDelegateSignatureFromOpenType(
+                    parameter.ParameterType, workingTypeInfoBindings, workingBindings);
+            else
+                expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
+
             var lambdaType = AnalyzeLambda(lambda, expectedSignature);
             var lambdaDelegateType = TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
                 TryMatchReflectionParameter(parameter.ParameterType, lambdaDelegateType, workingBindings);
 
             var lambdaReturnClrType = lambdaType.ReturnType != null
-                ? TryConvertTypeInfoToClrType(lambdaType.ReturnType)
+                ? (TryConvertTypeInfoToClrType(lambdaType.ReturnType)
+                    ?? TryConvertTypeInfoToClrTypeForBinding(lambdaType.ReturnType))
                 : null;
             if (lambdaReturnClrType != null && method.IsGenericMethodDefinition)
             {
@@ -4336,7 +4639,11 @@ public class Analyzer : IDisposable
                     .ToList();
 
                 if (remainingGenericArguments.Count == 1)
+                {
                     workingBindings[remainingGenericArguments[0]] = lambdaReturnClrType;
+                    if (lambdaType.ReturnType != null)
+                        workingTypeInfoBindings[remainingGenericArguments[0]] = lambdaType.ReturnType;
+                }
             }
         }
 
@@ -4351,8 +4658,13 @@ public class Analyzer : IDisposable
             parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
         }
 
+        // Recalculate whether we have overrides (lambda return types may have added more)
+        hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
+
         var parameterTypes = new List<TypeInfo>();
         var validatedArgumentTypes = new List<TypeInfo>();
+        var openParameters = openMethod.GetParameters();
+        var openParamOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
@@ -4366,15 +4678,32 @@ public class Analyzer : IDisposable
 
             if (call.Arguments[i].Value is LambdaExpression lambda && IsDelegateType(rawParameterType))
             {
-                var expectedSignature = CreateFunctionTypeInfoFromDelegate(rawParameterType);
-                parameterTypes.Add(expectedSignature);
+                FunctionTypeInfo? expectedSignature;
+                if (hasTypeInfoOverrides)
+                {
+                    // Use the open parameter type with TypeInfo overrides for correct N# types
+                    var openParameter = GetReflectionParameterForArgument(openParameters, openParamOffset, i);
+                    expectedSignature = openParameter != null
+                        ? CreateDelegateSignatureFromOpenType(
+                            openParameter.ParameterType, workingTypeInfoBindings, workingBindings)
+                        : CreateFunctionTypeInfoFromDelegate(rawParameterType);
+                }
+                else
+                {
+                    expectedSignature = CreateFunctionTypeInfoFromDelegate(rawParameterType);
+                }
+
+                if (expectedSignature != null)
+                    parameterTypes.Add(expectedSignature);
 
                 var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
                 validatedArgumentTypes.Add(lambdaArgumentType);
                 continue;
             }
 
-            var expectedType = ConvertReflectionType(rawParameterType);
+            var expectedType = hasTypeInfoOverrides
+                ? ConvertReflectionTypeWithOverrides(rawParameterType, workingTypeInfoBindings, workingBindings)
+                : ConvertReflectionType(rawParameterType);
             parameterTypes.Add(expectedType);
 
             var argumentType = AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType);
@@ -4384,10 +4713,15 @@ public class Analyzer : IDisposable
                 return null;
         }
 
+        // Compute return type using TypeInfo overrides for the open method's return type
+        var returnType = hasTypeInfoOverrides
+            ? ConvertReflectionTypeWithOverrides(openMethod.ReturnType, workingTypeInfoBindings, workingBindings)
+            : ConvertReflectionType(method.ReturnType);
+
         return new FunctionTypeInfo(null)
         {
             ParameterTypes = parameterTypes,
-            ReturnType = ConvertReflectionType(method.ReturnType)
+            ReturnType = returnType
         };
     }
 
