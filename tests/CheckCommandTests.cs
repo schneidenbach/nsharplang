@@ -304,6 +304,58 @@ func A() {
         }
     }
 
+    // ── C# verification (check/build parity) ─────────────────────────────
+
+    [Fact]
+    public void CheckCommand_CleanProject_PassesWithTranspilerVerification()
+    {
+        // This test exercises the full pipeline: analysis + transpiler + C# build verification.
+        // If the verification step breaks, this test will fail even though analysis alone passes.
+        var (exitCode, stdout, _) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", HelloWorldProject }));
+
+        Assert.Equal(0, exitCode);
+        var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+    }
+
+    [Fact]
+    public void CheckCommand_CleanProject_TextMode_PassesWithVerification()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", HelloWorldProject, "--text" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("no errors", stderr);
+    }
+
+    [Fact]
+    public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
+    {
+        // When analysis already found errors, we skip the verification step entirely.
+        // This test ensures we don't crash or hang trying to transpile broken code.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    sb := new StringBuilder()
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static string CreateTempDir()
