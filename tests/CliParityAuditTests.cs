@@ -486,8 +486,10 @@ func Main() {
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
         Assert.Contains("*.bench.nl", stdout);
+        Assert.Contains("--backend", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--export", stdout);
+        Assert.Contains("--job", stdout);
         Assert.Contains("--list", stdout);
     }
 
@@ -640,7 +642,9 @@ func benchMultiply() {
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
         Assert.True(
-            stdout.Contains("--timings") && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
+            stdout.Contains("--timings")
+            && stdout.Contains("--backend")
+            && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
             $"Expected --timings and phase breakdown in build --help but got: {stdout}");
     }
 

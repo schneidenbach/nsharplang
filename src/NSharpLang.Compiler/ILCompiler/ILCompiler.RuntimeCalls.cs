@@ -13,6 +13,7 @@ public partial class ILCompiler
         : BoundCallArgument(ParameterType);
 
     private sealed record BoundRuntimeMethodCall(MethodInfo Method, IReadOnlyList<BoundCallArgument> Arguments);
+    private sealed record BoundRuntimeConstructorCall(ConstructorInfo Constructor, IReadOnlyList<BoundCallArgument> Arguments);
 
     private BoundRuntimeMethodCall? BindRuntimeMethodCall(Type declaringType, string methodName, CallExpression call, BindingFlags bindingFlags)
     {
@@ -97,6 +98,60 @@ public partial class ILCompiler
                 bestUsesParams = usesParams;
                 bestDefaultsUsed = defaultsUsed;
                 bestIsGeneric = isGeneric;
+            }
+        }
+
+        return best;
+    }
+
+    private BoundRuntimeConstructorCall? BindRuntimeConstructorCall(Type declaringType, IReadOnlyList<Argument> arguments)
+    {
+        if (declaringType.IsGenericParameter)
+        {
+            return null;
+        }
+
+        ConstructorInfo[] candidates;
+        try
+        {
+            candidates = declaringType.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        }
+        catch (NotSupportedException) when (declaringType.IsGenericType && !declaringType.IsGenericTypeDefinition)
+        {
+            candidates = declaringType.GetGenericTypeDefinition()
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .Select(constructor => TypeBuilder.GetConstructor(declaringType, constructor))
+                .ToArray();
+        }
+
+        BoundRuntimeConstructorCall? best = null;
+        var bestScore = -1;
+        var bestUsesParams = true;
+        var bestDefaultsUsed = int.MaxValue;
+
+        foreach (var candidate in candidates)
+        {
+            if (!TryBindRuntimeParameters(
+                    candidate.GetParameters(),
+                    arguments,
+                    out var boundArguments,
+                    out var score,
+                    out var usesParams,
+                    out var defaultsUsed,
+                    out _))
+            {
+                continue;
+            }
+
+            if (best == null
+                || score > bestScore
+                || (score == bestScore && bestUsesParams && !usesParams)
+                || (score == bestScore && bestUsesParams == usesParams && defaultsUsed < bestDefaultsUsed))
+            {
+                best = new BoundRuntimeConstructorCall(candidate, boundArguments);
+                bestScore = score;
+                bestUsesParams = usesParams;
+                bestDefaultsUsed = defaultsUsed;
             }
         }
 

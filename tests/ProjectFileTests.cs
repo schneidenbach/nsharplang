@@ -45,6 +45,7 @@ language:
             Assert.Equal("Program.nl", config.Entry);
             Assert.Equal("exe", config.OutputType);
             Assert.Equal("net9.0", config.TargetFramework);
+            Assert.Equal("transpile", config.Backend);
             // Check dependencies (new list format)
             Assert.Equal(2, config.Dependencies.Count);
             var newtonsoft = config.Dependencies.FirstOrDefault(r => r.Nuget == "Newtonsoft.Json");
@@ -78,6 +79,7 @@ language:
             Assert.Equal("MinimalProject", config.Name);
             Assert.Null(config.Version);
             Assert.Null(config.Entry);
+            Assert.Equal("transpile", config.Backend);
             Assert.Equal("exe", config.OutputType); // default
             Assert.Equal("net9.0", config.TargetFramework); // default
             Assert.Empty(config.Dependencies);
@@ -117,6 +119,32 @@ targetFramework: net8.0
     }
 
     [Fact]
+    public void TestParseIlBackendProject()
+    {
+        var yaml = @"name: IlProject
+backend: il
+outputType: exe
+targetFramework: net9.0
+";
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.Equal("il", config.Backend);
+            Assert.Equal(CompilationBackend.Il, config.EffectiveBackend);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void TestParseWithTaskAsyncDefault()
     {
         var yaml = @"name: TaskProject
@@ -145,6 +173,27 @@ language:
     {
         var yaml = @"name: BadProject
 outputType: invalid
+";
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+
+            Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(tempFile));
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestInvalidBackend()
+    {
+        var yaml = @"name: BadProject
+backend: wasm
 ";
 
         var tempFile = Path.GetTempFileName();
@@ -237,6 +286,7 @@ version: 2.0.0
         Assert.Equal("TestProject", config.Name);
         Assert.Equal("exe", config.OutputType);
         Assert.Equal("net9.0", config.TargetFramework);
+        Assert.Equal("transpile", config.Backend);
         Assert.Empty(config.Dependencies);
         Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
     }
@@ -249,6 +299,7 @@ version: 2.0.0
         Assert.Contains("name: MyNewProject", template);
         Assert.Contains("version: 1.0.0", template);
         Assert.Contains("entry: Program.nl", template);
+        Assert.Contains("backend: transpile", template);
         Assert.Contains("outputType: exe", template);
         Assert.Contains("targetFramework: net9.0", template);
         Assert.Contains("asyncDefaultType: ValueTask", template);

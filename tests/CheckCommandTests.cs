@@ -38,6 +38,7 @@ public class CheckCommandTests
 
         Assert.Contains("--json", stdout);
         Assert.Contains("--text", stdout);
+        Assert.Contains("--backend", stdout);
         Assert.Contains("--project", stdout);
         Assert.Contains("--help", stdout);
     }

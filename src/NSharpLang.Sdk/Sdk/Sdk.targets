@@ -26,6 +26,10 @@
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.TranspileTests"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.WriteCompilationStub"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+  <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
 
   <!-- Fail fast if project.yml exists but nlc restore hasn't been run -->
   <Target Name="_ValidateNSharpProjectConfig"
@@ -103,7 +107,7 @@
   <!-- Compile N# files before C# compilation -->
   <Target Name="CompileNSharp"
           BeforeTargets="CoreCompile"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpCompile)' != ''"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpCompile)' != '' And '$(NSharpCompilationBackend)' != 'il'"
           Inputs="@(NSharpCompile);$(NSharpProjectFile)"
           Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(RecursiveDir)%(Filename).g.cs')">
 
@@ -123,7 +127,7 @@
   <!-- Transpile N# test files before C# compilation -->
   <Target Name="TranspileNSharpTests"
           BeforeTargets="CoreCompile"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != ''"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '@(NSharpTestFiles)' != '' And '$(NSharpCompilationBackend)' != 'il'"
           Inputs="@(NSharpTestFiles);$(NSharpProjectFile)"
           Outputs="@(NSharpTestFiles->'$(NSharpOutputPath)%(RecursiveDir)%(Filename).g.cs')">
 
@@ -140,14 +144,51 @@
     <Message Importance="High" Text="N# test transpilation complete. Generated test files added to C# compilation." />
   </Target>
 
+  <Target Name="GenerateNSharpIlStub"
+          BeforeTargets="CoreCompile"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpCompilationBackend)' == 'il' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')"
+          Inputs="$(NSharpProjectFile)"
+          Outputs="$(NSharpOutputPath)__NSharpIlStub.g.cs">
+
+    <Message Importance="High" Text="Generating N# IL compilation stub..." />
+
+    <WriteCompilationStub
+      OutputPath="$(NSharpOutputPath)"
+      Sources="@(NSharpCompile)"
+      ProjectRoot="$(MSBuildProjectDirectory)"
+      ProjectFile="$(NSharpProjectFile)">
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </WriteCompilationStub>
+  </Target>
+
   <!-- Always include generated sources (even when compilation targets are skipped as up-to-date) -->
   <Target Name="IncludeNSharpGeneratedFiles"
           BeforeTargets="CoreCompile"
-          AfterTargets="CompileNSharp;TranspileNSharpTests"
+          AfterTargets="CompileNSharp;TranspileNSharpTests;GenerateNSharpIlStub"
           Condition="'$(EnableNSharpCompilation)' == 'true'">
     <ItemGroup>
       <Compile Include="$(NSharpOutputPath)**/*.g.cs" />
     </ItemGroup>
+  </Target>
+
+  <Target Name="EmitNSharpIlAssembly"
+          AfterTargets="CoreCompile"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpCompilationBackend)' == 'il' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
+    <ItemGroup>
+      <_NSharpIlSources Include="@(NSharpCompile)" />
+      <_NSharpIlSources Include="@(NSharpTestFiles)" />
+    </ItemGroup>
+
+    <Message Importance="High" Text="Emitting N# IL assembly to @(IntermediateAssembly)..." />
+
+    <EmitIlAssembly
+      Sources="@(_NSharpIlSources)"
+      References="@(ReferencePath)"
+      ProjectRoot="$(MSBuildProjectDirectory)"
+      ProjectFile="$(NSharpProjectFile)"
+      TargetAssemblyPath="@(IntermediateAssembly)"
+      TargetReferenceAssemblyPath="$(TargetRefPath)" />
   </Target>
 
   <!-- Clean generated files -->

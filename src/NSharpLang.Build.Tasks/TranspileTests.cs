@@ -39,6 +39,12 @@ public class TranspileTests : Task
 
         try
         {
+            var ilStubPath = Path.Combine(OutputPath, "__NSharpIlStub.g.cs");
+            if (File.Exists(ilStubPath))
+            {
+                File.Delete(ilStubPath);
+            }
+
             var testFiles = TestFiles.Select(t => t.ItemSpec).ToList();
 
             // Load project config from project.yml if available, otherwise use default

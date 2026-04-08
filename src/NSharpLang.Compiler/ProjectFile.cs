@@ -30,6 +30,11 @@ public class ProjectConfig
     public string? Entry { get; set; }
 
     /// <summary>
+    /// Compilation backend: "transpile" (default) or "il"
+    /// </summary>
+    public string Backend { get; set; } = CompilationBackend.Transpile.ToConfigValue();
+
+    /// <summary>
     /// Output type: "exe" or "library"
     /// </summary>
     public string OutputType { get; set; } = "exe";
@@ -84,6 +89,9 @@ public class ProjectConfig
     /// </summary>
     [YamlIgnore]
     public string EffectiveName => Name ?? Path.GetFileName(Environment.CurrentDirectory) ?? "Project";
+
+    [YamlIgnore]
+    public CompilationBackend EffectiveBackend => CompilationBackendExtensions.Parse(Backend);
 
     /// <summary>
     /// Gets all .nl files in the project directory, excluding test files and files matching exclude patterns
@@ -480,6 +488,7 @@ public class ProjectFileParser
         return new ProjectConfig
         {
             Name = projectName,
+            Backend = CompilationBackend.Transpile.ToConfigValue(),
             OutputType = "exe",
             TargetFramework = "net9.0",
             Language = new LanguageConfig()
@@ -492,6 +501,8 @@ public class ProjectFileParser
     /// </summary>
     private static void ValidateConfig(ProjectConfig config, string projectDirectory)
     {
+        _ = config.EffectiveBackend;
+
         // Validate outputType
         if (config.OutputType != "exe" && config.OutputType != "library")
         {
@@ -560,9 +571,10 @@ public class ProjectFileParser
     /// </summary>
     public static string GenerateTemplate(string projectName)
     {
-        return $@"name: {projectName}
+return $@"name: {projectName}
 version: 1.0.0
 entry: Program.nl
+backend: transpile
 outputType: exe
 targetFramework: net9.0
 

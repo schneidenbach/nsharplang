@@ -17,6 +17,9 @@ public class LoadProjectReferences : Task
     [Output]
     public ITaskItem[] FrameworkReferences { get; set; } = Array.Empty<ITaskItem>();
 
+    [Output]
+    public ITaskItem[] ProjectReferences { get; set; } = Array.Empty<ITaskItem>();
+
     public override bool Execute()
     {
         try
@@ -31,6 +34,7 @@ public class LoadProjectReferences : Task
 
             var packageRefs = new List<ITaskItem>();
             var frameworkRefs = new List<ITaskItem>();
+            var projectRefs = new List<ITaskItem>();
 
             // Process dependencies
             foreach (var dep in config.Dependencies)
@@ -51,19 +55,26 @@ public class LoadProjectReferences : Task
                         frameworkRefs.Add(fwItem);
                         break;
 
-                    // DLL and Project references are handled differently
+                    // DLL references are handled by the compiler during build
                     case ReferenceType.Dll:
+                        break;
+
                     case ReferenceType.Project:
-                        // These will be handled by the N# compiler during build
+                        var projectPath = Path.IsPathRooted(dep.Project!)
+                            ? dep.Project!
+                            : Path.Combine(Path.GetDirectoryName(ProjectFile)!, dep.Project!);
+                        var resolvedProjectPath = ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
+                        projectRefs.Add(new TaskItem(resolvedProjectPath));
                         break;
                 }
             }
 
             PackageReferences = packageRefs.ToArray();
             FrameworkReferences = frameworkRefs.ToArray();
+            ProjectReferences = projectRefs.ToArray();
 
             Log.LogMessage(MessageImportance.Normal,
-                $"Loaded {PackageReferences.Length} package reference(s) and {FrameworkReferences.Length} framework reference(s) from {ProjectFile}");
+                $"Loaded {PackageReferences.Length} package reference(s), {FrameworkReferences.Length} framework reference(s), and {ProjectReferences.Length} project reference(s) from {ProjectFile}");
 
             return true;
         }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -10,7 +9,7 @@ using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Cli.Commands;
 
-public static class BenchCommand
+public static partial class BenchCommand
 {
     public static int Execute(string[] args)
     {
@@ -18,8 +17,10 @@ public static class BenchCommand
             return ShowHelp();
 
         var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
+        var backendOption = GetOptionValue(args, "--backend");
         var filter = GetOptionValue(args, "--filter");
         var export = GetOptionValue(args, "--export");
+        var jobOption = GetOptionValue(args, "--job");
         var listOnly = args.Contains("--list");
         var jsonOutput = args.Contains("--json");
 
@@ -63,8 +64,26 @@ public static class BenchCommand
             return ListBenchmarks(benchFiles, projectRoot, jsonOutput);
         }
 
+        var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
+        var backend = !string.IsNullOrWhiteSpace(backendOption)
+            ? CompilationBackendExtensions.Parse(backendOption)
+            : projectConfig?.EffectiveBackend ?? CompilationBackend.Transpile;
+
+        string? benchmarkJobAttribute;
+        try
+        {
+            benchmarkJobAttribute = GetBenchmarkJobAttribute(jobOption);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+
         // Run benchmarks
-        return RunBenchmarks(benchFiles, projectRoot, filter, export, jsonOutput);
+        return backend == CompilationBackend.Il
+            ? RunBenchmarksWithIl(benchFiles, projectRoot, projectConfig, filter, export, jsonOutput, benchmarkJobAttribute)
+            : RunBenchmarks(benchFiles, projectRoot, projectConfig, filter, export, jsonOutput, benchmarkJobAttribute);
     }
 
     static int ListBenchmarks(string[] benchFiles, string projectRoot, bool jsonOutput)
@@ -102,7 +121,14 @@ public static class BenchCommand
         return 0;
     }
 
-    static int RunBenchmarks(string[] benchFiles, string projectRoot, string? filter, string? export, bool jsonOutput)
+    static int RunBenchmarks(
+        string[] benchFiles,
+        string projectRoot,
+        ProjectConfig? projectConfig,
+        string? filter,
+        string? export,
+        bool jsonOutput,
+        string? benchmarkJobAttribute)
     {
         if (!jsonOutput)
         {
@@ -111,8 +137,6 @@ public static class BenchCommand
             Console.WriteLine();
         }
 
-        // Load project config for target framework and dependencies
-        var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
         var targetFramework = projectConfig?.TargetFramework ?? "net9.0";
 
         // Transpile each bench file to C#
@@ -126,7 +150,7 @@ public static class BenchCommand
             foreach (var benchFile in benchFiles)
             {
                 var relativePath = Path.GetRelativePath(projectRoot, benchFile);
-                var className = SanitizeClassName(Path.GetFileNameWithoutExtension(benchFile)) + "Benchmarks";
+                var className = GetBenchmarkClassName(relativePath);
 
                 if (!jsonOutput)
                     Console.WriteLine($"  Transpiling {relativePath}...");
@@ -136,7 +160,7 @@ public static class BenchCommand
 
                 try
                 {
-                    csharpCode = TranspileWithBenchmarkAttributes(source, benchFile, projectConfig, className);
+                    csharpCode = TranspileWithBenchmarkAttributes(source, benchFile, projectConfig, className, benchmarkJobAttribute);
                 }
                 catch (Exception ex)
                 {
@@ -164,7 +188,7 @@ public static class BenchCommand
             // Build args for dotnet run
             var runArgs = new List<string> { "run", "--project", $"\"{csprojPath}\"", "-c", "Release", "--" };
             if (!string.IsNullOrEmpty(filter))
-                runArgs.AddRange(new[] { "--filter", $"\"{filter}\"" });
+                runArgs.AddRange(new[] { "--filter", $"\"{NormalizeBenchmarkFilter(filter)}\"" });
 
             if (!string.IsNullOrEmpty(export))
             {
@@ -185,25 +209,28 @@ public static class BenchCommand
                 }
             }
 
-            var psi = new ProcessStartInfo
+            if (jsonOutput)
             {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", runArgs),
-                WorkingDirectory = tempDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false
-            };
-
-            var process = Process.Start(psi);
-            process?.WaitForExit();
-
-            var exitCode = process?.ExitCode ?? 1;
-
-            if (exitCode != 0)
+                var runResult = DotnetRunner.Run(string.Join(" ", runArgs), workingDirectory: tempDir, timeout: TimeSpan.FromMinutes(10));
+                if (runResult.ExitCode != 0)
+                {
+                    Console.Error.WriteLine("Benchmark run failed.");
+                    var detail = (runResult.Stderr + runResult.Stdout).Trim();
+                    if (!string.IsNullOrWhiteSpace(detail))
+                    {
+                        Console.Error.WriteLine(detail);
+                    }
+                    return 1;
+                }
+            }
+            else
             {
-                Console.Error.WriteLine("Benchmark run failed.");
-                return 1;
+                var exitCode = DotnetRunner.RunPassthrough(string.Join(" ", runArgs), workingDirectory: tempDir);
+                if (exitCode != 0)
+                {
+                    Console.Error.WriteLine("Benchmark run failed.");
+                    return 1;
+                }
             }
 
             if (jsonOutput)
@@ -317,7 +344,12 @@ public static class BenchCommand
     /// <summary>
     /// Transpile N# source to C#, injecting [Benchmark] on bench-prefixed functions.
     /// </summary>
-    static string TranspileWithBenchmarkAttributes(string source, string filePath, ProjectConfig? config, string className)
+    static string TranspileWithBenchmarkAttributes(
+        string source,
+        string filePath,
+        ProjectConfig? config,
+        string className,
+        string? benchmarkJobAttribute)
     {
         var lexer = new Lexer(source, filePath);
         var tokens = lexer.Tokenize();
@@ -335,14 +367,14 @@ public static class BenchCommand
 
         // Inject using BenchmarkDotNet.Attributes and wrap in a proper benchmark class.
         // The Transpiler emits a top-level program; we need to restructure it.
-        return WrapAsBenchmarkClass(csharp, className, source);
+        return WrapAsBenchmarkClass(csharp, className, source, benchmarkJobAttribute);
     }
 
     /// <summary>
     /// Wrap transpiled C# into a BenchmarkDotNet-compatible class, adding [Benchmark]
     /// to any method whose name starts with "Bench" (the N# transpiler capitalizes).
     /// </summary>
-    static string WrapAsBenchmarkClass(string transpiledCsharp, string className, string originalSource)
+    static string WrapAsBenchmarkClass(string transpiledCsharp, string className, string originalSource, string? benchmarkJobAttribute)
     {
         var sb = new StringBuilder();
         sb.AppendLine("using BenchmarkDotNet.Attributes;");
@@ -350,6 +382,8 @@ public static class BenchCommand
         sb.AppendLine("using System.Linq;");
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine();
+        if (!string.IsNullOrWhiteSpace(benchmarkJobAttribute))
+            sb.AppendLine($"[{benchmarkJobAttribute}]");
         sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
 
@@ -426,20 +460,27 @@ public static class BenchCommand
         sb.AppendLine("using BenchmarkDotNet.Running;");
         sb.AppendLine();
         sb.AppendLine("// N# Benchmark Runner - generated by nlc bench");
+        sb.AppendLine("internal static class NSharpBenchmarkHost");
+        sb.AppendLine("{");
+        sb.AppendLine("    public static void Main(string[] args)");
+        sb.AppendLine("    {");
 
         if (classNames.Count == 1)
         {
-            sb.AppendLine($"BenchmarkRunner.Run<{classNames[0]}>(args: args);");
+            sb.AppendLine($"        BenchmarkRunner.Run<{classNames[0]}>(args: args);");
         }
         else
         {
-            sb.AppendLine("var switcher = BenchmarkSwitcher.FromTypes(new[]");
-            sb.AppendLine("{");
+            sb.AppendLine("        var switcher = BenchmarkSwitcher.FromTypes(new[]");
+            sb.AppendLine("        {");
             foreach (var name in classNames)
-                sb.AppendLine($"    typeof({name}),");
-            sb.AppendLine("});");
-            sb.AppendLine("switcher.Run(args);");
+                sb.AppendLine($"            typeof({name}),");
+            sb.AppendLine("        });");
+            sb.AppendLine("        switcher.Run(args);");
         }
+
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
 
         return sb.ToString();
     }
@@ -477,6 +518,37 @@ public static class BenchCommand
         return sb.ToString();
     }
 
+    static string NormalizeBenchmarkFilter(string filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            return filter;
+        }
+
+        return filter.IndexOfAny(['*', '?']) >= 0
+            ? filter
+            : $"*{filter}*";
+    }
+
+    static string? GetBenchmarkJobAttribute(string? jobOption)
+    {
+        if (string.IsNullOrWhiteSpace(jobOption))
+        {
+            return null;
+        }
+
+        return jobOption.Trim().ToLowerInvariant() switch
+        {
+            "default" => null,
+            "dry" => "DryJob",
+            "short" => "ShortRunJob",
+            "medium" => "MediumRunJob",
+            "long" => "LongRunJob",
+            _ => throw new InvalidOperationException(
+                $"Unknown benchmark job '{jobOption}'. Supported values: default, dry, short, medium, long.")
+        };
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     static string SanitizeClassName(string name)
@@ -497,6 +569,14 @@ public static class BenchCommand
         }
 
         return sb.Length == 0 ? "Bench" : sb.ToString();
+    }
+
+    static string GetBenchmarkClassName(string relativePath)
+    {
+        var withoutExtension = relativePath.EndsWith(".bench.nl", StringComparison.OrdinalIgnoreCase)
+            ? relativePath[..^".bench.nl".Length]
+            : Path.GetFileNameWithoutExtension(relativePath);
+        return SanitizeClassName(withoutExtension) + "Benchmarks";
     }
 
     static string? GetOptionValue(string[] args, string flag)
@@ -530,8 +610,10 @@ Benchmark files use the .bench.nl extension. Any function whose name starts
 with 'bench' is automatically wrapped with [Benchmark] and run.
 
 Options:
+  --backend <mode>      Compilation backend: transpile (default) or il
   --filter <pattern>    Run only benchmarks whose name matches the pattern
   --export <format>     Export results: json, csv, markdown
+  --job <kind>          Benchmark job: default, dry, short, medium, long
   --project <dir>       Project root directory (default: current directory)
   --list                List discovered benchmarks without running them
   --json                Output structured JSON (schemaVersion 1 envelope)
@@ -545,8 +627,10 @@ Example benchmark file (hello.bench.nl):
 
 Examples:
   nlc bench
+  nlc bench --backend il
   nlc bench --list
   nlc bench --filter benchAdd
+  nlc bench --job dry
   nlc bench --export json
   nlc bench --project examples/my-lib
   nlc bench --json
