@@ -71,6 +71,21 @@ suite('Error Cases — Diagnostics', () => {
         }
     }
 
+    async function waitForDocumentText(
+        doc: vscode.TextDocument,
+        expectedText: string,
+        timeoutMs: number
+    ): Promise<void> {
+        const deadline = Date.now() + timeoutMs;
+        while (doc.getText() !== expectedText) {
+            if (Date.now() >= deadline) {
+                assert.fail('Timed out waiting for the document text to reach the expected state');
+            }
+
+            await sleep(100);
+        }
+    }
+
     // ================================================================
     // SYNTAX ERRORS — The parser should catch these
     // ================================================================
@@ -269,6 +284,7 @@ func Main() {
     print x
 }
 `, '_err_recover.nl');
+        const originalText = doc.getText();
 
         try {
             // Should start clean
@@ -292,13 +308,27 @@ func Main() {
             assertOrSkip(errors.length > 0,
                 'Server did not produce diagnostics after edit', this);
 
-            // Undo to restore clean state
-            await vscode.commands.executeCommand('undo');
-            await sleep(500);
+            // Restore the original content with an explicit edit instead of
+            // relying on the shared VS Code undo stack across suites.
+            await editor.edit(editBuilder => {
+                const fullRange = new vscode.Range(
+                    doc.positionAt(0),
+                    doc.positionAt(doc.getText().length)
+                );
+                editBuilder.replace(fullRange, originalText);
+            });
+            await waitForDocumentText(doc, originalText, 10_000);
 
-            // Wait for diagnostics to clear
-            diagnostics = await waitForDiagnosticsToSettle(doc.uri, 15_000);
-            errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+            const deadline = Date.now() + 15_000;
+            do {
+                diagnostics = await waitForDiagnosticsToSettle(doc.uri, 3_000);
+                errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+                if (errors.length === 0) {
+                    break;
+                }
+
+                await sleep(200);
+            } while (Date.now() < deadline);
 
             // Errors should clear after undo
             assert.strictEqual(errors.length, 0,

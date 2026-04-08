@@ -5,6 +5,12 @@
 
 The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
+Compilation commands now understand two backend modes:
+- `transpile` — emit C#, then hand off to the .NET SDK/MSBuild pipeline
+- `il` — emit IL directly to a managed assembly
+
+`project.yml` can set `backend: transpile` or `backend: il`. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes.
+
 ---
 
 ## Command Reference
@@ -13,18 +19,22 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| `nlc build` | Compile project (generates .g.csproj, no user .csproj needed) | `nlc build` |
+| `nlc build` | Compile project through the selected backend | `nlc build` |
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
+| `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
 | `nlc build --release` | Build with Release configuration | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
-| `nlc run` | Compile and run project | `nlc run` |
+| `nlc run` | Compile and run project through the selected backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
+| `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
 | `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
+| `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc transpile <file>` | Print generated C# to stdout | `nlc transpile Program.nl` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
-| `nlc check` | Fast type-check (JSON by default) | `nlc check` |
+| `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
+| `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
 ### Code Intelligence (`nlc query`)
@@ -100,7 +110,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 
 ### `nlc check` — Fast Type-Check
 
-The N# equivalent of `cargo check`. Parses and analyzes without transpiling or invoking `dotnet build`. The tightest feedback loop for development.
+The N# equivalent of `cargo check`. Parses and analyzes first, then verifies the selected executable backend without producing final app artifacts. The tightest feedback loop for development.
 
 ```bash
 $ nlc check
@@ -123,7 +133,21 @@ Undefined identifier 'unknownVar'
 
 - Exit code 0 = clean, 1 = errors
 - JSON by default, `--text` for Elm-style diagnostics
-- Uses `CompileForAnalysis()` internally (parse + analyze, skip transpile)
+- Always runs parse + analysis first, then:
+  - `transpile` backend: transpiles and verifies the generated C# compiles
+  - `il` backend: emits a temporary IL assembly to verify the direct backend succeeds
+
+### Backend Selection
+
+Supported backend values:
+- `transpile` — emit C# and continue through the .NET SDK/MSBuild pipeline
+- `il` — emit IL directly and continue through the selected CLI or SDK/MSBuild flow
+
+Current status:
+- `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
+- `nlc check/build/run/test/bench/publish` all support `backend: il`.
+- `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
+- The transpiler remains available as an explicit debug/export surface rather than as the only executable backend.
 
 ### `nlc fix` — Auto-Apply Suggestions
 
@@ -477,14 +501,17 @@ Build supports Go/Rust-style configuration flags:
 
 ```bash
 nlc build                # debug build (default)
+nlc build --backend il   # direct IL build
 nlc build --release      # release (optimized) build
 nlc build --verbose      # detailed MSBuild output
 nlc build --release --verbose
 ```
 
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
-- `--release` passes `-c Release` to `dotnet build`
-- `--verbose` increases MSBuild verbosity to `detailed`
+- `transpile` backend restores project config, generates the SDK entry project, and invokes `dotnet build`
+- `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
+- `--release` currently affects output path/layout and downstream MSBuild invocation on the transpile path
+- `--verbose` increases MSBuild verbosity to `detailed` on the transpile path
 
 ### `nlc clean` — Build Artifact Cleanup
 

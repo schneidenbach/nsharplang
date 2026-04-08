@@ -35,6 +35,8 @@ public static class CheckCommand
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
+            var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
+            var backend = ResolveCompilationBackend(args, projectConfig);
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir);
             var diagnostics = service.GetDiagnostics(snapshot);
@@ -50,7 +52,7 @@ public static class CheckCommand
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
-                var verificationDiagnostics = VerifyTranspilerOutput(projectDir);
+                var verificationDiagnostics = VerifyBackendOutput(projectDir, backend);
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
@@ -93,6 +95,16 @@ public static class CheckCommand
     /// Runs the full N# compilation pipeline (parse → analyze → transpile)
     /// then invokes <c>dotnet build</c> on the generated C# files.
     /// </summary>
+    private static List<DiagnosticResult> VerifyBackendOutput(string projectDir, CompilationBackend backend)
+    {
+        return backend switch
+        {
+            CompilationBackend.Transpile => VerifyTranspilerOutput(projectDir),
+            CompilationBackend.Il => VerifyIlOutput(projectDir),
+            _ => throw new InvalidOperationException($"Unsupported compilation backend: {backend}")
+        };
+    }
+
     private static List<DiagnosticResult> VerifyTranspilerOutput(string projectDir)
     {
         var results = new List<DiagnosticResult>();
@@ -161,6 +173,52 @@ public static class CheckCommand
             {
                 var buildOutput = buildResult.Stderr + buildResult.Stdout;
                 results.AddRange(ParseCSharpBuildErrors(buildOutput, projectDir, tempDir));
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+        }
+
+        return results;
+    }
+
+    private static List<DiagnosticResult> VerifyIlOutput(string projectDir)
+    {
+        var results = new List<DiagnosticResult>();
+        var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-check-il-{Guid.NewGuid():N}");
+
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var outputPath = Path.Combine(tempDir, $"{config.EffectiveName}.dll");
+            var compiler = new MultiFileCompiler(projectDir, config);
+            var compileResult = compiler.Compile(CompilationBackend.Il, config.EffectiveName, outputPath);
+
+            if (!compileResult.Success)
+            {
+                foreach (var error in compileResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
+                {
+                    var relativeFile = error.FileName != null
+                        ? NormalizePath(Path.GetRelativePath(projectDir, error.FileName))
+                        : "unknown";
+                    results.Add(new DiagnosticResult(
+                        error.DiagnosticId,
+                        "error",
+                        error.Message,
+                        relativeFile,
+                        error.Line,
+                        error.Column,
+                        error.Length,
+                        error.SourceSnippet,
+                        error.HumanExplanation,
+                        error.Suggestion ?? FormatSuggestions(error.Suggestions),
+                        error.ContextualHint,
+                        error.ExpectedType,
+                        error.ActualType,
+                        error.DocsUrl));
+                }
             }
         }
         finally
@@ -403,9 +461,10 @@ public static class CheckCommand
 Usage: nlc check [options] [project-dir]
 
 Verifies your N# project compiles without errors. Runs semantic analysis,
-linting, transpilation, and C# compilation verification.
+linting, and verification of the selected compilation backend.
 
 Options:
+  --backend <mode>  Compilation backend: transpile (default) or il
   --json        Output as JSON (default)
   --text        Output as human-readable diagnostics
   --project     Project root directory (default: current directory)
@@ -413,6 +472,7 @@ Options:
 
 Examples:
   nlc check
+  nlc check --backend il
   nlc check --text
   nlc check --project examples/16-task-cli
 
@@ -431,6 +491,14 @@ Exit codes:
 
         var positional = GetFirstPositionalArg(args, Array.Empty<string>());
         return Path.GetFullPath(positional ?? Directory.GetCurrentDirectory());
+    }
+
+    private static CompilationBackend ResolveCompilationBackend(string[] args, ProjectConfig? config)
+    {
+        var backendOption = GetOption(args, "--backend");
+        return !string.IsNullOrWhiteSpace(backendOption)
+            ? CompilationBackendExtensions.Parse(backendOption)
+            : config?.EffectiveBackend ?? CompilationBackend.Transpile;
     }
 
     private static string? GetOption(string[] args, string flag)

@@ -39,6 +39,12 @@ public class NSharpCompile : Task
 
         try
         {
+            var ilStubPath = Path.Combine(OutputPath, "__NSharpIlStub.g.cs");
+            if (File.Exists(ilStubPath))
+            {
+                File.Delete(ilStubPath);
+            }
+
             Log.LogMessage(MessageImportance.High, "About to process source files...");
             var sourceFiles = Sources.Select(s => s.ItemSpec).ToList();
             Log.LogMessage(MessageImportance.High, $"Processed {sourceFiles.Count} source files");

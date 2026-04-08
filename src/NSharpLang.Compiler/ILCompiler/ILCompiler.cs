@@ -4,8 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.Loader;
 using System.Threading.Tasks;
 using NSharpLang.Compiler.Ast;
+using BlobBuilder = System.Reflection.Metadata.BlobBuilder;
+using MetadataTokens = System.Reflection.Metadata.Ecma335.MetadataTokens;
+using MetadataRootBuilder = System.Reflection.Metadata.Ecma335.MetadataRootBuilder;
+using ManagedPEBuilder = System.Reflection.PortableExecutable.ManagedPEBuilder;
+using PEHeaderBuilder = System.Reflection.PortableExecutable.PEHeaderBuilder;
 
 namespace NSharpLang.Compiler.ILCompiler;
 
@@ -154,6 +160,7 @@ public partial class ILCompiler
         _assemblyName = assemblyName;
         _outputPath = outputPath;
         _projectConfig = projectConfig;
+        LoadConfiguredAssemblies();
 
         foreach (var alias in compilationUnit.Declarations.OfType<TypeAliasDeclaration>())
         {
@@ -163,6 +170,54 @@ public partial class ILCompiler
 
     private bool UsesNUnitTestFramework =>
         string.Equals(_projectConfig?.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase);
+
+    private void LoadConfiguredAssemblies()
+    {
+        if (_projectConfig == null)
+        {
+            return;
+        }
+
+        foreach (var reference in _projectConfig.Dependencies.Concat(_projectConfig.TestDependencies))
+        {
+            if (reference.Type != ReferenceType.Dll || string.IsNullOrWhiteSpace(reference.Dll))
+            {
+                continue;
+            }
+
+            var assemblyPath = reference.Dll!;
+            if (!Path.IsPathRooted(assemblyPath))
+            {
+                assemblyPath = Path.GetFullPath(assemblyPath, Environment.CurrentDirectory);
+            }
+
+            if (!File.Exists(assemblyPath))
+            {
+                continue;
+            }
+
+            TryLoadAssembly(assemblyPath);
+        }
+    }
+
+    private static void TryLoadAssembly(string assemblyPath)
+    {
+        try
+        {
+            var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+            var alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies()
+                .Any(assembly => AssemblyName.ReferenceMatchesDefinition(assembly.GetName(), assemblyName));
+
+            if (!alreadyLoaded)
+            {
+                AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
+            }
+        }
+        catch
+        {
+            // Best-effort assembly loading for external/test-framework references.
+        }
+    }
 
     private void DeclareTestMembers()
     {
@@ -4078,7 +4133,10 @@ public partial class ILCompiler
     public void Compile()
     {
         // Create assembly builder using PersistedAssemblyBuilder for .NET 9+
-        var assemblyName = new AssemblyName(_assemblyName);
+        var assemblyName = new AssemblyName(_assemblyName)
+        {
+            Version = GetAssemblyVersion()
+        };
         var assemblyBuilder = new PersistedAssemblyBuilder(
             assemblyName,
             typeof(object).Assembly);
@@ -4249,11 +4307,61 @@ public partial class ILCompiler
         _programType.CreateType();
         _testType?.CreateType();
 
-        // Save the assembly to disk using PersistedAssemblyBuilder (.NET 9+)
+        SaveAssembly(assemblyBuilder);
+
+    }
+
+    private void SaveAssembly(PersistedAssemblyBuilder assemblyBuilder)
+    {
+        var entryPoint = GetEntryPointMethod();
+        if (string.Equals(_projectConfig?.OutputType, "exe", StringComparison.OrdinalIgnoreCase)
+            && entryPoint != null)
+        {
+            var metadataBuilder = assemblyBuilder.GenerateMetadata(out var ilStream, out var mappedFieldData);
+            var peBuilder = new ManagedPEBuilder(
+                header: PEHeaderBuilder.CreateExecutableHeader(),
+                metadataRootBuilder: new MetadataRootBuilder(metadataBuilder),
+                ilStream: ilStream,
+                mappedFieldData: mappedFieldData,
+                entryPoint: MetadataTokens.MethodDefinitionHandle(entryPoint.MetadataToken));
+
+            var peBlob = new BlobBuilder();
+            peBuilder.Serialize(peBlob);
+
+            using var executableStream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write);
+            peBlob.WriteContentTo(executableStream);
+            return;
+        }
+
         using var stream = new FileStream(_outputPath, FileMode.Create, FileAccess.Write);
         assemblyBuilder.Save(stream);
+    }
 
-        Console.Error.WriteLine($"IL Compiler: Assembly '{_assemblyName}' compiled and saved to '{_outputPath}'");
+    private Version GetAssemblyVersion()
+    {
+        if (!string.IsNullOrWhiteSpace(_projectConfig?.Version)
+            && Version.TryParse(_projectConfig.Version, out var configuredVersion))
+        {
+            return NormalizeAssemblyVersion(configuredVersion);
+        }
+
+        return new Version(1, 0, 0, 0);
+    }
+
+    private static Version NormalizeAssemblyVersion(Version version)
+    {
+        return new Version(
+            version.Major >= 0 ? version.Major : 1,
+            version.Minor >= 0 ? version.Minor : 0,
+            version.Build >= 0 ? version.Build : 0,
+            version.Revision >= 0 ? version.Revision : 0);
+    }
+
+    private MethodBuilder? GetEntryPointMethod()
+    {
+        return _methods.TryGetValue("main", out var lowerMain)
+            ? lowerMain
+            : _methods.GetValueOrDefault("Main");
     }
 
     /// <summary>
@@ -7097,6 +7205,40 @@ public partial class ILCompiler
                 throw new InvalidOperationException($"No matching overload for function {ident.Name}");
             }
 
+            if (_currentTypeBuilder != null)
+            {
+                var currentTypeStaticCall = BindDeclaredMethodCall(
+                    GetMethodKey(_currentTypeBuilder, ident.Name),
+                    call,
+                    predicate: overload => overload.Builder.IsStatic);
+                if (currentTypeStaticCall != null)
+                {
+                    EmitBoundCallArguments(currentTypeStaticCall.Arguments);
+                    _currentIL.Emit(OpCodes.Call, currentTypeStaticCall.Method);
+                    return;
+                }
+
+                if (_currentHasThis)
+                {
+                    var currentTypeInstanceCall = BindDeclaredMethodCall(
+                        GetMethodKey(_currentTypeBuilder, ident.Name),
+                        call,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (currentTypeInstanceCall != null)
+                    {
+                        _currentIL.Emit(OpCodes.Ldarg_0);
+                        EmitBoundCallArguments(currentTypeInstanceCall.Arguments);
+                        _currentIL.Emit(currentTypeInstanceCall.Method.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, currentTypeInstanceCall.Method);
+                        return;
+                    }
+                }
+
+                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name)))
+                {
+                    throw new InvalidOperationException($"No matching overload for method {GetTypeKey(_currentTypeBuilder)}.{ident.Name}");
+                }
+            }
+
             if (ident.Name == "print")
             {
                 // Emit arguments
@@ -7798,25 +7940,16 @@ public partial class ILCompiler
         }
         else
         {
-            // Built-in type - use reflection
-            var parameterTypes = newExpr.ConstructorArguments
-                .Select(arg => GetExpressionType(arg.Value))
-                .ToArray();
-
-            if (parameterTypes.Length == 0)
+            var boundRuntimeConstructorCall = BindRuntimeConstructorCall(type, newExpr.ConstructorArguments);
+            if (boundRuntimeConstructorCall != null)
             {
-                // Default constructor
-                constructor = type.GetConstructor(Type.EmptyTypes);
-            }
-            else
-            {
-                // Constructor with parameters
-                constructor = type.GetConstructor(parameterTypes);
+                constructor = boundRuntimeConstructorCall.Constructor;
+                boundArguments = boundRuntimeConstructorCall.Arguments;
             }
 
             if (constructor == null)
             {
-                if (!(type.IsValueType && parameterTypes.Length == 0))
+                if (!(type.IsValueType && newExpr.ConstructorArguments.Count == 0))
                 {
                     throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
                 }
@@ -9558,6 +9691,40 @@ public partial class ILCompiler
             if (_methods.TryGetValue(ident.Name, out var methodBuilder))
             {
                 return methodBuilder.ReturnType;
+            }
+
+            if (_currentTypeBuilder != null)
+            {
+                var currentTypeStaticCall = BindDeclaredMethodCall(
+                    GetMethodKey(_currentTypeBuilder, ident.Name),
+                    call,
+                    predicate: overload => overload.Builder.IsStatic);
+                if (currentTypeStaticCall != null)
+                {
+                    return GetBoundDeclaredMethodReturnType(currentTypeStaticCall);
+                }
+
+                if (_currentHasThis)
+                {
+                    var currentTypeInstanceCall = BindDeclaredMethodCall(
+                        GetMethodKey(_currentTypeBuilder, ident.Name),
+                        call,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (currentTypeInstanceCall != null)
+                    {
+                        return GetBoundDeclaredMethodReturnType(currentTypeInstanceCall);
+                    }
+                }
+
+                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name)))
+                {
+                    return typeof(object);
+                }
+
+                if (_methods.TryGetValue(GetMethodKey(_currentTypeBuilder, ident.Name), out methodBuilder))
+                {
+                    return methodBuilder.ReturnType;
+                }
             }
         }
 
@@ -12662,6 +12829,7 @@ public partial class ILCompiler
                     FieldAttributes.Private | FieldAttributes.InitOnly);
 
                 _fields[GetFieldKey(typeBuilder, backingFieldName)] = backingField;
+                _primaryConstructorFields[GetPrimaryConstructorFieldKey(typeBuilder, param.Name)] = backingField;
 
                 // Define property
                 var property = typeBuilder.DefineProperty(

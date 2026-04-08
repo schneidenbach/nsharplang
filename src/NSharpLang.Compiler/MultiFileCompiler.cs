@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.ILCompiler;
 
 namespace NSharpLang.Compiler;
 
@@ -317,6 +318,70 @@ public class MultiFileCompiler
         return new MultiFileCompilationResult(success, _allErrors, _transpiledFiles);
     }
 
+    public MultiFileCompilationResult Compile(CompilationBackend backend, string assemblyName, string outputPath)
+    {
+        return backend switch
+        {
+            CompilationBackend.Transpile => Compile(),
+            CompilationBackend.Il => CompileToIlAssembly(assemblyName, outputPath),
+            _ => throw new InvalidOperationException($"Unsupported compilation backend: {backend}")
+        };
+    }
+
+    private MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath)
+    {
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START");
+
+        ParseAllFiles();
+        AnalyzeAllFiles();
+
+        if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+        {
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
+                new Dictionary<string, string>(),
+                null,
+                CompilationBackend.Il);
+        }
+
+        try
+        {
+            var mergedCompilationUnit = CreateMergedCompilationUnit();
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
+
+            var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config);
+            compiler.Compile();
+        }
+        catch (Exception ex)
+        {
+            _allErrors.Add(new CompilerError(
+                ErrorCode.InvalidSyntax,
+                $"Failed to emit IL assembly '{assemblyName}': {ex.Message}",
+                0,
+                0,
+                ErrorSeverity.Error));
+        }
+
+        var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
+        return new MultiFileCompilationResult(
+            success,
+            _allErrors,
+            new Dictionary<string, string>(),
+            success ? outputPath : null,
+            CompilationBackend.Il);
+    }
+
+    private CompilationUnit CreateMergedCompilationUnit()
+    {
+        var orderedUnits = _sourceFiles
+            .Select(sourceFile => _compilationUnits.TryGetValue(sourceFile, out var compilationUnit) ? compilationUnit : null)
+            .Where(compilationUnit => compilationUnit != null)
+            .Cast<CompilationUnit>()
+            .ToList();
+        return NamespaceQualifiedCompilationMerger.Merge(orderedUnits);
+    }
+
     private static bool IsDebugLoggingEnabled()
     {
         var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
@@ -363,5 +428,7 @@ public class MultiFileCompiler
 public record MultiFileCompilationResult(
     bool Success,
     IEnumerable<CompilerError> Errors,
-    Dictionary<string, string> TranspiledFiles
+    Dictionary<string, string> TranspiledFiles,
+    string? OutputAssemblyPath = null,
+    CompilationBackend Backend = CompilationBackend.Transpile
 );

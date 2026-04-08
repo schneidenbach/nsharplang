@@ -156,6 +156,11 @@ public partial class ILCompiler
             return true;
         }
 
+        if (AreTypeIdentitiesEquivalent(targetType, sourceType))
+        {
+            return true;
+        }
+
         if (targetType.ContainsGenericParameters || sourceType.ContainsGenericParameters)
         {
             return GetTypeKey(targetType) == GetTypeKey(sourceType);
@@ -184,6 +189,18 @@ public partial class ILCompiler
 
                 current = current.BaseType;
             }
+        }
+
+        try
+        {
+            var constructedMatch = FindConstructedGenericMatch(targetType, sourceType);
+            if (constructedMatch != null && AreTypeIdentitiesEquivalent(targetType, constructedMatch))
+            {
+                return true;
+            }
+        }
+        catch (NotSupportedException)
+        {
         }
 
         return !IsUnsupportedRuntimeLookupType(targetType)
