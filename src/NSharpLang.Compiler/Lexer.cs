@@ -71,6 +71,8 @@ public class Lexer
         { "sealed", TokenType.Sealed },
         { "partial", TokenType.Partial },
         { "static", TokenType.Static },
+        { "public", TokenType.Public },
+        { "private", TokenType.Private },
         { "internal", TokenType.Internal },
         { "protected", TokenType.Protected },
         { "async", TokenType.Async },

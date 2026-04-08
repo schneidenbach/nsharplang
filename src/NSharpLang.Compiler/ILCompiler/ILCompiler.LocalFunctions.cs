@@ -553,11 +553,194 @@ public partial class ILCompiler
         }
     }
 
+    private bool TryBindGenericLocalFunctionParameters(
+        IReadOnlyList<Parameter> declaredParameters,
+        IReadOnlyDictionary<string, Type> typeBindings,
+        IReadOnlyList<Argument> suppliedArguments,
+        out IReadOnlyList<BoundCallArgument> boundArguments)
+    {
+        var resolvedParameterTypes = declaredParameters
+            .Select(parameter => ResolveGenericLocalFunctionTypeReference(parameter.Type, typeBindings))
+            .ToArray();
+        var bound = new BoundCallArgument[resolvedParameterTypes.Length];
+        var usesParams = declaredParameters.Count > 0 && declaredParameters[^1].Modifier == Ast.ParameterModifier.Params;
+        var paramsParameterIndex = usesParams ? resolvedParameterTypes.Length - 1 : -1;
+        var nextPositionalParameter = 0;
+        var paramsArguments = new List<Argument>();
+
+        foreach (var argument in suppliedArguments)
+        {
+            if (argument.Name != null)
+            {
+                var parameterIndex = Enumerable.Range(0, declaredParameters.Count)
+                    .FirstOrDefault(index => declaredParameters[index].Name == argument.Name, -1);
+                if (parameterIndex < 0 || parameterIndex >= declaredParameters.Count || bound[parameterIndex] != null)
+                {
+                    boundArguments = Array.Empty<BoundCallArgument>();
+                    return false;
+                }
+
+                bound[parameterIndex] = new SuppliedBoundCallArgument(argument, resolvedParameterTypes[parameterIndex]);
+                continue;
+            }
+
+            while (nextPositionalParameter < resolvedParameterTypes.Length
+                   && nextPositionalParameter != paramsParameterIndex
+                   && bound[nextPositionalParameter] != null)
+            {
+                nextPositionalParameter++;
+            }
+
+            if (nextPositionalParameter < resolvedParameterTypes.Length
+                && nextPositionalParameter != paramsParameterIndex)
+            {
+                bound[nextPositionalParameter] = new SuppliedBoundCallArgument(argument, resolvedParameterTypes[nextPositionalParameter]);
+                nextPositionalParameter++;
+                continue;
+            }
+
+            if (!usesParams)
+            {
+                boundArguments = Array.Empty<BoundCallArgument>();
+                return false;
+            }
+
+            paramsArguments.Add(argument);
+        }
+
+        var regularParameterCount = usesParams ? paramsParameterIndex : resolvedParameterTypes.Length;
+        for (int i = 0; i < regularParameterCount; i++)
+        {
+            if (bound[i] != null)
+            {
+                continue;
+            }
+
+            var defaultValue = declaredParameters[i].DefaultValue;
+            if (defaultValue == null)
+            {
+                boundArguments = Array.Empty<BoundCallArgument>();
+                return false;
+            }
+
+            bound[i] = new ExpressionBoundCallArgument(defaultValue, resolvedParameterTypes[i]);
+        }
+
+        if (usesParams)
+        {
+            if (bound[paramsParameterIndex] != null && paramsArguments.Count > 0)
+            {
+                boundArguments = Array.Empty<BoundCallArgument>();
+                return false;
+            }
+
+            if (bound[paramsParameterIndex] == null)
+            {
+                var paramsParameterType = resolvedParameterTypes[paramsParameterIndex];
+                if (!TryGetParamsElementType(paramsParameterType, out var elementType))
+                {
+                    boundArguments = Array.Empty<BoundCallArgument>();
+                    return false;
+                }
+
+                if (paramsArguments.Count == 1 && ShouldPassParamsArgumentDirectly(paramsArguments[0], paramsParameterType))
+                {
+                    bound[paramsParameterIndex] = new SuppliedBoundCallArgument(paramsArguments[0], paramsParameterType);
+                }
+                else
+                {
+                    bound[paramsParameterIndex] = new ParamsCollectionBoundCallArgument(paramsParameterType, elementType, paramsArguments);
+                }
+            }
+        }
+
+        for (int i = 0; i < resolvedParameterTypes.Length; i++)
+        {
+            var parameterType = resolvedParameterTypes[i];
+            var expectedType = GetByRefElementType(parameterType);
+
+            switch (bound[i])
+            {
+                case SuppliedBoundCallArgument supplied:
+                {
+                    var expectsByRef = parameterType.IsByRef;
+                    var suppliedByRef = supplied.Argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out;
+                    if (expectsByRef != suppliedByRef)
+                    {
+                        boundArguments = Array.Empty<BoundCallArgument>();
+                        return false;
+                    }
+
+                    if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
+                    {
+                        if (outVariable.Type != null && !IsParameterTypeCompatible(expectedType, ResolveType(outVariable.Type, _currentGenericParameters)))
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+
+                        break;
+                    }
+
+                    if (supplied.Argument.Value is DefaultExpression)
+                    {
+                        break;
+                    }
+
+                    var argumentType = GetExpressionType(supplied.Argument.Value);
+                    if (!IsParameterTypeCompatible(expectedType, argumentType))
+                    {
+                        boundArguments = Array.Empty<BoundCallArgument>();
+                        return false;
+                    }
+
+                    break;
+                }
+
+                case ExpressionBoundCallArgument expressionBound:
+                    if (expressionBound.Expression is DefaultExpression)
+                    {
+                        break;
+                    }
+
+                    if (!IsParameterTypeCompatible(expectedType, GetExpressionType(expressionBound.Expression)))
+                    {
+                        boundArguments = Array.Empty<BoundCallArgument>();
+                        return false;
+                    }
+
+                    break;
+
+                case ParamsCollectionBoundCallArgument paramsBound:
+                    foreach (var paramsArgument in paramsBound.Arguments)
+                    {
+                        if (paramsArgument.Value is SpreadExpression)
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+
+                        if (!IsParameterTypeCompatible(paramsBound.ElementType, GetExpressionType(paramsArgument.Value)))
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+                    }
+
+                    break;
+
+                case null:
+                    boundArguments = Array.Empty<BoundCallArgument>();
+                    return false;
+            }
+        }
+
+        boundArguments = bound;
+        return true;
+    }
+
     private (MethodInfo? Method, Type[]? TypeArguments) CreateGenericLocalFunctionCandidate(FunctionDeclaration declaration, MethodBuilder methodBuilder, CallExpression call)
     {
-        _genericLocalFunctionCaptures.TryGetValue(declaration, out var captures);
-        var captureCount = captures?.Count ?? 0;
-
         if (declaration.TypeParameters is not { Count: > 0 })
         {
             return call.TypeArguments is { Count: > 0 }
@@ -579,11 +762,14 @@ public partial class ILCompiler
         }
         else
         {
-            typeArguments = TryInferDeclaredMethodTypeArguments(
-                declaration,
-                methodBuilder.GetParameters().Skip(captureCount).ToArray(),
-                call,
-                implicitReceiver: null);
+            if (!TryBindGenericLocalFunctionTypeArguments(declaration, call, out var typeBindings))
+            {
+                return (null, null);
+            }
+
+            typeArguments = declaration.TypeParameters
+                .Select(typeParameter => typeBindings[typeParameter.Name])
+                .ToArray();
         }
 
         if (typeArguments == null)
@@ -780,15 +966,16 @@ public partial class ILCompiler
         var captures = _genericLocalFunctionCaptures.TryGetValue(declaration, out var captureList)
             ? captureList
             : Array.Empty<GenericLocalFunctionCapture>();
-        var runtimeParameters = candidateMethod.GetParameters().Skip(captures.Count).ToArray();
-        if (!TryBindDeclaredParameters(
+        var typeBindings = declaration.TypeParameters is { Count: > 0 } && candidateTypeArguments != null
+            ? declaration.TypeParameters
+                .Select((typeParameter, index) => (typeParameter.Name, Type: candidateTypeArguments[index]))
+                .ToDictionary(entry => entry.Name, entry => entry.Type, StringComparer.Ordinal)
+            : new Dictionary<string, Type>(StringComparer.Ordinal);
+        if (!TryBindGenericLocalFunctionParameters(
                 declaration.Parameters,
-                runtimeParameters,
+                typeBindings,
                 call.Arguments,
-                out var boundArguments,
-                out _,
-                out _,
-                out _))
+                out var boundArguments))
         {
             return null;
         }

@@ -156,6 +156,11 @@ public partial class ILCompiler
             return true;
         }
 
+        if (targetType.ContainsGenericParameters || sourceType.ContainsGenericParameters)
+        {
+            return GetTypeKey(targetType) == GetTypeKey(sourceType);
+        }
+
         if (IsByRefLikeType(sourceType) || IsByRefLikeType(targetType))
         {
             return false;
@@ -491,6 +496,83 @@ public partial class ILCompiler
         return true;
     }
 
+    private void EmitWithOverflowChecking(bool enabled, Action emit)
+    {
+        var previous = _overflowCheckingEnabled;
+        _overflowCheckingEnabled = enabled;
+        try
+        {
+            emit();
+        }
+        finally
+        {
+            _overflowCheckingEnabled = previous;
+        }
+    }
+
+    private static Type NormalizeOverflowCheckedType(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type.IsEnum ? Enum.GetUnderlyingType(type) : type;
+    }
+
+    private static bool IsOverflowCheckedIntegralType(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return type == typeof(byte)
+            || type == typeof(sbyte)
+            || type == typeof(short)
+            || type == typeof(ushort)
+            || type == typeof(int)
+            || type == typeof(uint)
+            || type == typeof(long)
+            || type == typeof(ulong)
+            || type == typeof(char);
+    }
+
+    private static bool IsUnsignedOverflowCheckedType(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return type == typeof(byte)
+            || type == typeof(ushort)
+            || type == typeof(uint)
+            || type == typeof(ulong)
+            || type == typeof(char);
+    }
+
+    private bool TryEmitCheckedBinaryOperator(BinaryExpression binary)
+    {
+        if (!_overflowCheckingEnabled)
+        {
+            return false;
+        }
+
+        var leftType = NormalizeOverflowCheckedType(GetExpressionType(binary.Left));
+        var rightType = NormalizeOverflowCheckedType(GetExpressionType(binary.Right));
+        if (leftType != rightType || !IsOverflowCheckedIntegralType(leftType))
+        {
+            return false;
+        }
+
+        var opcode = binary.Operator switch
+        {
+            BinaryOperator.Add => IsUnsignedOverflowCheckedType(leftType) ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf,
+            BinaryOperator.Subtract => IsUnsignedOverflowCheckedType(leftType) ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf,
+            BinaryOperator.Multiply => IsUnsignedOverflowCheckedType(leftType) ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf,
+            _ => default
+        };
+
+        if (opcode.Value == 0)
+        {
+            return false;
+        }
+
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+        _currentIL!.Emit(opcode);
+        return true;
+    }
+
     private void EmitValueCoercion(Type sourceType, Type targetType, bool allowExplicitUserDefinedConversions)
     {
         if (_currentIL == null)
@@ -589,6 +671,29 @@ public partial class ILCompiler
         return opcode.Value != 0;
     }
 
+    private static bool TryGetCheckedNumericConversionOpcode(Type sourceType, Type targetType, out OpCode opcode)
+    {
+        sourceType = NormalizeOverflowCheckedType(sourceType);
+        targetType = NormalizeOverflowCheckedType(targetType);
+        var sourceUnsigned = IsUnsignedOverflowCheckedType(sourceType);
+
+        opcode = Type.GetTypeCode(targetType) switch
+        {
+            TypeCode.SByte => sourceUnsigned ? OpCodes.Conv_Ovf_I1_Un : OpCodes.Conv_Ovf_I1,
+            TypeCode.Byte => sourceUnsigned ? OpCodes.Conv_Ovf_U1_Un : OpCodes.Conv_Ovf_U1,
+            TypeCode.Int16 => sourceUnsigned ? OpCodes.Conv_Ovf_I2_Un : OpCodes.Conv_Ovf_I2,
+            TypeCode.UInt16 => sourceUnsigned ? OpCodes.Conv_Ovf_U2_Un : OpCodes.Conv_Ovf_U2,
+            TypeCode.Int32 => sourceUnsigned ? OpCodes.Conv_Ovf_I4_Un : OpCodes.Conv_Ovf_I4,
+            TypeCode.UInt32 => sourceUnsigned ? OpCodes.Conv_Ovf_U4_Un : OpCodes.Conv_Ovf_U4,
+            TypeCode.Int64 => sourceUnsigned ? OpCodes.Conv_Ovf_I8_Un : OpCodes.Conv_Ovf_I8,
+            TypeCode.UInt64 => sourceUnsigned ? OpCodes.Conv_Ovf_U8_Un : OpCodes.Conv_Ovf_U8,
+            TypeCode.Char => sourceUnsigned ? OpCodes.Conv_Ovf_U2_Un : OpCodes.Conv_Ovf_U2,
+            _ => default
+        };
+
+        return opcode.Value != 0;
+    }
+
     private bool IsNumericConversionType(Type type)
     {
         if (type is TypeBuilder || TryGetUserTypeDefinition(type, out _) || IsUnsupportedRuntimeLookupType(type))
@@ -627,6 +732,12 @@ public partial class ILCompiler
             || (Nullable.GetUnderlyingType(targetType) ?? targetType) == typeof(decimal))
         {
             return false;
+        }
+
+        if (_overflowCheckingEnabled && TryGetCheckedNumericConversionOpcode(sourceType, targetType, out var checkedOpcode))
+        {
+            _currentIL!.Emit(checkedOpcode);
+            return true;
         }
 
         if (!TryGetNumericConversionOpcode(targetType, out var opcode))

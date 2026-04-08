@@ -41,6 +41,7 @@ public partial class ILCompiler
     private Type? _currentYieldElementType;
     private LocalBuilder? _currentYieldListLocal;
     private Label? _currentYieldBreakLabel;
+    private bool _overflowCheckingEnabled;
 
     // Global context
     private TypeBuilder? _programType;
@@ -721,7 +722,7 @@ public partial class ILCompiler
         return expression switch
         {
             IntLiteralExpression intLiteral => ParseIntLiteralValue(intLiteral.Value),
-            FloatLiteralExpression floatLiteral => double.Parse(floatLiteral.Value, System.Globalization.CultureInfo.InvariantCulture),
+            FloatLiteralExpression floatLiteral => ParseFloatLiteralValue(floatLiteral.Value),
             StringLiteralExpression stringLiteral => stringLiteral.Value.Trim('"'),
             BoolLiteralExpression boolLiteral => boolLiteral.Value,
             NullLiteralExpression => null,
@@ -800,6 +801,127 @@ public partial class ILCompiler
         }
 
         return type.IsGenericType && type.GetGenericArguments().Any(RequiresTypeBuilderMemberResolution);
+    }
+
+    private static IEnumerable<Type> GetRuntimeInterfaces(Type type)
+    {
+        try
+        {
+            return type.GetInterfaces();
+        }
+        catch (NotSupportedException)
+        {
+            return Array.Empty<Type>();
+        }
+    }
+
+    private sealed record ResolvedRuntimeProperty(Type PropertyType, MethodInfo? Getter);
+
+    private static bool TryGetDeclaredRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags, out PropertyInfo? property)
+    {
+        try
+        {
+            property = type.GetProperty(memberName, bindingFlags);
+            return property != null;
+        }
+        catch (NotSupportedException)
+        {
+            property = null;
+            return false;
+        }
+    }
+
+    private static FieldInfo? TryGetDeclaredRuntimeField(Type type, string memberName, BindingFlags bindingFlags)
+    {
+        try
+        {
+            return type.GetField(memberName, bindingFlags);
+        }
+        catch (NotSupportedException)
+        {
+            if (type.IsGenericType && !type.IsGenericTypeDefinition && RequiresTypeBuilderMemberResolution(type))
+            {
+                var genericDefinition = type.GetGenericTypeDefinition();
+                var openField = TryGetDeclaredRuntimeField(genericDefinition, memberName, bindingFlags);
+                return openField != null ? TypeBuilder.GetField(type, openField) : null;
+            }
+
+            return null;
+        }
+    }
+
+    private static ResolvedRuntimeProperty? ResolveRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags)
+    {
+        return ResolveRuntimeProperty(type, memberName, bindingFlags, new HashSet<Type>());
+    }
+
+    private static ResolvedRuntimeProperty? ResolveRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags, HashSet<Type> visited)
+    {
+        if (!visited.Add(type))
+        {
+            return null;
+        }
+
+        if (TryGetDeclaredRuntimeProperty(type, memberName, bindingFlags, out var property))
+        {
+            return new ResolvedRuntimeProperty(property!.GetMethod?.ReturnType ?? property.PropertyType, property.GetMethod);
+        }
+
+        if (type.IsGenericType && !type.IsGenericTypeDefinition && RequiresTypeBuilderMemberResolution(type))
+        {
+            var genericDefinition = type.GetGenericTypeDefinition();
+            if (TryGetDeclaredRuntimeProperty(genericDefinition, memberName, bindingFlags, out var openProperty)
+                && openProperty?.GetMethod != null)
+            {
+                var getter = TypeBuilder.GetMethod(type, openProperty.GetMethod);
+                return new ResolvedRuntimeProperty(getter.ReturnType, getter);
+            }
+        }
+
+        foreach (var interfaceType in GetRuntimeInterfaces(type))
+        {
+            var propertyFromInterface = ResolveRuntimeProperty(interfaceType, memberName, bindingFlags, visited);
+            if (propertyFromInterface != null)
+            {
+                return propertyFromInterface;
+            }
+        }
+
+        return type.BaseType != null
+            ? ResolveRuntimeProperty(type.BaseType, memberName, bindingFlags, visited)
+            : null;
+    }
+
+    private static FieldInfo? ResolveRuntimeField(Type type, string memberName, BindingFlags bindingFlags)
+    {
+        return ResolveRuntimeField(type, memberName, bindingFlags, new HashSet<Type>());
+    }
+
+    private static FieldInfo? ResolveRuntimeField(Type type, string memberName, BindingFlags bindingFlags, HashSet<Type> visited)
+    {
+        if (!visited.Add(type))
+        {
+            return null;
+        }
+
+        var field = TryGetDeclaredRuntimeField(type, memberName, bindingFlags);
+        if (field != null)
+        {
+            return field;
+        }
+
+        foreach (var interfaceType in GetRuntimeInterfaces(type))
+        {
+            field = ResolveRuntimeField(interfaceType, memberName, bindingFlags, visited);
+            if (field != null)
+            {
+                return field;
+            }
+        }
+
+        return type.BaseType != null
+            ? ResolveRuntimeField(type.BaseType, memberName, bindingFlags, visited)
+            : null;
     }
 
     private static ConstructorInfo GetStrongBoxConstructor(Type valueType)
@@ -1348,7 +1470,7 @@ public partial class ILCompiler
         return expression switch
         {
             IntLiteralExpression intLiteral => (ParseIntLiteralValue(intLiteral.Value), typeof(int)),
-            FloatLiteralExpression floatLiteral => (double.Parse(floatLiteral.Value, System.Globalization.CultureInfo.InvariantCulture), typeof(double)),
+            FloatLiteralExpression floatLiteral => (ParseFloatLiteralValue(floatLiteral.Value), typeof(double)),
             StringLiteralExpression stringLiteral => (stringLiteral.Value.Trim('"'), typeof(string)),
             BoolLiteralExpression boolLiteral => (boolLiteral.Value, typeof(bool)),
             UnaryExpression unary => EvaluateAttributeUnaryArgument(unary),
@@ -1537,28 +1659,6 @@ public partial class ILCompiler
         return true;
     }
 
-    private static IEnumerable<Type> ExpandInterfaceClosure(IEnumerable<Type> interfaceTypes)
-    {
-        var seen = new HashSet<Type>();
-        var stack = new Stack<Type>(interfaceTypes);
-
-        while (stack.Count > 0)
-        {
-            var current = stack.Pop();
-            if (!seen.Add(current))
-            {
-                continue;
-            }
-
-            yield return current;
-
-            foreach (var nested in current.GetInterfaces())
-            {
-                stack.Push(nested);
-            }
-        }
-    }
-
     private string GetTypeKey(Type type)
     {
         if (_typeKeys.TryGetValue(type, out var key))
@@ -1628,12 +1728,28 @@ public partial class ILCompiler
             return true;
         }
 
-        if (type.IsGenericType)
+        try
         {
-            var genericDefinition = type.GetGenericTypeDefinition();
-            if (genericDefinition is TypeBuilder genericTypeBuilder && _typeKeys.ContainsKey(genericTypeBuilder))
+            if (type.IsGenericType)
             {
-                typeBuilder = genericTypeBuilder;
+                var genericDefinition = type.GetGenericTypeDefinition();
+                if (genericDefinition is TypeBuilder genericTypeBuilder && _typeKeys.ContainsKey(genericTypeBuilder))
+                {
+                    typeBuilder = genericTypeBuilder;
+                    return true;
+                }
+            }
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        var typeKey = type.FullName?.Replace('+', '.') ?? type.Name;
+        foreach (var entry in _typeKeys)
+        {
+            if (entry.Value == typeKey && entry.Key is TypeBuilder candidateBuilder)
+            {
+                typeBuilder = candidateBuilder;
                 return true;
             }
         }
@@ -1701,6 +1817,90 @@ public partial class ILCompiler
         };
     }
 
+    private static bool AreTypeIdentitiesEquivalent(Type left, Type right)
+    {
+        if (left == right)
+        {
+            return true;
+        }
+
+        left = GetByRefElementType(left);
+        right = GetByRefElementType(right);
+
+        if (left.IsArray && right.IsArray)
+        {
+            return left.GetArrayRank() == right.GetArrayRank()
+                && AreTypeIdentitiesEquivalent(left.GetElementType()!, right.GetElementType()!);
+        }
+
+        if (left.IsGenericType && right.IsGenericType)
+        {
+            try
+            {
+                if (left.GetGenericTypeDefinition() != right.GetGenericTypeDefinition())
+                {
+                    return false;
+                }
+            }
+            catch (NotSupportedException)
+            {
+                return string.Equals(left.ToString(), right.ToString(), StringComparison.Ordinal);
+            }
+
+            var leftArguments = left.GetGenericArguments();
+            var rightArguments = right.GetGenericArguments();
+            if (leftArguments.Length != rightArguments.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < leftArguments.Length; i++)
+            {
+                if (!AreTypeIdentitiesEquivalent(leftArguments[i], rightArguments[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return string.Equals(left.FullName ?? left.ToString(), right.FullName ?? right.ToString(), StringComparison.Ordinal);
+    }
+
+    private static bool IsEnumType(Type type)
+    {
+        try
+        {
+            return type.IsEnum;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static Type? TryGetEnumUnderlyingType(Type type)
+    {
+        if (!IsEnumType(type))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Enum.GetUnderlyingType(type);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+    }
+
     private static bool IsParameterTypeCompatible(Type parameterType, Type argumentType)
     {
         if (parameterType == argumentType)
@@ -1726,6 +1926,11 @@ public partial class ILCompiler
             }
         }
 
+        if (AreTypeIdentitiesEquivalent(parameterType, argumentType))
+        {
+            return true;
+        }
+
         try
         {
             if (parameterType.IsAssignableFrom(argumentType))
@@ -1737,9 +1942,11 @@ public partial class ILCompiler
         {
         }
 
+        var parameterEnumUnderlyingType = TryGetEnumUnderlyingType(parameterType);
+        var argumentEnumUnderlyingType = TryGetEnumUnderlyingType(argumentType);
         return IsImplicitNumericConversion(argumentType, parameterType)
-            || (parameterType.IsEnum && Enum.GetUnderlyingType(parameterType) == argumentType)
-            || (argumentType.IsEnum && Enum.GetUnderlyingType(argumentType) == parameterType);
+            || parameterEnumUnderlyingType == argumentType
+            || argumentEnumUnderlyingType == parameterType;
     }
 
     private static int GetParameterMatchScore(Type parameterType, Type argumentType)
@@ -1752,6 +1959,11 @@ public partial class ILCompiler
         if (parameterType.IsGenericParameter)
         {
             return 4;
+        }
+
+        if (AreTypeIdentitiesEquivalent(parameterType, argumentType))
+        {
+            return 8;
         }
 
         if (parameterType.ContainsGenericParameters)
@@ -1767,8 +1979,8 @@ public partial class ILCompiler
         try
         {
             if (parameterType.IsAssignableFrom(argumentType)
-                || (parameterType.IsEnum && Enum.GetUnderlyingType(parameterType) == argumentType)
-                || (argumentType.IsEnum && Enum.GetUnderlyingType(argumentType) == parameterType))
+                || TryGetEnumUnderlyingType(parameterType) == argumentType
+                || TryGetEnumUnderlyingType(argumentType) == parameterType)
             {
                 return 4;
             }
@@ -1868,15 +2080,32 @@ public partial class ILCompiler
                 return true;
             }
 
-            if (existing.IsAssignableFrom(argumentType))
+            if (AreTypeIdentitiesEquivalent(existing, argumentType))
             {
-                bindings[parameterType.Name] = argumentType;
                 return true;
             }
 
-            if (argumentType.IsAssignableFrom(existing))
+            try
             {
-                return true;
+                if (existing.IsAssignableFrom(argumentType))
+                {
+                    bindings[parameterType.Name] = argumentType;
+                    return true;
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+
+            try
+            {
+                if (argumentType.IsAssignableFrom(existing))
+                {
+                    return true;
+                }
+            }
+            catch (NotSupportedException)
+            {
             }
 
             return false;
@@ -2007,7 +2236,28 @@ public partial class ILCompiler
         out int defaultsUsed,
         Expression? implicitReceiver = null)
     {
-        var bound = new BoundCallArgument[runtimeParameters.Length];
+        return TryBindDeclaredParameters(
+            declaredParameters,
+            runtimeParameters.Select(parameter => parameter.ParameterType).ToArray(),
+            suppliedArguments,
+            out boundArguments,
+            out score,
+            out usesParams,
+            out defaultsUsed,
+            implicitReceiver);
+    }
+
+    private bool TryBindDeclaredParameters(
+        IReadOnlyList<Parameter> declaredParameters,
+        IReadOnlyList<Type> runtimeParameterTypes,
+        IReadOnlyList<Argument> suppliedArguments,
+        out IReadOnlyList<BoundCallArgument> boundArguments,
+        out int score,
+        out bool usesParams,
+        out int defaultsUsed,
+        Expression? implicitReceiver = null)
+    {
+        var bound = new BoundCallArgument[runtimeParameterTypes.Count];
         score = 0;
         defaultsUsed = 0;
         usesParams = declaredParameters.Count > 0 && declaredParameters[^1].Modifier == Ast.ParameterModifier.Params;
@@ -2015,11 +2265,11 @@ public partial class ILCompiler
         var startIndex = 0;
         if (implicitReceiver != null)
         {
-            bound[0] = new ExpressionBoundCallArgument(implicitReceiver, runtimeParameters[0].ParameterType);
+            bound[0] = new ExpressionBoundCallArgument(implicitReceiver, runtimeParameterTypes[0]);
             startIndex = 1;
         }
 
-        var paramsParameterIndex = usesParams ? runtimeParameters.Length - 1 : -1;
+        var paramsParameterIndex = usesParams ? runtimeParameterTypes.Count - 1 : -1;
         var nextPositionalParameter = startIndex;
         var paramsArguments = new List<Argument>();
 
@@ -2035,21 +2285,21 @@ public partial class ILCompiler
                     return false;
                 }
 
-                bound[parameterIndex] = new SuppliedBoundCallArgument(argument, runtimeParameters[parameterIndex].ParameterType);
+                bound[parameterIndex] = new SuppliedBoundCallArgument(argument, runtimeParameterTypes[parameterIndex]);
                 continue;
             }
 
-            while (nextPositionalParameter < runtimeParameters.Length
+            while (nextPositionalParameter < runtimeParameterTypes.Count
                    && nextPositionalParameter != paramsParameterIndex
                    && bound[nextPositionalParameter] != null)
             {
                 nextPositionalParameter++;
             }
 
-            if (nextPositionalParameter < runtimeParameters.Length
+            if (nextPositionalParameter < runtimeParameterTypes.Count
                 && nextPositionalParameter != paramsParameterIndex)
             {
-                bound[nextPositionalParameter] = new SuppliedBoundCallArgument(argument, runtimeParameters[nextPositionalParameter].ParameterType);
+                bound[nextPositionalParameter] = new SuppliedBoundCallArgument(argument, runtimeParameterTypes[nextPositionalParameter]);
                 nextPositionalParameter++;
                 continue;
             }
@@ -2063,7 +2313,7 @@ public partial class ILCompiler
             paramsArguments.Add(argument);
         }
 
-        var regularParameterCount = usesParams ? paramsParameterIndex : runtimeParameters.Length;
+        var regularParameterCount = usesParams ? paramsParameterIndex : runtimeParameterTypes.Count;
         for (int i = startIndex; i < regularParameterCount; i++)
         {
             if (bound[i] != null)
@@ -2078,7 +2328,7 @@ public partial class ILCompiler
                 return false;
             }
 
-            bound[i] = new ExpressionBoundCallArgument(defaultValue, runtimeParameters[i].ParameterType);
+            bound[i] = new ExpressionBoundCallArgument(defaultValue, runtimeParameterTypes[i]);
             defaultsUsed++;
         }
 
@@ -2092,7 +2342,7 @@ public partial class ILCompiler
 
             if (bound[paramsParameterIndex] == null)
             {
-                var paramsParameterType = runtimeParameters[paramsParameterIndex].ParameterType;
+                var paramsParameterType = runtimeParameterTypes[paramsParameterIndex];
                 if (!TryGetParamsElementType(paramsParameterType, out var elementType))
                 {
                     boundArguments = Array.Empty<BoundCallArgument>();
@@ -2110,9 +2360,9 @@ public partial class ILCompiler
             }
         }
 
-        for (int i = 0; i < runtimeParameters.Length; i++)
+        for (int i = 0; i < runtimeParameterTypes.Count; i++)
         {
-            var parameterType = runtimeParameters[i].ParameterType;
+            var parameterType = runtimeParameterTypes[i];
             var expectedType = GetByRefElementType(parameterType);
 
             switch (bound[i])
@@ -2243,9 +2493,17 @@ public partial class ILCompiler
                 candidateMethod = TypeBuilder.GetMethod(targetType, candidateMethod);
             }
 
+            var parameterTypes = overload.Builder.IsStatic
+                && targetType == null
+                && implicitReceiver == null
+                && overload.Declaration.TypeParameters is { Count: > 0 }
+                && candidateTypeArguments != null
+                ? ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments)
+                : candidateMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+
             if (!TryBindDeclaredParameters(
                     overload.Declaration.Parameters,
-                    candidateMethod.GetParameters(),
+                    parameterTypes,
                     call.Arguments,
                     out var boundArguments,
                     out var score,
@@ -2699,6 +2957,32 @@ public partial class ILCompiler
         return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
             ? parameterType.MakeByRefType()
             : parameterType;
+    }
+
+    private Type ResolveParameterType(Parameter parameter, IReadOnlyDictionary<string, Type> genericTypeArguments)
+    {
+        var parameterType = ResolveType(parameter.Type, genericTypeArguments);
+        return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
+            ? parameterType.MakeByRefType()
+            : parameterType;
+    }
+
+    private Type[] ResolveDeclaredMethodParameterTypes(FunctionDeclaration declaration, IReadOnlyList<Type> typeArguments)
+    {
+        if (declaration.TypeParameters is not { Count: > 0 } || declaration.TypeParameters.Count != typeArguments.Count)
+        {
+            return declaration.Parameters.Select(parameter => ResolveParameterType(parameter)).ToArray();
+        }
+
+        var substitutions = new Dictionary<string, Type>(StringComparer.Ordinal);
+        for (int i = 0; i < declaration.TypeParameters.Count; i++)
+        {
+            substitutions[declaration.TypeParameters[i].Name] = typeArguments[i];
+        }
+
+        return declaration.Parameters
+            .Select(parameter => ResolveParameterType(parameter, substitutions))
+            .ToArray();
     }
 
     private void RegisterParameterContext(IReadOnlyList<Parameter> parameters, int startIndex, GenericTypeParameterBuilder[]? genericParameters = null)
@@ -3769,11 +4053,6 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldelema, elementType);
     }
 
-    private MethodInfo? ResolveMethodByArguments(Type declaringType, string methodName, IReadOnlyList<Argument> arguments, BindingFlags bindingFlags)
-    {
-        return BindRuntimeMethodCall(declaringType, methodName, arguments, null, bindingFlags)?.Method;
-    }
-
     private void EmitCallArguments(IReadOnlyList<Argument> arguments, IReadOnlyList<Type> parameterTypes)
     {
         for (int i = 0; i < arguments.Count; i++)
@@ -4588,7 +4867,10 @@ public partial class ILCompiler
                 continue;
             }
 
-            var field = tupleType.GetField($"Item{i + 1}");
+            var field = ResolveRuntimeField(
+                tupleType,
+                $"Item{i + 1}",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (field == null)
             {
                 throw new InvalidOperationException($"Tuple field Item{i + 1} not found on type {tupleType}");
@@ -5084,7 +5366,7 @@ public partial class ILCompiler
         else
         {
             // Try to find IEnumerable<T>
-            enumerableInterface = collectionType.GetInterfaces()
+            enumerableInterface = GetRuntimeInterfaces(collectionType)
                 .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
 
             if (enumerableInterface == null && collectionType.IsGenericType &&
@@ -5396,6 +5678,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldelem_R8);
         else if (elementType == typeof(float))
             _currentIL.Emit(OpCodes.Ldelem_R4);
+        else if (elementType.IsGenericParameter || elementType.ContainsGenericParameters)
+            _currentIL.Emit(OpCodes.Ldelem, elementType);
         else if (elementType.IsValueType)
             _currentIL.Emit(OpCodes.Ldelem, elementType);
         else
@@ -5535,6 +5819,13 @@ public partial class ILCompiler
             throw new InvalidOperationException("Using statement must have either a declaration or an expression");
         }
 
+        var resourceType = resourceLocal.LocalType;
+        var resourceIsLifted = usingStmt.Declaration != null && IsLiftedIdentifier(usingStmt.Declaration.Name);
+        if (resourceIsLifted)
+        {
+            resourceType = GetStrongBoxValueType(resourceType);
+        }
+
         // Begin try-finally block
         _currentIL.BeginExceptionBlock();
 
@@ -5549,38 +5840,70 @@ public partial class ILCompiler
 
         var interfaceDisposeMethod = typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose))
             ?? throw new InvalidOperationException("Could not resolve IDisposable.Dispose()");
-        var disposeMethod = ResolveDisposePatternMethod(resourceLocal.LocalType);
+        var disposeMethod = ResolveDisposePatternMethod(resourceType);
 
-        if (disposeMethod != null || typeof(IDisposable).IsAssignableFrom(resourceLocal.LocalType))
+        if (disposeMethod != null || typeof(IDisposable).IsAssignableFrom(resourceType))
         {
-            if (resourceLocal.LocalType.IsValueType)
+            if (resourceType.IsValueType)
             {
                 if (disposeMethod != null)
                 {
-                    _currentIL.Emit(OpCodes.Ldloca_S, resourceLocal);
+                    if (resourceIsLifted)
+                    {
+                        EmitLoadLiftedLocalAddress(resourceLocal);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldloca_S, resourceLocal);
+                    }
+
                     _currentIL.Emit(OpCodes.Call, disposeMethod);
                 }
                 else
                 {
-                    _currentIL.Emit(OpCodes.Ldloca_S, resourceLocal);
-                    _currentIL.Emit(OpCodes.Constrained, resourceLocal.LocalType);
+                    if (resourceIsLifted)
+                    {
+                        EmitLoadLiftedLocalAddress(resourceLocal);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldloca_S, resourceLocal);
+                    }
+
+                    _currentIL.Emit(OpCodes.Constrained, resourceType);
                     _currentIL.Emit(OpCodes.Callvirt, interfaceDisposeMethod);
                 }
             }
             else
             {
                 var endLabel = _currentIL.DefineLabel();
-                _currentIL.Emit(OpCodes.Ldloc, resourceLocal);
+                if (resourceIsLifted)
+                {
+                    EmitLoadLiftedLocalValue(resourceLocal);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, resourceLocal);
+                }
+
                 _currentIL.Emit(OpCodes.Brfalse_S, endLabel);
 
-                _currentIL.Emit(OpCodes.Ldloc, resourceLocal);
+                if (resourceIsLifted)
+                {
+                    EmitLoadLiftedLocalValue(resourceLocal);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, resourceLocal);
+                }
+
                 if (disposeMethod != null)
                 {
                     _currentIL.Emit(OpCodes.Callvirt, disposeMethod);
                 }
                 else
                 {
-                    if (resourceLocal.LocalType != typeof(IDisposable))
+                    if (resourceType != typeof(IDisposable))
                     {
                         _currentIL.Emit(OpCodes.Castclass, typeof(IDisposable));
                     }
@@ -5601,9 +5924,12 @@ public partial class ILCompiler
 
     private MethodInfo? ResolveDisposePatternMethod(Type type)
     {
-        if (type is TypeBuilder typeBuilder)
+        if (TryGetUserTypeDefinition(type, out var typeBuilder))
         {
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, nameof(IDisposable.Dispose)), out var disposeMethod)
+            var disposeMethod = type == typeBuilder
+                ? _methods.GetValueOrDefault(GetMethodKey(typeBuilder, nameof(IDisposable.Dispose)))
+                : ResolveUserDefinedMethod(type, nameof(IDisposable.Dispose));
+            if (disposeMethod != null
                 && !disposeMethod.IsStatic
                 && disposeMethod.GetParameters().Length == 0)
             {
@@ -5613,12 +5939,19 @@ public partial class ILCompiler
             return null;
         }
 
-        return type.GetMethod(
-            nameof(IDisposable.Dispose),
-            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            binder: null,
-            types: Type.EmptyTypes,
-            modifiers: null);
+        try
+        {
+            return type.GetMethod(
+                nameof(IDisposable.Dispose),
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -5755,11 +6088,11 @@ public partial class ILCompiler
                 break;
 
             case CheckedExpression checkedExpr:
-                EmitExpression(checkedExpr.Expression);
+                EmitWithOverflowChecking(enabled: true, () => EmitExpression(checkedExpr.Expression));
                 break;
 
             case UncheckedExpression uncheckedExpr:
-                EmitExpression(uncheckedExpr.Expression);
+                EmitWithOverflowChecking(enabled: false, () => EmitExpression(uncheckedExpr.Expression));
                 break;
 
             case MatchExpression match:
@@ -5832,8 +6165,20 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        var value = double.Parse(floatLit.Value, System.Globalization.CultureInfo.InvariantCulture);
+        var value = ParseFloatLiteralValue(floatLit.Value);
         _currentIL.Emit(OpCodes.Ldc_R8, value);
+    }
+
+    private static double ParseFloatLiteralValue(string text)
+    {
+        var span = text.AsSpan().Trim();
+        while (span.Length > 0 && (span[^1] is 'f' or 'F' or 'd' or 'D' or 'm' or 'M'))
+        {
+            span = span[..^1];
+        }
+
+        var clean = span.ToString().Replace("_", "");
+        return double.Parse(clean, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -5878,7 +6223,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (!targetType.IsValueType || Nullable.GetUnderlyingType(targetType) != null)
+        if (!targetType.IsValueType)
         {
             _currentIL.Emit(OpCodes.Ldnull);
             return;
@@ -6078,6 +6423,23 @@ public partial class ILCompiler
         switch (unary.Operator)
         {
             case UnaryOperator.Negate:
+                var operandType = NormalizeOverflowCheckedType(GetExpressionType(unary.Operand));
+                if (_overflowCheckingEnabled && operandType == typeof(int))
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4_0);
+                    EmitExpression(unary.Operand);
+                    _currentIL.Emit(OpCodes.Sub_Ovf);
+                    return;
+                }
+
+                if (_overflowCheckingEnabled && operandType == typeof(long))
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I8, 0L);
+                    EmitExpression(unary.Operand);
+                    _currentIL.Emit(OpCodes.Sub_Ovf);
+                    return;
+                }
+
                 EmitExpression(unary.Operand);
                 _currentIL.Emit(OpCodes.Neg);
                 return;
@@ -6124,13 +6486,13 @@ public partial class ILCompiler
                 var originalLocal = _currentIL.DeclareLocal(GetIdentifierType(ident));
                 _currentIL.Emit(OpCodes.Dup);
                 _currentIL.Emit(OpCodes.Stloc, originalLocal);
-                EmitIncrementDelta(delta);
+                EmitIncrementDelta(delta, GetIdentifierType(ident));
                 StoreIdentifier(ident);
                 _currentIL.Emit(OpCodes.Ldloc, originalLocal);
             }
             else
             {
-                EmitIncrementDelta(delta);
+                EmitIncrementDelta(delta, GetIdentifierType(ident));
                 StoreIdentifier(ident);
                 EmitIdentifier(ident);
             }
@@ -6152,11 +6514,30 @@ public partial class ILCompiler
         throw new NotImplementedException($"Unary operator {unary.Operator} requires an assignable target");
     }
 
-    private void EmitIncrementDelta(int delta)
+    private void EmitIncrementDelta(int delta, Type operandType)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        _currentIL.Emit(OpCodes.Ldc_I4, Math.Abs(delta));
+        operandType = NormalizeOverflowCheckedType(operandType);
+
+        if (operandType == typeof(long) || operandType == typeof(ulong))
+        {
+            _currentIL.Emit(OpCodes.Ldc_I8, 1L);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldc_I4_1);
+        }
+
+        if (_overflowCheckingEnabled && IsOverflowCheckedIntegralType(operandType))
+        {
+            var isUnsigned = IsUnsignedOverflowCheckedType(operandType);
+            _currentIL.Emit(delta >= 0
+                ? (isUnsigned ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf)
+                : (isUnsigned ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf));
+            return;
+        }
+
         _currentIL.Emit(delta >= 0 ? OpCodes.Add : OpCodes.Sub);
     }
 
@@ -6218,7 +6599,7 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, originalLocal);
         }
 
-        EmitIncrementDelta(delta);
+        EmitIncrementDelta(delta, GetMemberAccessType(memberAccess));
         EmitMemberStoreValue(objectType, memberAccess.MemberName);
 
         if (isPost)
@@ -6258,7 +6639,7 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, originalLocal);
         }
 
-        EmitIncrementDelta(delta);
+        EmitIncrementDelta(delta, GetIndexAccessType(indexAccess));
         var updatedLocal = _currentIL.DeclareLocal(GetIndexAccessType(indexAccess));
         _currentIL.Emit(OpCodes.Stloc, updatedLocal);
         _currentIL.Emit(OpCodes.Ldloc, objectLocal);
@@ -6293,6 +6674,11 @@ public partial class ILCompiler
             (GetExpressionType(binary.Left) == typeof(string) || GetExpressionType(binary.Right) == typeof(string)))
         {
             EmitStringConcatenation(binary);
+            return;
+        }
+
+        if (TryEmitCheckedBinaryOperator(binary))
+        {
             return;
         }
 
@@ -6460,8 +6846,9 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        var calleeType = GetExpressionType(call.Callee);
         if (call.Callee is not MemberAccessExpression &&
-            TryGetDelegateInvokeMethod(GetExpressionType(call.Callee), out var delegateInvokeMethod) &&
+            TryGetDelegateInvokeMethod(calleeType, out var delegateInvokeMethod) &&
             delegateInvokeMethod != null)
         {
             if (call.Callee is IdentifierExpression localFunctionIdent
@@ -6483,7 +6870,7 @@ public partial class ILCompiler
             }
 
             EmitExpression(call.Callee);
-            EmitCallArguments(call.Arguments, delegateInvokeMethod.GetParameters().Select(p => p.ParameterType).ToArray());
+            EmitCallArguments(call.Arguments, GetDelegateInvokeParameterTypes(calleeType, delegateInvokeMethod));
             _currentIL.Emit(OpCodes.Callvirt, delegateInvokeMethod);
             return;
         }
@@ -6942,7 +7329,19 @@ public partial class ILCompiler
             }
 
             // Emit the object
-            EmitExpression(memberAccess.Object);
+            var cacheReceiver = !IsValueTypeLike(objectType);
+            LocalBuilder? receiverLocal = null;
+            if (cacheReceiver)
+            {
+                EmitExpression(memberAccess.Object);
+                receiverLocal = _currentIL.DeclareLocal(objectType);
+                _currentIL.Emit(OpCodes.Stloc, receiverLocal);
+                _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+            }
+            else
+            {
+                EmitExpression(memberAccess.Object);
+            }
 
             // Handle compound assignment
             if (assignment.Operator != AssignmentOperator.Assign)
@@ -7068,8 +7467,15 @@ public partial class ILCompiler
 
             // Assignment expressions return the assigned value
             // For member assignments, we need to reload the value
-            EmitExpression(memberAccess.Object);
-            EmitMemberAccess(memberAccess);
+            if (receiverLocal != null)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+                EmitMemberLoadValue(objectType, memberAccess.MemberName);
+            }
+            else
+            {
+                EmitMemberAccess(memberAccess);
+            }
 
             return;
         }
@@ -7823,6 +8229,9 @@ public partial class ILCompiler
         {
             var elementType = objectType.GetElementType()!;
             var indexType = GetExpressionType(indexAccess.Index);
+            var useGenericArrayOpcode = objectType.ContainsGenericParameters
+                || elementType.IsGenericParameter
+                || elementType.ContainsGenericParameters;
 
             if (indexType == typeof(Range))
             {
@@ -7855,11 +8264,25 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Stloc, lengthLocal);
                 _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
                 EmitIndexOffset(indexLocal, lengthLocal);
-                EmitArrayElementLoad(elementType);
+                if (useGenericArrayOpcode)
+                {
+                    _currentIL.Emit(OpCodes.Ldelem, elementType);
+                }
+                else
+                {
+                    EmitArrayElementLoad(elementType);
+                }
                 return;
             }
 
-            EmitArrayElementLoad(elementType);
+            if (useGenericArrayOpcode)
+            {
+                _currentIL.Emit(OpCodes.Ldelem, elementType);
+            }
+            else
+            {
+                EmitArrayElementLoad(elementType);
+            }
             return;
         }
 
@@ -7971,6 +8394,9 @@ public partial class ILCompiler
         {
             var elementType = objectType.GetElementType()!;
             var indexType = GetExpressionType(indexAccess.Index);
+            var useGenericArrayOpcode = objectType.ContainsGenericParameters
+                || elementType.IsGenericParameter
+                || elementType.ContainsGenericParameters;
 
             if (indexType == typeof(Range))
             {
@@ -7993,11 +8419,25 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
                 EmitIndexOffset(indexLocal, lengthLocal);
                 _currentIL.Emit(OpCodes.Ldloc, valueLocal);
-                EmitArrayElementStore(elementType);
+                if (useGenericArrayOpcode)
+                {
+                    _currentIL.Emit(OpCodes.Stelem, elementType);
+                }
+                else
+                {
+                    EmitArrayElementStore(elementType);
+                }
                 return;
             }
 
-            EmitArrayElementStore(elementType);
+            if (useGenericArrayOpcode)
+            {
+                _currentIL.Emit(OpCodes.Stelem, elementType);
+            }
+            else
+            {
+                EmitArrayElementStore(elementType);
+            }
             return;
         }
 
@@ -8063,6 +8503,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stelem_R8);
         else if (elementType == typeof(float))
             _currentIL.Emit(OpCodes.Stelem_R4);
+        else if (elementType.IsGenericParameter || elementType.ContainsGenericParameters)
+            _currentIL.Emit(OpCodes.Stelem, elementType);
         else if (elementType.IsValueType)
             _currentIL.Emit(OpCodes.Stelem, elementType);
         else
@@ -8353,15 +8795,21 @@ public partial class ILCompiler
         }
 
         // Try to find a property first
-        var property = objectType.GetProperty(memberAccess.MemberName);
-        if (property != null && property.GetMethod != null)
+        var property = ResolveRuntimeProperty(
+            objectType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        if (property?.Getter != null)
         {
-            _currentIL.Emit(useAddressReceiver || !property.GetMethod.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, property.GetMethod);
+            _currentIL.Emit(useAddressReceiver || !property.Getter.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, property.Getter);
             return;
         }
 
         // Try to find a field
-        var field = objectType.GetField(memberAccess.MemberName);
+        var field = ResolveRuntimeField(
+            objectType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
         {
             if (field.IsStatic)
@@ -8729,17 +9177,6 @@ public partial class ILCompiler
         return typeof(object);
     }
 
-    private Type GetAssignmentTargetType(Expression target)
-    {
-        return target switch
-        {
-            IdentifierExpression ident => GetIdentifierType(ident),
-            MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),
-            IndexAccessExpression indexAccess => GetIndexAccessType(indexAccess),
-            _ => typeof(object)
-        };
-    }
-
     /// <summary>
     /// Get the type of a binary expression
     /// </summary>
@@ -8894,14 +9331,20 @@ public partial class ILCompiler
         }
 
         // Try to find a property
-        var property = objectType.GetProperty(unwrapNullConditional.MemberName);
+        var property = ResolveRuntimeProperty(
+            objectType,
+            unwrapNullConditional.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (property != null)
         {
             return property.PropertyType;
         }
 
         // Try to find a field
-        var field = objectType.GetField(unwrapNullConditional.MemberName);
+        var field = ResolveRuntimeField(
+            objectType,
+            unwrapNullConditional.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
         {
             return field.FieldType;
@@ -8964,11 +9407,12 @@ public partial class ILCompiler
     /// </summary>
     private Type GetCallExpressionType(CallExpression call)
     {
+        var calleeType = GetExpressionType(call.Callee);
         if (call.Callee is not MemberAccessExpression &&
-            TryGetDelegateInvokeMethod(GetExpressionType(call.Callee), out var delegateInvokeMethod) &&
+            TryGetDelegateInvokeMethod(calleeType, out var delegateInvokeMethod) &&
             delegateInvokeMethod != null)
         {
-            return delegateInvokeMethod.ReturnType;
+            return GetDelegateInvokeReturnType(calleeType, delegateInvokeMethod);
         }
 
         // Handle instance method calls
@@ -10363,14 +10807,22 @@ public partial class ILCompiler
         var backingField = typeBuilder.DefineField(
             backingFieldName,
             propertyType,
-            FieldAttributes.Private);
+            FieldAttributes.Private | (propDecl.Modifiers.HasFlag(Modifiers.Static) ? FieldAttributes.Static : 0));
+
+        var accessorAttributes = GetConventionMethodVisibilityAttributes(propDecl.Name, propDecl.Modifiers)
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        if (propDecl.Modifiers.HasFlag(Modifiers.Static))
+        {
+            accessorAttributes |= MethodAttributes.Static;
+        }
 
         // Define get method
         if (propDecl.GetBody != null || propDecl.ExpressionBody != null)
         {
             var getMethod = typeBuilder.DefineMethod(
                 $"get_{propDecl.Name}",
-                GetConventionMethodVisibilityAttributes(propDecl.Name, propDecl.Modifiers) | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                accessorAttributes,
                 propertyType,
                 Type.EmptyTypes);
 
@@ -10383,16 +10835,13 @@ public partial class ILCompiler
         // Define set method
         if (propDecl.SetBody != null && !propDecl.PropertyModifier.HasFlag(PropertyModifier.Readonly))
         {
-            var setMethodAttributes = GetConventionMethodVisibilityAttributes(propDecl.Name, propDecl.Modifiers)
-                | MethodAttributes.SpecialName
-                | MethodAttributes.HideBySig;
             MethodBuilder setMethod;
             if (propDecl.PropertyModifier.HasFlag(PropertyModifier.Init))
             {
                 setMethod = typeBuilder.DefineMethod(
                     $"set_{propDecl.Name}",
-                    setMethodAttributes,
-                    CallingConventions.HasThis,
+                    accessorAttributes,
+                    propDecl.Modifiers.HasFlag(Modifiers.Static) ? CallingConventions.Standard : CallingConventions.HasThis,
                     typeof(void),
                     GetInitOnlySetterReturnRequiredCustomModifiers(),
                     null,
@@ -10404,7 +10853,7 @@ public partial class ILCompiler
             {
                 setMethod = typeBuilder.DefineMethod(
                     $"set_{propDecl.Name}",
-                    setMethodAttributes,
+                    accessorAttributes,
                     typeof(void),
                     new[] { propertyType });
             }
@@ -11073,7 +11522,7 @@ public partial class ILCompiler
             InitializeBodyContext(null, ContainsNestedFunction(propDecl.SetBody));
             _currentHasThis = !setMethod.IsStatic;
             _currentGenericParameters = typeGenericParameters;
-            _parameters["value"] = 1; // 'value' parameter is always at index 1 (0 is 'this')
+            _parameters["value"] = setMethod.IsStatic ? 0 : 1;
             _parameterTypes["value"] = propertyType;
 
             EmitStatement(propDecl.SetBody);

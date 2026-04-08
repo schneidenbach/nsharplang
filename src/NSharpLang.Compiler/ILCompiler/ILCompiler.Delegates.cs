@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -119,12 +120,158 @@ public partial class ILCompiler
             return true;
         }
 
-        if (!typeof(Delegate).IsAssignableFrom(type))
+        if (!IsDelegateLikeType(type))
         {
             return false;
         }
 
-        invokeMethod = type.GetMethod("Invoke");
-        return invokeMethod != null;
+        try
+        {
+            invokeMethod = type.GetMethod("Invoke");
+            return invokeMethod != null;
+        }
+        catch (NotSupportedException)
+        {
+            if (!type.IsGenericType)
+            {
+                return false;
+            }
+
+            try
+            {
+                var genericDefinition = type.GetGenericTypeDefinition();
+                var definitionInvoke = genericDefinition.GetMethod("Invoke");
+                if (definitionInvoke == null)
+                {
+                    return false;
+                }
+
+                invokeMethod = TypeBuilder.GetMethod(type, definitionInvoke);
+                return invokeMethod != null;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+    }
+
+    private static bool IsDelegateLikeType(Type type)
+    {
+        try
+        {
+            if (typeof(Delegate).IsAssignableFrom(type))
+            {
+                return true;
+            }
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        var current = type;
+        while (current != null)
+        {
+            var fullName = current.FullName;
+            if (string.Equals(fullName, typeof(MulticastDelegate).FullName, StringComparison.Ordinal)
+                || string.Equals(fullName, typeof(Delegate).FullName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            try
+            {
+                current = current.BaseType;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private Type GetDelegateInvokeReturnType(Type delegateType, MethodInfo invokeMethod)
+    {
+        return ResolveDelegateSignatureType(delegateType, invokeMethod.ReturnType);
+    }
+
+    private Type[] GetDelegateInvokeParameterTypes(Type delegateType, MethodInfo invokeMethod)
+    {
+        return invokeMethod.GetParameters()
+            .Select(parameter => ResolveDelegateSignatureType(delegateType, parameter.ParameterType))
+            .ToArray();
+    }
+
+    private static Type ResolveDelegateSignatureType(Type delegateType, Type signatureType)
+    {
+        if (!signatureType.ContainsGenericParameters || !delegateType.IsGenericType)
+        {
+            return signatureType;
+        }
+
+        Type genericDefinition;
+        Type[] definitionArguments;
+        Type[] actualArguments;
+        try
+        {
+            genericDefinition = delegateType.GetGenericTypeDefinition();
+            definitionArguments = genericDefinition.GetGenericArguments();
+            actualArguments = delegateType.GetGenericArguments();
+        }
+        catch (NotSupportedException)
+        {
+            return signatureType;
+        }
+
+        var substitutions = new Dictionary<(string Name, int Position), Type>();
+        for (int i = 0; i < definitionArguments.Length && i < actualArguments.Length; i++)
+        {
+            substitutions[(definitionArguments[i].Name, definitionArguments[i].GenericParameterPosition)] = actualArguments[i];
+        }
+
+        return SubstituteDelegateSignatureType(signatureType, substitutions);
+    }
+
+    private static Type SubstituteDelegateSignatureType(
+        Type signatureType,
+        IReadOnlyDictionary<(string Name, int Position), Type> substitutions)
+    {
+        if (signatureType.IsGenericParameter
+            && substitutions.TryGetValue((signatureType.Name, signatureType.GenericParameterPosition), out var substitutedType))
+        {
+            return substitutedType;
+        }
+
+        if (signatureType.IsByRef)
+        {
+            return SubstituteDelegateSignatureType(signatureType.GetElementType()!, substitutions).MakeByRefType();
+        }
+
+        if (signatureType.IsArray)
+        {
+            return SubstituteDelegateSignatureType(signatureType.GetElementType()!, substitutions).MakeArrayType();
+        }
+
+        if (!signatureType.IsGenericType)
+        {
+            return signatureType;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = signatureType.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return signatureType;
+        }
+
+        var substitutedArguments = signatureType.GetGenericArguments()
+            .Select(argument => SubstituteDelegateSignatureType(argument, substitutions))
+            .ToArray();
+        return genericDefinition.MakeGenericType(substitutedArguments);
     }
 }
