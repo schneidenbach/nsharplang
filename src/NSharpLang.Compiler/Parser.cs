@@ -312,7 +312,17 @@ public class Parser
 
         while (true)
         {
-            if (Check(TokenType.Static))
+            if (Check(TokenType.Public))
+            {
+                modifiers |= Modifiers.Public;
+                Advance();
+            }
+            else if (Check(TokenType.Private))
+            {
+                modifiers |= Modifiers.Private;
+                Advance();
+            }
+            else if (Check(TokenType.Static))
             {
                 modifiers |= Modifiers.Static;
                 Advance();

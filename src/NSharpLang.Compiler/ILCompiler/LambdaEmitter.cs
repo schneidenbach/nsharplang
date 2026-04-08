@@ -94,6 +94,11 @@ public partial class ILCompiler
                 FindCapturedVariablesInExpression(member.Object, parameterNames, captured);
                 break;
 
+            case IndexAccessExpression indexAccess:
+                FindCapturedVariablesInExpression(indexAccess.Object, parameterNames, captured);
+                FindCapturedVariablesInExpression(indexAccess.Index, parameterNames, captured);
+                break;
+
             case AssignmentExpression assignment:
                 FindCapturedVariablesInExpression(assignment.Target, parameterNames, captured);
                 FindCapturedVariablesInExpression(assignment.Value, parameterNames, captured);
@@ -139,6 +144,10 @@ public partial class ILCompiler
                     FindCapturedVariablesInExpression(element, parameterNames, captured);
                 break;
 
+            case SpreadExpression spread:
+                FindCapturedVariablesInExpression(spread.Expression, parameterNames, captured);
+                break;
+
             case TupleExpression tuple:
                 foreach (var element in tuple.Elements)
                     FindCapturedVariablesInExpression(element.Value, parameterNames, captured);
@@ -176,6 +185,10 @@ public partial class ILCompiler
 
             case ThrowExpression throwExpression:
                 FindCapturedVariablesInExpression(throwExpression.Expression, parameterNames, captured);
+                break;
+
+            case CastExpression castExpression:
+                FindCapturedVariablesInExpression(castExpression.Expression, parameterNames, captured);
                 break;
 
             case CheckedExpression checkedExpression:
@@ -348,6 +361,7 @@ public partial class ILCompiler
         var savedCurrentYieldElementType = _currentYieldElementType;
         var savedCurrentYieldListLocal = _currentYieldListLocal;
         var savedCurrentYieldBreakLabel = _currentYieldBreakLabel;
+        var savedExpectedExpressionType = _expectedExpressionType;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
@@ -369,6 +383,7 @@ public partial class ILCompiler
         InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
             || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
         _currentHasThis = false;
+        _expectedExpressionType = null;
 
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Generator) == true)
         {
@@ -452,6 +467,7 @@ public partial class ILCompiler
         _currentYieldElementType = savedCurrentYieldElementType;
         _currentYieldListLocal = savedCurrentYieldListLocal;
         _currentYieldBreakLabel = savedCurrentYieldBreakLabel;
+        _expectedExpressionType = savedExpectedExpressionType;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
@@ -531,6 +547,7 @@ public partial class ILCompiler
         var savedCurrentYieldElementType = _currentYieldElementType;
         var savedCurrentYieldListLocal = _currentYieldListLocal;
         var savedCurrentYieldBreakLabel = _currentYieldBreakLabel;
+        var savedExpectedExpressionType = _expectedExpressionType;
         var savedCurrentTypeBuilder = _currentTypeBuilder;
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
@@ -557,6 +574,7 @@ public partial class ILCompiler
         InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
             || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
         _currentHasThis = true;
+        _expectedExpressionType = null;
         _currentTypeBuilder = closureClass;
         _closureFields = closureFields;
         _liftedClosureFields = liftedClosureFields;
@@ -644,6 +662,7 @@ public partial class ILCompiler
         _currentYieldElementType = savedCurrentYieldElementType;
         _currentYieldListLocal = savedCurrentYieldListLocal;
         _currentYieldBreakLabel = savedCurrentYieldBreakLabel;
+        _expectedExpressionType = savedExpectedExpressionType;
         _currentTypeBuilder = savedCurrentTypeBuilder;
         _closureFields = savedClosureFields;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;

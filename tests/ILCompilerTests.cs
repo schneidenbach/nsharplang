@@ -13,7 +13,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-public class ILCompilerTests
+public partial class ILCompilerTests
 {
     private static AssemblyLoadContext CreateTestLoadContext()
     {
@@ -1986,6 +1986,7 @@ func main(): int {
         Assert.Equal(42, Assert.IsType<int>(result));
     }
 
+    [Fact]
     public void ILCompiler_CanExecuteForwardReferencedLocalFunction()
     {
         var source = @"
@@ -3429,6 +3430,7 @@ func main(): string {
         Assert.Equal("ok", Assert.IsType<string>(result));
     }
 
+    [Fact]
     public void ILCompiler_EmitsExecutableTestClassWithSetupAndTeardown()
     {
         var source = @"
