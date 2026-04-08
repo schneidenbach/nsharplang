@@ -14,6 +14,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 | Question | Answer |
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
+| Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
 | Learn about a component? | See [components/](#components) folder |
 | Find a feature? | See [features/](#features) folder |
 | Run tests? | See [testing.md](testing.md) |
@@ -34,6 +35,14 @@ High-level overview of the compiler pipeline, design decisions, and project stru
 - Component overview
 - Data flow
 - Build commands
+
+### [il-compiler-parity-audit.md](il-compiler-parity-audit.md)
+Current audit of the direct IL backend against the N# transpiler surface.
+
+**Topics:**
+- Recently closed IL backend gaps
+- Remaining unsupported statements, expressions, patterns, and declarations
+- Semantic/runtime gaps still separating IL emission from transpiler parity
 
 ---
 
