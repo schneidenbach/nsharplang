@@ -103,6 +103,24 @@ public partial class ILCompiler
             return constructor;
         }
 
+        if (delegateType.IsGenericType
+            && !delegateType.IsGenericTypeDefinition
+            && RequiresTypeBuilderMemberResolution(delegateType))
+        {
+            try
+            {
+                var genericDefinition = delegateType.GetGenericTypeDefinition();
+                var definitionConstructor = genericDefinition.GetConstructor(new[] { typeof(object), typeof(IntPtr) });
+                if (definitionConstructor != null)
+                {
+                    return TypeBuilder.GetConstructor(delegateType, definitionConstructor);
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
         return delegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) })
             ?? throw new InvalidOperationException($"Could not resolve delegate constructor for {delegateType}");
     }

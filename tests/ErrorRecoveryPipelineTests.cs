@@ -187,7 +187,7 @@ func valid_syntax() {
 ");
 
             var compiler = new MultiFileCompiler(tempDir);
-            var result = compiler.Compile();
+            var result = compiler.ExportToCSharp();
 
             Assert.False(result.Success);
 

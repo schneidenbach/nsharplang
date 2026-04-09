@@ -11,7 +11,11 @@ namespace NSharpLang.Cli.Commands;
 
 public static partial class BenchCommand
 {
-    private sealed record ResolvedBenchmarkInfo(BenchmarkInfo Benchmark, string ReturnTypeName);
+    private sealed record ResolvedBenchmarkInfo(
+        BenchmarkInfo Benchmark,
+        string ReturnTypeName,
+        string DeclaringTypeName,
+        string MethodName);
 
     private sealed class BenchmarkReflectionLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(BenchmarkReflectionLoadContext), isCollectible: true)
@@ -119,7 +123,7 @@ public static partial class BenchCommand
                 var className = GetBenchmarkClassName(group.Key);
                 wrapperClasses.Add(className);
 
-                var wrapperSource = GenerateIlBenchmarkClass(className, group.ToList(), benchmarkJobAttribute);
+                var wrapperSource = GenerateIlBenchmarkClass(className, group.ToList(), benchmarkJobAttribute, outputAssemblyPath);
                 File.WriteAllText(Path.Combine(tempDir, $"{className}.cs"), wrapperSource);
             }
 
@@ -232,14 +236,9 @@ public static partial class BenchCommand
         try
         {
             var assembly = loadContext.LoadFromAssemblyPath(outputAssemblyPath);
-            var programType = assembly.GetType("Program");
-            if (programType == null)
-            {
-                throw new InvalidOperationException("Compiled benchmark assembly does not define the generated Program type.");
-            }
-
-            var methods = programType
-                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            var methods = assembly.GetTypes()
+                .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                .Where(method => !method.IsSpecialName)
                 .ToLookup(method => method.Name, StringComparer.Ordinal);
 
             var resolved = new List<ResolvedBenchmarkInfo>(discovered.Count);
@@ -256,7 +255,11 @@ public static partial class BenchCommand
                         $"Could not resolve a parameterless top-level benchmark function '{benchmark.FunctionName}' in the compiled project assembly.");
                 }
 
-                resolved.Add(new ResolvedBenchmarkInfo(benchmark, GetCSharpTypeName(method.ReturnType)));
+                resolved.Add(new ResolvedBenchmarkInfo(
+                    benchmark,
+                    GetCSharpTypeName(method.ReturnType),
+                    method.DeclaringType?.FullName ?? throw new InvalidOperationException($"Benchmark method '{benchmark.FunctionName}' is missing a declaring type."),
+                    method.Name));
             }
 
             return resolved;
@@ -270,8 +273,10 @@ public static partial class BenchCommand
     private static string GenerateIlBenchmarkClass(
         string className,
         IReadOnlyList<ResolvedBenchmarkInfo> benchmarks,
-        string? benchmarkJobAttribute)
+        string? benchmarkJobAttribute,
+        string outputAssemblyPath)
     {
+        var escapedAssemblyPath = EscapeCSharpStringLiteral(outputAssemblyPath);
         var sb = new StringBuilder();
         sb.AppendLine("using BenchmarkDotNet.Attributes;");
         sb.AppendLine();
@@ -281,22 +286,53 @@ public static partial class BenchCommand
         }
         sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
+        sb.AppendLine($"    private static readonly string __benchmarkAssemblyPath = \"{escapedAssemblyPath}\";");
+        sb.AppendLine("    private static readonly global::System.Reflection.Assembly __benchmarkAssembly = global::System.Reflection.Assembly.LoadFrom(__benchmarkAssemblyPath);");
+        sb.AppendLine();
+        sb.AppendLine("    private static global::System.Reflection.MethodInfo ResolveMethod(string typeName, string methodName)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var type = __benchmarkAssembly.GetType(typeName, throwOnError: true)");
+        sb.AppendLine("            ?? throw new global::System.InvalidOperationException($\"Benchmark type '{typeName}' was not found.\");");
+        sb.AppendLine("        return type.GetMethod(methodName, global::System.Reflection.BindingFlags.Public | global::System.Reflection.BindingFlags.NonPublic | global::System.Reflection.BindingFlags.Static)");
+        sb.AppendLine("            ?? throw new global::System.InvalidOperationException($\"Benchmark method '{typeName}.{methodName}' was not found.\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    private static global::System.Action CreateAction(string typeName, string methodName)");
+        sb.AppendLine("        => (global::System.Action)ResolveMethod(typeName, methodName).CreateDelegate(typeof(global::System.Action));");
+        sb.AppendLine();
+        sb.AppendLine("    private static global::System.Func<T> CreateFunc<T>(string typeName, string methodName)");
+        sb.AppendLine("        => (global::System.Func<T>)ResolveMethod(typeName, methodName).CreateDelegate(typeof(global::System.Func<T>));");
+        sb.AppendLine();
 
         foreach (var benchmark in benchmarks)
         {
+            var delegateFieldName = $"__{SanitizeClassName(benchmark.Benchmark.FunctionName)}Delegate";
+            var escapedTypeName = EscapeCSharpStringLiteral(benchmark.DeclaringTypeName);
+            var escapedMethodName = EscapeCSharpStringLiteral(benchmark.MethodName);
+
+            if (benchmark.ReturnTypeName == "void")
+            {
+                sb.AppendLine($"    private static readonly global::System.Action {delegateFieldName} = CreateAction(\"{escapedTypeName}\", \"{escapedMethodName}\");");
+            }
+            else
+            {
+                sb.AppendLine($"    private static readonly global::System.Func<{benchmark.ReturnTypeName}> {delegateFieldName} = CreateFunc<{benchmark.ReturnTypeName}>(\"{escapedTypeName}\", \"{escapedMethodName}\");");
+            }
+
+            sb.AppendLine();
             sb.AppendLine("    [Benchmark]");
             if (benchmark.ReturnTypeName == "void")
             {
                 sb.AppendLine($"    public void {benchmark.Benchmark.FunctionName}()");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        global::Program.{benchmark.Benchmark.FunctionName}();");
+                sb.AppendLine($"        {delegateFieldName}();");
                 sb.AppendLine("    }");
             }
             else
             {
                 sb.AppendLine($"    public {benchmark.ReturnTypeName} {benchmark.Benchmark.FunctionName}()");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        return global::Program.{benchmark.Benchmark.FunctionName}();");
+                sb.AppendLine($"        return {delegateFieldName}();");
                 sb.AppendLine("    }");
             }
 
@@ -305,6 +341,13 @@ public static partial class BenchCommand
 
         sb.AppendLine("}");
         return sb.ToString();
+    }
+
+    private static string EscapeCSharpStringLiteral(string value)
+    {
+        return value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
     }
 
     private static string GenerateIlBenchmarkCsProj(string targetFramework, string projectFile)

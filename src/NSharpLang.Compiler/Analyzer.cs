@@ -67,7 +67,7 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Get the set of namespaces that were auto-resolved during the most recent Analyze() call.
-    /// The transpiler uses this to emit the necessary using directives.
+    /// The C# exporter uses this to emit the necessary using directives.
     /// </summary>
     public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
@@ -338,7 +338,7 @@ public class Analyzer : IDisposable
                 else
                 {
                     // Inferred type — use a generic object type since we can't fully
-                    // resolve the initializer without a scope. The transpiler handles
+                    // resolve the initializer without a scope. The C# exporter handles
                     // the actual type via C#'s var keyword.
                     type = BuiltInTypes.Object;
                 }
@@ -1180,7 +1180,7 @@ public class Analyzer : IDisposable
         }
 
         // We don't strictly require boolean type because we support various comparison patterns
-        // The transpiler will convert different expression types to appropriate Assert calls
+        // The C# exporter will convert different expression types to appropriate Assert calls
     }
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
@@ -5332,7 +5332,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            // All union cases covered by unguarded arms — mark exhaustive so the transpiler
+            // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
             // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
@@ -5432,7 +5432,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            // All enum members covered by unguarded arms — mark exhaustive so the transpiler
+            // All enum members covered by unguarded arms — mark exhaustive so the C# exporter
             // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
@@ -7281,7 +7281,7 @@ public class Analyzer : IDisposable
         var resolved = externalCandidates[0];
         type = resolved.Type;
 
-        // Track the namespace for transpiler using-directive generation
+        // Track the namespace for C# export using-directive generation
         if (resolved.Namespace != null)
         {
             // Get the current file's namespace to compare

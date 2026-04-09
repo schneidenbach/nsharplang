@@ -19,7 +19,7 @@
     <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
     <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>dotnet;language;compiler;nlang;csharp;transpiler</PackageTags>
+    <PackageTags>dotnet;language;compiler;nlang;csharp;il;export</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

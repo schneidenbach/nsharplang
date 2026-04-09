@@ -157,8 +157,8 @@ backend: transpile
             File.WriteAllText(tempFile, yaml);
 
             var ex = Assert.Throws<InvalidOperationException>(() => ProjectFileParser.Parse(tempFile));
-            Assert.Contains("retired", ex.Message);
-            Assert.Contains("C# export", ex.Message);
+            Assert.Contains("removed", ex.Message);
+            Assert.Contains("nlc export csharp", ex.Message);
         }
         finally
         {

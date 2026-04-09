@@ -58,7 +58,7 @@ Right-click an existing breakpoint (or the gutter) and select **Add Conditional 
 - **Hit Count** -- Break after the breakpoint has been hit N times
 - **Log Message** -- Print a message to the debug console without stopping
 
-**Note:** Condition expressions are evaluated as C# expressions by the coreclr debugger, since N# compiles to C# at runtime. Use C# syntax for conditions (e.g., `x > 10`, `name == "Alice"`). Variable names match what you see in the Variables panel.
+**Note:** Condition expressions are evaluated as CLR debugger expressions by the coreclr debugger. Use standard .NET expression syntax (e.g., `x > 10`, `name == "Alice"`). Variable names match what you see in the Variables panel.
 
 ## Attach to Running Process
 
@@ -72,9 +72,9 @@ This is useful for debugging long-running services, ASP.NET Core applications, o
 
 ## How It Works
 
-N# compiles to C# via transpilation. The generated C# code includes `#line` directives that map each line back to the original `.nl` source file. When .NET builds the project, the PDB (debug symbols) file records these mappings.
+N# emits IL directly and writes debug symbols that map the generated method bodies back to the original `.nl` source locations. When .NET loads the assembly and PDB, the coreclr debugger can bind breakpoints and stack frames against your N# files instead of any generated scaffolding.
 
-At debug time, the coreclr debugger reads the PDB and shows you the original `.nl` source rather than the generated C# code. Generated scaffolding (entry points, boilerplate) is hidden from the debugger using `#line hidden` directives, so you only step through your own code.
+At debug time, the debugger shows the original `.nl` source rather than compiler-generated support code. Entry-point stubs and other helper scaffolding stay out of the normal stepping path so you stay in user code.
 
 ## Troubleshooting
 
@@ -87,8 +87,8 @@ At debug time, the coreclr debugger reads the PDB and shows you the original `.n
 - Verify the C# extension is installed (should be automatic)
 - Reload the VS Code window (Cmd+Shift+P > "Developer: Reload Window")
 
-**Stepping lands in generated C# code:**
-- This can happen if the `#line` directives are out of sync. Rebuild the project with `dotnet build`
+**Stepping lands in generated helper code:**
+- This can happen if the PDB is out of sync with the emitted assembly. Rebuild the project with `dotnet build`
 - If the issue persists, clean and rebuild: `dotnet clean && dotnet build`
 
 **Variables show unexpected names:**

@@ -49,6 +49,7 @@ public class CliParityAuditTests
         Assert.Contains("watch", stdout);
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
+        Assert.Contains("export", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
 
@@ -252,6 +253,7 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
+        Assert.Contains("export <target>", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
 
@@ -434,28 +436,28 @@ func Main() {
         }
     }
 
-    // ── Step 4: Retired transpile command ───────────────────────────────
+    // ── Step 4: C# export flow ───────────────────────────────────────────
 
     [Fact]
-    public void TranspileCommand_Help_ExplainsRetirement()
+    public void ExportCommand_Help_ExplainsCSharpFlow()
     {
-        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("transpile", "--help"));
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("export", "csharp", "--help"));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("Retired command.", stdout);
-        Assert.Contains("no longer supports generated-C# export", stdout);
-        Assert.Contains("nlc build", stdout);
-        Assert.DoesNotContain("> Program.cs", stdout);
+        Assert.Contains("Usage:", stdout);
+        Assert.Contains("nlc export csharp <file.nl>", stdout);
+        Assert.Contains("self-contained C# bundle", stdout);
+        Assert.Contains("sibling test project", stdout);
     }
 
     [Fact]
-    public void TranspileCommand_ReturnsRetiredError()
+    public void TranspileCommand_PointsToExportCommand()
     {
         var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));
 
         Assert.Equal(1, exitCode);
-        Assert.Contains("retired", stderr);
-        Assert.Contains("IL backend", stderr);
+        Assert.Contains("removed", stderr);
+        Assert.Contains("nlc export csharp", stderr);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────

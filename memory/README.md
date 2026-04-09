@@ -30,19 +30,19 @@ High-level overview of the compiler pipeline, design decisions, and project stru
 **Read this first** to understand how everything fits together.
 
 **Topics:**
-- Compiler pipeline (Lexer → Parser → Analyzer → Transpiler → C#)
-- Why transpile to C# instead of emitting IL
+- Compiler pipeline (Lexer → Parser → Analyzer → backend selection)
+- Backend strategy and IL toolchain status
 - Component overview
 - Data flow
 - Build commands
 
 ### [il-compiler-parity-audit.md](il-compiler-parity-audit.md)
-Current audit of the direct IL backend against the N# transpiler surface.
+Current audit of the direct IL backend against the legacy C# export surface.
 
 **Topics:**
 - Recently closed IL backend gaps
-- Remaining unsupported statements, expressions, patterns, and declarations
-- Semantic/runtime gaps still separating IL emission from transpiler parity
+- Residual interop risks outside the exercised C#-export surface
+- Current parity status between IL emission and the legacy C# export surface
 
 ---
 
@@ -89,7 +89,7 @@ C# code generation from AST.
 - Special cases (async iterators, error handling)
 
 ### [components/cli.md](components/cli.md)
-Command-line interface (build, run, transpile). *Legacy doc — see cli-toolchain.md for the full picture.*
+Command-line interface basics. *Legacy doc — see cli-toolchain.md for the full picture.*
 
 ### [components/cli-toolchain.md](components/cli-toolchain.md)
 **The complete N# CLI toolchain reference.** Covers every `nlc` command including the LLM-first code intelligence toolchain.
@@ -220,7 +220,7 @@ Current limitations and workarounds.
 3. Search for specific terms in relevant files
 
 **"I need to fix a bug"**
-1. Identify component (Lexer, Parser, Analyzer, Transpiler)
+1. Identify component (Lexer, Parser, Analyzer, C# exporter)
 2. Read relevant component doc in [components/](#components)
 3. Check [testing.md](testing.md) for test approach
 4. Check [limitations.md](limitations.md) if it's a known limitation
@@ -237,8 +237,8 @@ Current limitations and workarounds.
 | Lexer | [components/lexer.md](components/lexer.md) | ~3KB | Tokenization, strings, operators |
 | Parser | [components/parser.md](components/parser.md) | ~5KB | AST, precedence, patterns |
 | Analyzer | [components/analyzer.md](components/analyzer.md) | ~6KB | Types, scopes, checking |
-| Transpiler | [components/transpiler.md](components/transpiler.md) | ~5KB | C# generation, strategies |
-| CLI (legacy) | [components/cli.md](components/cli.md) | ~3KB | Build, run, transpile basics |
+| C# Exporter | [components/transpiler.md](components/transpiler.md) | ~5KB | C# export generation, strategies |
+| CLI (legacy) | [components/cli.md](components/cli.md) | ~3KB | Build/run basics |
 | CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | ~8KB | **Full reference:** check, fix, query, daemon, completions |
 | Errors | [components/error-reporting.md](components/error-reporting.md) | ~3KB | Codes, formatting, suggestions |
 

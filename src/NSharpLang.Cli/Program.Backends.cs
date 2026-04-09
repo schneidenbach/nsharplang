@@ -15,12 +15,9 @@ partial class Program
 
     private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
-        if (!string.IsNullOrWhiteSpace(backendOption))
-        {
-            return CompilationBackendExtensions.Parse(backendOption);
-        }
-
-        return config?.EffectiveBackend ?? CompilationBackend.Transpile;
+        return !string.IsNullOrWhiteSpace(backendOption)
+            ? CompilationBackendExtensions.Parse(backendOption)
+            : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
     private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings)
@@ -171,42 +168,6 @@ Build timings:
         }
     }
 
-    private static int PublishWithIlBackend(string projectRoot, string configuration, string? outputDir, string? runtime, bool selfContained)
-    {
-        if (selfContained)
-        {
-            return Error("IL publish currently supports framework-dependent output only. Self-contained IL publish is not implemented yet.");
-        }
-
-        if (!string.IsNullOrWhiteSpace(runtime))
-        {
-            return Error("IL publish currently emits framework-dependent output only. Runtime-specific IL publish is not implemented yet.");
-        }
-
-        try
-        {
-            var projectYmlPath = Path.Combine(projectRoot, "project.yml");
-            var config = ProjectFileParser.Parse(projectYmlPath);
-            var publishDir = outputDir != null
-                ? Path.GetFullPath(outputDir)
-                : Path.Combine(projectRoot, "bin", configuration, config.TargetFramework, "publish");
-
-            var outputPath = CompileProjectWithIlBackend(projectRoot, config, publishDir);
-            if (outputPath == null)
-            {
-                return 1;
-            }
-
-            Console.WriteLine($"Publish successful!");
-            Console.WriteLine($"Output: {outputPath}");
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            return Error($"Publish failed: {ex.Message}");
-        }
-    }
-
     private static string? CompileProjectWithIlBackend(string projectRoot, ProjectConfig config, string outputDir)
     {
         var compiler = new MultiFileCompiler(projectRoot, config);
@@ -224,7 +185,7 @@ Build timings:
         Directory.CreateDirectory(outputDir);
 
         var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
-        var result = compiler.Compile(CompilationBackend.Il, assemblyName, outputPath);
+        var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
         EmitCompilationDiagnostics(result);
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))

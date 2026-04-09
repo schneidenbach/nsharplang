@@ -4,26 +4,30 @@ namespace NSharpLang.Compiler;
 
 public enum CompilationBackend
 {
-    Transpile,
     Il
 }
 
 public static class CompilationBackendExtensions
 {
     public const string RetiredTranspileBackendMessage =
-        "The 'transpile' backend and 'nlc transpile' command have been retired. " +
-        "Use the IL backend for build/run/check/test/bench/publish. C# export is no longer a supported product workflow.";
+        "The 'transpile' backend has been removed. " +
+        "Use backend: il for build/run/check/test/bench/publish. " +
+        "To export N# sources to C#, run 'nlc export csharp'.";
 
     public static string ToConfigValue(this CompilationBackend backend)
         => backend switch
         {
-            CompilationBackend.Transpile => "transpile",
             CompilationBackend.Il => "il",
             _ => throw new ArgumentOutOfRangeException(nameof(backend), backend, "Unknown compilation backend.")
         };
 
     public static CompilationBackend Parse(string? value)
     {
+        if (string.Equals(value?.Trim(), "transpile", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(RetiredTranspileBackendMessage);
+        }
+
         if (TryParse(value, out var backend))
         {
             return backend;
@@ -41,9 +45,6 @@ public static class CompilationBackendExtensions
             case "":
             case "il":
                 backend = CompilationBackend.Il;
-                return true;
-            case "transpile":
-                backend = CompilationBackend.Transpile;
                 return true;
             default:
                 backend = default;

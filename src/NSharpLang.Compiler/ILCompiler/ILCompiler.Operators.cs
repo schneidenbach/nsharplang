@@ -134,7 +134,9 @@ public partial class ILCompiler
 
     private static bool IsUnsupportedRuntimeLookupType(Type type)
     {
-        return type.IsGenericParameter || type.ContainsGenericParameters;
+        return type is TypeBuilder or EnumBuilder
+            || type.IsGenericParameter
+            || type.ContainsGenericParameters;
     }
 
     private static bool IsByRefLikeType(Type type)
@@ -171,8 +173,10 @@ public partial class ILCompiler
             return false;
         }
 
-        if (TryGetUserTypeDefinition(sourceType, out var sourceBuilder)
-            && TryGetUserTypeDefinition(targetType, out var targetBuilder))
+        var hasSourceBuilder = TryGetUserTypeDefinition(sourceType, out var sourceBuilder);
+        var hasTargetBuilder = TryGetUserTypeDefinition(targetType, out var targetBuilder);
+
+        if (hasSourceBuilder && hasTargetBuilder)
         {
             if (sourceBuilder == targetBuilder)
             {
@@ -189,6 +193,35 @@ public partial class ILCompiler
 
                 current = current.BaseType;
             }
+
+            if (sourceBuilder.GetInterfaces().Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetBuilder)))
+            {
+                return true;
+            }
+        }
+
+        if (hasSourceBuilder)
+        {
+            var current = sourceBuilder.BaseType;
+            while (current != null)
+            {
+                if (AreTypeIdentitiesEquivalent(current, targetType))
+                {
+                    return true;
+                }
+
+                current = current.BaseType;
+            }
+
+            if (sourceBuilder.GetInterfaces().Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetType)))
+            {
+                return true;
+            }
+        }
+
+        if (hasSourceBuilder || hasTargetBuilder)
+        {
+            return false;
         }
 
         try
@@ -210,8 +243,12 @@ public partial class ILCompiler
 
     private MethodInfo? ResolveDeclaredStaticMethod(Type targetType, string sourceName, Type[] argumentTypes, Type? requiredReturnType = null)
     {
-        if (!TryGetUserTypeDefinition(targetType, out var typeBuilder)
-            || !_declaredMethodOverloads.TryGetValue(GetMethodKey(typeBuilder, sourceName), out var overloads))
+        if (!TryGetUserTypeDefinition(targetType, out var typeBuilder))
+        {
+            return null;
+        }
+
+        if (!_declaredMethodOverloads.TryGetValue(GetMethodKey(typeBuilder, sourceName), out var overloads))
         {
             return null;
         }
@@ -375,7 +412,9 @@ public partial class ILCompiler
 
     private MethodInfo? ResolveConversionOperator(Type sourceType, Type targetType, bool allowExplicit)
     {
-        if (sourceType == targetType || IsUnsupportedRuntimeLookupType(sourceType) || IsUnsupportedRuntimeLookupType(targetType))
+        var sourceIsUnsupported = IsUnsupportedRuntimeLookupType(sourceType) && !TryGetUserTypeDefinition(sourceType, out _);
+        var targetIsUnsupported = IsUnsupportedRuntimeLookupType(targetType) && !TryGetUserTypeDefinition(targetType, out _);
+        if (sourceType == targetType || sourceIsUnsupported || targetIsUnsupported)
         {
             return null;
         }
@@ -447,22 +486,27 @@ public partial class ILCompiler
             return sourceType == targetType;
         }
 
+        if (sourceType == targetType || AreTypeIdentitiesEquivalent(sourceType, targetType))
+        {
+            return true;
+        }
+
         if (IsUnsupportedRuntimeLookupType(sourceType) || IsUnsupportedRuntimeLookupType(targetType))
         {
             return false;
         }
 
-        if (sourceType == targetType || targetType.IsAssignableFrom(sourceType))
+        if (targetType.IsAssignableFrom(sourceType))
         {
             return true;
         }
 
-        if (targetType.IsEnum && Enum.GetUnderlyingType(targetType) == sourceType)
+        if (TryGetEnumUnderlyingType(targetType) == sourceType)
         {
             return true;
         }
 
-        if (sourceType.IsEnum && Enum.GetUnderlyingType(sourceType) == targetType)
+        if (TryGetEnumUnderlyingType(sourceType) == targetType)
         {
             return true;
         }
@@ -527,13 +571,13 @@ public partial class ILCompiler
         }
     }
 
-    private static Type NormalizeOverflowCheckedType(Type type)
+    private Type NormalizeOverflowCheckedType(Type type)
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
-        return type.IsEnum ? Enum.GetUnderlyingType(type) : type;
+        return TryGetEnumUnderlyingType(type) ?? type;
     }
 
-    private static bool IsOverflowCheckedIntegralType(Type type)
+    private bool IsOverflowCheckedIntegralType(Type type)
     {
         type = NormalizeOverflowCheckedType(type);
         return type == typeof(byte)
@@ -547,7 +591,7 @@ public partial class ILCompiler
             || type == typeof(char);
     }
 
-    private static bool IsUnsignedOverflowCheckedType(Type type)
+    private bool IsUnsignedOverflowCheckedType(Type type)
     {
         type = NormalizeOverflowCheckedType(type);
         return type == typeof(byte)
@@ -605,7 +649,9 @@ public partial class ILCompiler
             return;
         }
 
-        if (IsUnsupportedRuntimeLookupType(sourceType) || IsUnsupportedRuntimeLookupType(targetType))
+        var sourceIsUnsupported = IsUnsupportedRuntimeLookupType(sourceType) && !TryGetUserTypeDefinition(sourceType, out _);
+        var targetIsUnsupported = IsUnsupportedRuntimeLookupType(targetType) && !TryGetUserTypeDefinition(targetType, out _);
+        if (sourceIsUnsupported || targetIsUnsupported)
         {
             return;
         }
@@ -661,12 +707,12 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Castclass, targetType);
     }
 
-    private static bool TryGetNumericConversionOpcode(Type targetType, out OpCode opcode)
+    private bool TryGetNumericConversionOpcode(Type targetType, out OpCode opcode)
     {
         targetType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-        if (targetType.IsEnum)
+        if (TryGetEnumUnderlyingType(targetType) is { } enumUnderlyingType)
         {
-            targetType = Enum.GetUnderlyingType(targetType);
+            targetType = enumUnderlyingType;
         }
 
         opcode = Type.GetTypeCode(targetType) switch
@@ -688,7 +734,7 @@ public partial class ILCompiler
         return opcode.Value != 0;
     }
 
-    private static bool TryGetCheckedNumericConversionOpcode(Type sourceType, Type targetType, out OpCode opcode)
+    private bool TryGetCheckedNumericConversionOpcode(Type sourceType, Type targetType, out OpCode opcode)
     {
         sourceType = NormalizeOverflowCheckedType(sourceType);
         targetType = NormalizeOverflowCheckedType(targetType);
@@ -713,15 +759,18 @@ public partial class ILCompiler
 
     private bool IsNumericConversionType(Type type)
     {
-        if (type is TypeBuilder || TryGetUserTypeDefinition(type, out _) || IsUnsupportedRuntimeLookupType(type))
+        var enumUnderlyingType = TryGetEnumUnderlyingType(type);
+        if ((type is TypeBuilder || TryGetUserTypeDefinition(type, out _) || IsUnsupportedRuntimeLookupType(type))
+            && enumUnderlyingType == null)
         {
             return false;
         }
 
         type = Nullable.GetUnderlyingType(type) ?? type;
-        if (type.IsEnum)
+        enumUnderlyingType ??= TryGetEnumUnderlyingType(type);
+        if (enumUnderlyingType != null)
         {
-            type = Enum.GetUnderlyingType(type);
+            type = enumUnderlyingType;
         }
 
         return type == typeof(byte)

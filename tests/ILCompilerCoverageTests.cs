@@ -1427,6 +1427,100 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanLiftCapturedEnumParametersFromUserTypes()
+    {
+        var source = @"
+import System
+
+enum Priority {
+    Low,
+    High
+}
+
+class Item {
+    Priority: Priority
+}
+
+class Service {
+    func matches(priority: Priority): int {
+        predicate: Func<Item, bool> = item => item.Priority == priority
+        item := new Item { Priority: Priority.High }
+        return predicate(item) ? 1 : 0
+    }
+}
+
+func main(): int {
+    service := new Service()
+    return service.matches(Priority.High)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(1, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanDispatchThroughDuckInterfaceCollections()
+    {
+        var source = @"
+import System.Collections.Generic
+
+duck interface INotifier {
+    func Notify(message: string): string
+}
+
+class ConsoleNotifier {
+    func Notify(message: string): string {
+        return ""console:"" + message
+    }
+}
+
+class Hub {
+    notifiers: List<INotifier>
+
+    constructor() {
+        notifiers = new List<INotifier>()
+        notifiers.Add(new ConsoleNotifier())
+    }
+
+    func Broadcast(message: string): string {
+        result := """"
+        for notifier in notifiers {
+            result = notifier.Notify(message)
+        }
+        return result
+    }
+}
+
+func main(): string {
+    return new Hub().Broadcast(""ok"")
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("console:ok", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_PrefersInstanceMembersOverStaticTypeLookupForCapitalizedNames()
+    {
+        var source = @"
+record Filter {
+    Query: string
+
+    func HasQuery(): bool {
+        return Query.Length > 0
+    }
+}
+
+func main(): bool {
+    filter := new Filter { Query: ""hi"" }
+    return filter.HasQuery()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanInferGenericLocalFunctionAcrossNamedTupleDelegateAndParams()
     {
         var source = @"
@@ -1496,5 +1590,380 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(16, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanResolveNestedClrTypesForStaticMembers()
+    {
+        var source = @"
+import System
+import System.IO
+
+func main(): string {
+    return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "".taskr"")
+}";
+
+        var expected = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".taskr");
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(expected, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanResolveFrameworkReferencedStaticTypes()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+
+func main(args: string[]): bool {
+    builder := WebApplication.CreateBuilder(args)
+    return builder != null
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        var result = CompileAndInvoke(source, config, "main", new object[] { Array.Empty<string>() });
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindImportedFrameworkExtensionMethods()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+
+func main(args: string[]): bool {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+    app.UseDefaultFiles()
+    return app != null
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        var result = CompileAndInvoke(source, config, "main", new object[] { Array.Empty<string>() });
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanLiftCapturedParametersTypedAsRuntimeGenericsOverEmittedTypes()
+    {
+        var source = @"
+import System.Collections.Generic
+
+class Item {
+    Value: int
+}
+
+class Counter {
+    func Count(items: List<Item>): int {
+        getCount := () => items.Count
+        return getCount()
+    }
+}
+
+func main(): int {
+    counter := new Counter()
+    items: List<Item> = [new Item { Value: 1 }, new Item { Value: 2 }]
+    return counter.Count(items)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(2, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanAccessCurrentTypePropertiesByBareIdentifier()
+    {
+        var source = @"
+class Person {
+    FirstName: string
+    LastName: string
+
+    FullName: string => FirstName + "" "" + LastName
+
+    func Greeting(): string => ""Hello, "" + FullName + ""!""
+}
+
+func main(): string {
+    person := new Person { FirstName: ""Ada"", LastName: ""Lovelace"" }
+    return person.Greeting()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("Hello, Ada Lovelace!", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindDeclaredExtensionMethodsInsideStaticClasses()
+    {
+        var source = @"
+static class StringExtensions {
+    static func Capitalize(this s: string): string {
+        if s.Length == 0 {
+            return s
+        }
+
+        return s.Substring(0, 1).ToUpper() + s.Substring(1)
+    }
+}
+
+func main(): string {
+    return ""hello"".Capitalize()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("Hello", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindDeclaredExtensionMethodsWithLambdaParameters()
+    {
+        var source = @"
+import System
+
+func Times(this n: int, action: Func<int, void>) {
+    for i := 0; i < n; i++ {
+        action(i)
+    }
+}
+
+func main(): int {
+    total := 0
+    5.Times(i => total += i)
+    return total
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(10, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanInferGenericTypeArgumentsForParamsMethods()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main(): int {
+    values := CreateList(1, 2, 3)
+    return values.Count * 10 + values[0]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(31, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindNullLiteralsInDeclaredParamsCollections()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main(): int {
+    values := CreateList<int?>(1, null, 3, null)
+    return values.Count
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(4, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExplicitNullableTypeArgumentsInParamsMethods()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main(): int {
+    values := CreateList<int?>(1, null, 3, null, 5)
+    return values.Count
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(5, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExplicitArrayTypeArgumentsInParamsMethods()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func CreateList<T>(params items: T[]): List<T> {
+    list := new List<T>()
+    for item in items {
+        list.Add(item)
+    }
+
+    return list
+}
+
+func main(): int {
+    values := CreateList<int[]>([1, 2], [3, 4], [5, 6])
+    return values.Count * 10 + values[0][1]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(32, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteParamsSpanAndReadOnlySpanArguments()
+    {
+        var source = @"
+import System
+
+func SumReadOnlySpan(params numbers: ReadOnlySpan<int>): int {
+    total := 0
+    for i := 0; i < numbers.Length; i++ {
+        total += numbers[i]
+    }
+
+    return total
+}
+
+func ModifyValues(params values: Span<int>): int {
+    for i := 0; i < values.Length; i++ {
+        values[i] = values[i] * 2
+    }
+
+    return values[0] + values[1] + values[2]
+}
+
+func main(): int {
+    return SumReadOnlySpan(1, 2, 3) + ModifyValues(4, 5, 6)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(36, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteGenericIterators()
+    {
+        var source = @"
+import System
+import System.Collections.Generic
+
+func* Repeat<T>(value: T, count: int): IEnumerable<T> {
+    i := 0
+    while i < count {
+        yield value
+        i = i + 1
+    }
+}
+
+func main(): string {
+    return String.Join("","", Repeat(""x"", 3))
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("x,x,x", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanApplyWithExpressionsToRecordStructPrimaryConstructorMembers()
+    {
+        var source = @"
+record struct Color(r: byte, g: byte, b: byte) {
+    func ToHex(): string => $""#{r:X2}{g:X2}{b:X2}""
+}
+
+func main(): string {
+    color := new Color(255, 0, 0)
+    updated := color with { g: 128 }
+    return updated.ToHex()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("#FF8000", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanEmitIntMinValueLiteral()
+    {
+        var source = @"
+func main(): int {
+    min := -2147483648
+    return unchecked(min - 1)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(int.MaxValue, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanEmitNestedTypeDeclarations()
+    {
+        var source = @"
+class BankAccount {
+    enum Status {
+        Active,
+        Frozen
+    }
+
+    class Transaction {
+        Amount: int
+    }
+
+    static func GetStatus(): BankAccount.Status {
+        return BankAccount.Status.Active
+    }
+}
+
+func main(): int {
+    return (int)BankAccount.GetStatus()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var bankAccountType = assembly.GetType("BankAccount", throwOnError: true)!;
+            Assert.NotNull(bankAccountType.GetNestedType("Status", BindingFlags.Public | BindingFlags.NonPublic));
+            Assert.NotNull(bankAccountType.GetNestedType("Transaction", BindingFlags.Public | BindingFlags.NonPublic));
+
+            var programType = assembly.GetType("Program", throwOnError: true)!;
+            var mainMethod = programType.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(mainMethod);
+            return mainMethod!.Invoke(null, null);
+        });
+
+        Assert.Equal(0, Assert.IsType<int>(result));
     }
 }

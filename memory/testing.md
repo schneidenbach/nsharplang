@@ -10,7 +10,7 @@
 - Lexer coverage
 - Parser coverage
 - Analyzer coverage
-- Transpiler coverage
+- C# export coverage
 - Integration coverage
 
 ### Test Files
@@ -20,7 +20,7 @@ tests/
 ├── ParserTests.cs               - Parsing tests
 ├── AnalyzerTests.cs             - Type checking tests
 ├── AnalyzerSemanticModelTests.cs - Semantic model tests
-├── TranspilerTests.cs           - Code generation tests
+├── TranspilerTests.cs           - C# export code generation tests
 ├── IntegrationTests.cs          - End-to-end pipeline tests
 ├── LanguageServerTests.cs       - LSP handler tests (completion, hover, definition, rename)
 ├── ILCompilerTests.cs           - IL compilation tests
@@ -74,7 +74,7 @@ public void TestFullCompilation()
     var result = new Analyzer().Analyze(ast, "test", "/");
     Assert.Empty(result.Errors);
 
-    // Transpile
+    // Export to C#
     var csharp = new Transpiler().Transpile(ast);
     Assert.Contains("var x = 42;", csharp);
 }
@@ -109,10 +109,10 @@ public void TestFullCompilation()
 - Duck interface validation
 - Error detection
 
-### Transpiler Tests
-- Expression transpilation
-- Statement transpilation
-- Declaration transpilation
+### C# Export Tests
+- Expression export
+- Statement export
+- Declaration export
 - Special cases (unions, duck interfaces, etc.)
 - Indentation correctness
 - C# syntax validity
@@ -210,16 +210,16 @@ public void TestTypeMismatchError()
 }
 ```
 
-### Example 4: Transpiler Test
+### Example 4: C# Export Test
 ```csharp
 [Fact]
-public void TestMatchExpressionTranspilation()
+public void TestMatchExpressionExport()
 {
     var source = "result := value match { 0 => \"zero\", _ => \"other\" }";
     var tokens = new Lexer(source, "test").Tokenize();
     var ast = new Parser(tokens, "test").ParseCompilationUnit();
-    var transpiler = new Transpiler();
-    var csharp = transpiler.Transpile(ast);
+    var exporter = new Transpiler();
+    var csharp = exporter.Transpile(ast);
 
     Assert.Contains("value switch", csharp);
     Assert.Contains("0 => \"zero\"", csharp);

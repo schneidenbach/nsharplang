@@ -118,7 +118,8 @@ func main() {
                 timeout: TimeSpan.FromMinutes(3));
 
             Assert.NotEqual(0, restoreResult.ExitCode);
-            Assert.Contains("retired", restoreResult.Stderr + restoreResult.Stdout);
+            Assert.Contains("removed", restoreResult.Stderr + restoreResult.Stdout);
+            Assert.Contains("nlc export csharp", restoreResult.Stderr + restoreResult.Stdout);
         }
         finally
         {

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Threading.Tasks;
 using NSharpLang.Compiler.Ast;
@@ -20,6 +21,8 @@ namespace NSharpLang.Compiler.ILCompiler;
 /// </summary>
 public partial class ILCompiler
 {
+    private const string ThisCaptureName = "<>this";
+
     private readonly struct BranchTarget(Label label, bool useLeave)
     {
         public Label Label { get; } = label;
@@ -72,13 +75,20 @@ public partial class ILCompiler
     private readonly Dictionary<string, GenericTypeParameterBuilder[]> _typeGenericParameters = new();
     private readonly Dictionary<Type, AsyncSequenceAdapterInfo> _asyncSequenceAdapters = new();
     private readonly List<TypeBuilder> _generatedHelperTypes = new();
+    private readonly Dictionary<Type, Type> _liftedStorageTypes = new();
+    private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
+    private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
+    private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
     private readonly Dictionary<DelegateSignatureKey, Type> _customDelegateTypes = new();
     private readonly Dictionary<Type, ConstructorInfo> _delegateConstructors = new();
     private readonly Dictionary<Type, MethodInfo> _delegateInvokeMethods = new();
     private readonly HashSet<string> _typesBeingDeclared = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _attemptedAssemblyNameLoads = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _loadedSharedFrameworks = new(StringComparer.OrdinalIgnoreCase);
     private TypeBuilder? _currentTypeBuilder;
     private int _asyncSequenceAdapterCounter = 0;
     private int _customDelegateCounter = 0;
+    private int _liftedStorageCounter = 0;
     private bool _currentHasThis;
 
     // Lambda and closure support
@@ -178,8 +188,19 @@ public partial class ILCompiler
             return;
         }
 
+        if (_projectConfig.Sdk.Contains("Web", StringComparison.OrdinalIgnoreCase))
+        {
+            TryLoadSharedFrameworkAssemblies("Microsoft.AspNetCore.App");
+        }
+
         foreach (var reference in _projectConfig.Dependencies.Concat(_projectConfig.TestDependencies))
         {
+            if (reference.Type == ReferenceType.Framework && !string.IsNullOrWhiteSpace(reference.Framework))
+            {
+                TryLoadSharedFrameworkAssemblies(reference.Framework);
+                continue;
+            }
+
             if (reference.Type != ReferenceType.Dll || string.IsNullOrWhiteSpace(reference.Dll))
             {
                 continue;
@@ -200,6 +221,25 @@ public partial class ILCompiler
         }
     }
 
+    private void TryLoadSharedFrameworkAssemblies(string frameworkName)
+    {
+        if (string.IsNullOrWhiteSpace(frameworkName) || !_loadedSharedFrameworks.Add(frameworkName))
+        {
+            return;
+        }
+
+        var frameworkDirectory = FindSharedFrameworkDirectory(frameworkName);
+        if (frameworkDirectory == null)
+        {
+            return;
+        }
+
+        foreach (var assemblyPath in Directory.GetFiles(frameworkDirectory, "*.dll", SearchOption.TopDirectoryOnly))
+        {
+            TryLoadAssembly(assemblyPath);
+        }
+    }
+
     private static void TryLoadAssembly(string assemblyPath)
     {
         try
@@ -216,6 +256,111 @@ public partial class ILCompiler
         catch
         {
             // Best-effort assembly loading for external/test-framework references.
+        }
+    }
+
+    private void TryLoadAssemblyByName(string assemblyName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyName) || !_attemptedAssemblyNameLoads.Add(assemblyName))
+        {
+            return;
+        }
+
+        try
+        {
+            var alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies()
+                .Any(assembly => string.Equals(assembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+            if (alreadyLoaded)
+            {
+                return;
+            }
+
+            Assembly.Load(new AssemblyName(assemblyName));
+            return;
+        }
+        catch
+        {
+            // Fall back to probing runtime/shared framework directories below.
+        }
+
+        var candidatePath = FindRuntimeAssemblyPath(assemblyName);
+        if (candidatePath != null)
+        {
+            TryLoadAssembly(candidatePath);
+        }
+    }
+
+    private static string? FindRuntimeAssemblyPath(string assemblyName)
+    {
+        var fileName = assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyName
+            : $"{assemblyName}.dll";
+
+        foreach (var directory in EnumerateRuntimeAssemblyDirectories())
+        {
+            var candidatePath = Path.Combine(directory, fileName);
+            if (File.Exists(candidatePath))
+            {
+                return candidatePath;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindSharedFrameworkDirectory(string frameworkName)
+    {
+        foreach (var directory in EnumerateRuntimeAssemblyDirectories())
+        {
+            var parentDirectory = Path.GetDirectoryName(directory);
+            if (!string.IsNullOrWhiteSpace(parentDirectory) &&
+                string.Equals(Path.GetFileName(parentDirectory), frameworkName, StringComparison.OrdinalIgnoreCase))
+            {
+                return directory;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateRuntimeAssemblyDirectories()
+    {
+        var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
+        if (!string.IsNullOrWhiteSpace(runtimeDirectory) &&
+            Directory.Exists(runtimeDirectory) &&
+            yielded.Add(runtimeDirectory))
+        {
+            yield return runtimeDirectory;
+        }
+
+        var searchDirectory = runtimeDirectory;
+        for (var depth = 0; depth < 6 && !string.IsNullOrWhiteSpace(searchDirectory); depth++)
+        {
+            searchDirectory = Path.GetDirectoryName(searchDirectory);
+            if (searchDirectory == null)
+            {
+                yield break;
+            }
+
+            if (!string.Equals(Path.GetFileName(searchDirectory), "shared", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var frameworkDirectory in Directory.GetDirectories(searchDirectory))
+            {
+                foreach (var versionDirectory in Directory.GetDirectories(frameworkDirectory)
+                             .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (yielded.Add(versionDirectory))
+                    {
+                        yield return versionDirectory;
+                    }
+                }
+            }
+
+            yield break;
         }
     }
 
@@ -838,14 +983,103 @@ public partial class ILCompiler
         _currentHasThis = false;
     }
 
-    private static Type CreateStrongBoxType(Type valueType)
+    private Type CreateStrongBoxType(Type valueType)
     {
+        if (RequiresGeneratedLiftedStorageType(valueType))
+        {
+            if (_liftedStorageTypes.TryGetValue(valueType, out var liftedStorageType))
+            {
+                return liftedStorageType;
+            }
+
+            if (_moduleBuilder == null)
+            {
+                throw new InvalidOperationException("Module builder has not been initialized");
+            }
+
+            var boxType = _moduleBuilder.DefineType(
+                $"<>LiftedBox{_liftedStorageCounter++}",
+                TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.Class);
+            var valueField = boxType.DefineField("Value", valueType, FieldAttributes.Public);
+            var constructor = boxType.DefineConstructor(
+                MethodAttributes.Public,
+                CallingConventions.Standard,
+                new[] { valueType });
+            var constructorIl = constructor.GetILGenerator();
+            var objectConstructor = typeof(object).GetConstructor(Type.EmptyTypes)
+                ?? throw new InvalidOperationException("Could not resolve object::.ctor()");
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Call, objectConstructor);
+            constructorIl.Emit(OpCodes.Ldarg_0);
+            constructorIl.Emit(OpCodes.Ldarg_1);
+            constructorIl.Emit(OpCodes.Stfld, valueField);
+            constructorIl.Emit(OpCodes.Ret);
+
+            _generatedHelperTypes.Add(boxType);
+            _liftedStorageTypes[valueType] = boxType;
+            _liftedStorageConstructors[valueType] = constructor;
+            _liftedStorageValueFields[boxType] = valueField;
+            _liftedStorageValueTypes[boxType] = valueType;
+            return boxType;
+        }
+
         return typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType);
+    }
+
+    private static bool RequiresGeneratedLiftedStorageType(Type type)
+    {
+        if (type is GenericTypeParameterBuilder || type.IsGenericParameter)
+        {
+            return false;
+        }
+
+        if (type is TypeBuilder or EnumBuilder)
+        {
+            return true;
+        }
+
+        try
+        {
+            if (type.Assembly.IsDynamic)
+            {
+                return true;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
+
+        if (type.HasElementType && type.GetElementType() is { } elementType)
+        {
+            return RequiresGeneratedLiftedStorageType(elementType);
+        }
+
+        try
+        {
+            return type.IsGenericType && type.GetGenericArguments().Any(RequiresGeneratedLiftedStorageType);
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
     }
 
     private static bool RequiresTypeBuilderMemberResolution(Type type)
     {
-        if (type is TypeBuilder or GenericTypeParameterBuilder)
+        if (type is TypeBuilder or EnumBuilder or GenericTypeParameterBuilder)
+        {
+            return true;
+        }
+
+        try
+        {
+            if (type.Assembly.IsDynamic)
+            {
+                return true;
+            }
+        }
+        catch (NotSupportedException)
         {
             return true;
         }
@@ -855,7 +1089,206 @@ public partial class ILCompiler
             return RequiresTypeBuilderMemberResolution(elementType);
         }
 
-        return type.IsGenericType && type.GetGenericArguments().Any(RequiresTypeBuilderMemberResolution);
+        try
+        {
+            return type.IsGenericType && type.GetGenericArguments().Any(RequiresTypeBuilderMemberResolution);
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
+    }
+
+    private IEnumerable<string> GetDeclaredTypeNameCandidates(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            yield break;
+        }
+
+        yield return typeName;
+
+        if (typeName.Contains('.'))
+        {
+            var separatorIndex = typeName.IndexOf('.');
+            var qualifier = typeName[..separatorIndex];
+            var remainder = typeName[(separatorIndex + 1)..];
+
+            foreach (var import in _compilationUnit.Imports.Where(import => string.Equals(import.Alias, qualifier, StringComparison.Ordinal)))
+            {
+                yield return $"{import.Namespace}.{remainder}";
+            }
+        }
+
+        if (_compilationUnit.Namespace?.Name is { Length: > 0 } currentNamespace
+            && !typeName.StartsWith(currentNamespace + ".", StringComparison.Ordinal))
+        {
+            yield return $"{currentNamespace}.{typeName}";
+        }
+
+        foreach (var import in _compilationUnit.Imports.Where(import => import.Alias == null))
+        {
+            yield return $"{import.Namespace}.{typeName}";
+        }
+
+        var declaredNames = EnumerateDeclaredTypes()
+            .Select(info => info.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        var matchingDeclaredNames = declaredNames
+            .Where(name => string.Equals(name, typeName, StringComparison.Ordinal)
+                || name.EndsWith("." + typeName, StringComparison.Ordinal))
+            .ToArray();
+
+        var importedNamespaceMatches = matchingDeclaredNames
+            .Where(name =>
+            {
+                var namespaceName = GetNamespaceFromTypeName(name);
+                return string.IsNullOrEmpty(namespaceName)
+                    || _compilationUnit.Imports.Any(import =>
+                        import.Alias == null
+                        && string.Equals(import.Namespace, namespaceName, StringComparison.Ordinal));
+            })
+            .ToArray();
+
+        if (importedNamespaceMatches.Length == 1)
+        {
+            yield return importedNamespaceMatches[0];
+        }
+        else if (matchingDeclaredNames.Length == 1)
+        {
+            yield return matchingDeclaredNames[0];
+        }
+    }
+
+    private static string GetNamespaceFromTypeName(string typeName)
+    {
+        var separatorIndex = typeName.LastIndexOf('.');
+        return separatorIndex >= 0 ? typeName[..separatorIndex] : string.Empty;
+    }
+
+    private string? ResolveDeclaredTypeName(string typeName)
+    {
+        return GetDeclaredTypeNameCandidates(typeName)
+            .Distinct(StringComparer.Ordinal)
+            .FirstOrDefault(candidate => TryGetDeclaredTypeInfo(candidate, out _));
+    }
+
+    private bool TryResolveDeclaredProjectType(string typeName, bool treatStringEnumAsString, out Type type)
+    {
+        foreach (var candidate in GetDeclaredTypeNameCandidates(typeName).Distinct(StringComparer.Ordinal))
+        {
+            if (TryLookupDeclaredProjectType(candidate, treatStringEnumAsString, out type))
+            {
+                return true;
+            }
+        }
+
+        foreach (var candidate in GetDeclaredTypeNameCandidates(typeName).Distinct(StringComparer.Ordinal))
+        {
+            if (!TryEnsureUserTypeDeclared(candidate))
+            {
+                if (TryEnsureNestedDeclaredProjectType(candidate, treatStringEnumAsString, out type))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (TryLookupDeclaredProjectType(candidate, treatStringEnumAsString, out type))
+            {
+                return true;
+            }
+        }
+
+        type = typeof(object);
+        return false;
+    }
+
+    private bool TryEnsureNestedDeclaredProjectType(string candidate, bool treatStringEnumAsString, out Type type)
+    {
+        var separatorIndex = candidate.LastIndexOf('.');
+        while (separatorIndex > 0)
+        {
+            var declaringTypeName = candidate[..separatorIndex];
+            if (TryEnsureUserTypeDeclared(declaringTypeName)
+                && TryLookupDeclaredProjectType(candidate, treatStringEnumAsString, out type))
+            {
+                return true;
+            }
+
+            separatorIndex = candidate.LastIndexOf('.', separatorIndex - 1);
+        }
+
+        type = typeof(object);
+        return false;
+    }
+
+    private bool TryLookupDeclaredProjectType(string typeName, bool treatStringEnumAsString, out Type type)
+    {
+        if (_stringEnumContainers.TryGetValue(typeName, out var stringEnumContainer))
+        {
+            type = treatStringEnumAsString ? typeof(string) : stringEnumContainer;
+            return true;
+        }
+
+        if (TryLookupUniqueDeclaredTypeBySuffix(_stringEnumContainers, typeName, out stringEnumContainer))
+        {
+            type = treatStringEnumAsString ? typeof(string) : stringEnumContainer;
+            return true;
+        }
+
+        if (_types.TryGetValue(typeName, out var typeBuilder))
+        {
+            type = typeBuilder;
+            return true;
+        }
+
+        if (TryLookupUniqueDeclaredTypeBySuffix(_types, typeName, out typeBuilder))
+        {
+            type = typeBuilder;
+            return true;
+        }
+
+        if (_enumTypes.TryGetValue(typeName, out var enumType))
+        {
+            type = enumType;
+            return true;
+        }
+
+        if (TryLookupUniqueDeclaredTypeBySuffix(_enumTypes, typeName, out enumType))
+        {
+            type = enumType;
+            return true;
+        }
+
+        type = typeof(object);
+        return false;
+    }
+
+    private static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(IReadOnlyDictionary<string, TType> types, string typeName, out TType type)
+        where TType : Type
+    {
+        var matches = types
+            .Where(entry => string.Equals(entry.Key, typeName, StringComparison.Ordinal)
+                || entry.Key.EndsWith("." + typeName, StringComparison.Ordinal))
+            .Select(entry => entry.Value)
+            .Distinct()
+            .Take(2)
+            .ToArray();
+
+        if (matches.Length == 1)
+        {
+            type = matches[0];
+            return true;
+        }
+
+        type = null!;
+        return false;
     }
 
     private static IEnumerable<Type> GetRuntimeInterfaces(Type type)
@@ -870,13 +1303,22 @@ public partial class ILCompiler
         }
     }
 
-    private sealed record ResolvedRuntimeProperty(Type PropertyType, MethodInfo? Getter);
+    private sealed record ResolvedRuntimeProperty(Type PropertyType, MethodInfo? Getter, MethodInfo? Setter);
 
     private static bool TryGetDeclaredRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags, out PropertyInfo? property)
     {
         try
         {
             property = type.GetProperty(memberName, bindingFlags);
+            if (property != null
+                && type.IsGenericType
+                && !type.IsGenericTypeDefinition
+                && property.DeclaringType == type.GetGenericTypeDefinition())
+            {
+                var getter = property.GetMethod != null ? TypeBuilder.GetMethod(type, property.GetMethod) : null;
+                var setter = property.SetMethod != null ? TypeBuilder.GetMethod(type, property.SetMethod) : null;
+                property = getter?.DeclaringType?.GetProperty(property.Name, bindingFlags);
+            }
             return property != null;
         }
         catch (NotSupportedException)
@@ -910,6 +1352,154 @@ public partial class ILCompiler
         return ResolveRuntimeProperty(type, memberName, bindingFlags, new HashSet<Type>());
     }
 
+    private static bool TryGetDeclaredRuntimeMethod(Type type, string memberName, BindingFlags bindingFlags, Type[]? parameterTypes, out MethodInfo? method)
+    {
+        try
+        {
+            method = parameterTypes == null
+                ? type.GetMethod(memberName, bindingFlags)
+                : type.GetMethod(memberName, bindingFlags, binder: null, parameterTypes, modifiers: null);
+            if (method != null
+                && type.IsGenericType
+                && !type.IsGenericTypeDefinition
+                && method.DeclaringType == type.GetGenericTypeDefinition())
+            {
+                method = TypeBuilder.GetMethod(type, method);
+            }
+            return method != null;
+        }
+        catch (AmbiguousMatchException)
+        {
+            method = type.GetMethods(bindingFlags).FirstOrDefault(candidate => candidate.Name == memberName);
+            if (method != null
+                && type.IsGenericType
+                && !type.IsGenericTypeDefinition
+                && method.DeclaringType == type.GetGenericTypeDefinition())
+            {
+                method = TypeBuilder.GetMethod(type, method);
+            }
+            return method != null;
+        }
+        catch (NotSupportedException)
+        {
+            if (type.IsGenericType && !type.IsGenericTypeDefinition && RequiresTypeBuilderMemberResolution(type))
+            {
+                var genericDefinition = type.GetGenericTypeDefinition();
+                if (TryGetDeclaredRuntimeMethod(genericDefinition, memberName, bindingFlags, parameterTypes, out var openMethod)
+                    && openMethod != null)
+                {
+                    method = TypeBuilder.GetMethod(type, openMethod);
+                    return true;
+                }
+            }
+
+            method = null;
+            return false;
+        }
+    }
+
+    private static MethodInfo? ResolveRuntimeMethod(Type type, string memberName, BindingFlags bindingFlags, Type[]? parameterTypes = null)
+    {
+        return ResolveRuntimeMethod(type, memberName, bindingFlags, parameterTypes, new HashSet<Type>());
+    }
+
+    private static MethodInfo? ResolveRuntimeMethod(Type type, string memberName, BindingFlags bindingFlags, Type[]? parameterTypes, HashSet<Type> visited)
+    {
+        if (!visited.Add(type))
+        {
+            return null;
+        }
+
+        if (TryGetDeclaredRuntimeMethod(type, memberName, bindingFlags, parameterTypes, out var method))
+        {
+            return method;
+        }
+
+        foreach (var interfaceType in GetRuntimeInterfaces(type))
+        {
+            method = ResolveRuntimeMethod(interfaceType, memberName, bindingFlags, parameterTypes, visited);
+            if (method != null)
+            {
+                return method;
+            }
+        }
+
+        return type.BaseType != null
+            ? ResolveRuntimeMethod(type.BaseType, memberName, bindingFlags, parameterTypes, visited)
+            : null;
+    }
+
+    private static Type ResolveGenericSignatureType(Type closedType, Type signatureType)
+    {
+        if (!signatureType.ContainsGenericParameters || !closedType.IsGenericType)
+        {
+            return signatureType;
+        }
+
+        Type genericDefinition;
+        Type[] definitionArguments;
+        Type[] actualArguments;
+        try
+        {
+            genericDefinition = closedType.GetGenericTypeDefinition();
+            definitionArguments = genericDefinition.GetGenericArguments();
+            actualArguments = closedType.GetGenericArguments();
+        }
+        catch (NotSupportedException)
+        {
+            return signatureType;
+        }
+
+        var substitutions = new Dictionary<(string Name, int Position), Type>();
+        for (int i = 0; i < definitionArguments.Length && i < actualArguments.Length; i++)
+        {
+            substitutions[(definitionArguments[i].Name, definitionArguments[i].GenericParameterPosition)] = actualArguments[i];
+        }
+
+        return SubstituteGenericSignatureType(signatureType, substitutions);
+    }
+
+    private static Type SubstituteGenericSignatureType(
+        Type signatureType,
+        IReadOnlyDictionary<(string Name, int Position), Type> substitutions)
+    {
+        if (signatureType.IsGenericParameter
+            && substitutions.TryGetValue((signatureType.Name, signatureType.GenericParameterPosition), out var substitutedType))
+        {
+            return substitutedType;
+        }
+
+        if (signatureType.IsByRef)
+        {
+            return SubstituteGenericSignatureType(signatureType.GetElementType()!, substitutions).MakeByRefType();
+        }
+
+        if (signatureType.IsArray)
+        {
+            return SubstituteGenericSignatureType(signatureType.GetElementType()!, substitutions).MakeArrayType();
+        }
+
+        if (!signatureType.IsGenericType)
+        {
+            return signatureType;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = signatureType.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return signatureType;
+        }
+
+        var substitutedArguments = signatureType.GetGenericArguments()
+            .Select(argument => SubstituteGenericSignatureType(argument, substitutions))
+            .ToArray();
+        return genericDefinition.MakeGenericType(substitutedArguments);
+    }
+
     private static ResolvedRuntimeProperty? ResolveRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags, HashSet<Type> visited)
     {
         if (!visited.Add(type))
@@ -919,7 +1509,10 @@ public partial class ILCompiler
 
         if (TryGetDeclaredRuntimeProperty(type, memberName, bindingFlags, out var property))
         {
-            return new ResolvedRuntimeProperty(property!.GetMethod?.ReturnType ?? property.PropertyType, property.GetMethod);
+            return new ResolvedRuntimeProperty(
+                ResolveGenericSignatureType(type, property!.GetMethod?.ReturnType ?? property.PropertyType),
+                property.GetMethod,
+                property.SetMethod);
         }
 
         if (type.IsGenericType && !type.IsGenericTypeDefinition && RequiresTypeBuilderMemberResolution(type))
@@ -929,7 +1522,13 @@ public partial class ILCompiler
                 && openProperty?.GetMethod != null)
             {
                 var getter = TypeBuilder.GetMethod(type, openProperty.GetMethod);
-                return new ResolvedRuntimeProperty(getter.ReturnType, getter);
+                var setter = openProperty.SetMethod != null
+                    ? TypeBuilder.GetMethod(type, openProperty.SetMethod)
+                    : null;
+                return new ResolvedRuntimeProperty(
+                    ResolveGenericSignatureType(type, openProperty.PropertyType),
+                    getter,
+                    setter);
             }
         }
 
@@ -979,9 +1578,19 @@ public partial class ILCompiler
             : null;
     }
 
-    private static ConstructorInfo GetStrongBoxConstructor(Type valueType)
+    private ConstructorInfo GetStrongBoxConstructor(Type valueType)
     {
+        if (_liftedStorageConstructors.TryGetValue(valueType, out var liftedConstructor))
+        {
+            return liftedConstructor;
+        }
+
         var strongBoxType = CreateStrongBoxType(valueType);
+        if (_liftedStorageConstructors.TryGetValue(valueType, out liftedConstructor))
+        {
+            return liftedConstructor;
+        }
+
         var openConstructor = typeof(System.Runtime.CompilerServices.StrongBox<>)
             .GetConstructor(new[] { typeof(System.Runtime.CompilerServices.StrongBox<>).GetGenericArguments()[0] })
             ?? throw new InvalidOperationException("Could not resolve StrongBox<T>(T)");
@@ -991,12 +1600,32 @@ public partial class ILCompiler
             return TypeBuilder.GetConstructor(strongBoxType, openConstructor);
         }
 
-        return strongBoxType.GetConstructor(new[] { valueType })
-            ?? throw new InvalidOperationException($"Could not resolve StrongBox constructor for {valueType}");
+        try
+        {
+            var constructor = strongBoxType.GetConstructor(new[] { valueType });
+            if (constructor != null)
+            {
+                return constructor;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            if (strongBoxType.IsGenericType)
+            {
+                return TypeBuilder.GetConstructor(strongBoxType, openConstructor);
+            }
+        }
+
+        throw new InvalidOperationException($"Could not resolve StrongBox constructor for {valueType}");
     }
 
-    private static FieldInfo GetStrongBoxValueField(Type strongBoxType)
+    private FieldInfo GetStrongBoxValueField(Type strongBoxType)
     {
+        if (_liftedStorageValueFields.TryGetValue(strongBoxType, out var liftedValueField))
+        {
+            return liftedValueField;
+        }
+
         var openField = typeof(System.Runtime.CompilerServices.StrongBox<>).GetField("Value")
             ?? throw new InvalidOperationException("Could not resolve StrongBox<T>.Value");
 
@@ -1006,12 +1635,32 @@ public partial class ILCompiler
             return TypeBuilder.GetField(strongBoxType, openField);
         }
 
-        return strongBoxType.GetField("Value")
-            ?? throw new InvalidOperationException($"Could not resolve StrongBox.Value for {strongBoxType}");
+        try
+        {
+            var field = strongBoxType.GetField("Value");
+            if (field != null)
+            {
+                return field;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            if (strongBoxType.IsGenericType)
+            {
+                return TypeBuilder.GetField(strongBoxType, openField);
+            }
+        }
+
+        throw new InvalidOperationException($"Could not resolve StrongBox.Value for {strongBoxType}");
     }
 
-    private static Type GetStrongBoxValueType(Type strongBoxType)
+    private Type GetStrongBoxValueType(Type strongBoxType)
     {
+        if (_liftedStorageValueTypes.TryGetValue(strongBoxType, out var liftedValueType))
+        {
+            return liftedValueType;
+        }
+
         return strongBoxType.IsGenericType && strongBoxType.GetGenericTypeDefinition() == typeof(System.Runtime.CompilerServices.StrongBox<>)
             ? strongBoxType.GetGenericArguments()[0]
             : strongBoxType;
@@ -1071,7 +1720,17 @@ public partial class ILCompiler
 
         if (local.LocalType != valueType)
         {
-            _currentIL.Emit(OpCodes.Newobj, GetStrongBoxConstructor(valueType));
+            var storageConstructor = GetStrongBoxConstructor(valueType);
+            try
+            {
+                _currentIL.Emit(OpCodes.Newobj, storageConstructor);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or InvalidOperationException)
+            {
+                throw new InvalidOperationException(
+                    $"Could not box lifted local of type {GetTypeKey(valueType)} into storage type {GetTypeKey(local.LocalType)} using constructor {storageConstructor.DeclaringType?.FullName ?? storageConstructor.ToString()}",
+                    ex);
+            }
         }
 
         _currentIL.Emit(OpCodes.Stloc, local);
@@ -1503,7 +2162,7 @@ public partial class ILCompiler
             return true;
         }
 
-        if (parameterType.IsEnum && Enum.GetUnderlyingType(parameterType) == argumentType)
+        if (TryGetEnumUnderlyingType(parameterType) == argumentType)
         {
             return true;
         }
@@ -1514,7 +2173,7 @@ public partial class ILCompiler
             var argumentElementType = argumentType.GetElementType()!;
             return parameterElementType == argumentElementType
                 || parameterElementType.IsAssignableFrom(argumentElementType)
-                || (parameterElementType.IsEnum && Enum.GetUnderlyingType(parameterElementType) == argumentElementType);
+                || TryGetEnumUnderlyingType(parameterElementType) == argumentElementType;
         }
 
         return false;
@@ -1565,9 +2224,8 @@ public partial class ILCompiler
         var (leftValue, leftType) = EvaluateAttributeArgument(binary.Left);
         var (rightValue, rightType) = EvaluateAttributeArgument(binary.Right);
 
-        if (leftType.IsEnum && rightType == leftType)
+        if (TryGetEnumUnderlyingType(leftType) is { } underlyingType && rightType == leftType)
         {
-            var underlyingType = Enum.GetUnderlyingType(leftType);
             var leftIntegral = Convert.ToInt64(Convert.ChangeType(leftValue, underlyingType));
             var rightIntegral = Convert.ToInt64(Convert.ChangeType(rightValue, underlyingType));
             var result = binary.Operator switch
@@ -1608,7 +2266,7 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Attribute member access {memberAccess} does not resolve to a static type");
         }
 
-        if (staticType.IsEnum)
+        if (IsEnumType(staticType))
         {
             return (Enum.Parse(staticType, memberAccess.MemberName), staticType);
         }
@@ -1619,7 +2277,7 @@ public partial class ILCompiler
             if (_fieldConstants.TryGetValue(fieldKey, out var constantValue)
                 && _fields.TryGetValue(fieldKey, out var fieldBuilder))
             {
-                return (constantValue, fieldBuilder.FieldType);
+                return (constantValue, GetDeclaredStaticFieldType(staticTypeBuilder, memberAccess.MemberName, fieldBuilder));
             }
         }
 
@@ -1739,6 +2397,20 @@ public partial class ILCompiler
         return $"{GetTypeKey(type)}.{fieldName}";
     }
 
+    private string DescribeCallArgumentTypes(IReadOnlyList<Argument> arguments)
+    {
+        return string.Join(", ", arguments.Select(argument =>
+        {
+            var modifier = argument.Modifier switch
+            {
+                ArgumentModifier.Ref => "ref ",
+                ArgumentModifier.Out => "out ",
+                _ => string.Empty
+            };
+            return modifier + GetTypeKey(GetExpressionType(argument.Value));
+        }));
+    }
+
     private string GetPrimaryConstructorFieldKey(Type type, string parameterName)
     {
         return $"{GetTypeKey(type)}.<>primary.{parameterName}";
@@ -1747,6 +2419,80 @@ public partial class ILCompiler
     private string GetIndexerKey(Type type)
     {
         return $"{GetTypeKey(type)}.Item";
+    }
+
+    private FieldBuilder? GetCapturedThisField()
+    {
+        return _closureFields != null && _closureFields.TryGetValue(ThisCaptureName, out var capturedThisField)
+            ? capturedThisField
+            : null;
+    }
+
+    private Type? GetCapturedThisType()
+    {
+        return GetCapturedThisField()?.FieldType;
+    }
+
+    private bool TryGetImplicitInstanceOwnerTypeBuilder(out TypeBuilder typeBuilder)
+    {
+        var capturedThisType = GetCapturedThisType();
+        if (capturedThisType != null && TryGetUserTypeDefinition(capturedThisType, out typeBuilder))
+        {
+            return true;
+        }
+
+        if (_currentHasThis
+            && _currentTypeBuilder != null
+            && TryGetUserTypeDefinition(_currentTypeBuilder, out typeBuilder))
+        {
+            return true;
+        }
+
+        typeBuilder = null!;
+        return false;
+    }
+
+    private bool TryGetImplicitInstanceOwnerType(out Type ownerType)
+    {
+        var capturedThisType = GetCapturedThisType();
+        if (capturedThisType != null)
+        {
+            ownerType = capturedThisType;
+            return true;
+        }
+
+        if (_currentHasThis && _currentTypeBuilder != null)
+        {
+            ownerType = _currentTypeBuilder;
+            return true;
+        }
+
+        ownerType = null!;
+        return false;
+    }
+
+    private static Type GetImplicitInstanceRuntimeLookupType(Type ownerType)
+    {
+        return ownerType is TypeBuilder typeBuilder && typeBuilder.BaseType != null
+            ? typeBuilder.BaseType
+            : ownerType;
+    }
+
+    private void EmitLoadImplicitThisReference()
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (GetCapturedThisField() is { } capturedThisField)
+        {
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            _currentIL.Emit(OpCodes.Ldfld, capturedThisField);
+            return;
+        }
+
+        _currentIL.Emit(OpCodes.Ldarg_0);
     }
 
     private void RegisterDeclaredMethodOverload(string key, FunctionDeclaration declaration, MethodBuilder builder)
@@ -1927,9 +2673,24 @@ public partial class ILCompiler
     {
         try
         {
-            return type.IsEnum;
+            if (type.IsEnum)
+            {
+                return true;
+            }
         }
         catch (NotSupportedException)
+        {
+        }
+
+        try
+        {
+            return type.BaseType == typeof(Enum);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
         {
             return false;
         }
@@ -1948,11 +2709,11 @@ public partial class ILCompiler
         }
         catch (ArgumentException)
         {
-            return null;
+            return type.BaseType == typeof(Enum) ? typeof(int) : null;
         }
         catch (NotSupportedException)
         {
-            return null;
+            return type.BaseType == typeof(Enum) ? typeof(int) : null;
         }
     }
 
@@ -2004,6 +2765,16 @@ public partial class ILCompiler
             || argumentEnumUnderlyingType == parameterType;
     }
 
+    private static bool CanAssignNullToType(Type targetType)
+    {
+        if (!targetType.IsValueType)
+        {
+            return true;
+        }
+
+        return Nullable.GetUnderlyingType(targetType) != null || targetType.IsGenericParameter;
+    }
+
     private static int GetParameterMatchScore(Type parameterType, Type argumentType)
     {
         if (parameterType == argumentType)
@@ -2044,8 +2815,8 @@ public partial class ILCompiler
         {
         }
 
-        if ((parameterType.IsEnum && Enum.GetUnderlyingType(parameterType) == argumentType)
-            || (argumentType.IsEnum && Enum.GetUnderlyingType(argumentType) == parameterType))
+        if ((TryGetEnumUnderlyingType(parameterType) == argumentType)
+            || (TryGetEnumUnderlyingType(argumentType) == parameterType))
         {
             return 4;
         }
@@ -2071,6 +2842,50 @@ public partial class ILCompiler
         return false;
     }
 
+    private static bool HasOpenGenericBindingType(Type type)
+    {
+        type = GetByRefElementType(type);
+
+        if (type.IsGenericParameter || type.ContainsGenericParameters)
+        {
+            return true;
+        }
+
+        if (type.IsArray)
+        {
+            var elementType = type.GetElementType();
+            return elementType != null && HasOpenGenericBindingType(elementType);
+        }
+
+        if (type.IsGenericType)
+        {
+            return type.GetGenericArguments().Any(HasOpenGenericBindingType);
+        }
+
+        return false;
+    }
+
+    private Type GetExpressionTypeForBinding(Expression expression, Type expectedType)
+    {
+        expectedType = GetByRefElementType(expectedType);
+
+        if (expression is ArrayLiteralExpression arrayLiteral && !HasOpenGenericBindingType(expectedType))
+        {
+            var savedExpectedType = _expectedExpressionType;
+            _expectedExpressionType = expectedType;
+            try
+            {
+                return GetArrayLiteralType(arrayLiteral);
+            }
+            finally
+            {
+                _expectedExpressionType = savedExpectedType;
+            }
+        }
+
+        return GetExpressionType(expression);
+    }
+
     private bool ShouldPassParamsArgumentDirectly(Argument argument, Type parameterType)
     {
         if (argument.Value is DefaultExpression)
@@ -2078,7 +2893,7 @@ public partial class ILCompiler
             return true;
         }
 
-        var argumentType = GetExpressionType(argument.Value);
+        var argumentType = GetExpressionTypeForBinding(argument.Value, parameterType);
         return IsParameterTypeCompatible(parameterType, argumentType);
     }
 
@@ -2095,7 +2910,7 @@ public partial class ILCompiler
             return argumentType;
         }
 
-        foreach (var interfaceType in argumentType.GetInterfaces())
+        foreach (var interfaceType in GetImplementedTypes(argumentType))
         {
             if (interfaceType.IsGenericType && interfaceType.GetGenericTypeDefinition() == genericDefinition)
             {
@@ -2103,7 +2918,16 @@ public partial class ILCompiler
             }
         }
 
-        var baseType = argumentType.BaseType;
+        Type? baseType;
+        try
+        {
+            baseType = argumentType.BaseType;
+        }
+        catch (NotSupportedException)
+        {
+            baseType = null;
+        }
+
         while (baseType != null)
         {
             if (baseType.IsGenericType && baseType.GetGenericTypeDefinition() == genericDefinition)
@@ -2111,10 +2935,90 @@ public partial class ILCompiler
                 return baseType;
             }
 
-            baseType = baseType.BaseType;
+            try
+            {
+                baseType = baseType.BaseType;
+            }
+            catch (NotSupportedException)
+            {
+                break;
+            }
         }
 
         return null;
+    }
+
+    private static IEnumerable<Type> GetImplementedTypes(Type argumentType)
+    {
+        if (argumentType.IsArray && argumentType.GetElementType() is { } elementType)
+        {
+            yield return typeof(IEnumerable<>).MakeGenericType(elementType);
+            yield return typeof(ICollection<>).MakeGenericType(elementType);
+            yield return typeof(IList<>).MakeGenericType(elementType);
+            yield return typeof(IReadOnlyCollection<>).MakeGenericType(elementType);
+            yield return typeof(IReadOnlyList<>).MakeGenericType(elementType);
+        }
+
+        if (argumentType.IsGenericType && !argumentType.IsGenericTypeDefinition)
+        {
+            Type genericDefinition;
+            try
+            {
+                genericDefinition = argumentType.GetGenericTypeDefinition();
+            }
+            catch (NotSupportedException)
+            {
+                genericDefinition = null!;
+            }
+
+            if (genericDefinition != null)
+            {
+                Type[] genericInterfaces;
+                try
+                {
+                    genericInterfaces = genericDefinition.GetInterfaces();
+                }
+                catch (NotSupportedException)
+                {
+                    genericInterfaces = Array.Empty<Type>();
+                }
+
+                foreach (var interfaceType in genericInterfaces)
+                {
+                    yield return ResolveGenericSignatureType(argumentType, interfaceType);
+                }
+
+                Type? genericBaseType;
+                try
+                {
+                    genericBaseType = genericDefinition.BaseType;
+                }
+                catch (NotSupportedException)
+                {
+                    genericBaseType = null;
+                }
+
+                if (genericBaseType != null)
+                {
+                    yield return ResolveGenericSignatureType(argumentType, genericBaseType);
+                }
+            }
+        }
+
+        Type[] interfaces;
+        try
+        {
+            interfaces = argumentType.GetInterfaces();
+        }
+        catch (NotSupportedException)
+        {
+            yield break;
+        }
+
+        foreach (var interfaceType in interfaces)
+        {
+            yield return interfaceType;
+        }
     }
 
     private bool TryCollectGenericBindings(Type parameterType, Type argumentType, Dictionary<string, Type> bindings)
@@ -2214,7 +3118,8 @@ public partial class ILCompiler
         }
 
         var bindings = new Dictionary<string, Type>();
-        var parameterIndex = 0;
+        var runtimeParameterIndex = 0;
+        var suppliedArgumentIndex = 0;
         if (implicitReceiver != null)
         {
             if (runtimeParameters.Length == 0 || !TryCollectGenericBindings(runtimeParameters[0].ParameterType, GetExpressionType(implicitReceiver), bindings))
@@ -2222,15 +3127,57 @@ public partial class ILCompiler
                 return null;
             }
 
-            parameterIndex = 1;
+            runtimeParameterIndex = 1;
         }
 
-        for (int i = 0; i < call.Arguments.Count && parameterIndex + i < runtimeParameters.Length; i++)
+        for (int declarationIndex = implicitReceiver != null ? 1 : 0;
+             declarationIndex < declaration.Parameters.Count && runtimeParameterIndex < runtimeParameters.Length;
+             declarationIndex++, runtimeParameterIndex++)
         {
-            if (!TryCollectGenericBindings(runtimeParameters[parameterIndex + i].ParameterType, GetExpressionType(call.Arguments[i].Value), bindings))
+            var declarationParameter = declaration.Parameters[declarationIndex];
+            var runtimeParameter = runtimeParameters[runtimeParameterIndex].ParameterType;
+
+            if (declarationParameter.Modifier == Ast.ParameterModifier.Params && declarationIndex == declaration.Parameters.Count - 1)
+            {
+                if (!TryGetParamsElementType(runtimeParameter, out var elementType))
+                {
+                    return null;
+                }
+
+                var remainingArguments = call.Arguments.Skip(suppliedArgumentIndex).ToList();
+                if (remainingArguments.Count == 1 && ShouldPassParamsArgumentDirectly(remainingArguments[0], runtimeParameter))
+                {
+                    if (!TryCollectGenericBindings(runtimeParameter, GetExpressionTypeForBinding(remainingArguments[0].Value, runtimeParameter), bindings))
+                    {
+                        return null;
+                    }
+                }
+                else
+                {
+                    foreach (var argument in remainingArguments)
+                    {
+                        if (!TryCollectGenericBindings(elementType, GetExpressionTypeForBinding(argument.Value, elementType), bindings))
+                        {
+                            return null;
+                        }
+                    }
+                }
+
+                suppliedArgumentIndex = call.Arguments.Count;
+                break;
+            }
+
+            if (suppliedArgumentIndex >= call.Arguments.Count)
+            {
+                break;
+            }
+
+            if (!TryCollectGenericBindings(runtimeParameter, GetExpressionTypeForBinding(call.Arguments[suppliedArgumentIndex].Value, runtimeParameter), bindings))
             {
                 return null;
             }
+
+            suppliedArgumentIndex++;
         }
 
         var inferredTypes = new Type[declaration.TypeParameters.Count];
@@ -2450,7 +3397,31 @@ public partial class ILCompiler
                         break;
                     }
 
-                    var argumentType = GetExpressionType(supplied.Argument.Value);
+                    if (supplied.Argument.Value is NullLiteralExpression)
+                    {
+                        if (!CanAssignNullToType(expectedType))
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+
+                        score += 8;
+                        break;
+                    }
+
+                    if (supplied.Argument.Value is LambdaExpression lambda)
+                    {
+                        if (!TryBindLambdaToRuntimeParameter(expectedType, lambda, new Dictionary<string, Type>(), out var lambdaScore))
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+
+                        score += lambdaScore;
+                        break;
+                    }
+
+                    var argumentType = GetExpressionTypeForBinding(supplied.Argument.Value, expectedType);
                     if (!IsParameterTypeCompatible(expectedType, argumentType))
                     {
                         boundArguments = Array.Empty<BoundCallArgument>();
@@ -2469,7 +3440,19 @@ public partial class ILCompiler
                         break;
                     }
 
-                    var argumentType = GetExpressionType(expressionBound.Expression);
+                    if (expressionBound.Expression is NullLiteralExpression)
+                    {
+                        if (!CanAssignNullToType(expectedType))
+                        {
+                            boundArguments = Array.Empty<BoundCallArgument>();
+                            return false;
+                        }
+
+                        score += 8;
+                        break;
+                    }
+
+                    var argumentType = GetExpressionTypeForBinding(expressionBound.Expression, expectedType);
                     if (!IsParameterTypeCompatible(expectedType, argumentType))
                     {
                         boundArguments = Array.Empty<BoundCallArgument>();
@@ -2489,7 +3472,31 @@ public partial class ILCompiler
                             return false;
                         }
 
-                        var argumentType = GetExpressionType(paramsArgument.Value);
+                        if (paramsArgument.Value is NullLiteralExpression)
+                        {
+                            if (!CanAssignNullToType(paramsBound.ElementType))
+                            {
+                                boundArguments = Array.Empty<BoundCallArgument>();
+                                return false;
+                            }
+
+                            score += 8;
+                            continue;
+                        }
+
+                        if (paramsArgument.Value is LambdaExpression paramsLambda)
+                        {
+                            if (!TryBindLambdaToRuntimeParameter(paramsBound.ElementType, paramsLambda, new Dictionary<string, Type>(), out var lambdaScore))
+                            {
+                                boundArguments = Array.Empty<BoundCallArgument>();
+                                return false;
+                            }
+
+                            score += lambdaScore;
+                            continue;
+                        }
+
+                        var argumentType = GetExpressionTypeForBinding(paramsArgument.Value, paramsBound.ElementType);
                         if (!IsParameterTypeCompatible(paramsBound.ElementType, argumentType))
                         {
                             boundArguments = Array.Empty<BoundCallArgument>();
@@ -2522,13 +3529,29 @@ public partial class ILCompiler
             return null;
         }
 
+        return BindDeclaredMethodCall(overloads, call, implicitReceiver, targetType, predicate);
+    }
+
+    private BoundDeclaredMethodCall? BindDeclaredMethodCall(
+        IEnumerable<DeclaredMethodOverload> overloads,
+        CallExpression call,
+        Expression? implicitReceiver = null,
+        Type? targetType = null,
+        Func<DeclaredMethodOverload, bool>? predicate = null)
+    {
+        var overloadList = overloads.ToList();
+        if (overloadList.Count == 0)
+        {
+            return null;
+        }
+
         BoundDeclaredMethodCall? best = null;
         var bestScore = -1;
         var bestUsesParams = true;
         var bestDefaultsUsed = int.MaxValue;
         var bestIsGeneric = true;
 
-        foreach (var overload in overloads)
+        foreach (var overload in overloadList)
         {
             if (predicate != null && !predicate(overload))
             {
@@ -2590,6 +3613,25 @@ public partial class ILCompiler
         }
 
         return best;
+    }
+
+    private BoundDeclaredMethodCall? BindDeclaredExtensionMethodCall(
+        string methodName,
+        CallExpression call,
+        Expression implicitReceiver)
+    {
+        var extensionOverloads = _declaredMethodOverloads
+            .Where(entry => string.Equals(entry.Key, methodName, StringComparison.Ordinal)
+                || entry.Key.EndsWith($".{methodName}", StringComparison.Ordinal))
+            .SelectMany(entry => entry.Value);
+
+        return BindDeclaredMethodCall(
+            extensionOverloads,
+            call,
+            implicitReceiver,
+            predicate: overload => overload.Builder.IsStatic
+                && overload.Declaration.Parameters.Count > 0
+                && overload.Declaration.Parameters[0].IsThis);
     }
 
     private BoundDeclaredConstructorCall? BindDeclaredConstructorCall(Type type, IReadOnlyList<Argument> arguments)
@@ -2735,7 +3777,14 @@ public partial class ILCompiler
                     EmitArrayElementStore(paramsArgument.ElementType);
                 }
 
-                var spanCtor = parameterType.GetConstructor(new[] { arrayType })
+                var spanCtor = ResolveCollectionConstructor(
+                    parameterType,
+                    constructor =>
+                    {
+                        var parameters = constructor.GetParameters();
+                        return parameters.Length == 1
+                            && AreParameterTypesCompatible(parameters[0].ParameterType, arrayType);
+                    })
                     ?? throw new InvalidOperationException($"Could not resolve {parameterType}(T[]) constructor");
                 _currentIL.Emit(OpCodes.Newobj, spanCtor);
                 return;
@@ -2748,9 +3797,9 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Cannot expand params arguments for parameter type {parameterType}");
         }
 
-        var ctor = listType.GetConstructor(Type.EmptyTypes)
+        var ctor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
             ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
-        var addMethod = listType.GetMethod("Add", new[] { paramsArgument.ElementType })
+        var addMethod = ResolveCollectionMethod(listType, "Add", method => HasParameterCount(method, 1))
             ?? throw new InvalidOperationException($"Could not resolve Add({paramsArgument.ElementType}) on {listType}");
 
         _currentIL.Emit(OpCodes.Newobj, ctor);
@@ -2809,29 +3858,19 @@ public partial class ILCompiler
             return true;
         }
 
-        if (_stringEnumContainers.TryGetValue(typeName, out var stringEnumContainer))
+        if (TryResolveDeclaredProjectType(typeName, treatStringEnumAsString: false, out type))
         {
-            type = stringEnumContainer;
             return true;
         }
 
-        if (_types.TryGetValue(typeName, out var typeBuilder))
+        foreach (var candidate in GetDeclaredTypeNameCandidates(typeName).Distinct(StringComparer.Ordinal))
         {
-            type = typeBuilder;
-            return true;
-        }
-
-        if (_enumTypes.TryGetValue(typeName, out var enumType))
-        {
-            type = enumType;
-            return true;
-        }
-
-        var externalType = ResolveExternalType(typeName);
-        if (externalType != null)
-        {
-            type = externalType;
-            return true;
+            var externalType = ResolveExternalType(candidate);
+            if (externalType != null)
+            {
+                type = externalType;
+                return true;
+            }
         }
 
         type = typeof(object);
@@ -2840,6 +3879,12 @@ public partial class ILCompiler
 
     private bool TryResolveStaticContainer(Expression expression, out Type type)
     {
+        if (ExpressionStartsWithValueIdentifier(expression))
+        {
+            type = typeof(object);
+            return false;
+        }
+
         if (TryGetQualifiedName(expression, out var qualifiedName))
         {
             return TryResolveStaticContainer(qualifiedName, out type);
@@ -2847,6 +3892,33 @@ public partial class ILCompiler
 
         type = typeof(object);
         return false;
+    }
+
+    private bool ExpressionStartsWithValueIdentifier(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression ident => IsValueIdentifierInScope(ident.Name),
+            MemberAccessExpression memberAccess when !memberAccess.IsNullConditional => ExpressionStartsWithValueIdentifier(memberAccess.Object),
+            _ => false
+        };
+    }
+
+    private bool IsValueIdentifierInScope(string name)
+    {
+        if (_locals?.ContainsKey(name) == true
+            || _parameters?.ContainsKey(name) == true
+            || _closureFields?.ContainsKey(name) == true)
+        {
+            return true;
+        }
+
+        if (!TryGetImplicitInstanceOwnerTypeBuilder(out var currentTypeBuilder))
+        {
+            return false;
+        }
+
+        return TryResolveCurrentTypeMember(currentTypeBuilder, name, out _, out _, out _, out _);
     }
 
     private bool TryGetQualifiedName(Expression expression, out string qualifiedName)
@@ -2897,8 +3969,7 @@ public partial class ILCompiler
             return true;
         }
 
-        var enumerableInterface = collectionType
-            .GetInterfaces()
+        var enumerableInterface = GetRuntimeInterfaces(collectionType)
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
 
         if (enumerableInterface != null)
@@ -3112,12 +4183,12 @@ public partial class ILCompiler
             return true;
         }
 
-        if (parameterType.IsEnum && Enum.GetUnderlyingType(parameterType) == argumentType)
+        if (TryGetEnumUnderlyingType(parameterType) == argumentType)
         {
             return true;
         }
 
-        if (argumentType.IsEnum && Enum.GetUnderlyingType(argumentType) == parameterType)
+        if (TryGetEnumUnderlyingType(argumentType) == parameterType)
         {
             return true;
         }
@@ -3266,7 +4337,9 @@ public partial class ILCompiler
             }
         }
 
-        var enumerableInterface = returnType.GetInterfaces()
+        var implementedTypes = GetImplementedTypes(returnType).ToArray();
+
+        var enumerableInterface = implementedTypes
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
         if (enumerableInterface != null)
         {
@@ -3274,7 +4347,7 @@ public partial class ILCompiler
             return true;
         }
 
-        var asyncEnumerableInterface = returnType.GetInterfaces()
+        var asyncEnumerableInterface = implementedTypes
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
         if (asyncEnumerableInterface != null)
         {
@@ -3282,7 +4355,7 @@ public partial class ILCompiler
             return true;
         }
 
-        var asyncEnumeratorInterface = returnType.GetInterfaces()
+        var asyncEnumeratorInterface = implementedTypes
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerator<>));
         if (asyncEnumeratorInterface != null)
         {
@@ -3475,6 +4548,33 @@ public partial class ILCompiler
             : TypeAttributes.Public;
     }
 
+    private TypeAttributes GetInterfaceTypeVisibilityAttributes(InterfaceDeclaration interfaceDecl)
+    {
+        if (!interfaceDecl.IsDuckInterface
+            || interfaceDecl.Modifiers.HasFlag(Modifiers.Public)
+            || interfaceDecl.Modifiers.HasFlag(Modifiers.Internal)
+            || interfaceDecl.Modifiers.HasFlag(Modifiers.File))
+        {
+            return GetTypeVisibilityAttributes(interfaceDecl.Modifiers);
+        }
+
+        var hasPublicImplementor = _compilationUnit.Declarations.Any(declaration => declaration switch
+        {
+            ClassDeclaration classDecl => !string.IsNullOrEmpty(classDecl.Name)
+                && char.IsUpper(classDecl.Name[0])
+                && StructurallyMatchesDuckInterface(classDecl.Members, interfaceDecl),
+            StructDeclaration structDecl => !string.IsNullOrEmpty(structDecl.Name)
+                && char.IsUpper(structDecl.Name[0])
+                && StructurallyMatchesDuckInterface(structDecl.Members, interfaceDecl),
+            RecordDeclaration recordDecl => !string.IsNullOrEmpty(recordDecl.Name)
+                && char.IsUpper(recordDecl.Name[0])
+                && StructurallyMatchesDuckInterface(recordDecl.Members, interfaceDecl),
+            _ => false
+        });
+
+        return hasPublicImplementor ? TypeAttributes.Public : TypeAttributes.NotPublic;
+    }
+
     private static MethodAttributes GetVisibilityMethodAttributes(Modifiers modifiers)
     {
         if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
@@ -3557,6 +4657,126 @@ public partial class ILCompiler
             : MethodAttributes.Private;
     }
 
+    private IEnumerable<InterfaceDeclaration> GetMatchingDuckInterfaces(IReadOnlyList<Declaration> typeMembers)
+    {
+        return _compilationUnit.Declarations
+            .OfType<InterfaceDeclaration>()
+            .Where(interfaceDecl => interfaceDecl.IsDuckInterface && StructurallyMatchesDuckInterface(typeMembers, interfaceDecl));
+    }
+
+    private static bool StructurallyMatchesDuckInterface(IReadOnlyList<Declaration> typeMembers, InterfaceDeclaration duckInterface)
+    {
+        foreach (var interfaceMember in duckInterface.Members.OfType<FunctionDeclaration>())
+        {
+            var hasMatch = typeMembers
+                .OfType<FunctionDeclaration>()
+                .Any(typeMember => FunctionSignaturesMatch(typeMember, interfaceMember));
+
+            if (!hasMatch)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool FunctionSignaturesMatch(FunctionDeclaration implementation, FunctionDeclaration contract)
+    {
+        return implementation.Name == contract.Name
+            && implementation.Parameters.Count == contract.Parameters.Count
+            && ParameterListsMatch(implementation.Parameters, contract.Parameters)
+            && TypeReferencesMatch(implementation.ReturnType, contract.ReturnType);
+    }
+
+    private static bool ParameterListsMatch(IReadOnlyList<Parameter> left, IReadOnlyList<Parameter> right)
+    {
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (left[i].Modifier != right[i].Modifier
+                || !TypeReferencesMatch(left[i].Type, right[i].Type))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TypeReferencesMatch(TypeReference? left, TypeReference? right)
+    {
+        if (left == null || right == null)
+        {
+            return left == right;
+        }
+
+        return GetTypeReferenceIdentity(left) == GetTypeReferenceIdentity(right);
+    }
+
+    private static string GetTypeReferenceIdentity(TypeReference typeReference)
+    {
+        return typeReference switch
+        {
+            SimpleTypeReference simpleType => $"S:{simpleType.Name}",
+            GenericTypeReference genericType => $"G:{genericType.Name}<{string.Join(",", genericType.TypeArguments.Select(GetTypeReferenceIdentity))}>",
+            ArrayTypeReference arrayType => $"A:{GetTypeReferenceIdentity(arrayType.ElementType)}",
+            NullableTypeReference nullableType => $"N:{GetTypeReferenceIdentity(nullableType.InnerType)}",
+            TupleTypeReference tupleType => $"T:({string.Join(",", tupleType.Elements.Select(element => GetTypeReferenceIdentity(element.Type)))})",
+            FunctionTypeReference functionType => $"F:({string.Join(",", functionType.ParameterTypes.Select(GetTypeReferenceIdentity))})->{GetTypeReferenceIdentity(functionType.ReturnType)}",
+            _ => typeReference.ToString() ?? string.Empty
+        };
+    }
+
+    private Type ResolveDuckInterfaceType(InterfaceDeclaration interfaceDecl, GenericTypeParameterBuilder[]? genericParameters)
+    {
+        if (!TryEnsureUserTypeDeclared(interfaceDecl.Name))
+        {
+            throw new InvalidOperationException($"Duck interface {interfaceDecl.Name} was not declared");
+        }
+
+        return ResolveType(new SimpleTypeReference(interfaceDecl.Name, interfaceDecl.Line, interfaceDecl.Column), genericParameters);
+    }
+
+    private List<Type> GetImplementedInterfaces(
+        IReadOnlyList<Declaration> typeMembers,
+        IReadOnlyList<TypeReference>? explicitInterfaces,
+        GenericTypeParameterBuilder[]? genericParameters,
+        TypeReference? baseTypeReference = null)
+    {
+        var implementedInterfaces = new List<Type>();
+
+        if (baseTypeReference != null)
+        {
+            var baseType = ResolveType(baseTypeReference, genericParameters);
+            if (baseType.IsInterface)
+            {
+                implementedInterfaces.Add(baseType);
+            }
+        }
+
+        if (explicitInterfaces != null)
+        {
+            implementedInterfaces.AddRange(
+                explicitInterfaces
+                    .Select(typeReference => ResolveType(typeReference, genericParameters))
+                    .Where(type => type.IsInterface));
+        }
+
+        foreach (var duckInterface in GetMatchingDuckInterfaces(typeMembers))
+        {
+            var duckInterfaceType = ResolveDuckInterfaceType(duckInterface, genericParameters);
+            if (duckInterfaceType.IsInterface)
+            {
+                implementedInterfaces.Add(duckInterfaceType);
+            }
+        }
+
+        return implementedInterfaces
+            .GroupBy(GetTypeKey, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .ToList();
+    }
+
     private Type ResolveRequiredRuntimeType(string fullName)
     {
         return ResolveExternalType(fullName)
@@ -3585,6 +4805,17 @@ public partial class ILCompiler
             if (expression is LambdaExpression)
             {
                 EmitExpression(expression);
+                return;
+            }
+
+            if (_expectedExpressionType == typeof(void))
+            {
+                EmitExpression(expression);
+                if (GetExpressionType(expression) != typeof(void))
+                {
+                    _currentIL?.Emit(OpCodes.Pop);
+                }
+
                 return;
             }
 
@@ -3666,7 +4897,9 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (type.IsEnum || type == typeof(int))
+        if (type.IsGenericParameter || type.ContainsGenericParameters)
+            _currentIL.Emit(OpCodes.Ldobj, type);
+        else if (IsEnumType(type) || type == typeof(int))
             _currentIL.Emit(OpCodes.Ldind_I4);
         else if (type == typeof(uint))
             _currentIL.Emit(OpCodes.Ldind_U4);
@@ -3696,7 +4929,9 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (type.IsEnum || type == typeof(int) || type == typeof(uint))
+        if (type.IsGenericParameter || type.ContainsGenericParameters)
+            _currentIL.Emit(OpCodes.Stobj, type);
+        else if (IsEnumType(type) || type == typeof(int) || type == typeof(uint))
             _currentIL.Emit(OpCodes.Stind_I4);
         else if (type == typeof(long) || type == typeof(ulong))
             _currentIL.Emit(OpCodes.Stind_I8);
@@ -3744,9 +4979,9 @@ public partial class ILCompiler
             return;
         }
 
-        if (targetType.IsEnum)
+        if (TryGetEnumUnderlyingType(targetType) is { } enumUnderlyingType)
         {
-            EmitConstantValue(Convert.ChangeType(value, Enum.GetUnderlyingType(targetType)), Enum.GetUnderlyingType(targetType));
+            EmitConstantValue(Convert.ChangeType(value, enumUnderlyingType), enumUnderlyingType);
             return;
         }
 
@@ -4176,6 +5411,7 @@ public partial class ILCompiler
                 TypeAttributes.Public | TypeAttributes.Class,
                 typeof(object),
                 interfaces);
+            RegisterType("NSharpTests", _testType);
         }
 
         // First pass: declare all types (classes, structs, interfaces, etc.)
@@ -4264,6 +5500,10 @@ public partial class ILCompiler
             {
                 EmitRecordBodies(recordDecl);
             }
+            else if (declaration is InterfaceDeclaration interfaceDecl)
+            {
+                EmitInterfaceBodies(interfaceDecl);
+            }
             else if (declaration is UnionDeclaration unionDecl)
             {
                 EmitUnionBodies(unionDecl);
@@ -4284,7 +5524,15 @@ public partial class ILCompiler
             enumType.CreateType();
         }
 
-        foreach (var stringEnumContainer in _stringEnumContainers.Values)
+        foreach (var nestedEnumType in _enumTypes.Values
+                     .OfType<TypeBuilder>()
+                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
+        {
+            nestedEnumType.CreateType();
+        }
+
+        foreach (var stringEnumContainer in _stringEnumContainers.Values
+                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
         {
             stringEnumContainer.CreateType();
         }
@@ -4359,9 +5607,31 @@ public partial class ILCompiler
 
     private MethodBuilder? GetEntryPointMethod()
     {
-        return _methods.TryGetValue("main", out var lowerMain)
-            ? lowerMain
-            : _methods.GetValueOrDefault("Main");
+        if (_methods.TryGetValue("main", out var lowerMain))
+        {
+            return lowerMain;
+        }
+
+        if (_methods.TryGetValue("Main", out var main))
+        {
+            return main;
+        }
+
+        var candidates = _methods
+            .Where(candidate =>
+                candidate.Value.IsStatic
+                && string.Equals(candidate.Value.Name, "Main", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(candidate => string.Equals(candidate.Key, "Program.Main", StringComparison.Ordinal))
+            .ThenBy(candidate => candidate.Key, StringComparer.Ordinal)
+            .ToList();
+
+        if (candidates.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Multiple entry point methods found: {string.Join(", ", candidates.Select(candidate => candidate.Key))}");
+        }
+
+        return candidates.Count == 1 ? candidates[0].Value : null;
     }
 
     /// <summary>
@@ -4471,7 +5741,7 @@ public partial class ILCompiler
             _currentYieldBreakLabel = _currentIL.DefineLabel();
             var listType = typeof(List<>).MakeGenericType(yieldElementType);
             _currentYieldListLocal = _currentIL.DeclareLocal(listType);
-            var listCtor = listType.GetConstructor(Type.EmptyTypes)
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
                 ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
             _currentIL.Emit(OpCodes.Newobj, listCtor);
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
@@ -4962,6 +6232,13 @@ public partial class ILCompiler
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
 
+        var isErrorHandling = tupleDecl.Names.Count == 2 && tupleDecl.Names[1] == "err";
+        if (isErrorHandling)
+        {
+            EmitErrorTupleDeconstruction(tupleDecl);
+            return;
+        }
+
         EmitExpression(tupleDecl.Initializer);
         var tupleType = GetExpressionType(tupleDecl.Initializer);
         var tupleLocal = _currentIL.DeclareLocal(tupleType);
@@ -5021,16 +6298,101 @@ public partial class ILCompiler
         }
     }
 
+    private void EmitErrorTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
+    {
+        if (_currentIL == null || _locals == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var resultName = tupleDecl.Names[0];
+        var errName = tupleDecl.Names[1];
+        var resultType = GetExpressionType(tupleDecl.Initializer);
+        LocalBuilder? resultLocal = null;
+
+        if (resultName != "_")
+        {
+            var hadExistingResult = _locals.TryGetValue(resultName, out var existingResultLocal);
+            resultLocal = hadExistingResult ? existingResultLocal : DeclareNamedLocal(resultName, resultType);
+
+            EmitDefaultValue(resultType);
+            if (hadExistingResult && IsLiftedIdentifier(resultName))
+            {
+                EmitStoreLiftedLocalValue(resultLocal!, resultType, leaveValueOnStack: false);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Stloc, resultLocal!);
+            }
+        }
+
+        var hadExistingErr = _locals.TryGetValue(errName, out var existingErrLocal);
+        var errLocal = hadExistingErr ? existingErrLocal : DeclareNamedLocal(errName, typeof(Exception));
+
+        _currentIL.Emit(OpCodes.Ldnull);
+        if (hadExistingErr && IsLiftedIdentifier(errName))
+        {
+            EmitStoreLiftedLocalValue(errLocal!, typeof(Exception), leaveValueOnStack: false);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Stloc, errLocal!);
+        }
+
+        _currentIL.BeginExceptionBlock();
+        if (resultName == "_")
+        {
+            EmitExpression(tupleDecl.Initializer);
+            if (GetExpressionType(tupleDecl.Initializer) != typeof(void))
+            {
+                _currentIL.Emit(OpCodes.Pop);
+            }
+        }
+        else
+        {
+            EmitExpressionWithExpectedType(tupleDecl.Initializer, resultType);
+            if (IsLiftedIdentifier(resultName))
+            {
+                EmitStoreLiftedLocalValue(resultLocal!, resultType, leaveValueOnStack: false);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Stloc, resultLocal!);
+            }
+        }
+
+        _currentIL.BeginCatchBlock(typeof(Exception));
+        if (IsLiftedIdentifier(errName))
+        {
+            EmitStoreLiftedLocalValue(errLocal!, typeof(Exception), leaveValueOnStack: false);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Stloc, errLocal!);
+        }
+
+        _currentIL.EndExceptionBlock();
+    }
+
     /// <summary>
     /// Emit IL for a return statement
     /// </summary>
     private Type GetAwaitResultType(Type awaitableType)
     {
-        var getAwaiter = awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes)
+        var getAwaiter = ResolveRuntimeMethod(
+            awaitableType,
+            "GetAwaiter",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes)
             ?? throw new InvalidOperationException($"Awaitable type {awaitableType} does not expose GetAwaiter()");
-        var getResult = getAwaiter.ReturnType.GetMethod("GetResult", Type.EmptyTypes)
-            ?? throw new InvalidOperationException($"Awaiter type {getAwaiter.ReturnType} does not expose GetResult()");
-        return getResult.ReturnType;
+        var awaiterType = ResolveGenericSignatureType(awaitableType, getAwaiter.ReturnType);
+        var getResult = ResolveRuntimeMethod(
+            awaiterType,
+            "GetResult",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException($"Awaiter type {awaiterType} does not expose GetResult()");
+        return ResolveGenericSignatureType(awaiterType, getResult.ReturnType);
     }
 
     private void EmitAwaiterGetResult(Type awaitableType)
@@ -5065,7 +6427,11 @@ public partial class ILCompiler
             return;
         }
 
-        var getAwaiter = awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes)
+        var getAwaiter = ResolveRuntimeMethod(
+            awaitableType,
+            "GetAwaiter",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes)
             ?? throw new InvalidOperationException($"Awaitable type {awaitableType} does not expose GetAwaiter()");
         var awaitableNeedsAddress = awaitableType.IsValueType && !getAwaiter.IsStatic;
         if (awaitableNeedsAddress)
@@ -5080,9 +6446,13 @@ public partial class ILCompiler
             _currentIL.Emit(getAwaiter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, getAwaiter);
         }
 
-        var getResult = getAwaiter.ReturnType.GetMethod("GetResult", Type.EmptyTypes)
-            ?? throw new InvalidOperationException($"Awaiter type {getAwaiter.ReturnType} does not expose GetResult()");
-        var awaiterType = getAwaiter.ReturnType;
+        var awaiterType = ResolveGenericSignatureType(awaitableType, getAwaiter.ReturnType);
+        var getResult = ResolveRuntimeMethod(
+            awaiterType,
+            "GetResult",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException($"Awaiter type {awaiterType} does not expose GetResult()");
         var awaiterNeedsAddress = awaiterType.IsValueType && !getResult.IsStatic;
         if (awaiterNeedsAddress)
         {
@@ -5462,64 +6832,49 @@ public partial class ILCompiler
         // Get the collection type
         var collectionType = GetExpressionType(foreachStmt.Collection);
 
-        // Determine the element type from the collection
         Type elementType;
         Type? enumerableInterface = null;
-
-        if (collectionType.IsArray)
-        {
-            // Handle arrays
-            elementType = collectionType.GetElementType()!;
-        }
-        else
-        {
-            // Try to find IEnumerable<T>
-            enumerableInterface = GetRuntimeInterfaces(collectionType)
-                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
-
-            if (enumerableInterface == null && collectionType.IsGenericType &&
-                collectionType.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>))
-            {
-                enumerableInterface = collectionType;
-            }
-
-            if (enumerableInterface != null)
-            {
-                elementType = enumerableInterface.GetGenericArguments()[0];
-            }
-            else
-            {
-                // Fall back to non-generic IEnumerable (element type is object)
-                elementType = typeof(object);
-            }
-        }
-
-        // Emit the collection expression
-        EmitExpression(foreachStmt.Collection);
-
-        // Get the enumerator
         MethodInfo? getEnumeratorMethod;
         Type enumeratorType;
 
         if (collectionType.IsArray)
         {
-            // For arrays, we need to use a different approach
-            // Arrays don't have GetEnumerator in a straightforward way for IL
-            // We'll implement this as a for loop over array indices instead
+            elementType = collectionType.GetElementType()!;
             EmitForeachForArray(foreachStmt, collectionType, elementType);
             return;
         }
-        else if (enumerableInterface != null)
+
+        enumerableInterface = GetRuntimeInterfaces(collectionType)
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
+
+        if (enumerableInterface == null && collectionType.IsGenericType &&
+            collectionType.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>))
         {
-            // Get IEnumerable<T>.GetEnumerator()
-            getEnumeratorMethod = enumerableInterface.GetMethod("GetEnumerator");
-            enumeratorType = typeof(System.Collections.Generic.IEnumerator<>).MakeGenericType(elementType);
+            enumerableInterface = collectionType;
+        }
+
+        if (enumerableInterface != null)
+        {
+            getEnumeratorMethod = ResolveRuntimeMethod(enumerableInterface, "GetEnumerator", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, Type.EmptyTypes);
+            enumeratorType = getEnumeratorMethod != null
+                ? ResolveGenericSignatureType(enumerableInterface, getEnumeratorMethod.ReturnType)
+                : typeof(System.Collections.Generic.IEnumerator<>).MakeGenericType(enumerableInterface.GetGenericArguments()[0]);
+            elementType = enumerableInterface.GetGenericArguments()[0];
         }
         else
         {
-            // Fall back to non-generic IEnumerable
-            getEnumeratorMethod = typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator");
-            enumeratorType = typeof(System.Collections.IEnumerator);
+            getEnumeratorMethod = ResolveRuntimeMethod(collectionType, "GetEnumerator", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, Type.EmptyTypes);
+            if (getEnumeratorMethod != null)
+            {
+                enumeratorType = ResolveGenericSignatureType(collectionType, getEnumeratorMethod.ReturnType);
+                elementType = ResolveRuntimeProperty(enumeratorType, "Current", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.PropertyType ?? typeof(object);
+            }
+            else
+            {
+                getEnumeratorMethod = typeof(System.Collections.IEnumerable).GetMethod("GetEnumerator");
+                enumeratorType = typeof(System.Collections.IEnumerator);
+                elementType = typeof(object);
+            }
         }
 
         if (getEnumeratorMethod == null)
@@ -5527,27 +6882,26 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Cannot find GetEnumerator method for type {collectionType}");
         }
 
-        // Store the collection in a local temporarily (already on stack)
-        // Call GetEnumerator on the collection
-        _currentIL.Emit(OpCodes.Callvirt, getEnumeratorMethod);
+        EmitExpression(foreachStmt.Collection);
+        _currentIL.Emit(collectionType.IsValueType || !getEnumeratorMethod.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, getEnumeratorMethod);
 
-        // Store the enumerator in a local variable
         var enumeratorLocal = _currentIL.DeclareLocal(enumeratorType);
         _currentIL.Emit(OpCodes.Stloc, enumeratorLocal);
 
-        var moveNextMethod = enumeratorType.GetMethod("MoveNext") ?? typeof(System.Collections.IEnumerator).GetMethod("MoveNext");
+        var moveNextMethod = ResolveRuntimeMethod(enumeratorType, "MoveNext", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, Type.EmptyTypes)
+            ?? typeof(System.Collections.IEnumerator).GetMethod("MoveNext");
         if (moveNextMethod == null)
         {
             throw new InvalidOperationException("Cannot find MoveNext method");
         }
 
-        var currentProperty = enumeratorType.GetProperty("Current");
+        var currentProperty = ResolveRuntimeProperty(enumeratorType, "Current", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         if (currentProperty == null)
         {
             throw new InvalidOperationException("Cannot find Current property");
         }
 
-        var getCurrentMethod = currentProperty.GetGetMethod();
+        var getCurrentMethod = currentProperty.Getter;
         if (getCurrentMethod == null)
         {
             throw new InvalidOperationException("Cannot find get_Current method");
@@ -5560,14 +6914,30 @@ public partial class ILCompiler
 
         _currentIL.MarkLabel(loopStart);
 
-        _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
-        _currentIL.Emit(OpCodes.Callvirt, moveNextMethod);
+        if (enumeratorType.IsValueType)
+        {
+            _currentIL.Emit(OpCodes.Ldloca, enumeratorLocal);
+            _currentIL.Emit(OpCodes.Call, moveNextMethod);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+            _currentIL.Emit(moveNextMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, moveNextMethod);
+        }
         _currentIL.Emit(OpCodes.Brtrue, loopBody);
         _currentIL.Emit(OpCodes.Br, disposeLabel);
 
         _currentIL.MarkLabel(loopBody);
-        _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
-        _currentIL.Emit(OpCodes.Callvirt, getCurrentMethod);
+        if (enumeratorType.IsValueType)
+        {
+            _currentIL.Emit(OpCodes.Ldloca, enumeratorLocal);
+            _currentIL.Emit(OpCodes.Call, getCurrentMethod);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+            _currentIL.Emit(getCurrentMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, getCurrentMethod);
+        }
 
         LocalBuilder loopVar;
         if (_locals.TryGetValue(foreachStmt.VariableName, out var existingLocal))
@@ -5603,13 +6973,18 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Br, loopStart);
 
         _currentIL.MarkLabel(disposeLabel);
-        if (typeof(IDisposable).IsAssignableFrom(enumeratorType))
+        var disposeMethod = ResolveRuntimeMethod(enumeratorType, nameof(IDisposable.Dispose), BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, Type.EmptyTypes);
+        if (disposeMethod != null)
         {
-            _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
-            var disposeMethod = typeof(IDisposable).GetMethod("Dispose");
-            if (disposeMethod != null)
+            if (enumeratorType.IsValueType)
             {
-                _currentIL.Emit(OpCodes.Callvirt, disposeMethod);
+                _currentIL.Emit(OpCodes.Ldloca, enumeratorLocal);
+                _currentIL.Emit(OpCodes.Call, disposeMethod);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Ldloc, enumeratorLocal);
+                _currentIL.Emit(disposeMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, disposeMethod);
             }
         }
 
@@ -5623,7 +6998,7 @@ public partial class ILCompiler
         var collectionType = GetExpressionType(awaitForeachStmt.Collection);
         var asyncEnumerableInterface = collectionType.IsGenericType && collectionType.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>)
             ? collectionType
-            : collectionType.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
+            : GetRuntimeInterfaces(collectionType).FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
         if (asyncEnumerableInterface == null)
         {
             throw new InvalidOperationException($"Type {collectionType} is not an async enumerable");
@@ -5731,7 +7106,7 @@ public partial class ILCompiler
         }
 
         var listType = _currentYieldListLocal.LocalType;
-        var addMethod = listType.GetMethod("Add", new[] { _currentYieldElementType })
+        var addMethod = ResolveCollectionMethod(listType, "Add", method => HasParameterCount(method, 1))
             ?? throw new InvalidOperationException($"Could not resolve Add({_currentYieldElementType}) on {listType}");
 
         _currentIL.Emit(OpCodes.Ldloc, _currentYieldListLocal);
@@ -5747,6 +7122,7 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
 
         // Store the array in a local
+        EmitExpression(foreachStmt.Collection);
         var arrayLocal = _currentIL.DeclareLocal(arrayType);
         _currentIL.Emit(OpCodes.Stloc, arrayLocal);
 
@@ -5759,6 +7135,7 @@ public partial class ILCompiler
 
         // Define labels
         var loopStart = _currentIL.DefineLabel();
+        var continueLabel = _currentIL.DefineLabel();
         var loopEnd = _currentIL.DefineLabel();
 
         // Mark loop start
@@ -5786,12 +7163,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldelem_R8);
         else if (elementType == typeof(float))
             _currentIL.Emit(OpCodes.Ldelem_R4);
-        else if (elementType.IsGenericParameter || elementType.ContainsGenericParameters)
-            _currentIL.Emit(OpCodes.Ldelem, elementType);
-        else if (elementType.IsValueType)
-            _currentIL.Emit(OpCodes.Ldelem, elementType);
         else
-            _currentIL.Emit(OpCodes.Ldelem_Ref);
+            EmitArrayElementLoad(elementType);
 
         // Declare loop variable and store element
         LocalBuilder loopVar;
@@ -5812,8 +7185,19 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        // Emit loop body
-        EmitStatement(foreachStmt.Body);
+        _breakLabels.Push(new BranchTarget(loopEnd, useLeave: false));
+        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        try
+        {
+            EmitStatement(foreachStmt.Body);
+        }
+        finally
+        {
+            _continueLabels.Pop();
+            _breakLabels.Pop();
+        }
+
+        _currentIL.MarkLabel(continueLabel);
 
         // Increment index
         _currentIL.Emit(OpCodes.Ldloc, indexLocal);
@@ -6162,12 +7546,11 @@ public partial class ILCompiler
                 break;
 
             case ThisExpression:
-                // 'this' is always at argument 0 for instance methods and constructors
-                _currentIL.Emit(OpCodes.Ldarg_0);
+                EmitLoadImplicitThisReference();
                 break;
 
             case BaseExpression:
-                _currentIL.Emit(OpCodes.Ldarg_0);
+                EmitLoadImplicitThisReference();
                 break;
 
             case ThrowExpression throwExpr:
@@ -6295,6 +7678,26 @@ public partial class ILCompiler
     /// </summary>
     private static int ParseIntLiteralValue(string text)
     {
+        var magnitude = ParseIntLiteralMagnitude(text);
+        return checked((int)magnitude);
+    }
+
+    private static bool TryParseIntLiteralMagnitude(string text, out long value)
+    {
+        try
+        {
+            value = ParseIntLiteralMagnitude(text);
+            return true;
+        }
+        catch
+        {
+            value = 0;
+            return false;
+        }
+    }
+
+    private static long ParseIntLiteralMagnitude(string text)
+    {
         // Strip trailing suffixes (u, l, ul, lu, etc.)
         var span = text.AsSpan();
         while (span.Length > 0 && (span[^1] == 'u' || span[^1] == 'U' || span[^1] == 'l' || span[^1] == 'L'))
@@ -6306,13 +7709,13 @@ public partial class ILCompiler
         var clean = span.ToString().Replace("_", "");
 
         if (clean.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return int.Parse(clean[2..], System.Globalization.NumberStyles.HexNumber);
+            return long.Parse(clean[2..], System.Globalization.NumberStyles.HexNumber);
         if (clean.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt32(clean[2..], 2);
+            return Convert.ToInt64(clean[2..], 2);
         if (clean.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt32(clean[2..], 8);
+            return Convert.ToInt64(clean[2..], 8);
 
-        return int.Parse(clean);
+        return long.Parse(clean);
     }
 
     /// <summary>
@@ -6367,17 +7770,34 @@ public partial class ILCompiler
                     _currentIL.Emit(OpCodes.Ldstr, text.Text);
                     break;
                 case InterpolatedStringHole hole:
-                    EmitExpression(hole.Expression);
-                    // Convert to string if not already
                     var exprType = GetExpressionType(hole.Expression);
+
+                    if (!string.IsNullOrEmpty(hole.FormatClause))
+                    {
+                        var stringFormatMethod = typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) })
+                            ?? throw new InvalidOperationException("Could not resolve string.Format(string, object)");
+                        _currentIL.Emit(OpCodes.Ldstr, "{0:" + hole.FormatClause + "}");
+                        EmitExpression(hole.Expression);
+                        if (exprType.IsValueType)
+                        {
+                            _currentIL.Emit(OpCodes.Box, exprType);
+                        }
+
+                        _currentIL.Emit(OpCodes.Call, stringFormatMethod);
+                        break;
+                    }
+
+                    EmitExpression(hole.Expression);
                     if (exprType != typeof(string))
                     {
                         if (exprType.IsValueType)
                         {
                             _currentIL.Emit(OpCodes.Box, exprType);
                         }
-                        var toStringMethod = typeof(object).GetMethod("ToString", Type.EmptyTypes)!;
-                        _currentIL.Emit(OpCodes.Callvirt, toStringMethod);
+
+                        var concatObjectMethod = typeof(string).GetMethod("Concat", new[] { typeof(object) })
+                            ?? throw new InvalidOperationException("Could not resolve string.Concat(object)");
+                        _currentIL.Emit(OpCodes.Call, concatObjectMethod);
                     }
                     break;
             }
@@ -6439,28 +7859,35 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Ldfld, closureField);
             }
         }
-        // Check if it's an instance field (in current class or base classes)
-        else if (_currentTypeBuilder != null)
+        else if (TryResolveCurrentTypeMember(ident.Name, out _, out var fieldInfo, out var getter, out _))
         {
-            var primaryConstructorField = FindPrimaryConstructorField(_currentTypeBuilder, ident.Name);
-            if (primaryConstructorField != null)
+            if (fieldInfo != null)
             {
-                _currentIL.Emit(OpCodes.Ldarg_0);
-                _currentIL.Emit(OpCodes.Ldfld, primaryConstructorField);
+                if (fieldInfo.IsStatic)
+                {
+                    _currentIL.Emit(OpCodes.Ldsfld, fieldInfo);
+                }
+                else
+                {
+                    EmitLoadImplicitThisReference();
+                    _currentIL.Emit(OpCodes.Ldfld, fieldInfo);
+                }
+
                 return;
             }
 
-            var fieldInfo = FindField(_currentTypeBuilder, ident.Name);
-            if (fieldInfo != null)
+            if (getter != null)
             {
-                // Load 'this' pointer
-                _currentIL.Emit(OpCodes.Ldarg_0);
-                // Load the field
-                _currentIL.Emit(OpCodes.Ldfld, fieldInfo);
+                if (!getter.IsStatic)
+                {
+                    EmitLoadImplicitThisReference();
+                }
+
+                _currentIL.Emit(getter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, getter);
             }
             else
             {
-                throw new InvalidOperationException($"Undefined variable, parameter, or field: {ident.Name}");
+                throw new InvalidOperationException($"Undefined variable, parameter, field, or property: {ident.Name}");
             }
         }
         else
@@ -6475,8 +7902,8 @@ public partial class ILCompiler
     private FieldInfo? FindField(TypeBuilder typeBuilder, string fieldName)
     {
         // Check in declared fields of current type
-        var fieldKey = GetFieldKey(typeBuilder, fieldName);
-        if (_fields.TryGetValue(fieldKey, out var fieldBuilder))
+        var fieldBuilder = FindDeclaredField(typeBuilder, fieldName);
+        if (fieldBuilder != null)
         {
             return fieldBuilder;
         }
@@ -6508,6 +7935,151 @@ public partial class ILCompiler
         return null;
     }
 
+    private FieldBuilder? FindDeclaredField(TypeBuilder typeBuilder, string fieldName)
+    {
+        var fieldKey = GetFieldKey(typeBuilder, fieldName);
+        return _fields.TryGetValue(fieldKey, out var fieldBuilder) ? fieldBuilder : null;
+    }
+
+    private bool TryResolveCurrentTypeMember(
+        Type type,
+        string memberName,
+        out Type memberType,
+        out FieldInfo? field,
+        out MethodInfo? getter,
+        out MethodInfo? setter)
+    {
+        field = null;
+        getter = null;
+        setter = null;
+        memberType = typeof(object);
+
+        if (type is TypeBuilder typeBuilder)
+        {
+            field = FindPrimaryConstructorField(typeBuilder, memberName);
+            if (field != null)
+            {
+                memberType = field.FieldType;
+                return true;
+            }
+
+            field = FindDeclaredField(typeBuilder, memberName);
+            if (field != null)
+            {
+                memberType = field.FieldType;
+                return true;
+            }
+
+            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberName}"), out var declaredGetter))
+            {
+                getter = declaredGetter;
+                _methods.TryGetValue(GetMethodKey(typeBuilder, $"set_{memberName}"), out var declaredSetter);
+                setter = declaredSetter;
+                memberType = getter.ReturnType;
+                return true;
+            }
+
+            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"set_{memberName}"), out var setterOnly))
+            {
+                setter = setterOnly;
+                memberType = setter.GetParameters().LastOrDefault()?.ParameterType ?? typeof(object);
+                return true;
+            }
+
+            if (typeBuilder.BaseType != null && typeBuilder.BaseType != typeof(object))
+            {
+                return TryResolveCurrentTypeMember(typeBuilder.BaseType, memberName, out memberType, out field, out getter, out setter);
+            }
+
+            return false;
+        }
+
+        var runtimeProperty = ResolveRuntimeProperty(
+            type,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        if (runtimeProperty != null && (runtimeProperty.Getter != null || runtimeProperty.Setter != null))
+        {
+            getter = runtimeProperty.Getter;
+            setter = runtimeProperty.Setter;
+            memberType = runtimeProperty.PropertyType;
+            return true;
+        }
+
+        field = ResolveRuntimeField(
+            type,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        if (field != null)
+        {
+            memberType = field.FieldType;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolveCurrentTypeMember(
+        string memberName,
+        out Type memberType,
+        out FieldInfo? field,
+        out MethodInfo? getter,
+        out MethodInfo? setter)
+    {
+        if (TryGetImplicitInstanceOwnerTypeBuilder(out var ownerTypeBuilder))
+        {
+            return TryResolveCurrentTypeMember(ownerTypeBuilder, memberName, out memberType, out field, out getter, out setter);
+        }
+
+        memberType = typeof(object);
+        field = null;
+        getter = null;
+        setter = null;
+        return false;
+    }
+
+    private void EmitStoreResolvedCurrentTypeMember(FieldInfo? field, MethodInfo? setter, Type memberType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var tempLocal = _currentIL.DeclareLocal(memberType);
+        _currentIL.Emit(OpCodes.Stloc, tempLocal);
+
+        if (field != null)
+        {
+            if (field.IsStatic)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+                _currentIL.Emit(OpCodes.Stsfld, field);
+            }
+            else
+            {
+                EmitLoadImplicitThisReference();
+                _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+                _currentIL.Emit(OpCodes.Stfld, field);
+            }
+
+            return;
+        }
+
+        if (setter != null)
+        {
+            if (!setter.IsStatic)
+            {
+                EmitLoadImplicitThisReference();
+            }
+
+            _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            _currentIL.Emit(setter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, setter);
+            return;
+        }
+
+        throw new InvalidOperationException("No assignable current-type member was resolved");
+    }
+
     private FieldBuilder? FindPrimaryConstructorField(Type type, string parameterName)
     {
         var key = GetPrimaryConstructorFieldKey(type, parameterName);
@@ -6532,6 +8104,15 @@ public partial class ILCompiler
         {
             case UnaryOperator.Negate:
                 var operandType = NormalizeOverflowCheckedType(GetExpressionType(unary.Operand));
+                if (operandType == typeof(int)
+                    && unary.Operand is IntLiteralExpression negatedIntLiteral
+                    && TryParseIntLiteralMagnitude(negatedIntLiteral.Value, out var intLiteralMagnitude)
+                    && intLiteralMagnitude == (long)int.MaxValue + 1)
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4, int.MinValue);
+                    return;
+                }
+
                 if (_overflowCheckingEnabled && operandType == typeof(int))
                 {
                     _currentIL.Emit(OpCodes.Ldc_I4_0);
@@ -6686,7 +8267,13 @@ public partial class ILCompiler
             return;
         }
 
-        throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
+        if (TryResolveCurrentTypeMember(ident.Name, out var memberType, out var field, out _, out var setter))
+        {
+            EmitStoreResolvedCurrentTypeMember(field, setter, memberType);
+            return;
+        }
+
+        throw new InvalidOperationException($"Undefined variable, parameter, field, or property: {ident.Name}");
     }
 
     private void EmitMemberIncrementOrDecrement(MemberAccessExpression memberAccess, int delta, bool isPost)
@@ -7004,7 +8591,7 @@ public partial class ILCompiler
 
                     if (_declaredMethodOverloads.ContainsKey(GetMethodKey(staticTypeBuilder, memberAccess.MemberName)))
                     {
-                        throw new InvalidOperationException($"No matching overload for static method {memberAccess.MemberName} on type {GetTypeKey(staticTypeBuilder)}");
+                        throw new InvalidOperationException($"No matching overload for static method {memberAccess.MemberName} on type {GetTypeKey(staticTypeBuilder)} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
                     }
 
                     if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, memberAccess.MemberName), out var staticMethodBuilder))
@@ -7032,7 +8619,7 @@ public partial class ILCompiler
                     }
                 }
 
-                throw new InvalidOperationException($"Static method {memberAccess.MemberName} not found on type {GetTypeKey(staticType)}");
+                throw new InvalidOperationException($"Static method {memberAccess.MemberName} not found on type {GetTypeKey(staticType)} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
             }
 
             var objectType = GetExpressionType(memberAccess.Object);
@@ -7062,18 +8649,11 @@ public partial class ILCompiler
 
                 if (_declaredMethodOverloads.ContainsKey(GetMethodKey(typeBuilder, memberAccess.MemberName)))
                 {
-                    throw new InvalidOperationException($"No matching overload for method {memberAccess.MemberName} on type {GetTypeKey(typeBuilder)}");
+                    throw new InvalidOperationException($"No matching overload for method {memberAccess.MemberName} on type {GetTypeKey(typeBuilder)} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
                 }
             }
 
             var useAddressReceiver = IsValueTypeLike(objectType) && !objectType.IsGenericParameter;
-            var extensionCall = BindDeclaredMethodCall(
-                memberAccess.MemberName,
-                call,
-                implicitReceiver: memberAccess.Object,
-                predicate: overload => overload.Builder.IsStatic
-                    && overload.Declaration.Parameters.Count > 0
-                    && overload.Declaration.Parameters[0].IsThis);
 
             // Check if it's a user-defined type first
             var userDefinedMethod = ResolveUserDefinedMethod(objectType, memberAccess.MemberName);
@@ -7090,13 +8670,6 @@ public partial class ILCompiler
 
                 EmitCallArguments(call.Arguments, userDefinedMethod.GetParameters().Select(p => p.ParameterType).ToArray());
                 _currentIL.Emit(useAddressReceiver || !userDefinedMethod.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, userDefinedMethod);
-                return;
-            }
-
-            if (extensionCall != null)
-            {
-                EmitBoundCallArguments(extensionCall.Arguments);
-                _currentIL.Emit(OpCodes.Call, extensionCall.Method);
                 return;
             }
 
@@ -7134,7 +8707,7 @@ public partial class ILCompiler
                     return;
                 }
 
-                throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on generic type parameter {objectType.Name}");
+                throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on generic type parameter {objectType.Name} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
             }
 
             // Find the method using reflection for built-in types
@@ -7167,7 +8740,30 @@ public partial class ILCompiler
                 return;
             }
 
-            throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {objectType.Name}");
+            var extensionCall = BindDeclaredExtensionMethodCall(
+                memberAccess.MemberName,
+                call,
+                memberAccess.Object);
+            if (extensionCall != null)
+            {
+                EmitBoundCallArguments(extensionCall.Arguments);
+                _currentIL.Emit(OpCodes.Call, extensionCall.Method);
+                return;
+            }
+
+            var runtimeExtensionMethod = BindRuntimeExtensionMethodCall(
+                objectType,
+                memberAccess.MemberName,
+                memberAccess.Object,
+                call);
+            if (runtimeExtensionMethod != null)
+            {
+                EmitBoundCallArguments(runtimeExtensionMethod.Arguments);
+                _currentIL.Emit(OpCodes.Call, runtimeExtensionMethod.Method);
+                return;
+            }
+
+            throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {objectType.Name} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
         }
 
         // Handle special built-in functions
@@ -7218,24 +8814,46 @@ public partial class ILCompiler
                     return;
                 }
 
-                if (_currentHasThis)
+                if (TryGetImplicitInstanceOwnerTypeBuilder(out var implicitInstanceTypeBuilder))
                 {
                     var currentTypeInstanceCall = BindDeclaredMethodCall(
-                        GetMethodKey(_currentTypeBuilder, ident.Name),
+                        GetMethodKey(implicitInstanceTypeBuilder, ident.Name),
                         call,
                         predicate: overload => !overload.Builder.IsStatic);
                     if (currentTypeInstanceCall != null)
                     {
-                        _currentIL.Emit(OpCodes.Ldarg_0);
+                        EmitLoadImplicitThisReference();
                         EmitBoundCallArguments(currentTypeInstanceCall.Arguments);
                         _currentIL.Emit(currentTypeInstanceCall.Method.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, currentTypeInstanceCall.Method);
                         return;
                     }
                 }
 
-                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name)))
+                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name))
+                    || (TryGetImplicitInstanceOwnerTypeBuilder(out var overloadOwnerTypeBuilder)
+                        && _declaredMethodOverloads.ContainsKey(GetMethodKey(overloadOwnerTypeBuilder, ident.Name))))
                 {
-                    throw new InvalidOperationException($"No matching overload for method {GetTypeKey(_currentTypeBuilder)}.{ident.Name}");
+                    var ownerType = TryGetImplicitInstanceOwnerTypeBuilder(out var errorOwnerTypeBuilder)
+                        ? errorOwnerTypeBuilder
+                        : _currentTypeBuilder;
+                    throw new InvalidOperationException($"No matching overload for method {GetTypeKey(ownerType)}.{ident.Name}");
+                }
+            }
+
+            if (TryGetImplicitInstanceOwnerType(out var implicitOwnerType))
+            {
+                var runtimeLookupType = GetImplicitInstanceRuntimeLookupType(implicitOwnerType);
+                var boundImplicitRuntimeCall = BindRuntimeMethodCall(
+                    runtimeLookupType,
+                    ident.Name,
+                    call,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (boundImplicitRuntimeCall != null)
+                {
+                    EmitLoadImplicitThisReference();
+                    EmitBoundCallArguments(boundImplicitRuntimeCall.Arguments);
+                    _currentIL.Emit(boundImplicitRuntimeCall.Method.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, boundImplicitRuntimeCall.Method);
+                    return;
                 }
             }
 
@@ -7311,18 +8929,13 @@ public partial class ILCompiler
         }
         else
         {
-            var instanceField = _currentTypeBuilder != null
-                ? FindPrimaryConstructorField(_currentTypeBuilder, ident.Name) ?? FindField(_currentTypeBuilder, ident.Name)
-                : null;
-
-            if (instanceField == null)
+            if (!TryResolveCurrentTypeMember(ident.Name, out var memberType, out var field, out _, out var setter))
             {
-                throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
+                throw new InvalidOperationException($"Undefined variable, parameter, field, or property: {ident.Name}");
             }
 
-            _currentIL.Emit(OpCodes.Ldarg_0);
             _currentIL.Emit(OpCodes.Ldloc, valueLocal);
-            _currentIL.Emit(OpCodes.Stfld, instanceField);
+            EmitStoreResolvedCurrentTypeMember(field, setter, memberType);
         }
     }
 
@@ -7509,23 +9122,7 @@ public partial class ILCompiler
                 }
                 else
                 {
-                    var property = objectType.GetProperty(memberAccess.MemberName);
-                    if (property != null && property.GetMethod != null)
-                    {
-                        _currentIL.Emit(OpCodes.Callvirt, property.GetMethod);
-                    }
-                    else
-                    {
-                        var field = objectType.GetField(memberAccess.MemberName);
-                        if (field != null)
-                        {
-                            _currentIL.Emit(OpCodes.Ldfld, field);
-                        }
-                        else
-                        {
-                            throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
-                        }
-                    }
+                    EmitMemberLoadValue(objectType, memberAccess.MemberName);
                 }
 
                 // Emit right-hand side
@@ -7588,23 +9185,7 @@ public partial class ILCompiler
             }
             else
             {
-                var prop = objectType.GetProperty(memberAccess.MemberName);
-                if (prop != null && prop.SetMethod != null)
-                {
-                    _currentIL.Emit(OpCodes.Callvirt, prop.SetMethod);
-                }
-                else
-                {
-                    var fld = objectType.GetField(memberAccess.MemberName);
-                    if (fld != null)
-                    {
-                        _currentIL.Emit(OpCodes.Stfld, fld);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
-                    }
-                }
+                EmitMemberStoreValue(objectType, memberAccess.MemberName);
             }
 
             // Assignment expressions return the assigned value
@@ -7848,21 +9429,12 @@ public partial class ILCompiler
         }
         else
         {
-            var instanceField = _currentTypeBuilder != null
-                ? FindPrimaryConstructorField(_currentTypeBuilder, ident.Name) ?? FindField(_currentTypeBuilder, ident.Name)
-                : null;
-
-            if (instanceField == null)
+            if (!TryResolveCurrentTypeMember(ident.Name, out var memberType, out var field, out _, out var setter))
             {
-                throw new InvalidOperationException($"Undefined variable or parameter: {ident.Name}");
+                throw new InvalidOperationException($"Undefined variable, parameter, field, or property: {ident.Name}");
             }
 
-            var assignedValueType = GetExpressionType(assignment.Value);
-            var tempLocal = _currentIL.DeclareLocal(assignedValueType);
-            _currentIL.Emit(OpCodes.Stloc, tempLocal);
-            _currentIL.Emit(OpCodes.Ldarg_0);
-            _currentIL.Emit(OpCodes.Ldloc, tempLocal);
-            _currentIL.Emit(OpCodes.Stfld, instanceField);
+            EmitStoreResolvedCurrentTypeMember(field, setter, memberType);
         }
 
         // Assignment expressions also return the assigned value, so we need to load it back
@@ -7877,20 +9449,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        Type type;
-        if (newExpr.Type == null)
-        {
-            if (_expectedExpressionType == null)
-            {
-                throw new NotImplementedException("Target-typed new not yet supported in IL compiler without an expected type");
-            }
-
-            type = _expectedExpressionType;
-        }
-        else
-        {
-            type = ResolveType(newExpr.Type, _currentGenericParameters);
-        }
+        var type = ResolveNewExpressionType(newExpr);
 
         if (type.IsGenericParameter)
         {
@@ -7927,14 +9486,14 @@ public partial class ILCompiler
             }
             else if (_declaredConstructorOverloads.ContainsKey(GetConstructorKey(typeBuilder)))
             {
-                throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
+                throw new InvalidOperationException($"No matching constructor found for type {type.Name} with arguments ({DescribeCallArgumentTypes(newExpr.ConstructorArguments)})");
             }
             else
             {
                 constructor = ResolveUserDefinedConstructor(type);
                 if (constructor == null && !(type.IsValueType && newExpr.ConstructorArguments.Count == 0))
                 {
-                    throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
+                    throw new InvalidOperationException($"No matching constructor found for type {type.Name} with arguments ({DescribeCallArgumentTypes(newExpr.ConstructorArguments)})");
                 }
             }
         }
@@ -7951,7 +9510,7 @@ public partial class ILCompiler
             {
                 if (!(type.IsValueType && newExpr.ConstructorArguments.Count == 0))
                 {
-                    throw new InvalidOperationException($"No matching constructor found for type {type.Name}");
+                    throw new InvalidOperationException($"No matching constructor found for type {type.Name} with arguments ({DescribeCallArgumentTypes(newExpr.ConstructorArguments)})");
                 }
             }
         }
@@ -8262,19 +9821,28 @@ public partial class ILCompiler
 
         if (targetType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, initializer.Name), out var fieldBuilder))
-            {
-                _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
-                EmitExpressionWithExpectedType(initializer.Value, fieldBuilder.FieldType);
-                _currentIL.Emit(OpCodes.Stfld, fieldBuilder);
-                return;
-            }
-
             if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"set_{initializer.Name}"), out var setterMethod))
             {
                 _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
                 EmitExpressionWithExpectedType(initializer.Value, setterMethod.GetParameters()[0].ParameterType);
                 _currentIL.Emit(callOpcode, setterMethod);
+                return;
+            }
+
+            var primaryConstructorField = FindPrimaryConstructorField(typeBuilder, initializer.Name);
+            if (primaryConstructorField != null)
+            {
+                _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
+                EmitExpressionWithExpectedType(initializer.Value, primaryConstructorField.FieldType);
+                _currentIL.Emit(OpCodes.Stfld, primaryConstructorField);
+                return;
+            }
+
+            if (_fields.TryGetValue(GetFieldKey(typeBuilder, initializer.Name), out var fieldBuilder))
+            {
+                _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
+                EmitExpressionWithExpectedType(initializer.Value, fieldBuilder.FieldType);
+                _currentIL.Emit(OpCodes.Stfld, fieldBuilder);
                 return;
             }
 
@@ -8305,6 +9873,141 @@ public partial class ILCompiler
     /// <summary>
     /// Emit IL for an index access expression
     /// </summary>
+    private static bool TryGetSpanElementType(Type objectType, out Type elementType, out bool isReadOnlySpan)
+    {
+        elementType = typeof(object);
+        isReadOnlySpan = false;
+
+        if (!objectType.IsGenericType || objectType.IsGenericTypeDefinition)
+        {
+            return false;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = objectType.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        if (genericDefinition != typeof(Span<>) && genericDefinition != typeof(ReadOnlySpan<>))
+        {
+            return false;
+        }
+
+        elementType = objectType.GetGenericArguments()[0];
+        isReadOnlySpan = genericDefinition == typeof(ReadOnlySpan<>);
+        return true;
+    }
+
+    private static MethodInfo ResolveSpanGetReferenceMethod(Type spanType)
+    {
+        var genericDefinition = spanType.GetGenericTypeDefinition();
+        var openMethod = typeof(System.Runtime.InteropServices.MemoryMarshal)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .First(method =>
+            {
+                if (method.Name != "GetReference" || !method.IsGenericMethodDefinition)
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 1
+                    && parameters[0].ParameterType.IsGenericType
+                    && parameters[0].ParameterType.GetGenericTypeDefinition() == genericDefinition;
+            });
+
+        return openMethod.MakeGenericMethod(spanType.GetGenericArguments()[0]);
+    }
+
+    private static MethodInfo ResolveUnsafeAddMethod(Type elementType)
+    {
+        var openMethod = typeof(System.Runtime.CompilerServices.Unsafe)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .First(method =>
+            {
+                if (method.Name != "Add" || !method.IsGenericMethodDefinition)
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 2
+                    && parameters[0].ParameterType.IsByRef
+                    && parameters[1].ParameterType == typeof(int);
+            });
+
+        return openMethod.MakeGenericMethod(elementType);
+    }
+
+    private bool TryEmitRuntimeIndexAccess(IndexAccessExpression indexAccess, Type objectType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (objectType.IsArray || objectType == typeof(string) || objectType is TypeBuilder)
+        {
+            return false;
+        }
+
+        var indexType = GetExpressionType(indexAccess.Index);
+        if (TryGetSpanElementType(objectType, out var spanElementType, out _))
+        {
+            var objectLocal = _currentIL.DeclareLocal(objectType);
+            var indexLocal = _currentIL.DeclareLocal(indexType);
+            EmitExpression(indexAccess.Object);
+            _currentIL.Emit(OpCodes.Stloc, objectLocal);
+            EmitExpression(indexAccess.Index);
+            _currentIL.Emit(OpCodes.Stloc, indexLocal);
+            _currentIL.Emit(OpCodes.Ldloc, objectLocal);
+            _currentIL.Emit(OpCodes.Call, ResolveSpanGetReferenceMethod(objectType));
+            _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+            _currentIL.Emit(OpCodes.Call, ResolveUnsafeAddMethod(spanElementType));
+            EmitLoadIndirect(spanElementType);
+            return true;
+        }
+
+        var runtimeIndexerGetter = ResolveRuntimeMethod(
+            objectType,
+            "get_Item",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            new[] { indexType });
+        if (runtimeIndexerGetter == null)
+        {
+            return false;
+        }
+
+        var useAddressReceiver = IsValueTypeLike(objectType) && !objectType.IsGenericParameter;
+        if (useAddressReceiver)
+        {
+            var objectLocal = _currentIL.DeclareLocal(objectType);
+            EmitExpression(indexAccess.Object);
+            _currentIL.Emit(OpCodes.Stloc, objectLocal);
+            _currentIL.Emit(OpCodes.Ldloca_S, objectLocal);
+        }
+        else
+        {
+            EmitExpression(indexAccess.Object);
+        }
+
+        EmitExpression(indexAccess.Index);
+        _currentIL.Emit(runtimeIndexerGetter.IsVirtual && !useAddressReceiver ? OpCodes.Callvirt : OpCodes.Call, runtimeIndexerGetter);
+
+        var returnType = ResolveGenericSignatureType(objectType, runtimeIndexerGetter.ReturnType);
+        if (returnType.IsByRef)
+        {
+            EmitLoadIndirect(GetByRefElementType(returnType));
+        }
+
+        return true;
+    }
+
     private void EmitIndexAccess(IndexAccessExpression indexAccess)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
@@ -8348,6 +10051,11 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(indexAccess.Object);
+
+        if (TryEmitRuntimeIndexAccess(indexAccess, objectType))
+        {
+            return;
+        }
 
         EmitExpression(indexAccess.Object);
         EmitExpression(indexAccess.Index);
@@ -8397,25 +10105,11 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Stloc, lengthLocal);
                 _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
                 EmitIndexOffset(indexLocal, lengthLocal);
-                if (useGenericArrayOpcode)
-                {
-                    _currentIL.Emit(OpCodes.Ldelem, elementType);
-                }
-                else
-                {
-                    EmitArrayElementLoad(elementType);
-                }
+                EmitArrayElementLoad(elementType);
                 return;
             }
 
-            if (useGenericArrayOpcode)
-            {
-                _currentIL.Emit(OpCodes.Ldelem, elementType);
-            }
-            else
-            {
-                EmitArrayElementLoad(elementType);
-            }
+            EmitArrayElementLoad(elementType);
             return;
         }
 
@@ -8503,16 +10197,48 @@ public partial class ILCompiler
         }
 
         var reflectionIndexType = GetExpressionType(indexAccess.Index);
-        var indexer = objectType.GetDefaultMembers()
-            .OfType<PropertyInfo>()
-            .FirstOrDefault(p =>
-                p.GetIndexParameters().Length == 1 &&
-                p.GetMethod != null &&
-                AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, reflectionIndexType));
+        var runtimeIndexerGetter = ResolveRuntimeMethod(
+            objectType,
+            "get_Item",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            new[] { reflectionIndexType });
+        if (runtimeIndexerGetter != null)
+        {
+            _currentIL.Emit(runtimeIndexerGetter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, runtimeIndexerGetter);
+            var runtimeReturnType = ResolveGenericSignatureType(objectType, runtimeIndexerGetter.ReturnType);
+            if (runtimeReturnType.IsByRef)
+            {
+                EmitLoadIndirect(GetByRefElementType(runtimeReturnType));
+            }
+
+            return;
+        }
+
+        PropertyInfo? indexer = null;
+        try
+        {
+            indexer = objectType.GetDefaultMembers()
+                .OfType<PropertyInfo>()
+                .FirstOrDefault(p =>
+                    p.GetIndexParameters().Length == 1 &&
+                    p.GetMethod != null &&
+                    AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, reflectionIndexType));
+        }
+        catch (NotSupportedException)
+        {
+        }
+        catch (NotImplementedException)
+        {
+        }
 
         if (indexer?.GetMethod != null)
         {
             _currentIL.Emit(indexer.GetMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, indexer.GetMethod);
+            if (indexer.GetMethod.ReturnType.IsByRef)
+            {
+                EmitLoadIndirect(GetByRefElementType(indexer.GetMethod.ReturnType));
+            }
+
             return;
         }
 
@@ -8552,25 +10278,11 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
                 EmitIndexOffset(indexLocal, lengthLocal);
                 _currentIL.Emit(OpCodes.Ldloc, valueLocal);
-                if (useGenericArrayOpcode)
-                {
-                    _currentIL.Emit(OpCodes.Stelem, elementType);
-                }
-                else
-                {
-                    EmitArrayElementStore(elementType);
-                }
+                EmitArrayElementStore(elementType);
                 return;
             }
 
-            if (useGenericArrayOpcode)
-            {
-                _currentIL.Emit(OpCodes.Stelem, elementType);
-            }
-            else
-            {
-                EmitArrayElementStore(elementType);
-            }
+            EmitArrayElementStore(elementType);
             return;
         }
 
@@ -8586,12 +10298,89 @@ public partial class ILCompiler
         }
 
         var reflectionIndexType = GetExpressionType(indexAccess.Index);
-        var indexer = objectType.GetDefaultMembers()
-            .OfType<PropertyInfo>()
-            .FirstOrDefault(p =>
-                p.GetIndexParameters().Length == 1 &&
-                p.SetMethod != null &&
-                AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, reflectionIndexType));
+        if (TryGetSpanElementType(objectType, out var spanElementType, out var isReadOnlySpan)
+            && !isReadOnlySpan)
+        {
+            var valueLocal = _currentIL.DeclareLocal(spanElementType);
+            var indexLocal = _currentIL.DeclareLocal(reflectionIndexType);
+            var objectLocal = _currentIL.DeclareLocal(objectType);
+
+            _currentIL.Emit(OpCodes.Stloc, valueLocal);
+            _currentIL.Emit(OpCodes.Stloc, indexLocal);
+            _currentIL.Emit(OpCodes.Stloc, objectLocal);
+            _currentIL.Emit(OpCodes.Ldloc, objectLocal);
+            _currentIL.Emit(OpCodes.Call, ResolveSpanGetReferenceMethod(objectType));
+            _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+            _currentIL.Emit(OpCodes.Call, ResolveUnsafeAddMethod(spanElementType));
+            _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            EmitStoreIndirect(spanElementType);
+            return;
+        }
+
+        var runtimeIndexerSetter = ResolveRuntimeMethod(
+            objectType,
+            "set_Item",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            parameterTypes: null);
+        if (runtimeIndexerSetter != null)
+        {
+            _currentIL.Emit(runtimeIndexerSetter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, runtimeIndexerSetter);
+            return;
+        }
+
+        var runtimeIndexerGetter = ResolveRuntimeMethod(
+            objectType,
+            "get_Item",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            new[] { reflectionIndexType });
+        if (runtimeIndexerGetter != null)
+        {
+            var runtimeReturnType = ResolveGenericSignatureType(objectType, runtimeIndexerGetter.ReturnType);
+            if (runtimeReturnType.IsByRef)
+            {
+                var valueType = GetByRefElementType(runtimeReturnType);
+                var valueLocal = _currentIL.DeclareLocal(valueType);
+                var indexLocal = _currentIL.DeclareLocal(reflectionIndexType);
+                var objectLocal = _currentIL.DeclareLocal(objectType);
+                var useAddressReceiver = IsValueTypeLike(objectType) && !objectType.IsGenericParameter;
+
+                _currentIL.Emit(OpCodes.Stloc, valueLocal);
+                _currentIL.Emit(OpCodes.Stloc, indexLocal);
+                _currentIL.Emit(OpCodes.Stloc, objectLocal);
+
+                if (useAddressReceiver)
+                {
+                    _currentIL.Emit(OpCodes.Ldloca_S, objectLocal);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, objectLocal);
+                }
+
+                _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+                _currentIL.Emit(runtimeIndexerGetter.IsVirtual && !useAddressReceiver ? OpCodes.Callvirt : OpCodes.Call, runtimeIndexerGetter);
+                _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+                EmitStoreIndirect(valueType);
+                return;
+            }
+        }
+
+        PropertyInfo? indexer = null;
+        try
+        {
+            indexer = objectType.GetDefaultMembers()
+                .OfType<PropertyInfo>()
+                .FirstOrDefault(p =>
+                    p.GetIndexParameters().Length == 1 &&
+                    p.SetMethod != null &&
+                    AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, reflectionIndexType));
+        }
+        catch (NotSupportedException)
+        {
+        }
+        catch (NotImplementedException)
+        {
+        }
 
         if (indexer?.SetMethod != null)
         {
@@ -8616,6 +10405,11 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldelem_R8);
         else if (elementType == typeof(float))
             _currentIL.Emit(OpCodes.Ldelem_R4);
+        else if (elementType.IsGenericParameter || elementType.ContainsGenericParameters)
+        {
+            _currentIL.Emit(OpCodes.Ldelema, elementType);
+            EmitLoadIndirect(elementType);
+        }
         else if (elementType.IsValueType)
             _currentIL.Emit(OpCodes.Ldelem, elementType);
         else
@@ -8637,7 +10431,13 @@ public partial class ILCompiler
         else if (elementType == typeof(float))
             _currentIL.Emit(OpCodes.Stelem_R4);
         else if (elementType.IsGenericParameter || elementType.ContainsGenericParameters)
-            _currentIL.Emit(OpCodes.Stelem, elementType);
+        {
+            var valueLocal = _currentIL.DeclareLocal(elementType);
+            _currentIL.Emit(OpCodes.Stloc, valueLocal);
+            _currentIL.Emit(OpCodes.Ldelema, elementType);
+            _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            EmitStoreIndirect(elementType);
+        }
         else if (elementType.IsValueType)
             _currentIL.Emit(OpCodes.Stelem, elementType);
         else
@@ -8665,14 +10465,20 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Member {memberName} not found on type {GetTypeKey(typeBuilder)}");
         }
 
-        var property = objectType.GetProperty(memberName);
-        if (property?.GetMethod != null)
+        var property = ResolveRuntimeProperty(
+            objectType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (property?.Getter != null)
         {
-            _currentIL.Emit(OpCodes.Callvirt, property.GetMethod);
+            _currentIL.Emit(OpCodes.Callvirt, property.Getter);
             return;
         }
 
-        var field = objectType.GetField(memberName);
+        var field = ResolveRuntimeField(
+            objectType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         if (field != null)
         {
             _currentIL.Emit(OpCodes.Ldfld, field);
@@ -8690,7 +10496,10 @@ public partial class ILCompiler
         {
             if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberName), out var staticField))
             {
-                _currentIL.Emit(OpCodes.Ldsfld, staticField);
+                if (!TryEmitDeclaredStaticConstant(staticTypeBuilder, memberName))
+                {
+                    _currentIL.Emit(OpCodes.Ldsfld, staticField);
+                }
                 return;
             }
 
@@ -8703,17 +10512,44 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticTypeBuilder)}");
         }
 
-        var staticProperty = staticType.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-        if (staticProperty?.GetMethod != null)
+        var declaredStaticFieldKey = GetFieldKey(staticType, memberName);
+        if (_fields.TryGetValue(declaredStaticFieldKey, out var declaredStaticField))
         {
-            _currentIL.Emit(OpCodes.Call, staticProperty.GetMethod);
+            if (_fieldConstants.TryGetValue(declaredStaticFieldKey, out var declaredConstantValue))
+            {
+                EmitConstantValue(declaredConstantValue, declaredStaticField.FieldType);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Ldsfld, declaredStaticField);
+            }
             return;
         }
 
-        var staticFieldInfo = staticType.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        var staticProperty = ResolveRuntimeProperty(
+            staticType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        if (staticProperty?.Getter != null)
+        {
+            _currentIL.Emit(OpCodes.Call, staticProperty.Getter);
+            return;
+        }
+
+        var staticFieldInfo = ResolveRuntimeField(
+            staticType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
         if (staticFieldInfo != null)
         {
-            _currentIL.Emit(OpCodes.Ldsfld, staticFieldInfo);
+            if (staticFieldInfo.IsLiteral)
+            {
+                EmitConstantValue(staticFieldInfo.GetRawConstantValue(), staticFieldInfo.FieldType);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Ldsfld, staticFieldInfo);
+            }
             return;
         }
 
@@ -8741,14 +10577,20 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Member {memberName} not found on type {GetTypeKey(typeBuilder)}");
         }
 
-        var property = objectType.GetProperty(memberName);
-        if (property?.SetMethod != null)
+        var property = ResolveRuntimeProperty(
+            objectType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (property?.Setter != null)
         {
-            _currentIL.Emit(OpCodes.Callvirt, property.SetMethod);
+            _currentIL.Emit(OpCodes.Callvirt, property.Setter);
             return;
         }
 
-        var field = objectType.GetField(memberName);
+        var field = ResolveRuntimeField(
+            objectType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         if (field != null)
         {
             _currentIL.Emit(OpCodes.Stfld, field);
@@ -8779,14 +10621,20 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticTypeBuilder)}");
         }
 
-        var staticProperty = staticType.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-        if (staticProperty?.SetMethod != null)
+        var staticProperty = ResolveRuntimeProperty(
+            staticType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        if (staticProperty?.Setter != null)
         {
-            _currentIL.Emit(OpCodes.Call, staticProperty.SetMethod);
+            _currentIL.Emit(OpCodes.Call, staticProperty.Setter);
             return;
         }
 
-        var staticFieldInfo = staticType.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        var staticFieldInfo = ResolveRuntimeField(
+            staticType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
         if (staticFieldInfo != null)
         {
             _currentIL.Emit(OpCodes.Stsfld, staticFieldInfo);
@@ -8846,15 +10694,12 @@ public partial class ILCompiler
             {
                 if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberAccess.MemberName), out var staticField))
                 {
-                    var fieldKey = GetFieldKey(staticTypeBuilder, memberAccess.MemberName);
-                    if (_fieldConstants.TryGetValue(fieldKey, out var constantValue) && staticField.FieldType == typeof(string))
+                    if (TryEmitDeclaredStaticConstant(staticTypeBuilder, memberAccess.MemberName))
                     {
-                        EmitConstantValue(constantValue, staticField.FieldType);
+                        return;
                     }
-                    else
-                    {
-                        _currentIL.Emit(OpCodes.Ldsfld, staticField);
-                    }
+
+                    _currentIL.Emit(OpCodes.Ldsfld, staticField);
                     return;
                 }
 
@@ -8866,21 +10711,37 @@ public partial class ILCompiler
             }
             else
             {
-                var staticProperty = staticType.GetProperty(
-                    memberAccess.MemberName,
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                if (staticProperty?.GetMethod != null)
+                var declaredStaticFieldKey = GetFieldKey(staticType, memberAccess.MemberName);
+                if (_fields.TryGetValue(declaredStaticFieldKey, out var declaredStaticField))
                 {
-                    _currentIL.Emit(OpCodes.Call, staticProperty.GetMethod);
+                    if (_fieldConstants.TryGetValue(declaredStaticFieldKey, out var declaredConstantValue))
+                    {
+                        EmitConstantValue(declaredConstantValue, declaredStaticField.FieldType);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldsfld, declaredStaticField);
+                    }
                     return;
                 }
 
-                var staticField = staticType.GetField(
+                var staticProperty = ResolveRuntimeProperty(
+                    staticType,
+                    memberAccess.MemberName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (staticProperty?.Getter != null)
+                {
+                    _currentIL.Emit(OpCodes.Call, staticProperty.Getter);
+                    return;
+                }
+
+                var staticField = ResolveRuntimeField(
+                    staticType,
                     memberAccess.MemberName,
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 if (staticField != null)
                 {
-                    if (staticField.IsLiteral && staticField.FieldType == typeof(string))
+                    if (staticField.IsLiteral)
                     {
                         EmitConstantValue(staticField.GetRawConstantValue(), staticField.FieldType);
                     }
@@ -8999,10 +10860,10 @@ public partial class ILCompiler
         {
             var listType = typeof(List<>).MakeGenericType(elementType);
             var enumerableType = typeof(IEnumerable<>).MakeGenericType(elementType);
-            var listCtor = listType.GetConstructor(Type.EmptyTypes);
-            var addMethod = listType.GetMethod("Add", new[] { elementType });
-            var addRangeMethod = listType.GetMethod("AddRange", new[] { enumerableType });
-            var toArrayMethod = listType.GetMethod("ToArray", Type.EmptyTypes);
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0));
+            var addMethod = ResolveCollectionMethod(listType, "Add", method => HasParameterCount(method, 1));
+            var addRangeMethod = ResolveCollectionMethod(listType, "AddRange", method => HasSingleEnumerableParameter(method));
+            var toArrayMethod = ResolveCollectionMethod(listType, "ToArray", method => HasParameterCount(method, 0));
 
             if (listCtor == null || addMethod == null || addRangeMethod == null || toArrayMethod == null)
             {
@@ -9199,9 +11060,9 @@ public partial class ILCompiler
             ParenthesizedExpression paren => GetExpressionType(paren.Inner),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
             TupleExpression tuple => GetTupleExpressionType(tuple),
-            NewExpression newExpr => newExpr.Type != null
-                ? ResolveType(newExpr.Type, _currentGenericParameters)
-                : _expectedExpressionType ?? typeof(object),
+            NewExpression newExpr => newExpr.Type != null || _expectedExpressionType != null || IsAnonymousObjectCreation(newExpr)
+                ? ResolveNewExpressionType(newExpr)
+                : typeof(object),
             WithExpression withExpr => GetExpressionType(withExpr.Target),
             AwaitExpression awaitExpression => GetAwaitResultType(GetExpressionType(awaitExpression.Expression)),
             MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),
@@ -9213,8 +11074,8 @@ public partial class ILCompiler
             ArrayLiteralExpression arrayLiteral => GetArrayLiteralType(arrayLiteral),
             CastExpression cast => ResolveType(cast.TargetType, _currentGenericParameters),
             IsExpression => typeof(bool),
-            ThisExpression => _currentTypeBuilder ?? typeof(object),
-            BaseExpression => _currentTypeBuilder?.BaseType ?? typeof(object),
+            ThisExpression => GetCapturedThisType() ?? _currentTypeBuilder ?? typeof(object),
+            BaseExpression => (GetCapturedThisType() ?? _currentTypeBuilder)?.BaseType ?? typeof(object),
             ThrowExpression => typeof(void),
             TypeOfExpression => typeof(Type),
             NameofExpression => typeof(string),
@@ -9292,19 +11153,9 @@ public partial class ILCompiler
             return IsLiftedClosureField(ident.Name) ? GetStrongBoxValueType(closureField.FieldType) : closureField.FieldType;
         }
 
-        if (_currentTypeBuilder != null)
+        if (TryResolveCurrentTypeMember(ident.Name, out var memberType, out _, out _, out _))
         {
-            var primaryConstructorField = FindPrimaryConstructorField(_currentTypeBuilder, ident.Name);
-            if (primaryConstructorField != null)
-            {
-                return primaryConstructorField.FieldType;
-            }
-
-            var field = FindField(_currentTypeBuilder, ident.Name);
-            if (field != null)
-            {
-                return field.FieldType;
-            }
+            return memberType;
         }
 
         return typeof(object);
@@ -9414,7 +11265,7 @@ public partial class ILCompiler
             {
                 if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, unwrapNullConditional.MemberName), out var staticField))
                 {
-                    return staticField.FieldType;
+                    return GetDeclaredStaticFieldType(staticTypeBuilder, unwrapNullConditional.MemberName, staticField);
                 }
 
                 if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, $"get_{unwrapNullConditional.MemberName}"), out var staticGetter))
@@ -9424,7 +11275,14 @@ public partial class ILCompiler
             }
             else
             {
-                var staticProperty = staticType.GetProperty(
+                var declaredStaticFieldKey = GetFieldKey(staticType, unwrapNullConditional.MemberName);
+                if (_fields.TryGetValue(declaredStaticFieldKey, out var declaredStaticField))
+                {
+                    return declaredStaticField.FieldType;
+                }
+
+                var staticProperty = ResolveRuntimeProperty(
+                    staticType,
                     unwrapNullConditional.MemberName,
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 if (staticProperty != null)
@@ -9432,7 +11290,8 @@ public partial class ILCompiler
                     return staticProperty.PropertyType;
                 }
 
-                var staticField = staticType.GetField(
+                var staticField = ResolveRuntimeField(
+                    staticType,
                     unwrapNullConditional.MemberName,
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 if (staticField != null)
@@ -9506,6 +11365,11 @@ public partial class ILCompiler
                 : objectType.GetElementType() ?? typeof(object);
         }
 
+        if (TryGetSpanElementType(objectType, out var spanElementType, out _))
+        {
+            return spanElementType;
+        }
+
         if (objectType == typeof(string))
         {
             return indexType == typeof(Range) ? typeof(string) : typeof(char);
@@ -9526,11 +11390,31 @@ public partial class ILCompiler
             return typeof(object);
         }
 
-        var indexer = objectType.GetDefaultMembers()
-            .OfType<PropertyInfo>()
-            .FirstOrDefault(p =>
-                p.GetIndexParameters().Length == 1 &&
-                AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, indexType));
+        var runtimeIndexerGetter = ResolveRuntimeMethod(
+            objectType,
+            "get_Item",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            new[] { indexType });
+        if (runtimeIndexerGetter != null)
+        {
+            return GetByRefElementType(ResolveGenericSignatureType(objectType, runtimeIndexerGetter.ReturnType));
+        }
+
+        PropertyInfo? indexer = null;
+        try
+        {
+            indexer = objectType.GetDefaultMembers()
+                .OfType<PropertyInfo>()
+                .FirstOrDefault(p =>
+                    p.GetIndexParameters().Length == 1 &&
+                    AreParameterTypesCompatible(p.GetIndexParameters()[0].ParameterType, indexType));
+        }
+        catch (NotSupportedException)
+        {
+        }
+        catch (NotImplementedException)
+        {
+        }
 
         return indexer?.PropertyType ?? typeof(object);
     }
@@ -9582,7 +11466,7 @@ public partial class ILCompiler
                     memberAccess.MemberName,
                     call,
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                return boundStaticRuntimeCall?.Method.ReturnType ?? typeof(object);
+                return boundStaticRuntimeCall?.ReturnType ?? typeof(object);
             }
 
             var objectType = GetExpressionType(memberAccess.Object);
@@ -9624,7 +11508,7 @@ public partial class ILCompiler
                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     if (constrainedMethod != null)
                     {
-                        return constrainedMethod.Method.ReturnType;
+                        return constrainedMethod.ReturnType;
                     }
                 }
 
@@ -9638,20 +11522,26 @@ public partial class ILCompiler
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (method != null)
             {
-                return method.Method.ReturnType;
+                return method.ReturnType;
             }
 
-            var boundExtensionCall = BindDeclaredMethodCall(
+            var boundExtensionCall = BindDeclaredExtensionMethodCall(
                 memberAccess.MemberName,
                 call,
-                implicitReceiver: memberAccess.Object,
-                targetType: null,
-                predicate: overload => overload.Builder.IsStatic
-                    && overload.Declaration.Parameters.Count > 0
-                    && overload.Declaration.Parameters[0].IsThis);
+                memberAccess.Object);
             if (boundExtensionCall != null)
             {
                 return GetBoundDeclaredMethodReturnType(boundExtensionCall);
+            }
+
+            var runtimeExtensionMethod = BindRuntimeExtensionMethodCall(
+                objectType,
+                memberAccess.MemberName,
+                memberAccess.Object,
+                call);
+            if (runtimeExtensionMethod != null)
+            {
+                return runtimeExtensionMethod.ReturnType;
             }
 
             return typeof(object);
@@ -9704,10 +11594,10 @@ public partial class ILCompiler
                     return GetBoundDeclaredMethodReturnType(currentTypeStaticCall);
                 }
 
-                if (_currentHasThis)
+                if (TryGetImplicitInstanceOwnerTypeBuilder(out var implicitInstanceTypeBuilder))
                 {
                     var currentTypeInstanceCall = BindDeclaredMethodCall(
-                        GetMethodKey(_currentTypeBuilder, ident.Name),
+                        GetMethodKey(implicitInstanceTypeBuilder, ident.Name),
                         call,
                         predicate: overload => !overload.Builder.IsStatic);
                     if (currentTypeInstanceCall != null)
@@ -9716,7 +11606,9 @@ public partial class ILCompiler
                     }
                 }
 
-                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name)))
+                if (_declaredMethodOverloads.ContainsKey(GetMethodKey(_currentTypeBuilder, ident.Name))
+                    || (TryGetImplicitInstanceOwnerTypeBuilder(out var overloadOwnerTypeBuilder)
+                        && _declaredMethodOverloads.ContainsKey(GetMethodKey(overloadOwnerTypeBuilder, ident.Name))))
                 {
                     return typeof(object);
                 }
@@ -9724,6 +11616,20 @@ public partial class ILCompiler
                 if (_methods.TryGetValue(GetMethodKey(_currentTypeBuilder, ident.Name), out methodBuilder))
                 {
                     return methodBuilder.ReturnType;
+                }
+            }
+
+            if (TryGetImplicitInstanceOwnerType(out var implicitOwnerType))
+            {
+                var runtimeLookupType = GetImplicitInstanceRuntimeLookupType(implicitOwnerType);
+                var boundImplicitRuntimeCall = BindRuntimeMethodCall(
+                    runtimeLookupType,
+                    ident.Name,
+                    call,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (boundImplicitRuntimeCall != null)
+                {
+                    return boundImplicitRuntimeCall.ReturnType;
                 }
             }
         }
@@ -9874,39 +11780,18 @@ public partial class ILCompiler
             if (builtInType != null)
                 return builtInType;
 
-            // Check for user-defined types
-            if (_types.TryGetValue(simpleType.Name, out var typeBuilder))
+            if (TryResolveDeclaredProjectType(simpleType.Name, treatStringEnumAsString: true, out var declaredType))
             {
-                return typeBuilder;
+                return declaredType;
             }
 
-            if (_enumTypes.TryGetValue(simpleType.Name, out var enumType))
+            foreach (var candidate in GetDeclaredTypeNameCandidates(simpleType.Name).Distinct(StringComparer.Ordinal))
             {
-                return enumType;
-            }
-
-            if (TryEnsureUserTypeDeclared(simpleType.Name))
-            {
-                if (_stringEnumContainers.ContainsKey(simpleType.Name))
+                var externalType = ResolveExternalType(candidate);
+                if (externalType != null)
                 {
-                    return typeof(string);
+                    return externalType;
                 }
-
-                if (_types.TryGetValue(simpleType.Name, out typeBuilder))
-                {
-                    return typeBuilder;
-                }
-
-                if (_enumTypes.TryGetValue(simpleType.Name, out enumType))
-                {
-                    return enumType;
-                }
-            }
-
-            var externalType = ResolveExternalType(simpleType.Name);
-            if (externalType != null)
-            {
-                return externalType;
             }
 
             // Default to object for unknown types
@@ -9982,67 +11867,119 @@ public partial class ILCompiler
             return false;
         }
 
-        if (_types.ContainsKey(name) || _enumTypes.ContainsKey(name) || _stringEnumContainers.ContainsKey(name))
+        var resolvedTypeName = ResolveDeclaredTypeName(name);
+        if (resolvedTypeName == null)
+        {
+            return false;
+        }
+
+        if (_types.ContainsKey(resolvedTypeName) || _enumTypes.ContainsKey(resolvedTypeName) || _stringEnumContainers.ContainsKey(resolvedTypeName))
         {
             return true;
         }
 
-        var topLevelName = name.Split('.', 2)[0];
-        if (_types.ContainsKey(topLevelName) || _enumTypes.ContainsKey(topLevelName) || _stringEnumContainers.ContainsKey(topLevelName))
-        {
-            return true;
-        }
-
-        if (!_typesBeingDeclared.Add(topLevelName))
+        if (!_typesBeingDeclared.Add(resolvedTypeName))
         {
             return false;
         }
 
         try
         {
-            var declaration = _compilationUnit.Declarations.FirstOrDefault(candidate => GetDeclaredTypeName(candidate) == topLevelName);
-            if (declaration == null)
+            if (!TryGetDeclaredTypeInfo(resolvedTypeName, out var declaredType))
             {
                 return false;
             }
 
-            switch (declaration)
+            switch (declaredType.Declaration)
             {
                 case ClassDeclaration classDecl:
-                    DeclareClass(_moduleBuilder, classDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareClass(_moduleBuilder, classDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingClass))
+                    {
+                        DeclareClass(containingClass, classDecl, resolvedTypeName);
+                    }
                     break;
                 case StructDeclaration structDecl:
-                    DeclareStruct(_moduleBuilder, structDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareStruct(_moduleBuilder, structDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingStruct))
+                    {
+                        DeclareStruct(containingStruct, structDecl, resolvedTypeName);
+                    }
                     break;
                 case RecordDeclaration recordDecl:
-                    DeclareRecord(_moduleBuilder, recordDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareRecord(_moduleBuilder, recordDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingRecord))
+                    {
+                        DeclareRecord(containingRecord, recordDecl, resolvedTypeName);
+                    }
                     break;
                 case InterfaceDeclaration interfaceDecl:
-                    DeclareInterface(_moduleBuilder, interfaceDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareInterface(_moduleBuilder, interfaceDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingInterface))
+                    {
+                        DeclareInterface(containingInterface, interfaceDecl, resolvedTypeName);
+                    }
                     break;
                 case EnumDeclaration enumDecl:
-                    DeclareEnum(_moduleBuilder, enumDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareEnum(_moduleBuilder, enumDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingEnum))
+                    {
+                        DeclareEnum(containingEnum, enumDecl, resolvedTypeName);
+                    }
                     break;
                 case UnionDeclaration unionDecl:
-                    DeclareUnion(_moduleBuilder, unionDecl);
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareUnion(_moduleBuilder, unionDecl);
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingUnion))
+                    {
+                        DeclareUnion(containingUnion, unionDecl, resolvedTypeName);
+                    }
                     break;
                 case NewtypeDeclaration newtypeDecl:
-                    DeclareRecord(_moduleBuilder, CreateSyntheticNewtypeRecord(newtypeDecl));
+                    if (declaredType.ContainingTypeName == null)
+                    {
+                        DeclareRecord(_moduleBuilder, CreateSyntheticNewtypeRecord(newtypeDecl));
+                    }
+                    else if (TryEnsureUserTypeDeclared(declaredType.ContainingTypeName)
+                             && _types.TryGetValue(declaredType.ContainingTypeName, out var containingNewtype))
+                    {
+                        DeclareRecord(containingNewtype, CreateSyntheticNewtypeRecord(newtypeDecl), resolvedTypeName);
+                    }
                     break;
                 default:
                     return false;
             }
 
-            return _types.ContainsKey(name)
-                || _types.ContainsKey(topLevelName)
-                || _enumTypes.ContainsKey(name)
-                || _enumTypes.ContainsKey(topLevelName)
-                || _stringEnumContainers.ContainsKey(name)
-                || _stringEnumContainers.ContainsKey(topLevelName);
+            return _types.ContainsKey(resolvedTypeName)
+                || _enumTypes.ContainsKey(resolvedTypeName)
+                || _stringEnumContainers.ContainsKey(resolvedTypeName);
         }
         finally
         {
-            _typesBeingDeclared.Remove(topLevelName);
+            _typesBeingDeclared.Remove(resolvedTypeName);
         }
     }
 
@@ -10102,7 +12039,9 @@ public partial class ILCompiler
             _ => null
         };
 
-        if (baseType == null && TryEnsureUserTypeDeclared(typeName) && _types.TryGetValue(typeName, out var typeBuilder))
+        if (baseType == null
+            && TryResolveDeclaredProjectType(typeName, treatStringEnumAsString: false, out var declaredType)
+            && declaredType is TypeBuilder typeBuilder)
         {
             baseType = typeBuilder;
         }
@@ -10214,6 +12153,79 @@ public partial class ILCompiler
 
     private Type? ResolveExternalType(string typeName)
     {
+        return ResolveExternalType(typeName, allowGlobalSimpleNameFallback: true);
+    }
+
+    private void EnsureExternalAssembliesLoaded(string typeName)
+    {
+        foreach (var assemblyName in GetExternalAssemblyNameCandidates(typeName))
+        {
+            TryLoadAssemblyByName(assemblyName);
+        }
+    }
+
+    private static IEnumerable<string> GetExternalAssemblyNameCandidates(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            yield break;
+        }
+
+        var normalizedTypeName = typeName.Replace('+', '.');
+        var segments = normalizedTypeName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        for (var length = segments.Length - 1; length >= 1; length--)
+        {
+            yield return string.Join(".", segments.Take(length));
+        }
+    }
+
+    private static IEnumerable<string> GetExternalTypeMetadataNameCandidates(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+        {
+            yield break;
+        }
+
+        yield return typeName;
+
+        var normalizedTypeName = typeName.Replace('+', '.');
+        var segments = normalizedTypeName.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        for (var nestedSegmentCount = 1; nestedSegmentCount < segments.Length; nestedSegmentCount++)
+        {
+            var namespaceSegmentCount = segments.Length - nestedSegmentCount;
+            if (namespaceSegmentCount <= 0)
+            {
+                break;
+            }
+
+            yield return string.Join(".", segments.Take(namespaceSegmentCount))
+                + "+"
+                + string.Join("+", segments.Skip(namespaceSegmentCount));
+        }
+    }
+
+    private static Type? TryResolveLoadedExternalType(string candidate)
+    {
+        var resolved = Type.GetType(candidate, throwOnError: false);
+        if (resolved != null)
+        {
+            return resolved;
+        }
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            resolved = assembly.GetType(candidate, throwOnError: false, ignoreCase: false);
+            if (resolved != null)
+            {
+                return resolved;
+            }
+        }
+
+        return null;
+    }
+
+    private Type? ResolveExternalType(string typeName, bool allowGlobalSimpleNameFallback)
+    {
         var candidates = new List<string>();
         if (typeName.Contains('.'))
         {
@@ -10232,15 +12244,17 @@ public partial class ILCompiler
 
         foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
         {
-            var resolved = Type.GetType(candidate, throwOnError: false);
-            if (resolved != null)
+            foreach (var metadataCandidate in GetExternalTypeMetadataNameCandidates(candidate).Distinct(StringComparer.Ordinal))
             {
-                return resolved;
-            }
+                var resolved = TryResolveLoadedExternalType(metadataCandidate);
+                if (resolved != null)
+                {
+                    return resolved;
+                }
 
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                resolved = assembly.GetType(candidate, throwOnError: false, ignoreCase: false);
+                EnsureExternalAssembliesLoaded(metadataCandidate);
+
+                resolved = TryResolveLoadedExternalType(metadataCandidate);
                 if (resolved != null)
                 {
                     return resolved;
@@ -10248,7 +12262,7 @@ public partial class ILCompiler
             }
         }
 
-        if (!typeName.Contains('.'))
+        if (allowGlobalSimpleNameFallback && !typeName.Contains('.'))
         {
             Type? match = null;
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -10380,6 +12394,8 @@ public partial class ILCompiler
             allBaseTypes.AddRange(classDecl.Interfaces.Select(typeReference => ResolveType(typeReference, genericParameters)));
         }
 
+        allBaseTypes.AddRange(GetMatchingDuckInterfaces(classDecl.Members).Select(interfaceDecl => ResolveDuckInterfaceType(interfaceDecl, genericParameters)));
+
         Type? baseType = null;
         foreach (var candidateType in allBaseTypes)
         {
@@ -10402,6 +12418,8 @@ public partial class ILCompiler
         {
             typeBuilder.SetParent(baseType);
         }
+
+        DeclareNestedTypes(typeBuilder, classDecl.Members, classDecl.Name);
     }
 
     /// <summary>
@@ -10432,6 +12450,13 @@ public partial class ILCompiler
                 typeBuilder.AddInterfaceImplementation(interfaceType);
             }
         }
+
+        foreach (var duckInterface in GetMatchingDuckInterfaces(structDecl.Members))
+        {
+            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+        }
+
+        DeclareNestedTypes(typeBuilder, structDecl.Members, structDecl.Name);
     }
 
     /// <summary>
@@ -10444,11 +12469,7 @@ public partial class ILCompiler
             return;
         }
 
-        // Skip duck interfaces - they are type-erased
-        if (interfaceDecl.IsDuckInterface)
-            return;
-
-        var typeAttributes = GetTypeVisibilityAttributes(interfaceDecl.Modifiers) | TypeAttributes.Interface | TypeAttributes.Abstract;
+        var typeAttributes = GetInterfaceTypeVisibilityAttributes(interfaceDecl) | TypeAttributes.Interface | TypeAttributes.Abstract;
 
         var typeBuilder = moduleBuilder.DefineType(
             interfaceDecl.Name,
@@ -10465,6 +12486,8 @@ public partial class ILCompiler
                 typeBuilder.AddInterfaceImplementation(baseInterface);
             }
         }
+
+        DeclareNestedTypes(typeBuilder, interfaceDecl.Members, interfaceDecl.Name);
     }
 
     /// <summary>
@@ -10557,11 +12580,53 @@ public partial class ILCompiler
 
             var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
             RegisterType(caseKey, caseType);
-            var caseCtor = caseType.DefineConstructor(
+            var defaultCaseCtor = caseType.DefineConstructor(
                 MethodAttributes.Public,
                 CallingConventions.Standard,
                 Type.EmptyTypes);
-            _constructors[GetConstructorKey(caseType)] = caseCtor;
+            _constructors[GetConstructorKey(caseType)] = defaultCaseCtor;
+            var defaultConstructorDeclaration = new ConstructorDeclaration(
+                new List<Parameter>(),
+                new BlockStatement(new List<Statement>(), unionCase.Line, unionCase.Column),
+                Initializer: null,
+                Modifiers.None,
+                new List<AttributeNode>(),
+                unionCase.Line,
+                unionCase.Column);
+            RegisterDeclaredConstructorOverload(GetConstructorKey(caseType), defaultConstructorDeclaration, defaultCaseCtor);
+
+            var caseParameters = unionCase.Properties?
+                .Select(property => new Parameter(
+                    property.Name,
+                    property.Type,
+                    DefaultValue: null,
+                    IsThis: false))
+                .ToList();
+            var caseParameterTypes = caseParameters?
+                .Select(parameter => ResolveType(parameter.Type))
+                .ToArray()
+                ?? Type.EmptyTypes;
+            if (caseParameters != null)
+            {
+                var caseCtor = caseType.DefineConstructor(
+                    MethodAttributes.Public,
+                    CallingConventions.Standard,
+                    caseParameterTypes);
+                for (int i = 0; i < caseParameters.Count; i++)
+                {
+                    caseCtor.DefineParameter(i + 1, GetParameterAttributes(caseParameters[i]), caseParameters[i].Name);
+                }
+
+                var syntheticConstructor = new ConstructorDeclaration(
+                    caseParameters,
+                    new BlockStatement(new List<Statement>(), unionCase.Line, unionCase.Column),
+                    Initializer: null,
+                    Modifiers.None,
+                    new List<AttributeNode>(),
+                    unionCase.Line,
+                    unionCase.Column);
+                RegisterDeclaredConstructorOverload(GetConstructorKey(caseType), syntheticConstructor, caseCtor);
+            }
 
             if (unionCase.Properties == null)
             {
@@ -10580,11 +12645,12 @@ public partial class ILCompiler
         }
     }
 
-    private void EmitUnionBodies(UnionDeclaration unionDecl)
+    private void EmitUnionBodies(UnionDeclaration unionDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(unionDecl.Name, out var unionType))
+        var typeName = declaredTypeName ?? unionDecl.Name;
+        if (!_types.TryGetValue(typeName, out var unionType))
         {
-            throw new InvalidOperationException($"Union {unionDecl.Name} not declared");
+            throw new InvalidOperationException($"Union {typeName} not declared");
         }
 
         if (_constructors.TryGetValue(GetConstructorKey(unionType), out var unionCtor))
@@ -10601,18 +12667,46 @@ public partial class ILCompiler
 
         foreach (var unionCase in unionDecl.Cases)
         {
-            var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
+            var caseKey = $"{typeName}.{unionCase.Name}";
             if (!_types.TryGetValue(caseKey, out var caseType))
             {
                 throw new InvalidOperationException($"Union case {caseKey} not declared");
             }
 
-            if (_constructors.TryGetValue(GetConstructorKey(caseType), out var caseCtor))
+            if (_constructors.TryGetValue(GetConstructorKey(caseType), out var defaultCaseCtor))
             {
-                var il = caseCtor.GetILGenerator();
+                var il = defaultCaseCtor.GetILGenerator();
                 il.Emit(OpCodes.Ldarg_0);
                 il.Emit(OpCodes.Call, unionCtor);
                 il.Emit(OpCodes.Ret);
+            }
+
+            if (_declaredConstructorOverloads.TryGetValue(GetConstructorKey(caseType), out var overloads))
+            {
+                foreach (var overload in overloads.Where(overload => overload.Builder != defaultCaseCtor))
+                {
+                    var il = overload.Builder.GetILGenerator();
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Call, unionCtor);
+
+                    if (unionCase.Properties != null)
+                    {
+                        for (int i = 0; i < unionCase.Properties.Count; i++)
+                        {
+                            var property = unionCase.Properties[i];
+                            if (!_fields.TryGetValue(GetFieldKey(caseType, property.Name), out var fieldBuilder))
+                            {
+                                throw new InvalidOperationException($"Union case field {caseKey}.{property.Name} not declared");
+                            }
+
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Ldarg, i + 1);
+                            il.Emit(OpCodes.Stfld, fieldBuilder);
+                        }
+                    }
+
+                    il.Emit(OpCodes.Ret);
+                }
             }
         }
     }
@@ -10638,15 +12732,12 @@ public partial class ILCompiler
     /// <summary>
     /// Declare interface members (second pass)
     /// </summary>
-    private void DeclareInterfaceMembers(InterfaceDeclaration interfaceDecl)
+    private void DeclareInterfaceMembers(InterfaceDeclaration interfaceDecl, string? declaredTypeName = null)
     {
-        // Skip duck interfaces - they are type-erased
-        if (interfaceDecl.IsDuckInterface)
-            return;
-
-        if (!_types.TryGetValue(interfaceDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? interfaceDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Interface {interfaceDecl.Name} not declared");
+            throw new InvalidOperationException($"Interface {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
@@ -10659,6 +12750,8 @@ public partial class ILCompiler
                 DeclareInterfaceMethod(typeBuilder, funcDecl);
             }
         }
+
+        DeclareNestedTypeMembers(interfaceDecl.Members, typeName);
 
         _currentTypeBuilder = null;
     }
@@ -10706,30 +12799,21 @@ public partial class ILCompiler
     /// <summary>
     /// Declare class members (second pass)
     /// </summary>
-    private void DeclareClassMembers(ClassDeclaration classDecl)
+    private void DeclareClassMembers(ClassDeclaration classDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(classDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? classDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {classDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
-        var implementedInterfaces = new List<Type>();
-
-        if (classDecl.BaseClass != null)
-        {
-            var baseType = ResolveType(classDecl.BaseClass, typeGenericParameters);
-            if (baseType.IsInterface)
-            {
-                implementedInterfaces.Add(baseType);
-            }
-        }
-
-        if (classDecl.Interfaces != null)
-        {
-            implementedInterfaces.AddRange(classDecl.Interfaces.Select(typeReference => ResolveType(typeReference, typeGenericParameters)).Where(type => type.IsInterface));
-        }
+        var implementedInterfaces = GetImplementedInterfaces(
+            classDecl.Members,
+            classDecl.Interfaces,
+            typeGenericParameters,
+            classDecl.BaseClass);
 
         if (classDecl.PrimaryConstructorParameters != null && classDecl.PrimaryConstructorParameters.Count > 0)
         {
@@ -10774,25 +12858,28 @@ public partial class ILCompiler
 
         ApplyRequiredMemberTypeAttribute(typeBuilder, classDecl.Members);
 
+        DeclareNestedTypeMembers(classDecl.Members, typeName);
+
         _currentTypeBuilder = null;
     }
 
     /// <summary>
     /// Declare struct members (second pass)
     /// </summary>
-    private void DeclareStructMembers(StructDeclaration structDecl)
+    private void DeclareStructMembers(StructDeclaration structDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(structDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? structDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {structDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
-        var implementedInterfaces = structDecl.Interfaces
-            .Select(typeReference => ResolveType(typeReference, typeGenericParameters))
-            .Where(type => type.IsInterface)
-            .ToList();
+        var implementedInterfaces = GetImplementedInterfaces(
+            structDecl.Members,
+            structDecl.Interfaces,
+            typeGenericParameters);
 
         if (structDecl.PrimaryConstructorParameters != null && structDecl.PrimaryConstructorParameters.Count > 0)
         {
@@ -10822,6 +12909,8 @@ public partial class ILCompiler
         }
 
         ApplyRequiredMemberTypeAttribute(typeBuilder, structDecl.Members);
+
+        DeclareNestedTypeMembers(structDecl.Members, typeName);
 
         _currentTypeBuilder = null;
     }
@@ -11215,6 +13304,8 @@ public partial class ILCompiler
 
         if (interfaceMethods.Count > 0 && !funcDecl.Modifiers.HasFlag(Modifiers.Static))
         {
+            methodAttributes &= ~MethodAttributes.MemberAccessMask;
+            methodAttributes |= MethodAttributes.Public;
             methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
         }
 
@@ -11246,11 +13337,12 @@ public partial class ILCompiler
     /// <summary>
     /// Emit class method bodies (third pass)
     /// </summary>
-    private void EmitClassBodies(ClassDeclaration classDecl)
+    private void EmitClassBodies(ClassDeclaration classDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(classDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? classDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {classDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
@@ -11290,17 +13382,20 @@ public partial class ILCompiler
             }
         }
 
+        EmitNestedTypeBodies(classDecl.Members, typeName);
+
         _currentTypeBuilder = null;
     }
 
     /// <summary>
     /// Emit struct method bodies (third pass)
     /// </summary>
-    private void EmitStructBodies(StructDeclaration structDecl)
+    private void EmitStructBodies(StructDeclaration structDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(structDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? structDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {structDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
@@ -11332,6 +13427,8 @@ public partial class ILCompiler
                     break;
             }
         }
+
+        EmitNestedTypeBodies(structDecl.Members, typeName);
 
         _currentTypeBuilder = null;
     }
@@ -11570,7 +13667,7 @@ public partial class ILCompiler
             _currentYieldBreakLabel = _currentIL.DefineLabel();
             var listType = typeof(List<>).MakeGenericType(yieldElementType);
             _currentYieldListLocal = _currentIL.DeclareLocal(listType);
-            var listCtor = listType.GetConstructor(Type.EmptyTypes)
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
                 ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
             _currentIL.Emit(OpCodes.Newobj, listCtor);
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
@@ -12098,15 +14195,9 @@ public partial class ILCompiler
             return true;
         }
 
-        if (_types.TryGetValue(name, out var userType))
+        if (TryResolveDeclaredProjectType(name, treatStringEnumAsString: false, out var declaredType))
         {
-            type = userType;
-            return true;
-        }
-
-        if (_enumTypes.TryGetValue(name, out var enumType))
-        {
-            type = enumType;
+            type = declaredType;
             return true;
         }
 
@@ -12140,7 +14231,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (!_types.TryGetValue(unionPattern.CaseName, out var caseType))
+        if (!TryResolveDeclaredProjectType(unionPattern.CaseName, treatStringEnumAsString: false, out var caseType))
         {
             throw new InvalidOperationException($"Union case type {unionPattern.CaseName} not declared");
         }
@@ -12795,24 +14886,32 @@ public partial class ILCompiler
                 typeBuilder.AddInterfaceImplementation(interfaceType);
             }
         }
+
+        foreach (var duckInterface in GetMatchingDuckInterfaces(recordDecl.Members))
+        {
+            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+        }
+
+        DeclareNestedTypes(typeBuilder, recordDecl.Members, recordDecl.Name);
     }
 
     /// <summary>
     /// Declare record members (second pass)
     /// </summary>
-    private void DeclareRecordMembers(RecordDeclaration recordDecl)
+    private void DeclareRecordMembers(RecordDeclaration recordDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(recordDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? recordDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {recordDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
-        var implementedInterfaces = recordDecl.Interfaces
-            .Select(typeReference => ResolveType(typeReference, typeGenericParameters))
-            .Where(type => type.IsInterface)
-            .ToList();
+        var implementedInterfaces = GetImplementedInterfaces(
+            recordDecl.Members,
+            recordDecl.Interfaces,
+            typeGenericParameters);
 
         // Declare fields for primary constructor parameters (as backing fields for auto-properties)
         if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
@@ -12847,6 +14946,21 @@ public partial class ILCompiler
 
                 _methods[GetMethodKey(typeBuilder, $"get_{param.Name}")] = getter;
                 property.SetGetMethod(getter);
+
+                var setter = typeBuilder.DefineMethod(
+                    $"set_{param.Name}",
+                    MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                    CallingConventions.HasThis,
+                    typeof(void),
+                    GetInitOnlySetterReturnRequiredCustomModifiers(),
+                    null,
+                    new[] { fieldType },
+                    null,
+                    null);
+                setter.DefineParameter(1, ParameterAttributes.None, "value");
+
+                _methods[GetMethodKey(typeBuilder, $"set_{param.Name}")] = setter;
+                property.SetSetMethod(setter);
             }
 
             // Declare primary constructor
@@ -12924,17 +15038,20 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, "ToString")] = toStringMethod;
 
+        DeclareNestedTypeMembers(recordDecl.Members, typeName);
+
         _currentTypeBuilder = null;
     }
 
     /// <summary>
     /// Emit record method bodies (third pass)
     /// </summary>
-    private void EmitRecordBodies(RecordDeclaration recordDecl)
+    private void EmitRecordBodies(RecordDeclaration recordDecl, string? declaredTypeName = null)
     {
-        if (!_types.TryGetValue(recordDecl.Name, out var typeBuilder))
+        var typeName = declaredTypeName ?? recordDecl.Name;
+        if (!_types.TryGetValue(typeName, out var typeBuilder))
         {
-            throw new InvalidOperationException($"Type {recordDecl.Name} not declared");
+            throw new InvalidOperationException($"Type {typeName} not declared");
         }
 
         _currentTypeBuilder = typeBuilder;
@@ -12953,6 +15070,20 @@ public partial class ILCompiler
                     {
                         il.Emit(OpCodes.Ldarg_0);
                         il.Emit(OpCodes.Ldfld, backingField);
+                        il.Emit(OpCodes.Ret);
+                    }
+                }
+
+                var setterKey = GetMethodKey(typeBuilder, $"set_{param.Name}");
+                if (_methods.TryGetValue(setterKey, out var setter))
+                {
+                    var il = setter.GetILGenerator();
+                    var backingFieldKey = GetFieldKey(typeBuilder, $"<{param.Name}>k__BackingField");
+                    if (_fields.TryGetValue(backingFieldKey, out var backingField))
+                    {
+                        il.Emit(OpCodes.Ldarg_0);
+                        il.Emit(OpCodes.Ldarg_1);
+                        il.Emit(OpCodes.Stfld, backingField);
                         il.Emit(OpCodes.Ret);
                     }
                 }
@@ -13054,6 +15185,8 @@ public partial class ILCompiler
                     break;
             }
         }
+
+        EmitNestedTypeBodies(recordDecl.Members, typeName);
 
         _currentTypeBuilder = null;
     }
