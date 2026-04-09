@@ -1,5 +1,9 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+  <Target Name="_FailLegacyNSharpBuildTargets" BeforeTargets="Build;Rebuild;Restore">
+    <Error Text="NSharpLang.Build.targets is retired. Use &lt;Project Sdk=&quot;NSharpLang.Sdk&quot; /&gt; with backend: il in project.yml. Generated-C# export is no longer a supported toolchain path." />
+  </Target>
+
   <PropertyGroup>
     <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)NSharp/</NSharpOutputPath>
     <!-- Auto-detect project.yml -->

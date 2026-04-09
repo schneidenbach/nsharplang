@@ -15,7 +15,6 @@ Updated: 2026-03-29
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--keep-generated` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc transpile <file>` | Print generated C# | none | `nlc transpile Program.nl` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -71,7 +70,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 
 | Command Group | `0` | `1` |
 |---------------|-----|-----|
-| `build`, `run`, `transpile`, `new`, `clean`, `watch`, `doc`, `completion` | Success | Failure |
+| `build`, `run`, `new`, `clean`, `watch`, `doc`, `completion` | Success | Failure |
 | `test` | Tests passed | Build or test execution failed |
 | `format` | Success or already formatted | Formatting failed or `--check` found drift |
 | `lint` | No issues | At least one issue was reported |

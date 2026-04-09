@@ -10,6 +10,10 @@ public enum CompilationBackend
 
 public static class CompilationBackendExtensions
 {
+    public const string RetiredTranspileBackendMessage =
+        "The 'transpile' backend and 'nlc transpile' command have been retired. " +
+        "Use the IL backend for build/run/check/test/bench/publish. C# export is no longer a supported product workflow.";
+
     public static string ToConfigValue(this CompilationBackend backend)
         => backend switch
         {
@@ -26,7 +30,7 @@ public static class CompilationBackendExtensions
         }
 
         throw new InvalidOperationException(
-            $"Invalid backend: '{value}'. Must be 'transpile' or 'il'.");
+            $"Invalid backend: '{value}'. Must be 'il'.");
     }
 
     public static bool TryParse(string? value, out CompilationBackend backend)
@@ -35,11 +39,11 @@ public static class CompilationBackendExtensions
         {
             case null:
             case "":
-            case "transpile":
-                backend = CompilationBackend.Transpile;
-                return true;
             case "il":
                 backend = CompilationBackend.Il;
+                return true;
+            case "transpile":
+                backend = CompilationBackend.Transpile;
                 return true;
             default:
                 backend = default;

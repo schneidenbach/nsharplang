@@ -9,7 +9,6 @@ public static class CompletionCommand
     {
         "build",
         "run",
-        "transpile",
         "new",
         "init",
         "test",

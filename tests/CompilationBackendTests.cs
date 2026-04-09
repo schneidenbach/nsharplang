@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -372,6 +373,42 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_RetiredTranspileBackendOverride_IsRejected()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LegacyBuild
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "legacy"
+}
+""");
+
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "transpile"));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("retired", stderr);
+            Assert.Contains("C# export", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_UsesConfiguredIlBackendAndProducesRunnableArtifacts()
     {
         var tempDir = CreateTempDir();
@@ -408,6 +445,56 @@ func main() {
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir);
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("built with il", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BuildCommand_ProjectWithoutBackend_DefaultsToIlAndProducesRunnableArtifacts()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: BuildDefaultIl
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "default backend is il"
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "-o", outputDir));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var generatedFiles = Directory.GetFiles(tempDir, "*.g.cs", SearchOption.AllDirectories)
+                .Select(Path.GetFileName)
+                .ToArray();
+            Assert.Contains("__NSharpIlStub.g.cs", generatedFiles);
+            Assert.DoesNotContain("Program.g.cs", generatedFiles);
+
+            var assemblyPath = Path.Combine(outputDir, "BuildDefaultIl.dll");
+            Assert.True(File.Exists(assemblyPath));
+            Assert.True(File.Exists(Path.Combine(outputDir, "BuildDefaultIl.runtimeconfig.json")));
+
+            var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("default backend is il", runResult.Stdout);
         }
         finally
         {
@@ -621,6 +708,106 @@ class Greeter {
     }
 
     [Fact]
+    public void PublishCommand_BackendOverrideToIl_SupportsRuntimeSpecificOutput()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var runtimeIdentifier = RuntimeInformation.RuntimeIdentifier;
+
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RuntimeSpecificIlPublish
+backend: il
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "runtime-specific il publish"
+}
+""");
+
+            var publishDir = Path.Combine(tempDir, "publish-runtime");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("publish", "--backend", "il", "--runtime", runtimeIdentifier, "--output", publishDir));
+
+            Assert.True(exitCode == 0, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+            Assert.Contains("Publish successful!", stdout);
+
+            var publishedApp = GetPublishedAppPath(publishDir, "RuntimeSpecificIlPublish");
+            Assert.True(File.Exists(publishedApp), publishedApp);
+            Assert.True(File.Exists(Path.Combine(publishDir, "RuntimeSpecificIlPublish.dll")));
+
+            var runResult = DotnetRunner.RunProcess(publishedApp, "", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("runtime-specific il publish", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void PublishCommand_BackendOverrideToIl_SupportsSelfContainedOutput()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var runtimeIdentifier = RuntimeInformation.RuntimeIdentifier;
+
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SelfContainedIlPublish
+backend: il
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "self-contained il publish"
+}
+""");
+
+            var publishDir = Path.Combine(tempDir, "publish-self-contained");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram(
+                    "publish",
+                    "--backend", "il",
+                    "--runtime", runtimeIdentifier,
+                    "--self-contained",
+                    "--output", publishDir));
+
+            Assert.True(exitCode == 0, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+            Assert.Contains("Publish successful!", stdout);
+
+            var publishedApp = GetPublishedAppPath(publishDir, "SelfContainedIlPublish");
+            Assert.True(File.Exists(publishedApp), publishedApp);
+            Assert.True(File.Exists(Path.Combine(publishDir, "SelfContainedIlPublish.dll")));
+            Assert.True(Directory.GetFiles(publishDir, "System.Private.CoreLib.dll").Length > 0);
+
+            var runResult = DotnetRunner.RunProcess(publishedApp, "", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("self-contained il publish", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject()
     {
         var tempDir = CreateTempDir();
@@ -706,6 +893,124 @@ func benchAddNumbers(): int {
         }
     }
 
+    [Fact]
+    public void CompilationStubEmitter_UsesSystemAndSuppressesFallbackMainForTypeEntryPoints()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+class Program {
+    Timestamp: DateTime
+
+    static func Main() {
+    }
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                new ProjectConfig
+                {
+                    Name = "StubMain",
+                    OutputType = "exe",
+                    TargetFramework = "net9.0"
+                },
+                new[] { sourcePath });
+
+            Assert.Contains("using System;", stub);
+            Assert.DoesNotContain("internal static class __NSharpIlStub", stub);
+            Assert.Contains("public static void Main()", stub);
+            Assert.Contains("DateTime", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompilationStubEmitter_EmitsDuckInterfacesReferencedByStubbedTypes()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Notifier.nl");
+            File.WriteAllText(sourcePath, """
+namespace IssueTracker
+
+import System.Collections.Generic
+
+duck interface INotifier {
+    func Notify(message: string)
+}
+
+class NotifierHub {
+    notifiers: List<INotifier>
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                new ProjectConfig
+                {
+                    Name = "DuckStub",
+                    OutputType = "library",
+                    TargetFramework = "net9.0"
+                },
+                new[] { sourcePath });
+
+            Assert.Contains("interface INotifier", stub);
+            Assert.Contains("List<INotifier>", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_CanRunExecutableProjectWithTypeScopedMainEntryPoint()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TypeMainProject
+backend: il
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System
+
+class Program {
+    static func Main() {
+        print DateTime.UnixEpoch.Year
+    }
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "TypeMainProject.dll");
+            var result = compiler.Compile(CompilationBackend.Il, "TypeMainProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("1970", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
@@ -745,6 +1050,14 @@ func benchAddNumbers(): int {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-backend-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         return tempDir;
+    }
+
+    private static string GetPublishedAppPath(string publishDir, string assemblyName)
+    {
+        var executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? $"{assemblyName}.exe"
+            : assemblyName;
+        return Path.Combine(publishDir, executableName);
     }
 
     private static void CreateProjectReferenceFixture(string projectRoot)
