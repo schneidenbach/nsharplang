@@ -49,6 +49,7 @@ public class CliParityAuditTests
         Assert.Contains("watch", stdout);
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
+        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -115,6 +116,7 @@ public class CliParityAuditTests
 
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--verbose", stdout);
     }
@@ -250,6 +252,7 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
+        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -431,16 +434,28 @@ func Main() {
         }
     }
 
-    // ── Step 4: Transpile help ──────────────────────────────────────────
+    // ── Step 4: Retired transpile command ───────────────────────────────
 
     [Fact]
-    public void TranspileCommand_Help_ShowsContextAndPipeExample()
+    public void TranspileCommand_Help_ExplainsRetirement()
     {
         var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("transpile", "--help"));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("debugging the compiler", stdout);
-        Assert.Contains("> Program.cs", stdout);
+        Assert.Contains("Retired command.", stdout);
+        Assert.Contains("no longer supports generated-C# export", stdout);
+        Assert.Contains("nlc build", stdout);
+        Assert.DoesNotContain("> Program.cs", stdout);
+    }
+
+    [Fact]
+    public void TranspileCommand_ReturnsRetiredError()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("retired", stderr);
+        Assert.Contains("IL backend", stderr);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────
@@ -487,6 +502,7 @@ func Main() {
         Assert.True(string.IsNullOrWhiteSpace(stderr));
         Assert.Contains("*.bench.nl", stdout);
         Assert.Contains("--backend", stdout);
+        Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--export", stdout);
         Assert.Contains("--job", stdout);
@@ -644,6 +660,7 @@ func benchMultiply() {
         Assert.True(
             stdout.Contains("--timings")
             && stdout.Contains("--backend")
+            && stdout.Contains("Compilation backend: il")
             && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
             $"Expected --timings and phase breakdown in build --help but got: {stdout}");
     }

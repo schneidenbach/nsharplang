@@ -10,6 +10,7 @@ namespace NSharpLang.Tests;
 public class CheckCommandTests
 {
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");
+    private static readonly string MinimalApiProject = Path.Combine(FindExamplesDir(), "14-minimal-api");
 
     // ── Help ───────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ public class CheckCommandTests
         Assert.Contains("--json", stdout);
         Assert.Contains("--text", stdout);
         Assert.Contains("--backend", stdout);
+        Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--project", stdout);
         Assert.Contains("--help", stdout);
     }
@@ -90,6 +92,20 @@ func Main() {
         Assert.Equal("check", doc.RootElement.GetProperty("command").GetString());
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("checkedFiles").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public void CheckCommand_FrameworkReferencedProject_JsonOutputIsNotPollutedByAnalyzerWarnings()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", MinimalApiProject }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, stderr);
+
+        var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
     }
 
     [Fact]
@@ -305,13 +321,13 @@ func A() {
         }
     }
 
-    // ── C# verification (check/build parity) ─────────────────────────────
+    // ── Backend verification ─────────────────────────────────────────────
 
     [Fact]
-    public void CheckCommand_CleanProject_PassesWithTranspilerVerification()
+    public void CheckCommand_CleanProject_PassesWithIlVerification()
     {
-        // This test exercises the full pipeline: analysis + transpiler + C# build verification.
-        // If the verification step breaks, this test will fail even though analysis alone passes.
+        // This test exercises the full pipeline: analysis + IL backend verification.
+        // If backend verification breaks, this test will fail even though analysis alone passes.
         var (exitCode, stdout, _) = CaptureConsole(() =>
             CheckCommand.Execute(new[] { "--project", HelloWorldProject }));
 
@@ -334,7 +350,7 @@ func A() {
     public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
     {
         // When analysis already found errors, we skip the verification step entirely.
-        // This test ensures we don't crash or hang trying to transpile broken code.
+        // This test ensures we don't crash or hang trying to verify broken code.
         var tempDir = CreateTempDir();
         try
         {
@@ -350,6 +366,37 @@ func Main() {
             Assert.Equal(1, exitCode);
             var doc = JsonDocument.Parse(stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_RetiredTranspileBackend_ReturnsError()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LegacyCheck
+outputType: exe
+targetFramework: net9.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "hello"
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--backend", "transpile" }));
+
+            Assert.Equal(1, exitCode);
+            var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Contains("retired", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
         }
         finally
         {

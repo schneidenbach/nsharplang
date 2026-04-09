@@ -2,11 +2,10 @@
 
 ## Overview
 
-N# currently has two compilation backends:
-- `transpile` — parse/analyze, emit C#, then leverage the .NET toolchain
+N# has one supported executable backend:
 - `il` — parse/analyze, emit IL directly to a managed assembly
 
-The product toolchain now supports both backends end to end. Projects can opt into either `backend: transpile` or `backend: il`, and the CLI plus MSBuild SDK honor that selection consistently for build, run, test, benchmark, and publish flows. The transpiler remains useful as an explicit C# export/debug path, but it is no longer the only production execution backend.
+The product toolchain now runs through IL end to end. Projects use `backend: il` (or omit the field and take the default), and the CLI plus MSBuild SDK honor that path consistently for build, run, test, benchmark, and publish flows. Generated-C# export is retired from the supported CLI and SDK surface.
 
 ```
 .nl source file
@@ -17,21 +16,15 @@ Parser (AST)
     ↓
 Analyzer (Semantic analysis)
     ↓
-    ├── Transpiler (C# code) → C# Compiler (via dotnet) → Executable
+    ├── Transpiler (internal compatibility/testing component)
     └── IL Compiler (managed PE emit) → Managed assembly / executable
 ```
-
-## Why Transpile to C#?
-
-- **Generated-code inspection**: Useful for debugging code generation and interop issues
-- **C# export/debug surface**: `nlc transpile` remains valuable when users need to inspect emitted C#
-- **Compatibility escape hatch**: Keeps an alternate backend available while the product completes the IL-default cutover
 
 ## Why Emit IL Directly?
 
 - **Backend independence**: Removes C# codegen as a hard product dependency
-- **Production backend**: The CLI and SDK can now execute the selected project backend without routing through generated C#
-- **Real-backend validation**: `nlc check` can validate the configured executable backend directly
+- **Production backend**: The CLI and SDK execute projects without routing through generated C#
+- **Real-backend validation**: `nlc check` validates the executable backend directly
 
 ## Components
 
@@ -72,19 +65,16 @@ See `memory/components/` folder for detailed documentation on each component.
 ### 4. Backend Emission
 - **Input**: `CompilationUnit` (AST) + semantic context
 - **Output**:
-  - `transpile` backend → C# source code
   - `il` backend → managed PE assembly
 - **Process**:
-  - Transpiler uses AST visitation to generate C#
   - IL compiler uses `System.Reflection.Emit` and `ManagedPEBuilder` to emit assemblies directly
 
 ### 5. Toolchain Integration
 - **Input**: backend output
 - **Output**: Executable, DLL, or published artifacts
 - **Process**:
-  - transpile backend emits C# and uses the SDK/MSBuild path to compile it
   - il backend emits assemblies directly in compiler-driven flows and through SDK build tasks in project/MSBuild flows
-  - both backends participate in `nlc check/build/run/test/bench/publish`
+  - IL participates in `nlc check/build/run/test/bench/publish`
 
 ## Project Structure
 
@@ -104,9 +94,9 @@ src/
 │   └── TypeSystem/
 │       └── TypeInfo.cs        - Type representation
 ├── NSharpLang.Cli/
-│   └── Program.cs             - CLI commands (build, run, transpile)
+│   └── Program.cs             - CLI commands (build, run, check, test, publish, etc.)
 ├── NSharpLang.Build.Tasks/
-│   └── NSharpCompile.cs       - MSBuild task wrapper
+│   └── EmitIlAssembly.cs      - MSBuild IL emission task
 └── NSharpLang.Sdk/
     └── Sdk/                   - SDK props/targets
 
@@ -164,9 +154,6 @@ dotnet build src/NSharpLang.Cli/Cli.csproj
 
 # Run tests
 dotnet test tests/Tests.csproj
-
-# Transpile a file
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- transpile examples/04-pattern-matching/GuardsSimple.nl
 
 # Build a file
 dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build examples/04-pattern-matching/GuardsSimple.nl

@@ -30,9 +30,9 @@ public class ProjectConfig
     public string? Entry { get; set; }
 
     /// <summary>
-    /// Compilation backend: "transpile" (default) or "il"
+    /// Compilation backend: "il" (default and only supported executable backend).
     /// </summary>
-    public string Backend { get; set; } = CompilationBackend.Transpile.ToConfigValue();
+    public string Backend { get; set; } = CompilationBackend.Il.ToConfigValue();
 
     /// <summary>
     /// Output type: "exe" or "library"
@@ -488,7 +488,7 @@ public class ProjectFileParser
         return new ProjectConfig
         {
             Name = projectName,
-            Backend = CompilationBackend.Transpile.ToConfigValue(),
+            Backend = CompilationBackend.Il.ToConfigValue(),
             OutputType = "exe",
             TargetFramework = "net9.0",
             Language = new LanguageConfig()
@@ -501,7 +501,11 @@ public class ProjectFileParser
     /// </summary>
     private static void ValidateConfig(ProjectConfig config, string projectDirectory)
     {
-        _ = config.EffectiveBackend;
+        var backend = config.EffectiveBackend;
+        if (backend == CompilationBackend.Transpile)
+        {
+            throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
+        }
 
         // Validate outputType
         if (config.OutputType != "exe" && config.OutputType != "library")
@@ -574,7 +578,7 @@ public class ProjectFileParser
 return $@"name: {projectName}
 version: 1.0.0
 entry: Program.nl
-backend: transpile
+backend: il
 outputType: exe
 targetFramework: net9.0
 
