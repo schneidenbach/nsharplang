@@ -322,7 +322,7 @@ public class Transpiler
 
     private void TranspileImportDirective(ImportDirective importDirective)
     {
-        // N# import directives transpile to C# using statements
+        // N# import directives export to C# using statements
         if (importDirective.Alias != null)
         {
             WriteLine($"using {importDirective.Alias} = {importDirective.Namespace};");
@@ -1156,7 +1156,7 @@ public class Transpiler
 
     private void TranspileUnionDeclaration(UnionDeclaration union)
     {
-        // Union types transpile to an abstract base class with nested case classes
+        // Union types export to an abstract base class with nested case classes
         TranspileAttributes(union.Attributes);
 
         var modifiers = GetModifierString(union.Modifiers);
@@ -2572,7 +2572,7 @@ public class Transpiler
             string argValue;
             if (arg.Value is SpreadExpression spread)
             {
-                // Unwrap the spread - just transpile the inner expression
+                // Unwrap the spread and export the inner expression directly
                 argValue = TranspileExpression(spread.Expression);
             }
             else
@@ -2810,7 +2810,7 @@ public class Transpiler
 
     private string TranspileMatchExpression(MatchExpression match)
     {
-        // Match expressions transpile to switch expressions in C#
+        // Match expressions export to switch expressions in C#
         var value = TranspileExpression(match.Value);
 
         // Check if the match already has a wildcard/catch-all arm
@@ -2920,7 +2920,7 @@ public class Transpiler
     {
         return string.Join(", ", propertyPatterns.Select(p =>
         {
-            // If there's a nested pattern, recursively transpile it
+            // If there's a nested pattern, recursively export it
             if (p.Pattern != null)
             {
                 var nestedPattern = TranspilePattern(p.Pattern);

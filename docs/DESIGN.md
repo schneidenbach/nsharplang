@@ -487,7 +487,7 @@ doWork(new MemoryReader())  // works via structural typing
 #### Async/Await
 - Full async/await support with implicit wrapping
 - Return type wrapping:
-  - `func async FetchData(): string { }` → transpiles to `ValueTask<string>` (or `Task<string>` based on project config)
+  - `func async FetchData(): string { }` → lowers to `ValueTask<string>` (or `Task<string>` based on project config)
   - Explicit types allowed: `func async GetData(): Task<string> { }` (for nested Task types)
   - Configurable default in `project.yml`: `language.asyncDefaultType: ValueTask` or `Task`
 - Examples:
@@ -1322,7 +1322,7 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   - `teardown {}` — runs after each test. Transpiles to `IDisposable.Dispose` (sync xUnit), `IAsyncLifetime.DisposeAsync` (async xUnit), or `[TearDown]` (NUnit)
   - Variables declared in `setup` are shared with all tests and `teardown` as class fields
 - **Assert syntax**:
-  - Boolean expressions transpile to appropriate XUnit Assert calls
+  - Boolean expressions map to appropriate XUnit Assert calls
   - `assert x == y` → `Assert.Equal(y, x)`
   - `assert x != y` → `Assert.NotEqual(y, x)`
   - `assert x > y` → `Assert.True(x > y)`

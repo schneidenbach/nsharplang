@@ -43,10 +43,9 @@ func Greeting(): string {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "IlProject.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "IlProject", outputPath);
+            var result = compiler.CompileToIlAssembly("IlProject", outputPath);
 
             Assert.True(result.Success);
-            Assert.Equal(CompilationBackend.Il, result.Backend);
             Assert.Equal(outputPath, result.OutputAssemblyPath);
             Assert.True(File.Exists(outputPath));
 
@@ -90,7 +89,7 @@ class Greeter {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "VersionedIlProject.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "VersionedIlProject", outputPath);
+            var result = compiler.CompileToIlAssembly("VersionedIlProject", outputPath);
 
             Assert.True(result.Success);
             Assert.Equal(new Version(1, 0, 0, 0), AssemblyName.GetAssemblyName(outputPath).Version);
@@ -148,7 +147,7 @@ class Square : IShape {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "NamespaceIlProject.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "NamespaceIlProject", outputPath);
+            var result = compiler.CompileToIlAssembly("NamespaceIlProject", outputPath);
 
             Assert.True(result.Success);
 
@@ -197,7 +196,7 @@ func main() {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "CurrentTypeCalls.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "CurrentTypeCalls", outputPath);
+            var result = compiler.CompileToIlAssembly("CurrentTypeCalls", outputPath);
 
             Assert.True(result.Success);
             CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
@@ -241,7 +240,7 @@ func main() {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "RecordPrimaryCtorMembers.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "RecordPrimaryCtorMembers", outputPath);
+            var result = compiler.CompileToIlAssembly("RecordPrimaryCtorMembers", outputPath);
 
             Assert.True(result.Success);
             CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
@@ -323,7 +322,7 @@ enum Status: string {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "RecordPrimaryCtorMembersNamespaced.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "RecordPrimaryCtorMembersNamespaced", outputPath);
+            var result = compiler.CompileToIlAssembly("RecordPrimaryCtorMembersNamespaced", outputPath);
 
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.FormatForMsBuild())));
 
@@ -398,8 +397,8 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stdout));
-            Assert.Contains("retired", stderr);
-            Assert.Contains("C# export", stderr);
+            Assert.Contains("removed", stderr);
+            Assert.Contains("nlc export csharp", stderr);
         }
         finally
         {
@@ -996,7 +995,7 @@ class Program {
 
             var compiler = new MultiFileCompiler(tempDir, config);
             var outputPath = Path.Combine(outputDir, "TypeMainProject.dll");
-            var result = compiler.Compile(CompilationBackend.Il, "TypeMainProject", outputPath);
+            var result = compiler.CompileToIlAssembly("TypeMainProject", outputPath);
 
             Assert.True(result.Success);
             CompilationArtifacts.WriteRuntimeConfig(config, outputPath);

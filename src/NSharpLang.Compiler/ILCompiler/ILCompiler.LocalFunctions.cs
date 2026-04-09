@@ -42,8 +42,17 @@ public partial class ILCompiler
             localFunction.Function.Body,
             localFunction.Line,
             localFunction.Column);
-        var captures = CollectGenericLocalFunctionCaptures(localFunctionLambda);
         var emitAsStatic = localFunction.Function.Modifiers.HasFlag(Modifiers.Static) || !_currentHasThis;
+        var captureNames = AnalyzeCapturedVariables(localFunctionLambda);
+        if (!emitAsStatic)
+        {
+            captureNames.Remove(ThisCaptureName);
+        }
+
+        var captures = captureNames
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .Select(ResolveGenericLocalFunctionCapture)
+            .ToArray();
 
         var methodAttributes = MethodAttributes.Private | MethodAttributes.HideBySig;
         if (emitAsStatic)
@@ -88,7 +97,7 @@ public partial class ILCompiler
         methodBuilder.SetParameters(parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, localFunction.Function.Attributes);
 
-        for (int i = 0; i < captures.Count; i++)
+        for (int i = 0; i < captures.Length; i++)
         {
             methodBuilder.DefineParameter(i + 1, ParameterAttributes.None, $"__capture_{captures[i].Name}");
         }
@@ -96,7 +105,7 @@ public partial class ILCompiler
         for (int i = 0; i < localFunction.Function.Parameters.Count; i++)
         {
             var parameter = localFunction.Function.Parameters[i];
-            var parameterBuilder = methodBuilder.DefineParameter(captures.Count + i + 1, GetParameterAttributes(parameter), parameter.Name);
+            var parameterBuilder = methodBuilder.DefineParameter(captures.Length + i + 1, GetParameterAttributes(parameter), parameter.Name);
             ApplyParameterAttributes(parameterBuilder, parameter);
         }
 
@@ -104,14 +113,6 @@ public partial class ILCompiler
         _genericLocalFunctionOwners[localFunction.Function] = ownerType;
         _genericLocalFunctionGenericParameters[localFunction.Function] = localGenericParameters;
         _genericLocalFunctionCaptures[localFunction.Function] = captures;
-    }
-
-    private IReadOnlyList<GenericLocalFunctionCapture> CollectGenericLocalFunctionCaptures(LambdaExpression localFunctionLambda)
-    {
-        return AnalyzeCapturedVariables(localFunctionLambda)
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .Select(ResolveGenericLocalFunctionCapture)
-            .ToArray();
     }
 
     private GenericLocalFunctionCapture ResolveGenericLocalFunctionCapture(string name)
@@ -858,7 +859,7 @@ public partial class ILCompiler
                 _currentYieldBreakLabel = _currentIL.DefineLabel();
                 var listType = typeof(List<>).MakeGenericType(yieldElementType);
                 _currentYieldListLocal = _currentIL.DeclareLocal(listType);
-                var listCtor = listType.GetConstructor(Type.EmptyTypes)
+                var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
                     ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
                 _currentIL.Emit(OpCodes.Newobj, listCtor);
                 _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);

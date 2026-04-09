@@ -47,7 +47,7 @@ public class EmitIlAssembly : Task
             AddResolvedDllReferences(config, TargetAssemblyPath, TargetReferenceAssemblyPath);
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
-            var result = compiler.Compile(CompilationBackend.Il, config.EffectiveName, TargetAssemblyPath);
+            var result = compiler.CompileToIlAssembly(config.EffectiveName, TargetAssemblyPath);
 
             foreach (var error in result.Errors)
             {

@@ -1,39 +1,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <Target Name="_FailLegacyNSharpBuildTargets" BeforeTargets="Build;Rebuild;Restore">
-    <Error Text="NSharpLang.Build.targets is retired. Use &lt;Project Sdk=&quot;NSharpLang.Sdk&quot; /&gt; with backend: il in project.yml. Generated-C# export is no longer a supported toolchain path." />
-  </Target>
-
-  <PropertyGroup>
-    <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)NSharp/</NSharpOutputPath>
-    <!-- Auto-detect project.yml -->
-    <NSharpProjectFile Condition="'$(NSharpProjectFile)' == '' And Exists('$(MSBuildProjectDirectory)/project.yml')">$(MSBuildProjectDirectory)/project.yml</NSharpProjectFile>
-  </PropertyGroup>
-
-  <UsingTask TaskName="NSharpLang.Build.Tasks.NSharpCompile" AssemblyFile="$(MSBuildThisFileDirectory)NSharpLang.Build.Tasks.dll" />
-
-  <ItemGroup>
-    <NSharpCompile Include="**/*.nl" Exclude="**/*.tests.nl;**/obj/**;**/bin/**" />
-  </ItemGroup>
-
-  <Target Name="CompileNSharp" BeforeTargets="CoreCompile" Inputs="@(NSharpCompile)" Outputs="@(NSharpCompile->'$(NSharpOutputPath)%(RecursiveDir)%(Filename).g.cs')">
-    <NSharpCompile
-      Sources="@(NSharpCompile)"
-      OutputPath="$(NSharpOutputPath)"
-      ProjectRoot="$(MSBuildProjectDirectory)"
-      ProjectFile="$(NSharpProjectFile)">
-      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
-    </NSharpCompile>
-  </Target>
-
-  <Target Name="IncludeNSharpGeneratedFiles" BeforeTargets="CoreCompile" AfterTargets="CompileNSharp">
-    <ItemGroup>
-      <Compile Include="$(NSharpOutputPath)**/*.g.cs" />
-    </ItemGroup>
-  </Target>
-
-  <Target Name="CleanNSharp" BeforeTargets="CoreClean">
-    <RemoveDir Directories="$(NSharpOutputPath)" />
+    <Error Text="NSharpLang.Build.targets is retired. Use &lt;Project Sdk=&quot;NSharpLang.Sdk&quot; /&gt; with backend: il in project.yml. To convert a project to C#, run 'nlc export csharp'." />
   </Target>
 
 </Project>

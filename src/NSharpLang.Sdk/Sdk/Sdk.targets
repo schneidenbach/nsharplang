@@ -37,7 +37,7 @@
   <Target Name="_ValidateNSharpBackend"
           BeforeTargets="Build;Rebuild;Restore"
           Condition="'$(EnableNSharpCompilation)' == 'true' And '$(NSharpCompilationBackend)' != '' And '$(NSharpCompilationBackend)' != 'il'">
-    <Error Text="The 'transpile' backend and 'nlc transpile' command have been retired. Set backend: il in project.yml and use the IL toolchain for build/run/test/publish." />
+    <Error Text="The 'transpile' backend has been removed. Set backend: il in project.yml and use the IL toolchain for build/run/test/publish. To convert a project to C#, run 'nlc export csharp'." />
   </Target>
 
   <!-- Auto-discover all .nl files (excluding tests) -->

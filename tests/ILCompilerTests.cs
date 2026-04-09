@@ -1004,7 +1004,7 @@ class ReadWriter : IReader, IWriter {
     }
 
     [Fact]
-    public void ILCompiler_SkipsDuckInterfaces()
+    public void ILCompiler_EmitsDuckInterfacesAndAutoImplementsMatchingTypes()
     {
         var source = @"
 duck interface IReader {
@@ -1016,11 +1016,22 @@ class FileReader {
         return ""file contents""
     }
 }";
-        var compilationUnit = Parse(source);
-        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+        var duckInfo = CompileAndInspect(source, assembly =>
+        {
+            var interfaceType = assembly.GetType("IReader");
+            var readerType = assembly.GetType("FileReader");
+            Assert.NotNull(interfaceType);
+            Assert.NotNull(readerType);
 
-        // Should not throw - duck interface should be skipped
-        compiler.Compile();
+            return new
+            {
+                IsInterface = interfaceType!.IsInterface,
+                IsAssignable = interfaceType.IsAssignableFrom(readerType)
+            };
+        });
+
+        Assert.True(duckInfo.IsInterface);
+        Assert.True(duckInfo.IsAssignable);
     }
 
     // ==================== Virtual Method Tests ====================

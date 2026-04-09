@@ -43,6 +43,11 @@ public partial class ILCompiler
         var captured = new HashSet<string>();
         var parameterNames = new HashSet<string>(lambda.Parameters.Select(p => p.Name));
 
+        if (_currentHasThis)
+        {
+            captured.Add(ThisCaptureName);
+        }
+
         // Find all referenced variables that are not parameters
         if (lambda.ExpressionBody != null)
         {
@@ -397,7 +402,7 @@ public partial class ILCompiler
             _currentYieldBreakLabel = _currentIL.DefineLabel();
             var listType = typeof(List<>).MakeGenericType(yieldElementType);
             _currentYieldListLocal = _currentIL.DeclareLocal(listType);
-            var listCtor = listType.GetConstructor(Type.EmptyTypes)
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
                 ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
             _currentIL.Emit(OpCodes.Newobj, listCtor);
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
@@ -516,6 +521,10 @@ public partial class ILCompiler
             {
                 fieldType = paramType;
             }
+            else if (varName == ThisCaptureName && _currentTypeBuilder != null)
+            {
+                fieldType = _currentTypeBuilder;
+            }
 
             var field = closureClass.DefineField(varName, fieldType, FieldAttributes.Public);
             closureFields[varName] = field;
@@ -591,7 +600,7 @@ public partial class ILCompiler
             _currentYieldBreakLabel = _currentIL.DefineLabel();
             var listType = typeof(List<>).MakeGenericType(yieldElementType);
             _currentYieldListLocal = _currentIL.DeclareLocal(listType);
-            var listCtor = listType.GetConstructor(Type.EmptyTypes)
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
                 ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
             _currentIL.Emit(OpCodes.Newobj, listCtor);
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
@@ -679,7 +688,11 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Dup);
 
             // Load the captured variable value
-            if (_locals != null && _locals.TryGetValue(varName, out var local))
+            if (varName == ThisCaptureName)
+            {
+                _currentIL.Emit(OpCodes.Ldarg_0);
+            }
+            else if (_locals != null && _locals.TryGetValue(varName, out var local))
             {
                 _currentIL.Emit(OpCodes.Ldloc, local);
             }
@@ -719,13 +732,16 @@ public partial class ILCompiler
         }
 
         MethodInfo? expectedInvokeMethod = null;
+        Type[]? expectedParameterTypes = null;
+        Type? expectedReturnType = null;
         if (_expectedExpressionType != null && TryGetDelegateInvokeMethod(_expectedExpressionType, out var invokeMethod))
         {
             expectedInvokeMethod = invokeMethod;
+            expectedParameterTypes = GetDelegateInvokeParameterTypes(_expectedExpressionType, invokeMethod);
+            expectedReturnType = GetDelegateInvokeReturnType(_expectedExpressionType, invokeMethod);
         }
 
-        var expectedParameters = expectedInvokeMethod?.GetParameters();
-        var canUseExpectedParameters = expectedParameters != null && expectedParameters.Length == lambda.Parameters.Count;
+        var canUseExpectedParameters = expectedParameterTypes != null && expectedParameterTypes.Length == lambda.Parameters.Count;
 
         parameterTypes = lambda.Parameters.Select((parameter, index) =>
         {
@@ -739,22 +755,35 @@ public partial class ILCompiler
 
             if (canUseExpectedParameters)
             {
-                return GetByRefElementType(expectedParameters![index].ParameterType);
+                return GetByRefElementType(expectedParameterTypes![index]);
             }
 
             return typeof(object);
         }).ToArray();
 
-        if (expectedInvokeMethod != null)
+        if (expectedReturnType != null)
         {
-            returnType = GetByRefElementType(expectedInvokeMethod.ReturnType);
+            returnType = GetByRefElementType(expectedReturnType);
             return;
         }
 
         if (lambda.ExpressionBody != null)
         {
-            returnType = GetExpressionType(lambda.ExpressionBody);
-            return;
+            var savedExpectedExpressionType = _expectedExpressionType;
+            if (expectedInvokeMethod == null)
+            {
+                _expectedExpressionType = null;
+            }
+
+            try
+            {
+                returnType = GetExpressionType(lambda.ExpressionBody);
+                return;
+            }
+            finally
+            {
+                _expectedExpressionType = savedExpectedExpressionType;
+            }
         }
 
         if (lambda.BlockBody != null)

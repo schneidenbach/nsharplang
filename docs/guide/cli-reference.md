@@ -13,8 +13,9 @@ Updated: 2026-03-29
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--keep-generated` | `nlc build` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
+| `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -62,6 +63,7 @@ nlc watch test --filter "should add"
 
 # Documentation and automation
 nlc doc --json
+nlc export csharp --project . --output ./myapp-csharp
 nlc query inspect --summary --file Program.nl --pos 42:7
 nlc completion bash > /etc/bash_completion.d/nlc
 ```

@@ -45,9 +45,13 @@ public static class CompilationStubEmitter
             _output.AppendLine("#nullable enable");
             _output.AppendLine();
 
+            EmitFileImports();
+
             var topLevelFunctions = _compilationUnits
-                .SelectMany(unit => unit.Declarations.OfType<FunctionDeclaration>())
+                .SelectMany(unit => unit.Declarations.OfType<FunctionDeclaration>()
+                    .Select(function => new TopLevelFunctionStub(GetNamespaceName(unit), function)))
                 .ToList();
+            var hasDeclaredEntryPoint = HasDeclaredEntryPoint();
             var emittedMain = EmitProgramStub(topLevelFunctions);
 
             var namespaceGroups = _compilationUnits
@@ -91,7 +95,9 @@ public static class CompilationStubEmitter
                 wroteNamespaceContent = true;
             }
 
-            if (!emittedMain && string.Equals(_config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            if (!emittedMain
+                && !hasDeclaredEntryPoint
+                && string.Equals(_config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
             {
                 if (topLevelFunctions.Count > 0 || wroteNamespaceContent)
                 {
@@ -109,6 +115,50 @@ public static class CompilationStubEmitter
             }
 
             return _output.ToString();
+        }
+
+        private void EmitFileImports()
+        {
+            var usingDirectives = new SortedSet<string>(StringComparer.Ordinal)
+            {
+                "using System;"
+            };
+
+            foreach (var unit in _compilationUnits)
+            {
+                foreach (var import in unit.Imports)
+                {
+                    if (string.IsNullOrWhiteSpace(import.Namespace))
+                    {
+                        continue;
+                    }
+
+                    usingDirectives.Add(import.Alias == null
+                        ? $"using {import.Namespace};"
+                        : $"using {import.Alias} = {import.Namespace};");
+                }
+            }
+
+            foreach (var namespaceName in _compilationUnits
+                         .Select(GetNamespaceName)
+                         .Where(namespaceName => !string.IsNullOrWhiteSpace(namespaceName))
+                         .Distinct(StringComparer.Ordinal)
+                         .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal))
+            {
+                usingDirectives.Add($"using {namespaceName};");
+            }
+
+            if (usingDirectives.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var usingDirective in usingDirectives)
+            {
+                _output.AppendLine(usingDirective);
+            }
+
+            _output.AppendLine();
         }
 
         private void EmitNamespaceMembers(IReadOnlyList<Declaration> declarations)
@@ -142,32 +192,95 @@ public static class CompilationStubEmitter
             }
         }
 
-        private bool EmitProgramStub(IReadOnlyList<FunctionDeclaration> functions)
+        private bool EmitProgramStub(IReadOnlyList<TopLevelFunctionStub> functions)
         {
             if (functions.Count == 0)
             {
                 return false;
             }
 
-            WriteLine("public partial class Program");
-            WriteLine("{");
-            _indentLevel++;
-
             var emittedMain = false;
-            for (int i = 0; i < functions.Count; i++)
+            var groupedFunctions = functions
+                .GroupBy(function => function.Namespace, StringComparer.Ordinal)
+                .OrderBy(group => string.IsNullOrEmpty(group.Key) ? 0 : 1)
+                .ThenBy(group => group.Key, StringComparer.Ordinal)
+                .ToList();
+
+            for (int groupIndex = 0; groupIndex < groupedFunctions.Count; groupIndex++)
             {
-                var function = functions[i];
-                emittedMain |= string.Equals(function.Name, "main", StringComparison.OrdinalIgnoreCase);
-                EmitFunction(function, isInterfaceMember: false, isTopLevelFunction: true, containingTypeName: "Program");
-                if (i < functions.Count - 1)
+                var group = groupedFunctions[groupIndex];
+                if (groupIndex > 0)
                 {
                     _output.AppendLine();
                 }
+
+                if (!string.IsNullOrEmpty(group.Key))
+                {
+                    WriteLine($"namespace {group.Key}");
+                    WriteLine("{");
+                    _indentLevel++;
+                }
+
+                WriteLine("internal static partial class __NSharpTopLevelFunctions");
+                WriteLine("{");
+                _indentLevel++;
+
+                var groupedFunctionList = group.ToList();
+                for (int i = 0; i < groupedFunctionList.Count; i++)
+                {
+                    var function = groupedFunctionList[i].Function;
+                    emittedMain |= string.Equals(function.Name, "main", StringComparison.OrdinalIgnoreCase);
+                    EmitFunction(function, isInterfaceMember: false, isTopLevelFunction: true, containingTypeName: "__NSharpTopLevelFunctions");
+                    if (i < groupedFunctionList.Count - 1)
+                    {
+                        _output.AppendLine();
+                    }
+                }
+
+                _indentLevel--;
+                WriteLine("}");
+
+                if (!string.IsNullOrEmpty(group.Key))
+                {
+                    _indentLevel--;
+                    WriteLine("}");
+                }
             }
 
-            _indentLevel--;
-            WriteLine("}");
             return emittedMain;
+        }
+
+        private bool HasDeclaredEntryPoint()
+        {
+            return _compilationUnits.Any(unit => ContainsDeclaredEntryPoint(unit.Declarations));
+        }
+
+        private static bool ContainsDeclaredEntryPoint(IEnumerable<Declaration> declarations)
+        {
+            foreach (var declaration in declarations)
+            {
+                switch (declaration)
+                {
+                    case FunctionDeclaration functionDeclaration when IsDeclaredEntryPoint(functionDeclaration):
+                        return true;
+                    case ClassDeclaration classDeclaration when ContainsDeclaredEntryPoint(classDeclaration.Members):
+                        return true;
+                    case StructDeclaration structDeclaration when ContainsDeclaredEntryPoint(structDeclaration.Members):
+                        return true;
+                    case RecordDeclaration recordDeclaration when ContainsDeclaredEntryPoint(recordDeclaration.Members):
+                        return true;
+                    case InterfaceDeclaration interfaceDeclaration when ContainsDeclaredEntryPoint(interfaceDeclaration.Members):
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsDeclaredEntryPoint(FunctionDeclaration functionDeclaration)
+        {
+            return functionDeclaration.Modifiers.HasFlag(Modifiers.Static)
+                && string.Equals(functionDeclaration.Name, "main", StringComparison.OrdinalIgnoreCase);
         }
 
         private void EmitDeclaration(Declaration declaration, bool isInterfaceMember, bool isNestedType, string? containingTypeName)
@@ -184,10 +297,7 @@ public static class CompilationStubEmitter
                     EmitRecord(recordDeclaration, isNestedType);
                     break;
                 case InterfaceDeclaration interfaceDeclaration:
-                    if (!interfaceDeclaration.IsDuckInterface)
-                    {
-                        EmitInterface(interfaceDeclaration, isNestedType);
-                    }
+                    EmitInterface(interfaceDeclaration, isNestedType);
                     break;
                 case EnumDeclaration enumDeclaration:
                     EmitEnum(enumDeclaration, isNestedType);
@@ -952,6 +1062,8 @@ public static class CompilationStubEmitter
                 ?? unit.Package?.Name
                 ?? string.Empty;
         }
+
+        private sealed record TopLevelFunctionStub(string Namespace, FunctionDeclaration Function);
 
         private void Write(string text)
         {

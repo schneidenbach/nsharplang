@@ -33,7 +33,6 @@ partial class Program
             "build" => BuildCommand(args.Skip(1).ToArray()),
             "run" => RunCommand(args.Skip(1).ToArray()),
             "publish" => PublishCommand(args.Skip(1).ToArray()),
-            "transpile" => TranspileCommand(args.Skip(1).ToArray()),
             "new" => NewCommand(args.Skip(1).ToArray()),
             "test" => TestCommand(args.Skip(1).ToArray()),
             "format" => FormatCommand(args.Skip(1).ToArray()),
@@ -57,8 +56,10 @@ partial class Program
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
+            "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
+            "transpile" => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
             _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
         };
     }
@@ -355,31 +356,6 @@ Build timings:
         {
             // Ignore cleanup errors for temp directories
         }
-    }
-
-    static int TranspileCommand(string[] args)
-    {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
-        {
-            Console.WriteLine(@"N# Transpile
-
-Usage: nlc transpile <file.nl>
-
-Retired command.
-N# no longer supports generated-C# export as a product workflow. Use the IL
-backend through `nlc build`, `nlc run`, `nlc check`, `nlc test`, `nlc bench`,
-or `nlc publish`.
-
-Options:
-  --help, -h    Show this help text
-
-Exit codes:
-  0  Help shown
-  1  Command is retired");
-            return 0;
-        }
-
-        return Error(CompilationBackendExtensions.RetiredTranspileBackendMessage);
     }
 
     static int RunCommand(string[] args)
@@ -1270,6 +1246,7 @@ Dependencies:
 Project:
   new <name>           Create a new N# project
   init                 Initialize N# in the current directory
+  export <target>      Export N# sources without changing the IL toolchain
   watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info
@@ -1290,6 +1267,8 @@ Common Workflows:
   nlc check                    Fast feedback loop
   nlc fix && nlc check         Auto-fix then verify
   nlc build --release          Optimized release build
+  nlc export csharp --project . -o ./myapp-csharp
+                               Export a C# migration bundle
   nlc format --check           CI formatting gate
   nlc test --filter AddPerson  Run specific tests
   nlc test --coverage          Run tests with coverage

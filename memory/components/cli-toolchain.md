@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. Generated-C# export is retired from the product CLI and SDK surface.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command.
 
 ---
 
@@ -30,6 +30,7 @@ The executable toolchain is now IL-only:
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
+| `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
@@ -143,7 +144,8 @@ Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
 - `nlc check/build/run/test/bench/publish` all support `backend: il`.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
-- Generated-C# export is retired from the supported CLI surface.
+- Generated-C# export no longer exists as a backend or build path.
+- `nlc export csharp` is the only supported product surface for C# generation.
 
 ### `nlc fix` — Auto-Apply Suggestions
 

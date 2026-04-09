@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using NSharpLang.Compiler.Ast;
@@ -8,6 +9,105 @@ namespace NSharpLang.Compiler.ILCompiler;
 
 public partial class ILCompiler
 {
+    private static ConstructorInfo? ResolveCollectionConstructor(Type targetType, Func<ConstructorInfo, bool> predicate)
+    {
+        try
+        {
+            var constructor = targetType.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(predicate);
+            if (constructor != null)
+            {
+                return constructor;
+            }
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        if (targetType.IsGenericType && !targetType.IsGenericTypeDefinition)
+        {
+            try
+            {
+                var openConstructor = targetType.GetGenericTypeDefinition()
+                    .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                    .FirstOrDefault(predicate);
+                if (openConstructor != null)
+                {
+                    return TypeBuilder.GetConstructor(targetType, openConstructor);
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static MethodInfo? ResolveCollectionMethod(Type targetType, string methodName, Func<MethodInfo, bool> predicate)
+    {
+        try
+        {
+            var method = targetType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(candidate => candidate.Name == methodName)
+                .FirstOrDefault(predicate);
+            if (method != null)
+            {
+                return method;
+            }
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        if (targetType.IsGenericType && !targetType.IsGenericTypeDefinition)
+        {
+            try
+            {
+                var openMethod = targetType.GetGenericTypeDefinition()
+                    .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(candidate => candidate.Name == methodName)
+                    .FirstOrDefault(predicate);
+                if (openMethod != null)
+                {
+                    return TypeBuilder.GetMethod(targetType, openMethod);
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasParameterCount(MethodBase method, int count)
+    {
+        try
+        {
+            return method.GetParameters().Length == count;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasSingleEnumerableParameter(MethodBase method)
+    {
+        try
+        {
+            var parameters = method.GetParameters();
+            return parameters.Length == 1
+                && parameters[0].ParameterType.IsGenericType
+                && parameters[0].ParameterType.GetGenericTypeDefinition() == typeof(IEnumerable<>);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private bool TryGetCollectionExpressionEmissionType(Type? expectedType, out Type actualType, out Type elementType)
     {
         actualType = typeof(object[]);
@@ -75,11 +175,11 @@ public partial class ILCompiler
 
         var listType = typeof(List<>).MakeGenericType(elementType);
         var enumerableType = typeof(IEnumerable<>).MakeGenericType(elementType);
-        var listCtor = listType.GetConstructor(Type.EmptyTypes)
+        var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
             ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
-        var listAddMethod = listType.GetMethod("Add", new[] { elementType })
+        var listAddMethod = ResolveCollectionMethod(listType, "Add", method => HasParameterCount(method, 1))
             ?? throw new InvalidOperationException($"Could not resolve Add({elementType}) on {listType}");
-        var addRangeMethod = listType.GetMethod("AddRange", new[] { enumerableType })
+        var addRangeMethod = ResolveCollectionMethod(listType, "AddRange", HasSingleEnumerableParameter)
             ?? throw new InvalidOperationException($"Could not resolve AddRange({enumerableType}) on {listType}");
 
         _currentIL.Emit(OpCodes.Newobj, listCtor);
@@ -109,14 +209,14 @@ public partial class ILCompiler
 
         if (targetType.IsArray)
         {
-            var toArrayMethod = listType.GetMethod("ToArray", Type.EmptyTypes)
+            var toArrayMethod = ResolveCollectionMethod(listType, "ToArray", method => HasParameterCount(method, 0))
                 ?? throw new InvalidOperationException($"Could not resolve ToArray() on {listType}");
             _currentIL.Emit(OpCodes.Ldloc, listLocal);
             _currentIL.Emit(OpCodes.Callvirt, toArrayMethod);
             return;
         }
 
-        var enumerableCtor = targetType.GetConstructor(new[] { enumerableType });
+        var enumerableCtor = ResolveCollectionConstructor(targetType, HasSingleEnumerableParameter);
         if (enumerableCtor != null)
         {
             _currentIL.Emit(OpCodes.Ldloc, listLocal);
@@ -124,7 +224,7 @@ public partial class ILCompiler
             return;
         }
 
-        var defaultCtor = targetType.GetConstructor(Type.EmptyTypes);
+        var defaultCtor = ResolveCollectionConstructor(targetType, constructor => HasParameterCount(constructor, 0));
         var targetAddMethod = ResolveCollectionAddMethod(targetType, elementType);
         if (defaultCtor == null || targetAddMethod == null)
         {
@@ -135,9 +235,9 @@ public partial class ILCompiler
         var targetLocal = _currentIL.DeclareLocal(targetType);
         _currentIL.Emit(OpCodes.Stloc, targetLocal);
 
-        var countGetter = listType.GetProperty("Count")?.GetMethod
+        var countGetter = ResolveCollectionMethod(listType, "get_Count", method => HasParameterCount(method, 0))
             ?? throw new InvalidOperationException($"Could not resolve Count on {listType}");
-        var itemGetter = listType.GetProperty("Item")?.GetMethod
+        var itemGetter = ResolveCollectionMethod(listType, "get_Item", method => HasParameterCount(method, 1))
             ?? throw new InvalidOperationException($"Could not resolve Item on {listType}");
         var indexLocal = _currentIL.DeclareLocal(typeof(int));
         var countLocal = _currentIL.DeclareLocal(typeof(int));
@@ -174,7 +274,7 @@ public partial class ILCompiler
 
     private static MethodInfo? ResolveCollectionAddMethod(Type targetType, Type elementType)
     {
-        return targetType.GetMethod("Add", new[] { elementType })
-            ?? targetType.GetMethod("Enqueue", new[] { elementType });
+        return ResolveCollectionMethod(targetType, "Add", method => HasParameterCount(method, 1))
+            ?? ResolveCollectionMethod(targetType, "Enqueue", method => HasParameterCount(method, 1));
     }
 }

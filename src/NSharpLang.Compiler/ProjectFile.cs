@@ -501,11 +501,7 @@ public class ProjectFileParser
     /// </summary>
     private static void ValidateConfig(ProjectConfig config, string projectDirectory)
     {
-        var backend = config.EffectiveBackend;
-        if (backend == CompilationBackend.Transpile)
-        {
-            throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
-        }
+        _ = config.EffectiveBackend;
 
         // Validate outputType
         if (config.OutputType != "exe" && config.OutputType != "library")

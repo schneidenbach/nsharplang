@@ -83,7 +83,7 @@ func Outer(): void {
         Assert.True(localFunc.Function.Modifiers.HasFlag(Modifiers.Async));
     }
 
-    // Transpiler Tests
+    // C# export tests
     [Fact]
     public void TestLocalFunctionTranspilation()
     {

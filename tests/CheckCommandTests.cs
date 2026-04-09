@@ -396,7 +396,8 @@ func main() {
             Assert.Equal(1, exitCode);
             var doc = JsonDocument.Parse(stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Contains("retired", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
+            Assert.Contains("removed", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
+            Assert.Contains("nlc export csharp", doc.RootElement.GetProperty("error").GetProperty("message").GetString());
         }
         finally
         {
