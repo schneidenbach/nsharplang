@@ -85,8 +85,8 @@ Hello from N#!
 1. MSBuild loads `NSharpLang.Sdk` from `global.json`.
 2. The SDK reads `project.yml`.
 3. It discovers `.nl` files automatically, excluding `.tests.nl` from the main build.
-4. The compiler transpiles N# source into generated C# under `obj/nsharp/`.
-5. The generated C# is compiled as part of the normal .NET build.
+4. The compiler emits the project assembly directly via the IL backend during the build.
+5. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
 
 ## Why This Is the Preferred Path
 
@@ -102,7 +102,7 @@ The direct `nlc` workflow is still useful for single-file experiments and compil
 ```text
 src/
 ├── NSharpLang.Build.Tasks/       # MSBuild task implementation
-│   ├── NSharpCompile.cs
+│   ├── EmitIlAssembly.cs
 │   └── NSharpLang.Build.targets
 └── NSharpLang.Sdk/               # MSBuild SDK package
     ├── Sdk/

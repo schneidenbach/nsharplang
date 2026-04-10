@@ -2,7 +2,10 @@
 
 ## Overview
 
-N# is a transpiler-based language that compiles to C#, then leverages the .NET toolchain for final compilation.
+N# has one supported executable backend:
+- `il` — parse/analyze, emit IL directly to a managed assembly
+
+The product toolchain now runs through IL end to end. Projects use `backend: il` (or omit the field and take the default), and the CLI plus MSBuild SDK honor that path consistently for build, run, test, benchmark, and publish flows. C# generation remains available only through the explicit `nlc export csharp` migration/off-ramp command.
 
 ```
 .nl source file
@@ -13,30 +16,27 @@ Parser (AST)
     ↓
 Analyzer (Semantic analysis)
     ↓
-Transpiler (C# code)
-    ↓
-C# Compiler (via dotnet)
-    ↓
-Executable
+    ├── C# Exporter (`nlc export csharp` / internal export component)
+    └── IL Compiler (managed PE emit) → Managed assembly / executable
 ```
 
-## Why Transpile to C#?
+## Why Emit IL Directly?
 
-- **Leverage .NET ecosystem**: Use existing C# compiler, debugger, and tools
-- **Simpler implementation**: No IL generation, no runtime needed
-- **Easier debugging**: Generated C# can be inspected
-- **Full .NET interop**: Works seamlessly with C# libraries
+- **Backend independence**: Removes C# codegen as a hard product dependency
+- **Production backend**: The CLI and SDK execute projects without routing through generated C#
+- **Real-backend validation**: `nlc check` validates the executable backend directly
 
 ## Components
 
-The compiler is composed of 6 main components:
+The compiler is composed of 7 main components:
 
 1. **Lexer** - Tokenizes source code (`src/NSharpLang.Compiler/Lexer.cs`)
 2. **Parser** - Builds AST from tokens (`src/NSharpLang.Compiler/Parser.cs`)
 3. **Analyzer** - Type checking and semantic analysis (`src/NSharpLang.Compiler/Analyzer.cs`)
-4. **Transpiler** - Generates C# code (`src/NSharpLang.Compiler/Transpiler.cs`)
-5. **CLI** - Command-line interface (`src/NSharpLang.Cli/Program.cs`)
-6. **Error Reporting** - Diagnostics and suggestions (`src/NSharpLang.Compiler/ErrorReporting.cs`)
+4. **C# Exporter** - Generates C# code for `nlc export csharp` (`src/NSharpLang.Compiler/Transpiler.cs`)
+5. **IL Compiler** - Emits managed PE assemblies directly (`src/NSharpLang.Compiler/ILCompiler/`)
+6. **CLI** - Command-line interface (`src/NSharpLang.Cli/Program.cs`)
+7. **Error Reporting** - Diagnostics and suggestions (`src/NSharpLang.Compiler/ErrorReporting.cs`)
 
 See `memory/components/` folder for detailed documentation on each component.
 
@@ -62,15 +62,19 @@ See `memory/components/` folder for detailed documentation on each component.
   - Definite assignment checking
   - Pattern exhaustiveness checking
 
-### 4. Transpilation
-- **Input**: `CompilationUnit` (AST) + `AnalysisResult`
-- **Output**: C# source code (string)
-- **Process**: AST visitor pattern, generates formatted C# code
+### 4. Backend Emission
+- **Input**: `CompilationUnit` (AST) + semantic context
+- **Output**:
+  - `il` backend → managed PE assembly
+- **Process**:
+  - IL compiler uses `System.Reflection.Emit` and `ManagedPEBuilder` to emit assemblies directly
 
-### 5. Compilation
-- **Input**: C# source code
-- **Output**: Executable or DLL
-- **Process**: Invoke `dotnet build` or `dotnet run`
+### 5. Toolchain Integration
+- **Input**: backend output
+- **Output**: Executable, DLL, or published artifacts
+- **Process**:
+  - il backend emits assemblies directly in compiler-driven flows and through SDK build tasks in project/MSBuild flows
+  - IL participates in `nlc check/build/run/test/bench/publish`
 
 ## Project Structure
 
@@ -81,7 +85,7 @@ src/
 │   ├── Token.cs               - Token types
 │   ├── Parser.cs              - Parsing logic
 │   ├── Analyzer.cs            - Semantic analysis
-│   ├── Transpiler.cs          - C# code generation
+│   ├── Transpiler.cs          - C# export generation
 │   ├── ErrorReporting.cs      - Error codes and formatting
 │   ├── Ast/
 │   │   ├── Expressions.cs     - Expression nodes
@@ -90,9 +94,9 @@ src/
 │   └── TypeSystem/
 │       └── TypeInfo.cs        - Type representation
 ├── NSharpLang.Cli/
-│   └── Program.cs             - CLI commands (build, run, transpile)
+│   └── Program.cs             - CLI commands (build, run, check, test, publish, etc.)
 ├── NSharpLang.Build.Tasks/
-│   └── NSharpCompile.cs       - MSBuild task wrapper
+│   └── EmitIlAssembly.cs      - MSBuild IL emission task
 └── NSharpLang.Sdk/
     └── Sdk/                   - SDK props/targets
 
@@ -100,7 +104,7 @@ tests/
 ├── LexerTests.cs
 ├── ParserTests.cs
 ├── AnalyzerTests.cs
-└── TranspilerTests.cs
+└── TranspilerTests.cs         - C# export generation tests
 
 examples/
 └── *.nl files
@@ -118,9 +122,9 @@ All AST nodes are C# records (immutable by default). This makes the compiler:
 - `PascalCase` identifiers → public
 - `camelCase` identifiers → private
 - Explicit modifiers (`public`, `private`, etc.) override convention
-- Enforced by Analyzer, transpiled with explicit modifiers in C#
+- Enforced by Analyzer, exported with explicit modifiers in C#
 
-### Transpilation Strategies
+### C# Export Strategies
 
 | N# Feature | C# Translation |
 |------------|----------------|
@@ -151,9 +155,6 @@ dotnet build src/NSharpLang.Cli/Cli.csproj
 # Run tests
 dotnet test tests/Tests.csproj
 
-# Transpile a file
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- transpile examples/04-pattern-matching/GuardsSimple.nl
-
 # Build a file
 dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build examples/04-pattern-matching/GuardsSimple.nl
 
@@ -165,5 +166,5 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-ma
 
 - **Compilation speed**: Fast (single-pass parser, single-pass analyzer)
 - **Memory usage**: Low (streaming lexer, no intermediate files)
-- **Generated code quality**: Clean, readable C# with proper indentation
+- **Exported C# quality**: Clean, readable C# with proper indentation
 - **Runtime performance**: Same as hand-written C# (no overhead)

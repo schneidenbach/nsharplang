@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -30,12 +31,24 @@ public static class RestoreCommand
     /// </summary>
     public static int Restore(string projectRoot, bool quiet = false)
     {
+        return RestoreRecursive(Path.GetFullPath(projectRoot), quiet, new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+            ? 0
+            : 1;
+    }
+
+    private static bool RestoreRecursive(string projectRoot, bool quiet, HashSet<string> visitedProjectRoots)
+    {
+        if (!visitedProjectRoots.Add(projectRoot))
+        {
+            return true;
+        }
+
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYmlPath))
         {
             if (!quiet)
                 Console.Error.WriteLine("No project.yml found. Run 'nlc new <name>' to create a project.");
-            return 1;
+            return false;
         }
 
         try
@@ -56,23 +69,72 @@ public static class RestoreCommand
             sb.AppendLine($"    <OutputType>{outputType}</OutputType>");
             sb.AppendLine($"    <_NSharpOriginalOutputType>{outputType}</_NSharpOriginalOutputType>");
             sb.AppendLine($"    <AssemblyName>{projectName}</AssemblyName>");
+            sb.AppendLine($"    <NSharpCompilationBackend>{config.EffectiveBackend.ToConfigValue()}</NSharpCompilationBackend>");
             sb.AppendLine($"    <NSharpTestFramework>{config.TestFramework}</NSharpTestFramework>");
             sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
             sb.AppendLine(@"  </PropertyGroup>");
+
+            var projectReferences = config.Dependencies
+                .Where(reference => reference.Type == ReferenceType.Project)
+                .Select(reference =>
+                {
+                    var projectPath = Path.IsPathRooted(reference.Project!)
+                        ? reference.Project!
+                        : Path.Combine(projectRoot, reference.Project!);
+                    return ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (projectReferences.Length > 0)
+            {
+                sb.AppendLine(@"  <ItemGroup>");
+                foreach (var projectReference in projectReferences)
+                {
+                    sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
+                }
+                sb.AppendLine(@"  </ItemGroup>");
+            }
+
             sb.AppendLine(@"</Project>");
 
             var propsPath = Path.Combine(objDir, "project.g.props");
             File.WriteAllText(propsPath, sb.ToString(), Encoding.UTF8);
 
+            foreach (var dependency in config.Dependencies.Where(reference => reference.Type == ReferenceType.Project))
+            {
+                var referencedPath = dependency.Project!;
+                var absoluteReferencePath = Path.IsPathRooted(referencedPath)
+                    ? referencedPath
+                    : Path.Combine(projectRoot, referencedPath);
+                var referencedProjectRoot = Path.GetDirectoryName(Path.GetFullPath(absoluteReferencePath));
+
+                if (string.IsNullOrWhiteSpace(referencedProjectRoot))
+                {
+                    continue;
+                }
+
+                var referencedProjectYml = Path.Combine(referencedProjectRoot, "project.yml");
+                if (!File.Exists(referencedProjectYml))
+                {
+                    continue;
+                }
+
+                if (!RestoreRecursive(referencedProjectRoot, quiet: true, visitedProjectRoots))
+                {
+                    return false;
+                }
+            }
+
             if (!quiet)
                 Console.WriteLine($"Generated obj/project.g.props from project.yml");
 
-            return 0;
+            return true;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Failed to restore project configuration: {ex.Message}");
-            return 1;
+            return false;
         }
     }
 
@@ -88,5 +150,14 @@ This must be run before 'dotnet build' can work directly.
 
 Options:
   -h, --help    Show this help message");
+    }
+
+    private static string EscapeXml(string value)
+    {
+        return value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
     }
 }

@@ -43,8 +43,8 @@ Hello, N#!
 
 1. `dotnet build` loads the minimal `.csproj`
 2. `NSharpLang.Sdk` reads `project.yml`
-3. The SDK discovers `.nl` files and transpiles them to C# under `obj/`
-4. The normal .NET toolchain builds and runs the result
+3. The SDK discovers `.nl` files and the compiler emits IL directly into the build output assembly
+4. The normal .NET toolchain runs the emitted assembly and runtime assets
 
 ## What You Can Do
 

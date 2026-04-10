@@ -1,10 +1,10 @@
-# Transpiler Component
+# C# Export Component
 
 **File:** `src/NSharpLang.Compiler/Transpiler.cs`
 
 ## Responsibility
 
-Converts the AST to C# source code.
+Converts the AST to C# source code for `nlc export csharp` and export-focused tests.
 
 ## Design Pattern
 
@@ -66,7 +66,7 @@ public class FileReader : IReader  // Automatically implements
 }
 ```
 
-The transpiler detects structural compatibility and adds interface implementation automatically.
+The exporter detects structural compatibility and adds interface implementation automatically.
 
 ### String Enums
 N# string enum → C# static class with const strings
@@ -127,7 +127,7 @@ N# uses naming conventions for visibility:
 - `PascalCase` → public
 - `camelCase` → private
 
-Transpiler converts to explicit C# modifiers:
+The exporter converts convention-based visibility to explicit C# modifiers:
 ```
 // N# (PascalCase = public by convention)
 class Person {
@@ -144,14 +144,14 @@ public class Person
 ## Special Cases
 
 ### String Literals
-Lexer stores strings WITH quotes, so transpiler emits them as-is:
+Lexer stores strings WITH quotes, so the exporter emits them as-is:
 ```csharp
 // Token value: "hello"
 // Transpiled: "hello" (no extra quotes needed)
 ```
 
 ### Array Literals with var
-When `var` is used with array literal, transpiler emits explicit array type:
+When `var` is used with array literal, the exporter emits explicit array type:
 ```
 let items: var = [1, 2, 3]
 
@@ -162,7 +162,7 @@ int[] items = [1, 2, 3];  // NOT: var items = [1, 2, 3];
 This avoids C# 12 collection expression ambiguity.
 
 ### Async Iterator Functions
-`func async*` transpiles to `async IAsyncEnumerable<T>`:
+`func async*` exports to `async IAsyncEnumerable<T>`:
 ```
 func async* GetNumbers(): IAsyncEnumerable<int> {
     yield 1
@@ -178,7 +178,7 @@ public static async IAsyncEnumerable<int> GetNumbers()
 **Important:** NOT wrapped in `Task<>` or `ValueTask<>`.
 
 ### Error Handling Pattern
-N# `result, err := Function()` transpiles to try-catch:
+N# `result, err := Function()` exports to try-catch:
 ```
 result, err := MightFail()
 
@@ -198,7 +198,7 @@ catch (Exception ex)
 ```
 
 ### Yield Break
-`yield break` transpiles directly to C# `yield break;`:
+`yield break` exports directly to C# `yield break;`:
 ```
 yield break  // N#
 yield break; // C#
@@ -206,7 +206,7 @@ yield break; // C#
 
 ## Indentation Management
 
-Transpiler tracks indentation level:
+The exporter tracks indentation level:
 - `_indent`: Current indentation level
 - `Indent()`: Increase level
 - `Unindent()`: Decrease level
@@ -214,7 +214,7 @@ Transpiler tracks indentation level:
 
 ## Using Statement Generation
 
-Transpiler emits C# using statements from N# imports:
+The exporter emits C# using statements from N# imports:
 ```
 using System
 using System.Collections.Generic
@@ -236,7 +236,7 @@ Duplicate usings are filtered out.
 
 ## Testing
 
-Transpiler has 71 unit tests covering:
+The C# export path has dedicated unit tests covering:
 - All expression types
 - All statement types
 - All declaration types
@@ -250,8 +250,8 @@ See `tests/TranspilerTests.cs`.
 
 ```csharp
 var ast = parser.ParseCompilationUnit();
-var transpiler = new Transpiler();
-var csharpCode = transpiler.Transpile(ast);
+var exporter = new Transpiler();
+var csharpCode = exporter.Transpile(ast);
 
 // Write to file or pass to C# compiler
 File.WriteAllText("output.cs", csharpCode);

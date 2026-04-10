@@ -49,6 +49,8 @@ public class CliParityAuditTests
         Assert.Contains("watch", stdout);
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
+        Assert.Contains("export", stdout);
+        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -115,6 +117,7 @@ public class CliParityAuditTests
 
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--verbose", stdout);
     }
@@ -250,6 +253,8 @@ func Main() {
         Assert.Contains("Project:", stdout);
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
+        Assert.Contains("export <target>", stdout);
+        Assert.DoesNotContain("transpile", stdout);
     }
 
     [Fact]
@@ -431,16 +436,28 @@ func Main() {
         }
     }
 
-    // ── Step 4: Transpile help ──────────────────────────────────────────
+    // ── Step 4: C# export flow ───────────────────────────────────────────
 
     [Fact]
-    public void TranspileCommand_Help_ShowsContextAndPipeExample()
+    public void ExportCommand_Help_ExplainsCSharpFlow()
     {
-        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("transpile", "--help"));
+        var (exitCode, stdout, _) = CaptureConsole(() => ExecuteProgram("export", "csharp", "--help"));
 
         Assert.Equal(0, exitCode);
-        Assert.Contains("debugging the compiler", stdout);
-        Assert.Contains("> Program.cs", stdout);
+        Assert.Contains("Usage:", stdout);
+        Assert.Contains("nlc export csharp <file.nl>", stdout);
+        Assert.Contains("self-contained C# bundle", stdout);
+        Assert.Contains("sibling test project", stdout);
+    }
+
+    [Fact]
+    public void TranspileCommand_PointsToExportCommand()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("removed", stderr);
+        Assert.Contains("nlc export csharp", stderr);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────
@@ -486,8 +503,11 @@ func Main() {
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
         Assert.Contains("*.bench.nl", stdout);
+        Assert.Contains("--backend", stdout);
+        Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--export", stdout);
+        Assert.Contains("--job", stdout);
         Assert.Contains("--list", stdout);
     }
 
@@ -640,7 +660,10 @@ func benchMultiply() {
         Assert.Equal(0, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stderr));
         Assert.True(
-            stdout.Contains("--timings") && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
+            stdout.Contains("--timings")
+            && stdout.Contains("--backend")
+            && stdout.Contains("Compilation backend: il")
+            && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
             $"Expected --timings and phase breakdown in build --help but got: {stdout}");
     }
 

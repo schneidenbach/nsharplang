@@ -156,10 +156,10 @@ When you run `dotnet build`:
 
 1. The minimal `.csproj` loads the N# MSBuild SDK
 2. The SDK reads `project.yml` for project settings
-3. All `.nl` files are transpiled to C# (under `obj/`)
-4. The .NET compiler builds the generated C# into an executable
+3. The compiler emits IL directly for the project assembly
+4. The .NET toolchain builds and runs with the emitted assembly and runtime assets
 
-You never see the intermediate C# — it just works.
+You do not need to manage generated C# or any secondary source tree.
 
 ## Next Steps
 

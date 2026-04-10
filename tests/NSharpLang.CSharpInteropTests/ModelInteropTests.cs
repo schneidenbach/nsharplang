@@ -82,10 +82,10 @@ public class ModelInteropTests
     [Fact]
     public void StringEnumValues()
     {
-        // N# string-backed enums emit as readonly structs with implicit string conversion
-        Assert.Equal("active", Status.Active.Value);
-        Assert.Equal("inactive", Status.Inactive.Value);
-        Assert.Equal("pending", Status.Pending.Value);
+        // N# string-backed enums currently emit as a static class of string constants.
+        Assert.Equal("active", Status.Active);
+        Assert.Equal("inactive", Status.Inactive);
+        Assert.Equal("pending", Status.Pending);
     }
 
     [Fact]
@@ -106,19 +106,19 @@ public class ModelInteropTests
     [Fact]
     public void StringEnumAsParameterType()
     {
-        // String enums can be used as parameter and return types
-        static string Describe(Status s) => s.Value;
+        // C# consumers can pass the exported string constants directly.
+        static string Describe(string s) => s;
         Assert.Equal("active", Describe(Status.Active));
     }
 
     [Fact]
     public void StringEnumJsonSerialization()
     {
-        // String enums serialize as their string value, not as an object
+        // String enum constants serialize as their string value.
         var json = JsonSerializer.Serialize(Status.Active);
         Assert.Equal("\"active\"", json);
 
-        var deserialized = JsonSerializer.Deserialize<Status>(json);
+        var deserialized = JsonSerializer.Deserialize<string>(json);
         Assert.Equal(Status.Active, deserialized);
     }
 
