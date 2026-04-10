@@ -493,44 +493,82 @@ class FileReader : IReader
 
 ## Enums
 
-N# supports string enums for better APIs:
+N# supports both string enums and numeric enums as first-class types:
 
 ```n#
-enum Status {
+enum Status: string {
     Active = "active",
     Inactive = "inactive",
     Pending = "pending"
 }
 
-enum Role {
-    Admin = "admin",
-    User = "user",
-    Guest = "guest"
+enum Priority {
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
 ### Using Enums
 
-```n#
-userStatus: string = Status.Active
-userRole: string = Role.Admin
+String enums can be used as parameter types, return types, and record properties — just like numeric enums:
 
-// In functions
-func checkAccess(role: string): bool {
-    return role == Role.Admin
+```n#
+// As a parameter type
+func checkActive(status: Status): bool {
+    return status == Status.Active
+}
+
+// As a return type
+func getDefault(): Status {
+    return Status.Pending
+}
+
+// In records
+record User {
+    Name: string
+    CurrentStatus: Status
+}
+
+// Implicit conversion to string
+name: string = Status.Active  // "active"
+
+// Pattern matching
+func describe(status: Status): string {
+    return match status {
+        Status.Active => "Currently active",
+        Status.Inactive => "Not active",
+        Status.Pending => "Awaiting activation"
+    }
 }
 ```
 
 ### How Enums Compile
 
-String enums compile to static classes:
+String enums compile to readonly structs with implicit string conversion and JSON support:
 
 ```csharp
-public static class Status
+[JsonConverter(typeof(StatusJsonConverter))]
+public readonly struct Status : IEquatable<Status>
 {
-    public const string Active = "active";
-    public const string Inactive = "inactive";
-    public const string Pending = "pending";
+    public static readonly Status Active = new Status("active");
+    public static readonly Status Inactive = new Status("inactive");
+    public static readonly Status Pending = new Status("pending");
+
+    public string Value { get; }
+    public static implicit operator string(Status value) => value.Value;
+    // ... equality, JSON converter
+}
+```
+
+Numeric enums compile directly to C# enums:
+
+```csharp
+public enum Priority
+{
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
