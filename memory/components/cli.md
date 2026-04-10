@@ -1,11 +1,11 @@
-# CLI Component (Legacy)
+# CLI Component (Legacy Summary)
 
-> **This doc covers only the original build/run/transpile commands.**
-> **For the full CLI toolchain reference (check, fix, query, daemon, completions, format, lint), see [cli-toolchain.md](cli-toolchain.md).**
+> **This doc is a short historical summary of the early CLI.**
+> **For the full current CLI toolchain reference, including `nlc export csharp`, see [cli-toolchain.md](cli-toolchain.md).**
 
 **File:** `src/NSharpLang.Cli/Program.cs`
 
-## Original Commands
+## Original Core Commands
 
 ### `nlc build`
 Compiles `.nl` files to executable/DLL via MSBuild.
@@ -23,11 +23,12 @@ nlc run                # Multi-file project
 nlc run example.nl     # Single file
 ```
 
-### `nlc transpile`
-Prints generated C# to stdout.
+### `nlc export csharp`
+Exports a file or whole project bundle to C# without using generated C# as the executable backend.
 
 ```bash
-nlc transpile example.nl
+nlc export csharp example.nl
+nlc export csharp --project . -o ./myapp-csharp
 ```
 
 ## Project Configuration
@@ -45,7 +46,7 @@ The .csproj must be minimal: `<Project Sdk="NSharpLang.Sdk" />` — one line.
 
 ## Error Handling
 
-Compilation stops at first error phase (parse errors → stop before analysis, analysis errors → stop before transpile). Errors use Elm-style formatting with source snippets, suggestions, and documentation URLs.
+Compilation stops at the first failing phase (parse → analysis → IL emission or explicit C# export). Errors use Elm-style formatting with source snippets, suggestions, and documentation URLs.
 
 ## Exit Codes
 
@@ -60,4 +61,4 @@ NSHARP_DEBUG_LOG=1 nlc build   # Writes compile-debug.log
 
 ---
 
-*For the complete CLI reference including `nlc check`, `nlc fix`, `nlc query`, and `nlc daemon`, see [cli-toolchain.md](cli-toolchain.md).*
+*For the complete CLI reference including `nlc check`, `nlc fix`, `nlc query`, `nlc daemon`, and `nlc export csharp`, see [cli-toolchain.md](cli-toolchain.md).*

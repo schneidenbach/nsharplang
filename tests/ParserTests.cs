@@ -1145,6 +1145,57 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestExplicitVisibilityModifiers()
+    {
+        var source = @"
+            public class VisibilityBox {
+                public shown: int
+                private hidden: int
+                protected guarded: int
+                internal shared: int
+                protected internal bridge: int
+
+                public func Show() {
+                }
+
+                private func Hide() {
+                }
+
+                protected func Guard() {
+                }
+
+                internal func Share() {
+                }
+
+                protected internal func Bridge() {
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var classDecl = Assert.IsType<ClassDeclaration>(Assert.Single(cu.Declarations));
+        Assert.True(classDecl.Modifiers.HasFlag(Modifiers.Public));
+
+        Assert.True(Assert.IsType<FieldDeclaration>(classDecl.Members[0]).Modifiers.HasFlag(Modifiers.Public));
+        Assert.True(Assert.IsType<FieldDeclaration>(classDecl.Members[1]).Modifiers.HasFlag(Modifiers.Private));
+        Assert.True(Assert.IsType<FieldDeclaration>(classDecl.Members[2]).Modifiers.HasFlag(Modifiers.Protected));
+        Assert.True(Assert.IsType<FieldDeclaration>(classDecl.Members[3]).Modifiers.HasFlag(Modifiers.Internal));
+
+        var protectedInternalField = Assert.IsType<FieldDeclaration>(classDecl.Members[4]);
+        Assert.True(protectedInternalField.Modifiers.HasFlag(Modifiers.Protected));
+        Assert.True(protectedInternalField.Modifiers.HasFlag(Modifiers.Internal));
+
+        Assert.True(Assert.IsType<FunctionDeclaration>(classDecl.Members[5]).Modifiers.HasFlag(Modifiers.Public));
+        Assert.True(Assert.IsType<FunctionDeclaration>(classDecl.Members[6]).Modifiers.HasFlag(Modifiers.Private));
+        Assert.True(Assert.IsType<FunctionDeclaration>(classDecl.Members[7]).Modifiers.HasFlag(Modifiers.Protected));
+        Assert.True(Assert.IsType<FunctionDeclaration>(classDecl.Members[8]).Modifiers.HasFlag(Modifiers.Internal));
+
+        var protectedInternalMethod = Assert.IsType<FunctionDeclaration>(classDecl.Members[9]);
+        Assert.True(protectedInternalMethod.Modifiers.HasFlag(Modifiers.Protected));
+        Assert.True(protectedInternalMethod.Modifiers.HasFlag(Modifiers.Internal));
+    }
+
+    [Fact]
     public void TestTypeAlias()
     {
         var source = @"
@@ -5515,4 +5566,3 @@ func Helper(): int {
         // Use outerLambda!.ExpressionBody! for all following references
     }
 }
-

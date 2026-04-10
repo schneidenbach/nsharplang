@@ -135,7 +135,7 @@ function discoverNlFiles(dir: string): string[] {
         if (entry.isDirectory()) {
             if (['node_modules', 'bin', 'obj', '.git'].includes(entry.name)) continue;
             results.push(...discoverNlFiles(fullPath));
-        } else if (entry.name.endsWith('.nl')) {
+        } else if (entry.name.endsWith('.nl') && !entry.name.startsWith('_')) {
             results.push(fullPath);
         }
     }

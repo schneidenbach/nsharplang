@@ -54,7 +54,7 @@ function findAllNlFiles(dir: string): string[] {
                 continue;
             }
             results.push(...findAllNlFiles(fullPath));
-        } else if (entry.name.endsWith('.nl')) {
+        } else if (entry.name.endsWith('.nl') && !entry.name.startsWith('_')) {
             results.push(fullPath);
         }
     }

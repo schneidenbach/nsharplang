@@ -13,7 +13,7 @@ Converts raw source code text into a stream of tokens for the parser.
 - **Important:** Token values include the quotes
   - Regular string: `"hello"` (not `hello`)
   - Interpolated: `$"hello {x}"` (full string)
-- This simplifies transpiler logic (no need to re-add quotes)
+- This simplifies C# export logic (no need to re-add quotes)
 
 ### Newline Filtering
 - Newlines are tokenized but filtered out before returning to parser
@@ -29,7 +29,7 @@ Converts raw source code text into a stream of tokens for the parser.
 ### Numeric Literals
 - Integer literals: `42`, `1_000_000`
 - Float literals: `3.14`, `1.5e10`
-- Underscores allowed for readability (transpiled as-is to C#)
+- Underscores allowed for readability (exported as-is to C#)
 
 ### Operator Recognition
 - Single-char: `+`, `-`, `*`, `/`, `=`, `<`, `>`, etc.
@@ -70,7 +70,7 @@ Strings are stored with quotes included:
 // Token value: $"hello {x}" (includes $ and quotes)
 ```
 
-This design decision simplifies the transpiler - it can emit token values directly without quote wrapping.
+This design decision simplifies the C# exporter - it can emit token values directly without quote wrapping.
 
 ## Error Handling
 

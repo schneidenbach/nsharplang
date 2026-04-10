@@ -1336,8 +1336,8 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 22 col 21 (0-indexed: 21): service := new IssueService(store, hub) — "IssueService" at col ~21
-        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
+        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
+        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1356,8 +1356,8 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // Line 22 col 21 (0-indexed: 21): service := new IssueService(store, hub) — "IssueService" at col ~21
-        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
+        // Line 26 col 20 (0-indexed: 25, 19): service := new IssueService(store, hub)
+        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1400,8 +1400,8 @@ func Foo(): void {
         // The disk-based fallback should still resolve cross-file definitions.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
-        // F12 on IssueService at line 22 col 21 (0-indexed: 21, 21)
-        var definition = await harness.GetDefinitionAsync(uri, 21, 21);
+        // F12 on IssueService at line 26 col 20 (0-indexed: 25, 19)
+        var definition = await harness.GetDefinitionAsync(uri, 25, 19);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1420,9 +1420,9 @@ func Foo(): void {
         // Make the buffer differ from disk to force disk fallback
         harness.OpenDocument(uri, source + "\n// modified");
 
-        // F12 on IssueStore at line 21 col 14 (0-indexed: 20, 14)
+        // F12 on IssueStore at line 25 col 18 (0-indexed: 24, 17)
         // IssueStore is defined in Database.nl
-        var definition = await harness.GetDefinitionAsync(uri, 20, 14);
+        var definition = await harness.GetDefinitionAsync(uri, 24, 17);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
@@ -1536,8 +1536,8 @@ func main(): void
 
         harness.OpenDocument(uri, source);
 
-        // "IssueService" usage on line 19, col 21 (0-indexed: 18, 21)
-        var refs = await harness.GetReferencesAsync(uri, 18, 21);
+        // "IssueService" usage on line 26, col 20 (0-indexed: 25, 19)
+        var refs = await harness.GetReferencesAsync(uri, 25, 19);
         Assert.NotNull(refs);
         Assert.NotEmpty(refs!);
     }

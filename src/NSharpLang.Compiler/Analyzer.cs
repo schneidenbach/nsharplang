@@ -67,7 +67,7 @@ public class Analyzer : IDisposable
 
     /// <summary>
     /// Get the set of namespaces that were auto-resolved during the most recent Analyze() call.
-    /// The transpiler uses this to emit the necessary using directives.
+    /// The C# exporter uses this to emit the necessary using directives.
     /// </summary>
     public HashSet<string> GetAutoResolvedNamespaces() => new(_autoResolvedNamespaces);
 
@@ -338,7 +338,7 @@ public class Analyzer : IDisposable
                 else
                 {
                     // Inferred type — use a generic object type since we can't fully
-                    // resolve the initializer without a scope. The transpiler handles
+                    // resolve the initializer without a scope. The C# exporter handles
                     // the actual type via C#'s var keyword.
                     type = BuiltInTypes.Object;
                 }
@@ -1180,7 +1180,7 @@ public class Analyzer : IDisposable
         }
 
         // We don't strictly require boolean type because we support various comparison patterns
-        // The transpiler will convert different expression types to appropriate Assert calls
+        // The C# exporter will convert different expression types to appropriate Assert calls
     }
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
@@ -5332,7 +5332,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            // All union cases covered by unguarded arms — mark exhaustive so the transpiler
+            // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
             // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
@@ -5432,7 +5432,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            // All enum members covered by unguarded arms — mark exhaustive so the transpiler
+            // All enum members covered by unguarded arms — mark exhaustive so the C# exporter
             // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
@@ -7281,7 +7281,7 @@ public class Analyzer : IDisposable
         var resolved = externalCandidates[0];
         type = resolved.Type;
 
-        // Track the namespace for transpiler using-directive generation
+        // Track the namespace for C# export using-directive generation
         if (resolved.Namespace != null)
         {
             // Get the current file's namespace to compare
@@ -7678,9 +7678,35 @@ public class Analyzer : IDisposable
         {
             var fullPath = Path.GetFullPath(assemblyPath);
             _metadataResolver?.AddSearchDirectory(Path.GetDirectoryName(fullPath)!);
+
+            if (IsMetadataAssemblyPathAlreadyLoaded(fullPath))
+            {
+                return;
+            }
+
+            AssemblyName assemblyName;
+            try
+            {
+                assemblyName = AssemblyName.GetAssemblyName(fullPath);
+            }
+            catch (BadImageFormatException)
+            {
+                // Non-managed assets are irrelevant for metadata analysis.
+                return;
+            }
+
+            if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
+            {
+                return;
+            }
+
             var assembly = _mlc.LoadFromAssemblyPath(fullPath);
-            if (!_mlcAssemblies.Contains(assembly))
-                _mlcAssemblies.Add(assembly);
+            RegisterMetadataAssembly(assembly);
+        }
+        catch (FileLoadException ex) when (IsDuplicateMetadataAssemblyLoad(ex))
+        {
+            // MetadataLoadContext rejects duplicate identities; suppress to keep machine-readable
+            // output like `nlc check --json` clean when ResolveReferences returns overlapping facades.
         }
         catch (Exception ex)
         {
@@ -7696,14 +7722,93 @@ public class Analyzer : IDisposable
         if (_mlc == null) return;
         try
         {
+            if (IsMetadataAssemblyAlreadyLoaded(assemblyName))
+            {
+                return;
+            }
+
             var assembly = _mlc.LoadFromAssemblyName(assemblyName);
-            if (!_mlcAssemblies.Contains(assembly))
-                _mlcAssemblies.Add(assembly);
+            RegisterMetadataAssembly(assembly);
         }
         catch
         {
             // Assembly not found — the MLC resolver already searched all configured paths
         }
+    }
+
+    private void RegisterMetadataAssembly(Assembly assembly)
+    {
+        if (_mlcAssemblies.Any(loadedAssembly =>
+        {
+            try
+            {
+                return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assembly.GetName());
+            }
+            catch
+            {
+                return false;
+            }
+        }))
+        {
+            return;
+        }
+
+        _mlcAssemblies.Add(assembly);
+    }
+
+    private bool IsMetadataAssemblyAlreadyLoaded(AssemblyName assemblyName)
+    {
+        return _mlcAssemblies.Any(loadedAssembly =>
+        {
+            try
+            {
+                return AssemblyName.ReferenceMatchesDefinition(loadedAssembly.GetName(), assemblyName);
+            }
+            catch
+            {
+                return false;
+            }
+        });
+    }
+
+    private bool IsMetadataAssemblyAlreadyLoaded(string assemblyName)
+    {
+        return _mlcAssemblies.Any(loadedAssembly =>
+        {
+            try
+            {
+                return string.Equals(loadedAssembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        });
+    }
+
+    private bool IsMetadataAssemblyPathAlreadyLoaded(string assemblyPath)
+    {
+        var normalizedPath = Path.GetFullPath(assemblyPath);
+        return _mlcAssemblies.Any(loadedAssembly =>
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(loadedAssembly.Location),
+                    normalizedPath,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        });
+    }
+
+    private static bool IsDuplicateMetadataAssemblyLoad(FileLoadException exception)
+    {
+        return exception.Message.Contains("already loaded into this MetadataLoadContext", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("already loaded been loaded into this MetadataLoadContext", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

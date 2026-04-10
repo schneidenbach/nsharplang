@@ -23,7 +23,7 @@
     <_NSharpBaseSdk Condition="'$(_NSharpBaseSdk)' == ''">Microsoft.NET.Sdk</_NSharpBaseSdk>
   </PropertyGroup>
 
-  <!-- N# exe projects provide their own entry points via transpiled .nl files,
+  <!-- N# exe projects provide their own entry points through emitted N# code,
        so disable auto-generated Program.cs to avoid duplicate Main conflicts.
        Library projects with tests need the test SDK to generate the entry point,
        so GenerateProgramFile stays enabled (default) for Library.

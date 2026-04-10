@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.ILCompiler;
 
 namespace NSharpLang.Compiler;
 
 /// <summary>
 /// Handles compilation of multiple .nl files into a single assembly.
-/// Uses two-pass compilation: Pass 1 collects symbols, Pass 2 analyzes and transpiles.
+/// Uses a shared parse/analyze pipeline for IL emission and C# export.
 /// </summary>
 public class MultiFileCompiler
 {
@@ -19,7 +20,7 @@ public class MultiFileCompiler
     private readonly Dictionary<string, CompilationUnit> _compilationUnits = new();
     private readonly Dictionary<string, SemanticModel> _semanticModels = new();
     private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
-    private readonly Dictionary<string, string> _transpiledFiles = new();
+    private readonly Dictionary<string, string> _exportedCSharpFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
@@ -29,7 +30,7 @@ public class MultiFileCompiler
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
     /// These expose the intermediate products of compilation (ASTs, semantic models)
-    /// without requiring a full transpile pass.
+    /// without requiring C# export or IL emission.
     /// </summary>
     public IReadOnlyDictionary<string, CompilationUnit> CompilationUnits => _compilationUnits;
     public IReadOnlyDictionary<string, SemanticModel> SemanticModels => _semanticModels;
@@ -41,7 +42,8 @@ public class MultiFileCompiler
     /// <summary>
     /// The project-level semantic index built from all analyzed files.
     /// Contains the merged BindingMap and type-declaration-to-file mapping.
-    /// Available after <see cref="CompileForAnalysis"/> or <see cref="Compile"/> completes.
+    /// Available after <see cref="CompileForAnalysis"/>, <see cref="ExportToCSharp"/>,
+    /// or <see cref="CompileToIlAssembly"/> completes.
     /// </summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
@@ -186,10 +188,10 @@ public class MultiFileCompiler
                 // Use the shared analyzer (assemblies already loaded in constructor)
                 var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, File.ReadAllText(sourceFile));
 
-                // Save semantic model for transpilation phase
+                // Save semantic model for C# export.
                 _semanticModels[sourceFile] = result.SemanticModel;
 
-                // Capture auto-resolved namespaces for transpiler using-directive generation
+                // Capture auto-resolved namespaces for C# using-directive generation.
                 var autoNs = _sharedAnalyzer.GetAutoResolvedNamespaces();
                 if (autoNs.Count > 0)
                 {
@@ -228,9 +230,9 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Pass 2: Transpile all files to C#
+    /// Export all files to C#.
     /// </summary>
-    private void TranspileAllFiles()
+    private void ExportAllFilesToCSharp()
     {
         // Collect all string enum names across all files so each transpiler
         // can emit correct when-guard patterns for cross-file enum references
@@ -253,16 +255,16 @@ public class MultiFileCompiler
                 // Get auto-resolved namespaces for this file (if any)
                 _autoResolvedNamespaces.TryGetValue(sourceFile, out var autoNamespaces);
 
-                var transpiler = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces, allStringEnumNames);
-                var csharpCode = transpiler.Transpile();
+                var exporter = new Transpiler(compilationUnit, _config, semanticModel, sourceFile, autoNamespaces, allStringEnumNames);
+                var csharpCode = exporter.Transpile();
 
-                _transpiledFiles[sourceFile] = csharpCode;
+                _exportedCSharpFiles[sourceFile] = csharpCode;
             }
             catch (Exception ex)
             {
                 _allErrors.Add(new CompilerError(
                     ErrorCode.InvalidSyntax,
-                    $"Failed to transpile {sourceFile}: {ex.Message}",
+                    $"Failed to export {sourceFile} to C#: {ex.Message}",
                     0,
                     0,
                     ErrorSeverity.Error
@@ -272,8 +274,8 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Parse and analyze all files without transpiling.
-    /// This is the fast path for code intelligence queries — skips the transpile phase
+    /// Parse and analyze all files without exporting or emitting IL.
+    /// This is the fast path for code intelligence queries — skips code generation
     /// which is unnecessary when you only need ASTs, semantic models, and diagnostics.
     /// All files with a non-null CompilationUnit are analyzed, even if they had parse errors,
     /// so we can report both syntax and semantic diagnostics in a single pass.
@@ -285,11 +287,11 @@ public class MultiFileCompiler
     }
 
     /// <summary>
-    /// Compile all files and return results
+    /// Export all files to C# and return results.
     /// </summary>
-    public MultiFileCompilationResult Compile()
+    public CSharpExportResult ExportToCSharp()
     {
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Compile START");
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportToCSharp START");
 
         // Pass 1: Parse
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ParseAllFiles START");
@@ -303,26 +305,75 @@ public class MultiFileCompiler
         AnalyzeAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
 
-        // Stop before transpilation if there are any errors
+        // Stop before export if there are any errors.
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Errors found, returning before transpile");
-            return new MultiFileCompilationResult(
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Errors found, returning before export");
+            return new CSharpExportResult(
                 false,
                 _allErrors,
                 new Dictionary<string, string>()
             );
         }
 
-        // Pass 3: Transpile
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles START");
-        TranspileAllFiles();
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] TranspileAllFiles END");
+        // Pass 3: Export to C#.
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportAllFilesToCSharp START");
+        ExportAllFilesToCSharp();
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportAllFilesToCSharp END");
 
-        // Return results
         var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
-        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] Compile END (success={success})");
-        return new MultiFileCompilationResult(success, _allErrors, _transpiledFiles);
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] ExportToCSharp END (success={success})");
+        return new CSharpExportResult(success, _allErrors, _exportedCSharpFiles);
+    }
+
+    public MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath)
+    {
+        AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START");
+
+        ParseAllFiles();
+        AnalyzeAllFiles();
+
+        if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+        {
+            return new MultiFileCompilationResult(
+                false,
+                _allErrors,
+                null);
+        }
+
+        try
+        {
+            var mergedCompilationUnit = CreateMergedCompilationUnit();
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
+
+            var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config);
+            compiler.Compile();
+        }
+        catch (Exception ex)
+        {
+            _allErrors.Add(new CompilerError(
+                ErrorCode.InvalidSyntax,
+                $"Failed to emit IL assembly '{assemblyName}': {ex.Message}",
+                0,
+                0,
+                ErrorSeverity.Error));
+        }
+
+        var success = !_allErrors.Any(e => e.Severity == ErrorSeverity.Error);
+        return new MultiFileCompilationResult(
+            success,
+            _allErrors,
+            success ? outputPath : null);
+    }
+
+    private CompilationUnit CreateMergedCompilationUnit()
+    {
+        var orderedUnits = _sourceFiles
+            .Select(sourceFile => _compilationUnits.TryGetValue(sourceFile, out var compilationUnit) ? compilationUnit : null)
+            .Where(compilationUnit => compilationUnit != null)
+            .Cast<CompilationUnit>()
+            .ToList();
+        return NamespaceQualifiedCompilationMerger.Merge(orderedUnits);
     }
 
     private static bool IsDebugLoggingEnabled()
@@ -366,10 +417,19 @@ public class MultiFileCompiler
 }
 
 /// <summary>
-/// Result of multi-file compilation
+/// Result of exporting a project to C#.
+/// </summary>
+public record CSharpExportResult(
+    bool Success,
+    IEnumerable<CompilerError> Errors,
+    Dictionary<string, string> ExportedFiles
+);
+
+/// <summary>
+/// Result of multi-file IL compilation.
 /// </summary>
 public record MultiFileCompilationResult(
     bool Success,
     IEnumerable<CompilerError> Errors,
-    Dictionary<string, string> TranspiledFiles
+    string? OutputAssemblyPath = null
 );

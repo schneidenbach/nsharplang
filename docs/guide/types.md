@@ -767,7 +767,7 @@ type StringDict = Dictionary<string, string>
 type Callback = Func<void>
 ```
 
-Type aliases transpile to C# `using` directives — they're purely cosmetic.
+Type aliases are compile-time only — they do not create a distinct runtime type.
 
 ## Newtypes (Branded Types)
 
@@ -791,7 +791,7 @@ let raw: int = id.Value    // Explicit unwrapping
 // let z: OrderId = id      // ERROR: UserId is not OrderId
 ```
 
-Newtypes transpile to `readonly record struct` wrappers, giving C# consumers value equality, `ToString()`, and familiar record semantics.
+Newtypes emit concrete wrapper types for .NET interop, giving C# consumers value equality, `ToString()`, and familiar value semantics.
 
 ## Complete Example
 

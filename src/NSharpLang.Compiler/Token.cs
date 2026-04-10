@@ -67,6 +67,8 @@ public enum TokenType
     Sealed,
     Partial,
     Static,
+    Public,
+    Private,
     Internal,
     Protected,
     Async,
