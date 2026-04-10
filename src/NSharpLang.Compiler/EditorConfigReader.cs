@@ -7,6 +7,7 @@ public class FormatterConfig
 {
     public int IndentSize { get; set; } = 4;
     public bool UseSpaces { get; set; } = true;
+    public int MaxLineLength { get; set; } = 100;
 
     public static FormatterConfig FromEditorConfig(string directory)
     {
@@ -45,6 +46,13 @@ public class FormatterConfig
             {
                 var value = trimmed.Split('=')[1].Trim();
                 config.UseSpaces = value == "space";
+            }
+
+            if (trimmed.StartsWith("max_line_length"))
+            {
+                var value = trimmed.Split('=')[1].Trim();
+                if (int.TryParse(value, out var maxLen))
+                    config.MaxLineLength = maxLen;
             }
         }
 

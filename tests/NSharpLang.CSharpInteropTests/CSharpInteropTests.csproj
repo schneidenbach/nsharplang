@@ -7,7 +7,6 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <RootNamespace>NSharpLang.CSharpInteropTests</RootNamespace>
-    <!-- Exclude nested N# library from default C# source globbing -->
     <DefaultItemExcludes>$(DefaultItemExcludes);NSharpInteropLib/**</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -21,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="NSharpInteropLib/NSharpInteropLib.g.csproj" />
+    <ProjectReference Include="NSharpInteropLib/NSharpInteropLib.csproj" />
   </ItemGroup>
 
 </Project>

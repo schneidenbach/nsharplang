@@ -5502,6 +5502,48 @@ func Hello(): string {
         ", "is typed as");
     }
 
+    [Fact]
+    public void StringEnumAsParameterType_Allowed()
+    {
+        AssertNoErrors(@"
+            enum Status: string {
+                Active = ""active"",
+                Inactive = ""inactive""
+            }
+            func Process(s: Status): string {
+                return s
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringEnumAsReturnType_Allowed()
+    {
+        AssertNoErrors(@"
+            enum Status: string {
+                Active = ""active"",
+                Inactive = ""inactive""
+            }
+            func GetDefault(): Status {
+                return Status.Active
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringEnumAsRecordProperty_Allowed()
+    {
+        AssertNoErrors(@"
+            enum Status: string {
+                Active = ""active"",
+                Inactive = ""inactive""
+            }
+            record Item {
+                CurrentStatus: Status
+            }
+        ");
+    }
+
     #endregion
 
     [Fact]
