@@ -74,7 +74,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Restore dependencies
       run: dotnet restore
@@ -108,7 +108,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Restore and Build
       run: |
@@ -157,7 +157,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g NSharpLang.Cli
@@ -190,7 +190,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g NSharpLang.Cli
@@ -268,7 +268,7 @@ stages:
     - task: UseDotNet@2
       displayName: 'Install .NET SDK'
       inputs:
-        version: '9.0.x'
+        version: '10.0.x'
 
     - task: Cache@2
       displayName: 'Cache NuGet packages'
@@ -299,7 +299,7 @@ stages:
     steps:
     - task: UseDotNet@2
       inputs:
-        version: '9.0.x'
+        version: '10.0.x'
 
     - script: |
         dotnet tool install -g NSharpLang.Cli
@@ -311,7 +311,7 @@ stages:
     steps:
     - task: UseDotNet@2
       inputs:
-        version: '9.0.x'
+        version: '10.0.x'
 
     - script: |
         dotnet tool install -g NSharpLang.Cli
@@ -327,7 +327,7 @@ stages:
 Use this for building and development:
 
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:9.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 RUN dotnet tool install -g NSharpLang.Cli && \
     dotnet tool install -g NSharpLang.LanguageServer
@@ -355,7 +355,7 @@ Multi-stage build for smaller images:
 
 ```dockerfile
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 WORKDIR /app
 COPY *.csproj project.yml ./
@@ -365,7 +365,7 @@ COPY . ./
 RUN dotnet publish -c Release -o out
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 
 WORKDIR /app
 COPY --from=build /app/out .
@@ -645,7 +645,7 @@ Ensure CI environment matches local:
 - name: Setup .NET
   uses: actions/setup-dotnet@v4
   with:
-    dotnet-version: '9.0.x'  # Match your local version
+    dotnet-version: '10.0.x'  # Match your local version
 ```
 
 ## Next Steps

@@ -88,7 +88,7 @@ let dict := new Dictionary<string, int>()
 ### NuGet Packages
 1. Create `project.yml`:
 ```yaml
-targetFramework: net9.0
+targetFramework: net10.0
 dependencies:
   - Newtonsoft.Json
   - Dapper

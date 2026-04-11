@@ -47,7 +47,7 @@ public class AnalyzerMetadataLoadContextTests
         File.WriteAllText(Path.Combine(projectDir, $"{assemblyName}.csproj"), $$"""
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>{{assemblyName}}</AssemblyName>
     <RootNamespace>Collision</RootNamespace>
     <Nullable>disable</Nullable>
@@ -72,7 +72,7 @@ public sealed class {{typeName}}
             buildResult.ExitCode == 0,
             $"stdout:{Environment.NewLine}{buildResult.Stdout}{Environment.NewLine}stderr:{Environment.NewLine}{buildResult.Stderr}");
 
-        var assemblyPath = Path.Combine(projectDir, "bin", "Debug", "net9.0", $"{assemblyName}.dll");
+        var assemblyPath = Path.Combine(projectDir, "bin", "Debug", "net10.0", $"{assemblyName}.dll");
         Assert.True(File.Exists(assemblyPath));
         return assemblyPath;
     }

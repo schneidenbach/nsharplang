@@ -24,7 +24,7 @@ public class CompilationBackendTests
 name: IlProject
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -71,7 +71,7 @@ func Greeting(): string {
 name: VersionedIlProject
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Library.nl"), """
 namespace Versioned
@@ -110,7 +110,7 @@ class Greeter {
 name: NamespaceIlProject
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "MathUtils.nl"), """
 namespace InteropLib
@@ -172,7 +172,7 @@ class Square : IShape {
 name: CurrentTypeCalls
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 class MathUtils {
@@ -221,7 +221,7 @@ func main() {
 name: RecordPrimaryCtorMembers
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 record Address(street: string, city: string, zip: string) {
@@ -265,7 +265,7 @@ func main() {
 name: RecordPrimaryCtorMembersNamespaced
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Models.nl"), """
 namespace NSharpInteropLib.Models
@@ -348,7 +348,7 @@ enum Status: string {
 name: CheckIl
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -382,7 +382,7 @@ func main() {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: LegacyBuild
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -419,7 +419,7 @@ func main() {
 name: BuildIl
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -463,7 +463,7 @@ func main() {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: BuildDefaultIl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -512,7 +512,7 @@ func main() {
 name: RunIl
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -546,7 +546,7 @@ func main() {
 name: TestIl
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             TestSdkFeed.WriteSdkResolutionFiles(tempDir);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
@@ -592,7 +592,7 @@ test "addition works" {
 name: PackIl
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 version: 1.2.3
 package:
   description: IL-backed package
@@ -624,7 +624,7 @@ class Greeter {
             Assert.True(File.Exists(packagePath));
 
             using var package = ZipFile.OpenRead(packagePath!);
-            Assert.Contains(package.Entries, entry => entry.FullName == "lib/net9.0/PackIl.dll");
+            Assert.Contains(package.Entries, entry => entry.FullName == "lib/net10.0/PackIl.dll");
         }
         finally
         {
@@ -720,7 +720,7 @@ class Greeter {
 name: RuntimeSpecificIlPublish
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -767,7 +767,7 @@ func main() {
 name: SelfContainedIlPublish
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -816,7 +816,7 @@ func main() {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: OverrideIlTests
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -860,7 +860,7 @@ test "override il tests" {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: BenchIl
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "math.bench.nl"), """
 func benchAddNumbers(): int {
@@ -913,7 +913,7 @@ class Program {
                 {
                     Name = "StubMain",
                     OutputType = "exe",
-                    TargetFramework = "net9.0"
+                    TargetFramework = "net10.0"
                 },
                 new[] { sourcePath });
 
@@ -954,7 +954,7 @@ class NotifierHub {
                 {
                     Name = "DuckStub",
                     OutputType = "library",
-                    TargetFramework = "net9.0"
+                    TargetFramework = "net10.0"
                 },
                 new[] { sourcePath });
 
@@ -977,7 +977,7 @@ class NotifierHub {
 name: TypeMainProject
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 import System
@@ -1070,7 +1070,7 @@ class Program {
         File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
 name: SharedLib
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
         File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
 func Greeting(): string {
@@ -1081,7 +1081,7 @@ func Greeting(): string {
         File.WriteAllText(Path.Combine(projectRoot, "project.yml"), """
 name: App
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 dependencies:
   - project: Shared/project.yml
   - nuget: Newtonsoft.Json

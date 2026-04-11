@@ -167,7 +167,8 @@ Exit codes:
         {
             File.WriteAllText(globalJsonPath, @"{
   ""sdk"": {
-    ""version"": ""9.0.100""
+    ""version"": ""10.0.100"",
+    ""rollForward"": ""latestFeature""
   },
   ""msbuild-sdks"": {
     ""NSharpLang.Sdk"": ""0.1.0""

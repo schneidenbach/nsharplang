@@ -25,7 +25,7 @@ Add to VS Code extension, auto-generate `.vscode/launch.json`:
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/bin/Debug/net9.0/YourApp.dll",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/YourApp.dll",
       "args": [],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",

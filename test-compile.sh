@@ -29,7 +29,7 @@ cd /tmp/test-nsharp-project
 cat > project.yml <<'EOF'
 name: TestProject
 version: 1.0.0
-targetFramework: net9.0
+targetFramework: net10.0
 outputType: exe
 EOF
 
@@ -40,7 +40,7 @@ EOF
 cat > global.json <<'EOF'
 {
   "sdk": {
-    "version": "9.0.100"
+    "version": "10.0.100"
   },
   "msbuild-sdks": {
     "NSharpLang.Sdk": "0.1.0"

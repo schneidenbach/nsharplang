@@ -23,7 +23,7 @@ name: MyApp
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ```
 
 `MyApp.csproj`
@@ -44,7 +44,7 @@ For local development against this repo, add:
 ```json
 {
   "sdk": {
-    "version": "9.0.100"
+    "version": "10.0.100"
   },
   "msbuild-sdks": {
     "NSharpLang.Sdk": "0.1.0"

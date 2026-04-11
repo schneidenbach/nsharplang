@@ -42,7 +42,7 @@ A unified, clear `references` section that supports all three types:
 ```yaml
 name: MyWebApp
 version: 1.0.0
-targetFramework: net9.0
+targetFramework: net10.0
 
 references:
   # NuGet packages (with version)
@@ -91,7 +91,7 @@ public class ProjectConfig
     public string? Version { get; set; }
     public string? Entry { get; set; }
     public string OutputType { get; set; } = "exe";
-    public string TargetFramework { get; set; } = "net9.0";
+    public string TargetFramework { get; set; } = "net10.0";
 
     /// <summary>
     /// References (NuGet packages, DLLs, projects)
@@ -336,7 +336,7 @@ public void LoadProjectReferences(ProjectConfig project, string projectDirectory
 private void LoadNuGetPackage(string packageName, string? version, string targetFramework)
 {
     // Try to find package in:
-    // 1. bin/Debug/net9.0/ (after restore)
+    // 1. bin/Debug/net10.0/ (after restore)
     // 2. ~/.nuget/packages/packagename/version/
     // 3. Load by name (runtime resolution)
 
@@ -374,8 +374,8 @@ private void LoadNuGetPackage(string packageName, string? version, string target
 
 private void LoadProjectReference(string projectPath, string targetFramework)
 {
-    // If it's a .csproj, look for bin/Debug/net9.0/ProjectName.dll
-    // If it's a project.yml (N# project), look for bin/Debug/net9.0/ProjectName.dll
+    // If it's a .csproj, look for bin/Debug/net10.0/ProjectName.dll
+    // If it's a project.yml (N# project), look for bin/Debug/net10.0/ProjectName.dll
 
     var projectDir = Path.GetDirectoryName(projectPath)!;
     var projectName = Path.GetFileNameWithoutExtension(projectPath);
@@ -496,7 +496,7 @@ public static string GenerateTemplate(string projectName)
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 # References - all external dependencies go here
 references:
@@ -575,7 +575,7 @@ public class RestoreCommand
 name: TaskManagementApi
 version: 1.0.0
 entry: Program.nl
-targetFramework: net9.0
+targetFramework: net10.0
 
 references:
   # ASP.NET Core
@@ -594,7 +594,7 @@ references:
 name: MyLibrary
 version: 2.1.0
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 
 references:
   # Project dependencies

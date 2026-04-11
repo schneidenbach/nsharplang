@@ -23,7 +23,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Restore dependencies
       run: dotnet restore
@@ -61,7 +61,7 @@ pool:
 steps:
 - task: UseDotNet@2
   inputs:
-    version: '9.0.x'
+    version: '10.0.x'
 
 - script: dotnet build
   displayName: 'Build'
@@ -75,7 +75,7 @@ steps:
 Create `.gitlab-ci.yml` in your repo:
 
 ```yaml
-image: mcr.microsoft.com/dotnet/sdk:9.0
+image: mcr.microsoft.com/dotnet/sdk:10.0
 
 stages:
   - build

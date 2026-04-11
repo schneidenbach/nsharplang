@@ -1,6 +1,6 @@
 name: MinimalApi
 version: 1.0.0
-targetFramework: net9.0
+targetFramework: net10.0
 sdk: Microsoft.NET.Sdk.Web
 entry: Program.nl
 outputType: exe

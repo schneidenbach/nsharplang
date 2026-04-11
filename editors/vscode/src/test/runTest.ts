@@ -9,7 +9,7 @@ async function main(): Promise<void> {
     const reportPath = process.env.NSHARP_VSCODE_REPORT_PATH
         ?? path.join(repoRoot, '.context', 'vscode-headless-report.json');
     const serverPath = process.env.NSHARP_VSCODE_SERVER_PATH
-        ?? path.join(repoRoot, 'src', 'NSharpLang.LanguageServer', 'bin', 'Release', 'net9.0', 'LanguageServer.dll');
+        ?? path.join(repoRoot, 'src', 'NSharpLang.LanguageServer', 'bin', 'Release', 'net10.0', 'LanguageServer.dll');
 
     if (!fs.existsSync(serverPath)) {
         throw new Error(`Language server binary not found: ${serverPath}`);
@@ -64,7 +64,7 @@ function createFixtureWorkspace(serverPath: string): string {
     fs.writeFileSync(path.join(workspaceRoot, 'project.yml'), [
         'name: HeadlessSmoke',
         'version: 1.0.0',
-        'targetFramework: net9.0',
+        'targetFramework: net10.0',
         'outputType: exe',
         'entry: Program.nl',
         ''

@@ -54,7 +54,7 @@ func main() {
             File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
 name: SharedGreeter
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "Greeter.nl"), """
 namespace SharedGreeter
@@ -69,7 +69,7 @@ class Greeter {
             File.WriteAllText(Path.Combine(appDir, "project.yml"), """
 name: ExportedApp
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 dependencies:
   - project: ../Shared/project.yml
 """);
@@ -116,7 +116,7 @@ test "shared greeter exports cleanly" {
                 buildResult.ExitCode == 0,
                 $"stdout:{Environment.NewLine}{buildResult.Stdout}{Environment.NewLine}stderr:{Environment.NewLine}{buildResult.Stderr}");
 
-            var assemblyPath = Path.Combine(bundleDir, "ExportedApp", "bin", "Debug", "net9.0", "ExportedApp.dll");
+            var assemblyPath = Path.Combine(bundleDir, "ExportedApp", "bin", "Debug", "net10.0", "ExportedApp.dll");
             Assert.True(File.Exists(assemblyPath));
             var executablePath = Path.Combine(
                 Path.GetDirectoryName(assemblyPath)!,

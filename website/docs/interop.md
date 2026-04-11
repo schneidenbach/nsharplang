@@ -62,7 +62,7 @@ Add to your `project.yml`:
 ```yaml
 name: MyApp
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - Newtonsoft.Json: 13.0.3
@@ -649,7 +649,7 @@ MySolution/
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>

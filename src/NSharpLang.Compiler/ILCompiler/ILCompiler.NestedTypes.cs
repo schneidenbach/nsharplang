@@ -284,7 +284,7 @@ public partial class ILCompiler
         {
             if (candidateType.IsInterface)
             {
-                typeBuilder.AddInterfaceImplementation(candidateType);
+                TrackInterfaceImplementation(typeBuilder,candidateType);
             }
             else if (candidateType.IsClass)
             {
@@ -323,12 +323,12 @@ public partial class ILCompiler
 
         foreach (var interfaceType in structDeclaration.Interfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
         {
-            typeBuilder.AddInterfaceImplementation(interfaceType);
+            TrackInterfaceImplementation(typeBuilder,interfaceType);
         }
 
         foreach (var duckInterface in GetMatchingDuckInterfaces(structDeclaration.Members))
         {
-            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+            TrackInterfaceImplementation(typeBuilder,ResolveDuckInterfaceType(duckInterface, genericParameters));
         }
 
         DeclareNestedTypes(typeBuilder, structDeclaration.Members, typeName);
@@ -353,7 +353,7 @@ public partial class ILCompiler
 
         foreach (var baseInterface in interfaceDeclaration.BaseInterfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
         {
-            typeBuilder.AddInterfaceImplementation(baseInterface);
+            TrackInterfaceImplementation(typeBuilder,baseInterface);
         }
 
         DeclareNestedTypes(typeBuilder, interfaceDeclaration.Members, typeName);
@@ -565,12 +565,12 @@ public partial class ILCompiler
 
         foreach (var interfaceType in recordDeclaration.Interfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
         {
-            typeBuilder.AddInterfaceImplementation(interfaceType);
+            TrackInterfaceImplementation(typeBuilder,interfaceType);
         }
 
         foreach (var duckInterface in GetMatchingDuckInterfaces(recordDeclaration.Members))
         {
-            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+            TrackInterfaceImplementation(typeBuilder,ResolveDuckInterfaceType(duckInterface, genericParameters));
         }
 
         DeclareNestedTypes(typeBuilder, recordDeclaration.Members, typeName);
