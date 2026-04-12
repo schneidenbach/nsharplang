@@ -3570,12 +3570,13 @@ func main() {
     }
 
     [Fact]
-    public async Task CodeLens_MissingDocumentReturnsNull()
+    public async Task CodeLens_MissingDocumentReturnsEmptyContainer()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
 
         var lenses = await harness.GetCodeLensesAsync("file:///nonexistent.nl");
-        Assert.Null(lenses);
+        Assert.NotNull(lenses);
+        Assert.Empty(lenses!);
     }
 
     #endregion

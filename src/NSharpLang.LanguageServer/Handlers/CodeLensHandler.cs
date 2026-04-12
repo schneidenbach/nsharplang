@@ -32,7 +32,9 @@ public class CodeLensHandler : CodeLensHandlerBase
 
         if (doc?.CompilationUnit == null)
         {
-            return Task.FromResult<CodeLensContainer?>(null);
+            // Return empty array, not null — null can cause VS Code to cache
+            // "no CodeLens support" and never re-request for this document.
+            return Task.FromResult<CodeLensContainer?>(new CodeLensContainer());
         }
 
         var lenses = new List<CodeLens>();
@@ -56,7 +58,13 @@ public class CodeLensHandler : CodeLensHandlerBase
         CodeLensCapability capability,
         ClientCapabilities clientCapabilities)
     {
-        return new CodeLensRegistrationOptions { ResolveProvider = false };
+        return new CodeLensRegistrationOptions
+        {
+            DocumentSelector = new TextDocumentSelector(
+                new TextDocumentFilter { Language = "nsharp" }
+            ),
+            ResolveProvider = false
+        };
     }
 
     private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses, string uri)
