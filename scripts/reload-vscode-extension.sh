@@ -22,17 +22,12 @@ sleep 1
 echo ""
 echo "2️⃣  Building Language Server..."
 cd "$PROJECT_ROOT"
-dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -v quiet
+dotnet publish src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o "$VSCODE_EXT_DIR/server" --self-contained false -v quiet
 
 # 3. Package VSIX
 echo ""
 echo "3️⃣  Packaging VSIX..."
 cd "$VSCODE_EXT_DIR"
-
-# Copy language server to extension
-echo "   - Copying language server..."
-mkdir -p server
-cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net9.0"/* server/ 2>/dev/null || true
 
 # Install npm dependencies (fast no-op when already up to date)
 echo "   - Installing npm dependencies..."
