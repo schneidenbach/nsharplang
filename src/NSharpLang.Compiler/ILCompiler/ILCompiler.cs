@@ -71,6 +71,7 @@ public partial class ILCompiler
     private readonly Dictionary<string, List<DeclaredMethodOverload>> _declaredMethodOverloads = new();
     private readonly Dictionary<string, List<DeclaredConstructorOverload>> _declaredConstructorOverloads = new();
     private readonly Dictionary<Type, string> _typeKeys = new();
+    private readonly Dictionary<TypeBuilder, List<Type>> _typeBuilderInterfaces = new();
     private readonly Dictionary<string, TypeReference> _typeAliases = new();
     private readonly Dictionary<string, GenericTypeParameterBuilder[]> _typeGenericParameters = new();
     private readonly Dictionary<Type, AsyncSequenceAdapterInfo> _asyncSequenceAdapters = new();
@@ -2559,6 +2560,42 @@ public partial class ILCompiler
         return false;
     }
 
+    /// <summary>
+    /// Wraps TypeBuilder.AddInterfaceImplementation and records the interface
+    /// so it can be queried before the type is created (.NET 10+ throws
+    /// NotSupportedException from TypeBuilder.GetInterfaces() on incomplete types).
+    /// </summary>
+    private void TrackInterfaceImplementation(TypeBuilder typeBuilder, Type interfaceType)
+    {
+        typeBuilder.AddInterfaceImplementation(interfaceType);
+        if (!_typeBuilderInterfaces.TryGetValue(typeBuilder, out var list))
+        {
+            list = new List<Type>();
+            _typeBuilderInterfaces[typeBuilder] = list;
+        }
+        list.Add(interfaceType);
+    }
+
+    /// <summary>
+    /// Returns interfaces for a type, using the tracked list for TypeBuilders
+    /// that haven't been created yet (safe on .NET 10+).
+    /// </summary>
+    private Type[] GetInterfacesSafe(Type type)
+    {
+        if (type is TypeBuilder tb && _typeBuilderInterfaces.TryGetValue(tb, out var tracked))
+        {
+            return tracked.ToArray();
+        }
+        try
+        {
+            return type.GetInterfaces();
+        }
+        catch (NotSupportedException)
+        {
+            return Type.EmptyTypes;
+        }
+    }
+
     private ConstructorInfo? ResolveUserDefinedConstructor(Type type)
     {
         if (!TryGetUserTypeDefinition(type, out var typeBuilder))
@@ -2717,7 +2754,7 @@ public partial class ILCompiler
         }
     }
 
-    private static bool IsParameterTypeCompatible(Type parameterType, Type argumentType)
+    private bool IsParameterTypeCompatible(Type parameterType, Type argumentType)
     {
         if (parameterType == argumentType)
         {
@@ -2756,6 +2793,15 @@ public partial class ILCompiler
         }
         catch (NotSupportedException)
         {
+            // .NET 10+ throws when calling IsAssignableFrom on incomplete TypeBuilders.
+            // Fall back to checking our tracked interface list.
+            if (parameterType.IsInterface && argumentType is TypeBuilder)
+            {
+                if (GetInterfacesSafe(argumentType).Any(i => AreTypeIdentitiesEquivalent(i, parameterType)))
+                {
+                    return true;
+                }
+            }
         }
 
         var parameterEnumUnderlyingType = TryGetEnumUnderlyingType(parameterType);
@@ -4390,7 +4436,7 @@ public partial class ILCompiler
             $"<>AsyncEnumerator_{suffix}",
             TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
             typeof(object));
-        enumeratorType.AddInterfaceImplementation(asyncEnumeratorType);
+        TrackInterfaceImplementation(enumeratorType, asyncEnumeratorType);
         _generatedHelperTypes.Add(enumeratorType);
 
         var innerField = enumeratorType.DefineField("_inner", enumeratorInterfaceType, FieldAttributes.Private | FieldAttributes.InitOnly);
@@ -4459,7 +4505,7 @@ public partial class ILCompiler
             $"<>AsyncEnumerable_{suffix}",
             TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
             typeof(object));
-        enumerableType.AddInterfaceImplementation(asyncEnumerableType);
+        TrackInterfaceImplementation(enumerableType, asyncEnumerableType);
         _generatedHelperTypes.Add(enumerableType);
 
         var sourceField = enumerableType.DefineField("_source", sourceType, FieldAttributes.Private | FieldAttributes.InitOnly);
@@ -12401,7 +12447,7 @@ public partial class ILCompiler
         {
             if (candidateType.IsInterface)
             {
-                typeBuilder.AddInterfaceImplementation(candidateType);
+                TrackInterfaceImplementation(typeBuilder, candidateType);
             }
             else if (candidateType.IsClass)
             {
@@ -12447,13 +12493,13 @@ public partial class ILCompiler
         {
             foreach (var interfaceType in structDecl.Interfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
             {
-                typeBuilder.AddInterfaceImplementation(interfaceType);
+                TrackInterfaceImplementation(typeBuilder, interfaceType);
             }
         }
 
         foreach (var duckInterface in GetMatchingDuckInterfaces(structDecl.Members))
         {
-            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+            TrackInterfaceImplementation(typeBuilder, ResolveDuckInterfaceType(duckInterface, genericParameters));
         }
 
         DeclareNestedTypes(typeBuilder, structDecl.Members, structDecl.Name);
@@ -12483,7 +12529,7 @@ public partial class ILCompiler
         {
             foreach (var baseInterface in interfaceDecl.BaseInterfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
             {
-                typeBuilder.AddInterfaceImplementation(baseInterface);
+                TrackInterfaceImplementation(typeBuilder, baseInterface);
             }
         }
 
@@ -14883,13 +14929,13 @@ public partial class ILCompiler
         {
             foreach (var interfaceType in recordDecl.Interfaces.Select(typeReference => ResolveType(typeReference, genericParameters)))
             {
-                typeBuilder.AddInterfaceImplementation(interfaceType);
+                TrackInterfaceImplementation(typeBuilder, interfaceType);
             }
         }
 
         foreach (var duckInterface in GetMatchingDuckInterfaces(recordDecl.Members))
         {
-            typeBuilder.AddInterfaceImplementation(ResolveDuckInterfaceType(duckInterface, genericParameters));
+            TrackInterfaceImplementation(typeBuilder, ResolveDuckInterfaceType(duckInterface, genericParameters));
         }
 
         DeclareNestedTypes(typeBuilder, recordDecl.Members, recordDecl.Name);

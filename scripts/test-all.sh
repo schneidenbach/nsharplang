@@ -67,7 +67,7 @@ handle_success() {
 # Change to repo root
 cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
-CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net9.0/Cli.dll"
+CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 
 section "Step 1: Clean Previous Build Artifacts"
 if [ "$CLEAN_BUILD" = "1" ]; then

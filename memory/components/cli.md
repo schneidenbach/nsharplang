@@ -38,7 +38,7 @@ Projects use `project.yml` (not .csproj properties):
 ```yaml
 name: MyApp
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 testFramework: xunit  # or "nunit"
 ```
 

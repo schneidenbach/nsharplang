@@ -19,7 +19,7 @@ cd /Users/claude/Repos/NewCLILang
 dotnet build src/LanguageServer/LanguageServer.csproj
 
 # Verify it was built
-ls -lh src/LanguageServer/bin/Debug/net9.0/LanguageServer.dll
+ls -lh src/LanguageServer/bin/Debug/net10.0/LanguageServer.dll
 ```
 
 Expected output: You should see `LanguageServer.dll` (~10-20 KB)
@@ -149,7 +149,7 @@ Options: `"off"` | `"messages"` | `"verbose"`
 
 2. Check the path exists:
    ```bash
-   ls src/LanguageServer/bin/Debug/net9.0/LanguageServer.dll
+   ls src/LanguageServer/bin/Debug/net10.0/LanguageServer.dll
    ```
 
 3. If using a custom path, verify it in settings

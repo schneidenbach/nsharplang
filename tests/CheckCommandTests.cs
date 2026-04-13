@@ -382,7 +382,7 @@ func Main() {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: LegacyCheck
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {

@@ -162,7 +162,7 @@ dotnet build
 
 **Expected Result:**
 - Build succeeds with 0 errors, 0 warnings (ideally)
-- Produces `bin/Debug/net9.0/TaskManagementApi.dll`
+- Produces `bin/Debug/net10.0/TaskManagementApi.dll`
 
 **If this fails:**
 - Examine build errors

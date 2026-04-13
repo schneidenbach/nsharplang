@@ -18,7 +18,7 @@
        is missing. The validation target in Sdk.targets will emit a clear error
        at build time if project.yml exists but project.g.props does not. -->
   <PropertyGroup>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
     <OutputType Condition="'$(OutputType)' == ''">Exe</OutputType>
     <_NSharpBaseSdk Condition="'$(_NSharpBaseSdk)' == ''">Microsoft.NET.Sdk</_NSharpBaseSdk>
   </PropertyGroup>

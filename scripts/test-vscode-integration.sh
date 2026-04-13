@@ -34,7 +34,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 # Check if Language Server is already built (e.g., by test-all.sh step 2)
-LS_DLL="src/NSharpLang.LanguageServer/bin/Debug/net9.0/LanguageServer.dll"
+LS_DLL="src/NSharpLang.LanguageServer/bin/Debug/net10.0/LanguageServer.dll"
 if [ -f "$LS_DLL" ] && [ "$SKIP_LS_BUILD" = "1" ]; then
     echo -e "${GREEN}✓ Language Server already built (skipping rebuild)${NC}"
 else

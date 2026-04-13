@@ -61,7 +61,7 @@ func main() {
 name: MyApp
 version: 1.0.0
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - nuget: Newtonsoft.Json
@@ -99,7 +99,7 @@ func main() {
 name: MyApi
 version: 1.0.0
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 sdk: Microsoft.NET.Sdk.Web
 
 dependencies:

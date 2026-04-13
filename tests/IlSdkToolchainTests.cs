@@ -23,7 +23,7 @@ public class IlSdkToolchainTests
             File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
 name: SharedLib
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "SharedLib.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
 
@@ -47,7 +47,7 @@ targetFramework: net9.0
 name: SdkIlBuild
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -65,9 +65,9 @@ func main() {
                 $"build \"{Path.Combine(tempDir, "SdkIlBuild.csproj")}\" -v q --disable-build-servers",
                 timeout: TimeSpan.FromMinutes(3)));
 
-            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net9.0", "SdkIlBuild.dll");
+            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net10.0", "SdkIlBuild.dll");
             Assert.True(File.Exists(assemblyPath));
-            Assert.True(File.Exists(Path.Combine(tempDir, "bin", "Debug", "net9.0", "SdkIlBuild.runtimeconfig.json")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "bin", "Debug", "net10.0", "SdkIlBuild.runtimeconfig.json")));
 
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir, timeout: TimeSpan.FromMinutes(3));
             Assert.Equal(0, runResult.ExitCode);
@@ -90,13 +90,13 @@ func main() {
 name: LegacySdkBuild
 backend: transpile
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             Directory.CreateDirectory(Path.Combine(tempDir, "obj"));
             File.WriteAllText(Path.Combine(tempDir, "obj", "project.g.props"), """
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <_NSharpOriginalOutputType>Exe</_NSharpOriginalOutputType>
     <AssemblyName>LegacySdkBuild</AssemblyName>
@@ -137,7 +137,7 @@ func main() {
 name: SdkIlRun
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func main() {
@@ -169,7 +169,7 @@ func main() {
 name: StubNamespaceBuild
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
             Directory.CreateDirectory(Path.Combine(tempDir, "Services"));
@@ -214,7 +214,7 @@ class ProductService {
                 $"build \"{Path.Combine(tempDir, "StubNamespaceBuild.csproj")}\" -v q --disable-build-servers",
                 timeout: TimeSpan.FromMinutes(5)));
 
-            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net9.0", "StubNamespaceBuild.dll");
+            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net10.0", "StubNamespaceBuild.dll");
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir, timeout: TimeSpan.FromMinutes(5));
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("1", runResult.Stdout);
@@ -235,7 +235,7 @@ class ProductService {
 name: StubDuckInterfaceBuild
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 namespace StubDuckInterfaceBuild
@@ -277,7 +277,7 @@ class NotifierHub {
                 $"build \"{Path.Combine(tempDir, "StubDuckInterfaceBuild.csproj")}\" -v q --disable-build-servers",
                 timeout: TimeSpan.FromMinutes(5)));
 
-            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net9.0", "StubDuckInterfaceBuild.dll");
+            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net10.0", "StubDuckInterfaceBuild.dll");
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir, timeout: TimeSpan.FromMinutes(5));
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("1", runResult.Stdout);
@@ -300,7 +300,7 @@ class NotifierHub {
 name: ControllerBaseCalls
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - framework: Microsoft.AspNetCore.App
@@ -329,7 +329,7 @@ class WeatherController : ControllerBase {
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -383,7 +383,7 @@ Console.WriteLine(string.Join(",", values));
 name: SdkIlTests
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Math.nl"), """
 func Add(a: int, b: int): int {
@@ -431,7 +431,7 @@ test "addition works" {
 name: InteropLib
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(libraryDir, "MathUtils.nl"), """
 namespace InteropLib
@@ -473,7 +473,7 @@ class Square : IShape {
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -499,7 +499,7 @@ Console.WriteLine($"{MathUtils.Add(2, 3)}:{square.Area()}");
                 $"run --project \"{Path.Combine(consumerDir, "Consumer.csproj")}\" --no-build",
                 workingDirectory: consumerDir,
                 timeout: TimeSpan.FromMinutes(5));
-            var consumerOutputDir = Path.Combine(consumerDir, "bin", "Debug", "net9.0");
+            var consumerOutputDir = Path.Combine(consumerDir, "bin", "Debug", "net10.0");
             var outputFiles = Directory.Exists(consumerOutputDir)
                 ? string.Join(Environment.NewLine, Directory.GetFiles(consumerOutputDir).OrderBy(path => path, StringComparer.Ordinal).Select(Path.GetFileName))
                 : "<missing>";
@@ -526,7 +526,7 @@ Console.WriteLine($"{MathUtils.Add(2, 3)}:{square.Area()}");
 name: InteropLib
 backend: il
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(libraryDir, "Models.nl"), """
 namespace NSharpInteropLib.Models
@@ -588,7 +588,7 @@ enum Status: string {
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

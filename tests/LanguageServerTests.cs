@@ -1813,7 +1813,7 @@ func outer(): void
         {
             File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
 name: TempRenameShadowTest
-targetFramework: net9.0
+targetFramework: net10.0
 """);
 
             var programPath = Path.Combine(tempRoot, "Program.nl");
@@ -1873,7 +1873,7 @@ func Helper(): void
 
             File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
 name: TempImportTest
-targetFramework: net9.0
+targetFramework: net10.0
 """);
 
             File.WriteAllText(Path.Combine(modelsDir, "Person.nl"), """
@@ -1923,7 +1923,7 @@ class PersonService {
         {
             File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
 name: TempInvalidImportTest
-targetFramework: net9.0
+targetFramework: net10.0
 """);
 
             var programPath = Path.Combine(tempRoot, "Program.nl");

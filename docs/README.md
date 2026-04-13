@@ -190,7 +190,7 @@ All configuration goes in `project.yml`:
 name: MyApp
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ```
 
 ## Resources

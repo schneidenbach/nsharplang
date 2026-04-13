@@ -14,7 +14,7 @@ public class DotnetRunnerTests
         Assert.Equal(0, result.ExitCode);
         Assert.False(string.IsNullOrWhiteSpace(result.Stdout),
             "Expected non-empty stdout from 'dotnet --version'");
-        // Should look like a semver — e.g. "9.0.100"
+        // Should look like a semver — e.g. "10.0.100"
         Assert.Matches(@"\d+\.\d+", result.Stdout);
     }
 

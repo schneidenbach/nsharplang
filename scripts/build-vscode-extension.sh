@@ -25,7 +25,7 @@ cd "$VSCODE_EXT_DIR"
 # Copy language server to extension
 echo "   - Copying language server..."
 mkdir -p server
-cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net9.0"/* server/ 2>/dev/null || true
+cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net10.0"/* server/ 2>/dev/null || true
 
 # Compile TypeScript
 echo "   - Compiling TypeScript..."

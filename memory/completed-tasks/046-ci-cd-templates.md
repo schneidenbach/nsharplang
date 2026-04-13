@@ -38,7 +38,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g nlc
@@ -72,7 +72,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g nlc
@@ -105,7 +105,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g nlc
@@ -132,7 +132,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Install N# CLI
       run: dotnet tool install -g nlc
@@ -162,7 +162,7 @@ steps:
 - task: UseDotNet@2
   displayName: 'Install .NET SDK'
   inputs:
-    version: '9.0.x'
+    version: '10.0.x'
 
 - script: dotnet tool install -g nlc
   displayName: 'Install N# CLI'
@@ -188,7 +188,7 @@ Create two Dockerfile templates:
 
 #### a. `Dockerfile.sdk` - For building
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:9.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 # Install N# CLI
 RUN dotnet tool install -g nlc
@@ -211,7 +211,7 @@ ENTRYPOINT ["dotnet", "run"]
 
 #### b. `Dockerfile.runtime` - For running
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build-env
 
 # Install N# CLI
 RUN dotnet tool install -g nlc
@@ -229,7 +229,7 @@ COPY . ./
 RUN dotnet publish -c Release -o out
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build-env /app/out .
 

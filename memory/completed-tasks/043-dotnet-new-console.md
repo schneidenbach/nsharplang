@@ -46,7 +46,7 @@ name: ConsoleApp
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ```
 
 ## Testing
