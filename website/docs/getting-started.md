@@ -111,7 +111,7 @@ name: MyApp
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ```
 
 To add a NuGet dependency:
@@ -121,7 +121,7 @@ name: MyApp
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - nuget: Newtonsoft.Json

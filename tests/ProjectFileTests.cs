@@ -20,7 +20,7 @@ public class ProjectFileTests
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - nuget: Newtonsoft.Json
@@ -44,7 +44,7 @@ language:
             Assert.Equal("1.0.0", config.Version);
             Assert.Equal("Program.nl", config.Entry);
             Assert.Equal("exe", config.OutputType);
-            Assert.Equal("net9.0", config.TargetFramework);
+            Assert.Equal("net10.0", config.TargetFramework);
             Assert.Equal("il", config.Backend);
             // Check dependencies (new list format)
             Assert.Equal(2, config.Dependencies.Count);
@@ -81,7 +81,7 @@ language:
             Assert.Null(config.Entry);
             Assert.Equal("il", config.Backend);
             Assert.Equal("exe", config.OutputType); // default
-            Assert.Equal("net9.0", config.TargetFramework); // default
+            Assert.Equal("net10.0", config.TargetFramework); // default
             Assert.Empty(config.Dependencies);
             Assert.Equal("ValueTask", config.Language.AsyncDefaultType); // default
         }
@@ -124,7 +124,7 @@ targetFramework: net8.0
         var yaml = @"name: IlProject
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ";
 
         var tempFile = Path.GetTempFileName();
@@ -308,7 +308,7 @@ version: 2.0.0
 
         Assert.Equal("TestProject", config.Name);
         Assert.Equal("exe", config.OutputType);
-        Assert.Equal("net9.0", config.TargetFramework);
+        Assert.Equal("net10.0", config.TargetFramework);
         Assert.Equal("il", config.Backend);
         Assert.Empty(config.Dependencies);
         Assert.Equal("ValueTask", config.Language.AsyncDefaultType);
@@ -324,7 +324,7 @@ version: 2.0.0
         Assert.Contains("entry: Program.nl", template);
         Assert.Contains("backend: il", template);
         Assert.Contains("outputType: exe", template);
-        Assert.Contains("targetFramework: net9.0", template);
+        Assert.Contains("targetFramework: net10.0", template);
         Assert.Contains("asyncDefaultType: ValueTask", template);
     }
 
@@ -629,7 +629,7 @@ dependencies:
             var yaml = @"name: MyProject
 version: 1.0.0
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 testFramework: xunit
 ";
             var projectFile = Path.Combine(tempDir, "project.yml");
@@ -654,7 +654,7 @@ testFramework: xunit
             var yaml = @"name: MyProject
 version: 1.0.0
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 testFramework: nunit
 ";
             var projectFile = Path.Combine(tempDir, "project.yml");
@@ -679,7 +679,7 @@ testFramework: nunit
             var yaml = @"name: MyProject
 version: 1.0.0
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 testFramework: mstest
 ";
             var projectFile = Path.Combine(tempDir, "project.yml");

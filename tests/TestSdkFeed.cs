@@ -17,7 +17,8 @@ internal static class TestSdkFeed
         File.WriteAllText(Path.Combine(projectDir, "global.json"), $$"""
 {
   "sdk": {
-    "version": "9.0.100"
+    "version": "10.0.100",
+    "rollForward": "latestFeature"
   },
   "msbuild-sdks": {
     "NSharpLang.Sdk": "{{Version}}"

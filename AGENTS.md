@@ -111,7 +111,7 @@ That's it! One line! Everything else is read from project.yml by the MSBuild SDK
 <Project Sdk="NSharpLang.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>  <!-- NO! This goes in project.yml -->
-    <TargetFramework>net9.0</TargetFramework>  <!-- NO! This goes in project.yml -->
+    <TargetFramework>net10.0</TargetFramework>  <!-- NO! This goes in project.yml -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>  <!-- HACK! Fix the SDK instead -->
   </PropertyGroup>
 </Project>

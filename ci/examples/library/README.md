@@ -30,7 +30,7 @@ Use `project.yml` for the N# build settings:
 name: MyAwesomeLibrary
 version: 1.0.0
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 
 dependencies:
   - package: System.Text.Json@9.0.0

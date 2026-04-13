@@ -33,7 +33,7 @@ fi
 
 echo
 echo "Step 2: Check generated C# for #line directives..."
-GEN_DIR="$PROJECT_DIR/obj/Debug/net9.0/nsharp"
+GEN_DIR="$PROJECT_DIR/obj/Debug/net10.0/nsharp"
 if [ -d "$GEN_DIR" ]; then
     GEN_FILES=$(find "$GEN_DIR" -name "*.g.cs" 2>/dev/null)
     if [ -z "$GEN_FILES" ]; then

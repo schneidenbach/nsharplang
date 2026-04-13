@@ -240,7 +240,7 @@ Add references to project configuration:
 # project.yml
 name: TaskManagementApi
 version: 1.0.0
-target: net9.0
+target: net10.0
 
 references:
   - Microsoft.AspNetCore.App

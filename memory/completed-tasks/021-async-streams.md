@@ -246,7 +246,7 @@ func async Process() {
 - **Performance**: Enables efficient async iteration without buffering
 
 ## Notes
-- Requires C# 8+ (already targeting net9.0)
+- Requires C# 8+ (already targeting net10.0)
 - `IAsyncEnumerable<T>` is in `System.Collections.Generic`
 - Works seamlessly with existing `async/await` and `yield` support
 - Can combine with cancellation tokens via `[EnumeratorCancellation]` attribute

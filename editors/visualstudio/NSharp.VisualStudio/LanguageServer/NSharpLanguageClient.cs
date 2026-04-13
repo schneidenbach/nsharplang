@@ -154,7 +154,7 @@ namespace NSharpLang.VisualStudio.LanguageServer
             while (currentDir != null)
             {
                 var langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
-                    "bin", "Debug", "net9.0", "LanguageServer.dll");
+                    "bin", "Debug", "net10.0", "LanguageServer.dll");
 
                 if (File.Exists(langServerPath))
                 {
@@ -163,7 +163,7 @@ namespace NSharpLang.VisualStudio.LanguageServer
 
                 // Also check Release
                 langServerPath = Path.Combine(currentDir.FullName, "src", "NSharpLang.LanguageServer",
-                    "bin", "Release", "net9.0", "LanguageServer.dll");
+                    "bin", "Release", "net10.0", "LanguageServer.dll");
 
                 if (File.Exists(langServerPath))
                 {

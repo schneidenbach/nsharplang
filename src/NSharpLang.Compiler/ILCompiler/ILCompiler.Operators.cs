@@ -194,7 +194,7 @@ public partial class ILCompiler
                 current = current.BaseType;
             }
 
-            if (sourceBuilder.GetInterfaces().Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetBuilder)))
+            if (GetInterfacesSafe(sourceBuilder).Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetBuilder)))
             {
                 return true;
             }
@@ -213,7 +213,7 @@ public partial class ILCompiler
                 current = current.BaseType;
             }
 
-            if (sourceBuilder.GetInterfaces().Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetType)))
+            if (GetInterfacesSafe(sourceBuilder).Any(@interface => AreTypeIdentitiesEquivalent(@interface, targetType)))
             {
                 return true;
             }
@@ -279,7 +279,7 @@ public partial class ILCompiler
         return bestMethod;
     }
 
-    private static int GetStaticMethodCandidateScore(MethodInfo candidate, IReadOnlyList<Type> argumentTypes, Type? requiredReturnType)
+    private int GetStaticMethodCandidateScore(MethodInfo candidate, IReadOnlyList<Type> argumentTypes, Type? requiredReturnType)
     {
         if (candidate.ContainsGenericParameters)
         {

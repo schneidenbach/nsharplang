@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
                     'NSharpLang.LanguageServer',
                     'bin',
                     'Debug',
-                    'net9.0',
+                    'net10.0',
                     'LanguageServer.dll'
                 );
                 if (fs.existsSync(devServerPath)) {
@@ -137,7 +137,7 @@ export function activate(context: vscode.ExtensionContext) {
                 const projectYmlPath = path.join(workspacePath, 'project.yml');
 
                 let projectName = path.basename(workspacePath);
-                let targetFramework = 'net9.0';
+                let targetFramework = 'net10.0';
                 let outputType = 'exe';
 
                 if (fs.existsSync(projectYmlPath)) {
@@ -251,7 +251,7 @@ async function generateDebugConfig() {
     // Read project.yml to get project name and target framework
     const projectYmlPath = path.join(workspacePath, 'project.yml');
     let projectName = path.basename(workspacePath);
-    let targetFramework = 'net9.0';
+    let targetFramework = 'net10.0';
     let outputType = 'exe';
 
     if (fs.existsSync(projectYmlPath)) {

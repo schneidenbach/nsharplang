@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <PackageId>NSharpLang.Sdk</PackageId>
     <Version>0.1.0</Version>
     <Authors>N# Team</Authors>
@@ -24,9 +24,9 @@
 
   <!-- Include the build tasks DLL and dependencies -->
   <ItemGroup>
-    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
-    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/Compiler.dll" Pack="true" PackagePath="tools/" />
-    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net9.0/YamlDotNet.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/Compiler.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/YamlDotNet.dll" Pack="true" PackagePath="tools/" />
   </ItemGroup>
 
   <!-- Reference the build tasks project to ensure it builds first -->

@@ -8004,7 +8004,7 @@ public class Analyzer : IDisposable
     private void LoadNuGetPackage(string packageName, string? version, string targetFramework, string projectDirectory)
     {
         // Try to find package in:
-        // 1. bin/Debug/net9.0/ (after restore)
+        // 1. bin/Debug/net10.0/ (after restore)
         // 2. ~/.nuget/packages/packagename/version/
         // 3. Load by name (runtime resolution)
 
@@ -8031,6 +8031,7 @@ public class Analyzer : IDisposable
                 var possiblePaths = new[]
                 {
                     Path.Combine(versionDir, "lib", targetFramework, $"{packageName}.dll"),
+                    Path.Combine(versionDir, "lib", "net10.0", $"{packageName}.dll"),
                     Path.Combine(versionDir, "lib", "net9.0", $"{packageName}.dll"),
                     Path.Combine(versionDir, "lib", "net8.0", $"{packageName}.dll"),
                     Path.Combine(versionDir, "lib", "netstandard2.1", $"{packageName}.dll"),
@@ -8219,7 +8220,7 @@ public class Analyzer : IDisposable
     /// </summary>
     internal sealed class NSharpMetadataResolver : MetadataAssemblyResolver
     {
-        private static readonly string[] Tfms = { "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
+        private static readonly string[] Tfms = { "net10.0", "net9.0", "net8.0", "net7.0", "net6.0", "netstandard2.1", "netstandard2.0" };
 
         private readonly List<string> _searchDirectories = new();
 

@@ -14,7 +14,7 @@ public class AnalyzerTests
     private static readonly ProjectConfig AspNetCoreConfig = new()
     {
         Sdk = "Microsoft.NET.Sdk.Web",
-        TargetFramework = "net9.0",
+        TargetFramework = "net10.0",
         // For tests, we'll rely on the Sdk="Web" to trigger loading ASP.NET assemblies
         // The LoadFromProjectConfig method will load these automatically
     };

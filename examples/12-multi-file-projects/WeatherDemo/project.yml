@@ -1,7 +1,7 @@
 name: WeatherDemo
 version: 1.0.0
 entry: Program.nl
-targetFramework: net9.0
+targetFramework: net10.0
 
 language:
   asyncDefaultType: ValueTask

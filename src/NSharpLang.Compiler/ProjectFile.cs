@@ -40,9 +40,9 @@ public class ProjectConfig
     public string OutputType { get; set; } = "exe";
 
     /// <summary>
-    /// Target framework (e.g., "net8.0", "net9.0")
+    /// Target framework (e.g., "net8.0", "net10.0")
     /// </summary>
-    public string TargetFramework { get; set; } = "net9.0";
+    public string TargetFramework { get; set; } = "net10.0";
 
     /// <summary>
     /// SDK type: "Microsoft.NET.Sdk" or "Microsoft.NET.Sdk.Web"
@@ -490,7 +490,7 @@ public class ProjectFileParser
             Name = projectName,
             Backend = CompilationBackend.Il.ToConfigValue(),
             OutputType = "exe",
-            TargetFramework = "net9.0",
+            TargetFramework = "net10.0",
             Language = new LanguageConfig()
         };
     }
@@ -576,7 +576,7 @@ version: 1.0.0
 entry: Program.nl
 backend: il
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 
 # Test framework: xunit (default) or nunit
 # testFramework: xunit

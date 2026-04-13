@@ -19,7 +19,7 @@ public class LoadProjectConfig : Task
     public string ProjectDirectory { get; set; } = string.Empty;
 
     /// <summary>
-    /// Output: Target framework from project.yml (e.g., "net9.0")
+    /// Output: Target framework from project.yml (e.g., "net10.0")
     /// </summary>
     [Output]
     public string TargetFramework { get; set; } = string.Empty;
@@ -155,7 +155,7 @@ public class LoadProjectConfig : Task
 
     private void SetDefaults()
     {
-        TargetFramework = "net9.0";
+        TargetFramework = "net10.0";
         OutputType = "Exe";
         AssemblyName = Path.GetFileName(ProjectDirectory);
         Sdk = "Microsoft.NET.Sdk";

@@ -742,7 +742,7 @@ func Main() {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: TestProject
 outputType: library
-targetFramework: net9.0
+targetFramework: net10.0
 """);
             // Source file with a type error the analyzer catches
             File.WriteAllText(Path.Combine(tempDir, "Lib.nl"), """

@@ -42,7 +42,7 @@ Update MSBuild task to auto-detect project.yml:
 ```yaml
 name: MyApp
 version: 1.0.0
-targetFramework: net9.0
+targetFramework: net10.0
 outputType: exe
 entry: Program.nl
 
@@ -58,7 +58,7 @@ dependencies:
 cat > project.yml <<EOF
 name: MyApp
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 entry: Program.nl
 EOF
 
@@ -96,7 +96,7 @@ dotnet run
 <Project Sdk="NSharpLang.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 </Project>
 ```
@@ -107,7 +107,7 @@ name: MyApp
 version: 1.0.0
 entry: Program.nl
 outputType: exe
-targetFramework: net9.0
+targetFramework: net10.0
 ```
 
 Then just: `dotnet build && dotnet run`

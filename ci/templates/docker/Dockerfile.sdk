@@ -2,7 +2,7 @@
 # Use this for development and building N# applications
 # Size: ~1.5GB (includes full SDK)
 
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS base
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS base
 
 # Install N# CLI tools
 RUN dotnet tool install -g NSharpLang.Cli && \
