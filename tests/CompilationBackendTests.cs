@@ -460,6 +460,7 @@ func main() {
 
         try
         {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: BuildDefaultIl
 outputType: exe
