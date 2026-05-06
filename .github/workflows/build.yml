@@ -22,18 +22,18 @@ jobs:
       run: dotnet restore
 
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore -c Release
 
     - name: Pack SDK to local feed
       run: |
         mkdir -p ~/.nuget/local-feed
-        dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o ~/.nuget/local-feed --no-build
+        dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o ~/.nuget/local-feed --no-build -c Release
 
     - name: Test
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test --no-build -c Release --verbosity normal
 
     - name: Pack CLI
-      run: dotnet pack src/NSharpLang.Cli/Cli.csproj -o artifacts/nuget --no-build
+      run: dotnet pack src/NSharpLang.Cli/Cli.csproj -o artifacts/nuget --no-build -c Release
 
     - name: Install nlc
       run: dotnet tool install --global NSharpLang.Cli --no-cache --add-source artifacts/nuget
