@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-03-29
+Updated: 2026-05-06
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -16,6 +16,7 @@ Updated: 2026-03-29
 | `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
+| `nlc convert` | Convert C# source syntax to N# | `--file`, `--dir`, `--stdin`, `--output`, `--dry-run` | `nlc convert --file Program.cs -o Program.nl` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -64,9 +65,23 @@ nlc watch test --filter "should add"
 # Documentation and automation
 nlc doc --json
 nlc export csharp --project . --output ./myapp-csharp
+nlc convert --dir ./src --output ./src-nl
 nlc query inspect --summary --file Program.nl --pos 42:7
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
+
+## C# Conversion
+
+`nlc convert` is the migration entry point for C# input. It uses Roslyn for parsing and emits deterministic N# syntax for common C# declarations and statements:
+
+```bash
+nlc convert --file Program.cs --output Program.nl
+nlc convert --dir ./src --output ./src-nl
+nlc convert --file Program.cs --dry-run
+cat Program.cs | nlc convert --stdin
+```
+
+Unsupported constructs are preserved as `TODO(nlc convert)` comments and stderr diagnostics so manual cleanup is explicit rather than silent.
 
 ## Exit Codes
 
@@ -78,6 +93,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 | `lint` | No issues | At least one issue was reported |
 | `check` | No errors | Errors present or analysis failed |
 | `fix` | Success | Failure, or `--dry-run` found pending fixes |
+| `convert` | Conversion completed with no manual-review diagnostics | Conversion failed or emitted manual-review diagnostics |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 

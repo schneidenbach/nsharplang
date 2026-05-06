@@ -52,6 +52,79 @@ public class CliCommandTests
     }
 
     [Fact]
+    public void ConvertCommand_Help_IsSideEffectFree()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ConvertCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Usage:", stdout);
+        Assert.Contains("nlc convert --file", stdout);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+    }
+
+    [Fact]
+    public void ConvertCommand_Stdin_ConvertsCommonCSharpSyntax()
+    {
+        const string source = """
+using System;
+
+namespace Demo;
+
+public class Greeter
+{
+    public string Name { get; set; } = "world";
+
+    public void SayHello()
+    {
+        var message = $"Hello, {Name}!";
+        Console.WriteLine(message);
+    }
+}
+""";
+
+        var (exitCode, stdout, stderr) = CaptureConsole(
+            () => ConvertCommand.Execute(new[] { "--stdin" }),
+            source);
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("namespace Demo", stdout);
+        Assert.Contains("import System", stdout);
+        Assert.Contains("class Greeter", stdout);
+        Assert.Contains("Name: string = \"world\"", stdout);
+        Assert.Contains("func SayHello()", stdout);
+        Assert.Contains("message := $\"Hello, {Name}!\"", stdout);
+        Assert.Contains("print message", stdout);
+    }
+
+    [Fact]
+    public void ConvertCommand_File_WritesOutputFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-convert-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sourceFile = Path.Combine(tempDir, "Program.cs");
+            var outputFile = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourceFile, "public class Program { public static int Add(int left, int right) { return left + right; } }");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ConvertCommand.Execute(new[] { "--file", sourceFile, "--output", outputFile }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Converted", stdout);
+            var converted = File.ReadAllText(outputFile);
+            Assert.Contains("static func Add(left: int, right: int): int", converted);
+            Assert.Contains("return left + right", converted);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void FixCommand_DryRun_DefaultsToJsonEnvelope()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-fix-{Guid.NewGuid():N}");
@@ -506,15 +579,18 @@ func Main() {
         Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Circle");
     }
 
-    private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action)
+    private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)
     {
         var originalOut = Console.Out;
         var originalError = Console.Error;
+        var originalIn = Console.In;
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
+        using var input = new StringReader(stdin ?? string.Empty);
 
         Console.SetOut(stdout);
         Console.SetError(stderr);
+        Console.SetIn(input);
 
         try
         {
@@ -525,6 +601,7 @@ func Main() {
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
+            Console.SetIn(originalIn);
         }
     }
 

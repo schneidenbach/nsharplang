@@ -1656,6 +1656,150 @@ func main(args: string[]): bool {
     }
 
     [Fact]
+    public void ILCompiler_CanBindRuntimeExpressionTreeLambdaForGenericFluentChains()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<RuntimeExpressionEntity>(entity => {
+        entity.Property(e => e.Id).ValueGeneratedOnAdd()
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(int).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<RuntimeExpressionEntity>(entity => {
+        entity.HasKey(e => new() { Id: e.Id, OtherId: e.OtherId })
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Contains("<>f__AnonymousType", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExpressionTreeRelationshipFluentChains()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<RuntimeExpressionEntity>(entity => {
+        entity.HasOne(e => e.Related).WithMany(r => r.Entities).HasConstraintName(""fk"")
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Contains("RuntimeReferenceCollectionBuilder", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExpressionTreeRelationshipFluentChainsOverEmittedTypes()
+    {
+        var source = @"
+import System.Collections.Generic
+import NSharpLang.Tests
+
+class LocalEntity {
+    Id: int
+    Related: LocalRelated?
+}
+
+class LocalRelated {
+    Entities: ICollection<LocalEntity> = new List<LocalEntity>()
+}
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<LocalEntity>(entity => {
+        entity.HasOne(e => e.Related).WithMany(r => r.Entities).HasConstraintName(""fk"")
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Contains("RuntimeReferenceCollectionBuilder", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExpressionTreeReferenceRelationshipFluentChains()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<RuntimeExpressionEntity>(entity => {
+        entity.HasOne(e => e.Related)
+            .WithOne(r => r.Entity)
+            .HasPrincipalKey<RuntimeRelatedExpressionEntity>(r => r.PrincipalId)
+            .HasForeignKey<RuntimeExpressionEntity>(e => e.Id)
+            .OnDelete(ILCompilerCallMode.Fast)
+            .HasConstraintName(""fk"")
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Contains("RuntimeReferenceReferenceBuilder", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindExpressionTreeReferenceRelationshipFluentChainsOverEmittedTypes()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+class LocalReferenceEntity {
+    Id: int
+    Related: LocalReferenceRelated?
+}
+
+class LocalReferenceRelated {
+    Entity: LocalReferenceEntity?
+    PrincipalId: int
+}
+
+func main(): string {
+    builder := new RuntimeExpressionModelBuilder()
+    builder.Entity<LocalReferenceEntity>(entity => {
+        entity.HasOne(e => e.Related)
+            .WithOne(r => r.Entity)
+            .HasPrincipalKey<LocalReferenceRelated>(r => r.PrincipalId)
+            .HasForeignKey<LocalReferenceEntity>(e => e.Id)
+            .OnDelete(ILCompilerCallMode.Fast)
+            .HasConstraintName(""fk"")
+    })
+
+    return builder.LastPropertyTypeName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Contains("RuntimeReferenceReferenceBuilder", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanLiftCapturedParametersTypedAsRuntimeGenericsOverEmittedTypes()
     {
         var source = @"

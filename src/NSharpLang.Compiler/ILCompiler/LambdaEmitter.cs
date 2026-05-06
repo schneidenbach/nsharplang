@@ -20,6 +20,12 @@ public partial class ILCompiler
         if (_currentIL == null || _programType == null || _moduleBuilder == null)
             throw new InvalidOperationException("No IL generator context");
 
+        if (_expectedExpressionType != null && TryGetExpressionTreeDelegateType(_expectedExpressionType, out var expressionDelegateType))
+        {
+            EmitExpressionTreeLambda(lambda, _expectedExpressionType, expressionDelegateType);
+            return;
+        }
+
         // Analyze lambda to determine if it captures variables
         var capturedVariables = AnalyzeCapturedVariables(lambda);
 
@@ -734,11 +740,16 @@ public partial class ILCompiler
         MethodInfo? expectedInvokeMethod = null;
         Type[]? expectedParameterTypes = null;
         Type? expectedReturnType = null;
-        if (_expectedExpressionType != null && TryGetDelegateInvokeMethod(_expectedExpressionType, out var invokeMethod))
+        var expectedDelegateType = _expectedExpressionType != null
+            && TryGetExpressionTreeDelegateType(_expectedExpressionType, out var expressionDelegateType)
+                ? expressionDelegateType
+                : _expectedExpressionType;
+
+        if (expectedDelegateType != null && TryGetDelegateInvokeMethod(expectedDelegateType, out var invokeMethod) && invokeMethod != null)
         {
             expectedInvokeMethod = invokeMethod;
-            expectedParameterTypes = GetDelegateInvokeParameterTypes(_expectedExpressionType, invokeMethod);
-            expectedReturnType = GetDelegateInvokeReturnType(_expectedExpressionType, invokeMethod);
+            expectedParameterTypes = GetDelegateInvokeParameterTypes(expectedDelegateType, invokeMethod);
+            expectedReturnType = GetDelegateInvokeReturnType(expectedDelegateType, invokeMethod);
         }
 
         var canUseExpectedParameters = expectedParameterTypes != null && expectedParameterTypes.Length == lambda.Parameters.Count;
@@ -750,7 +761,7 @@ public partial class ILCompiler
 
             if (hasExplicitType)
             {
-                return ResolveType(parameter.Type, _currentGenericParameters);
+                return ResolveType(parameter.Type!, _currentGenericParameters);
             }
 
             if (canUseExpectedParameters)
@@ -924,5 +935,304 @@ public partial class ILCompiler
                     _currentIL.Emit(OpCodes.Ldarg, index);
                 break;
         }
+    }
+
+    private void EmitExpressionTreeLambda(LambdaExpression lambda, Type expressionType, Type delegateType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (!TryGetDelegateInvokeMethod(delegateType, out var invokeMethod) || invokeMethod == null)
+        {
+            throw new InvalidOperationException($"Could not resolve Invoke for expression-tree delegate {delegateType}");
+        }
+
+        var parameterTypes = GetDelegateInvokeParameterTypes(delegateType, invokeMethod);
+        if (parameterTypes.Length != lambda.Parameters.Count)
+        {
+            throw new InvalidOperationException($"Lambda parameter count does not match expression-tree delegate {delegateType}");
+        }
+
+        var returnType = GetDelegateInvokeReturnType(delegateType, invokeMethod);
+        var parameterLocals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal);
+        var parameterClrTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
+        var parameterExpressionType = typeof(System.Linq.Expressions.ParameterExpression);
+
+        for (int i = 0; i < lambda.Parameters.Count; i++)
+        {
+            var parameter = lambda.Parameters[i];
+            var parameterLocal = _currentIL.DeclareLocal(parameterExpressionType);
+            EmitRuntimeTypeOf(parameterTypes[i]);
+            _currentIL.Emit(OpCodes.Ldstr, parameter.Name);
+            _currentIL.Emit(OpCodes.Call, ResolveExpressionParameterMethod());
+            _currentIL.Emit(OpCodes.Stloc, parameterLocal);
+            parameterLocals[parameter.Name] = parameterLocal;
+            parameterClrTypes[parameter.Name] = parameterTypes[i];
+        }
+
+        if (lambda.ExpressionBody == null)
+        {
+            throw new NotSupportedException("Expression-tree lambdas with block bodies are not supported by the IL backend yet");
+        }
+
+        EmitExpressionTreeNode(lambda.ExpressionBody, parameterLocals, parameterClrTypes, returnType);
+        var bodyType = GetExpressionTreeNodeClrType(lambda.ExpressionBody, parameterClrTypes);
+        if (returnType != typeof(void)
+            && bodyType != returnType
+            && bodyType.IsValueType
+            && IsParameterTypeCompatible(returnType, bodyType))
+        {
+            EmitRuntimeTypeOf(returnType);
+            _currentIL.Emit(OpCodes.Call, ResolveExpressionConvertMethod());
+        }
+
+        _currentIL.Emit(OpCodes.Ldc_I4, lambda.Parameters.Count);
+        _currentIL.Emit(OpCodes.Newarr, parameterExpressionType);
+        for (int i = 0; i < lambda.Parameters.Count; i++)
+        {
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, i);
+            _currentIL.Emit(OpCodes.Ldloc, parameterLocals[lambda.Parameters[i].Name]);
+            _currentIL.Emit(OpCodes.Stelem_Ref);
+        }
+
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionLambdaMethod(delegateType));
+        if (_expectedExpressionType != null && expressionType != _expectedExpressionType)
+        {
+            EmitValueCoercion(expressionType, _expectedExpressionType, allowExplicitUserDefinedConversions: false);
+        }
+    }
+
+    private void EmitExpressionTreeNode(
+        Expression expression,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        Type expectedType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        switch (expression)
+        {
+            case IdentifierExpression identifier when parameterLocals.TryGetValue(identifier.Name, out var parameterLocal):
+                _currentIL.Emit(OpCodes.Ldloc, parameterLocal);
+                return;
+
+            case MemberAccessExpression memberAccess:
+                EmitExpressionTreeNode(memberAccess.Object, parameterLocals, parameterClrTypes, typeof(object));
+                _currentIL.Emit(OpCodes.Ldstr, memberAccess.MemberName);
+                _currentIL.Emit(OpCodes.Call, ResolveExpressionPropertyOrFieldMethod());
+                return;
+
+            case ParenthesizedExpression parenthesized:
+                EmitExpressionTreeNode(parenthesized.Inner, parameterLocals, parameterClrTypes, expectedType);
+                return;
+
+            case UnaryExpression unary when unary.Operator == UnaryOperator.Not:
+                EmitExpressionTreeNode(unary.Operand, parameterLocals, parameterClrTypes, typeof(bool));
+                _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(nameof(System.Linq.Expressions.Expression.Not)));
+                return;
+
+            case NewExpression newExpression when IsAnonymousObjectCreation(newExpression):
+                EmitAnonymousObjectExpressionTreeNode(newExpression, parameterLocals, parameterClrTypes);
+                return;
+
+            default:
+                throw new NotSupportedException($"Expression-tree lambda body '{expression.GetType().Name}' is not supported by the IL backend yet");
+        }
+    }
+
+    private Type GetExpressionTreeNodeClrType(
+        Expression expression,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier when parameterClrTypes.TryGetValue(identifier.Name, out var parameterType) => parameterType,
+            ParenthesizedExpression parenthesized => GetExpressionTreeNodeClrType(parenthesized.Inner, parameterClrTypes),
+            MemberAccessExpression memberAccess => ResolveExpressionTreeMemberType(memberAccess, parameterClrTypes),
+            _ => GetExpressionType(expression)
+        };
+    }
+
+    private Type ResolveExpressionTreeMemberType(
+        MemberAccessExpression memberAccess,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
+        if (receiverType is TypeBuilder receiverTypeBuilder)
+        {
+            if (_fields.TryGetValue(GetFieldKey(receiverTypeBuilder, memberAccess.MemberName), out var fieldBuilder))
+            {
+                return fieldBuilder.FieldType;
+            }
+
+            if (_methods.TryGetValue(GetMethodKey(receiverTypeBuilder, $"get_{memberAccess.MemberName}"), out var getterMethod))
+            {
+                return getterMethod.ReturnType;
+            }
+        }
+
+        var runtimeProperty = ResolveRuntimeProperty(
+            receiverType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (runtimeProperty != null)
+        {
+            return runtimeProperty.PropertyType;
+        }
+
+        var field = ResolveRuntimeField(
+            receiverType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        return field?.FieldType ?? typeof(object);
+    }
+
+    private void EmitAnonymousObjectExpressionTreeNode(
+        NewExpression newExpression,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var anonymousType = GetAnonymousObjectType(
+            newExpression,
+            expression => GetExpressionTreeNodeClrType(expression, parameterClrTypes));
+        var constructor = _constructors[GetConstructorKey(anonymousType)];
+        var properties = newExpression.Initializer!.Properties;
+
+        EmitRuntimeConstructorInfo(constructor);
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionNewMethod());
+
+        _currentIL.Emit(OpCodes.Ldc_I4, properties.Count);
+        _currentIL.Emit(OpCodes.Newarr, typeof(System.Linq.Expressions.MemberBinding));
+        for (int i = 0; i < properties.Count; i++)
+        {
+            var property = properties[i];
+            var setter = _methods[GetMethodKey(anonymousType, $"set_{property.Name}")];
+
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, i);
+            EmitRuntimeMethodInfo(setter);
+            EmitExpressionTreeNode(
+                property.Value,
+                parameterLocals,
+                parameterClrTypes,
+                GetExpressionTreeNodeClrType(property.Value, parameterClrTypes));
+            _currentIL.Emit(OpCodes.Call, ResolveExpressionBindMethod());
+            _currentIL.Emit(OpCodes.Stelem_Ref);
+        }
+
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionMemberInitMethod());
+    }
+
+    private void EmitRuntimeTypeOf(Type type)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        _currentIL.Emit(OpCodes.Ldtoken, type);
+        _currentIL.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle))!);
+    }
+
+    private void EmitRuntimeConstructorInfo(ConstructorInfo constructor)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        EmitRuntimeTypeOf(constructor.DeclaringType ?? throw new InvalidOperationException("Constructor has no declaring type"));
+        _currentIL.Emit(OpCodes.Ldsfld, typeof(Type).GetField(nameof(Type.EmptyTypes))!);
+        _currentIL.Emit(OpCodes.Callvirt, typeof(Type).GetMethod(
+            nameof(Type.GetConstructor),
+            new[] { typeof(Type[]) })!);
+    }
+
+    private void EmitRuntimeMethodInfo(MethodInfo method)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        EmitRuntimeTypeOf(method.DeclaringType ?? throw new InvalidOperationException("Method has no declaring type"));
+        _currentIL.Emit(OpCodes.Ldstr, method.Name);
+        _currentIL.Emit(OpCodes.Callvirt, typeof(Type).GetMethod(
+            nameof(Type.GetMethod),
+            new[] { typeof(string) })!);
+    }
+
+    private static MethodInfo ResolveExpressionParameterMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Parameter),
+            new[] { typeof(Type), typeof(string) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Parameter(Type, string)");
+
+    private static MethodInfo ResolveExpressionPropertyOrFieldMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.PropertyOrField),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(string) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.PropertyOrField(Expression, string)");
+
+    private static MethodInfo ResolveExpressionConvertMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Convert),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(Type) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Convert(Expression, Type)");
+
+    private static MethodInfo ResolveExpressionNewMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.New),
+            new[] { typeof(ConstructorInfo) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.New(ConstructorInfo)");
+
+    private static MethodInfo ResolveExpressionBindMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Bind),
+            new[] { typeof(MethodInfo), typeof(System.Linq.Expressions.Expression) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Bind(MethodInfo, Expression)");
+
+    private static MethodInfo ResolveExpressionMemberInitMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.MemberInit),
+            new[] { typeof(System.Linq.Expressions.NewExpression), typeof(System.Linq.Expressions.MemberBinding[]) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.MemberInit(NewExpression, MemberBinding[])");
+
+    private static MethodInfo ResolveUnaryExpressionMethod(string methodName)
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            methodName,
+            new[] { typeof(System.Linq.Expressions.Expression) })
+        ?? throw new InvalidOperationException($"Could not resolve Expression.{methodName}(Expression)");
+
+    private static MethodInfo ResolveExpressionLambdaMethod(Type delegateType)
+    {
+        var lambdaMethod = typeof(System.Linq.Expressions.Expression)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .FirstOrDefault(method =>
+            {
+                if (method.Name != nameof(System.Linq.Expressions.Expression.Lambda) || !method.IsGenericMethodDefinition)
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 2
+                    && parameters[0].ParameterType == typeof(System.Linq.Expressions.Expression)
+                    && parameters[1].ParameterType == typeof(System.Linq.Expressions.ParameterExpression[]);
+            });
+
+        return (lambdaMethod ?? throw new InvalidOperationException("Could not resolve Expression.Lambda<TDelegate>(Expression, ParameterExpression[])"))
+            .MakeGenericMethod(delegateType);
     }
 }

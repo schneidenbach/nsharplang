@@ -48,6 +48,9 @@ public partial class ILCompiler
     }
 
     private Type GetAnonymousObjectType(NewExpression newExpr)
+        => GetAnonymousObjectType(newExpr, GetExpressionType);
+
+    private Type GetAnonymousObjectType(NewExpression newExpr, Func<Expression, Type> getPropertyType)
     {
         if (_moduleBuilder == null)
         {
@@ -60,7 +63,7 @@ public partial class ILCompiler
         }
 
         var properties = newExpr.Initializer!.Properties
-            .Select(property => (Name: property.Name!, Type: GetExpressionType(property.Value)))
+            .Select(property => (Name: property.Name!, Type: getPropertyType(property.Value)))
             .ToArray();
         var shapeKey = string.Join(
             "|",

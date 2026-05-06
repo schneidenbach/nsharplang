@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace NSharpLang.Tests;
 
@@ -94,6 +95,132 @@ public static class RuntimeCoverageMetadata
     public static ILCompilerCallMode DefaultMode => ILCompilerCallMode.Fast;
 
     public static AttributeTargets SupportedTargets => AttributeTargets.Class | AttributeTargets.Struct;
+}
+
+public sealed class RuntimeExpressionEntity
+{
+    public int Id { get; set; }
+
+    public int OtherId { get; set; }
+
+    public RuntimeRelatedExpressionEntity Related { get; set; } = new();
+
+    public string Name { get; set; } = "";
+}
+
+public sealed class RuntimeRelatedExpressionEntity
+{
+    public ICollection<RuntimeExpressionEntity> Entities { get; set; } = new List<RuntimeExpressionEntity>();
+
+    public RuntimeExpressionEntity? Entity { get; set; }
+
+    public int PrincipalId { get; set; }
+}
+
+public sealed class RuntimeExpressionModelBuilder
+{
+    public string LastPropertyTypeName { get; private set; } = "";
+
+    public void Entity<TEntity>(Action<RuntimeExpressionEntityBuilder<TEntity>> build)
+    {
+        build(new RuntimeExpressionEntityBuilder<TEntity>(this));
+    }
+
+    internal void RecordProperty(Type propertyType)
+    {
+        LastPropertyTypeName = propertyType.FullName ?? propertyType.Name;
+    }
+}
+
+public sealed class RuntimeExpressionEntityBuilder<TEntity>(RuntimeExpressionModelBuilder owner)
+{
+    public RuntimeExpressionPropertyBuilder<TProperty> Property<TProperty>(Expression<Func<TEntity, TProperty>> property)
+    {
+        owner.RecordProperty(typeof(TProperty));
+        return new RuntimeExpressionPropertyBuilder<TProperty>();
+    }
+
+    public RuntimeExpressionEntityBuilder<TEntity> HasKey(Expression<Func<TEntity, object>> key)
+    {
+        owner.RecordProperty(key.Body.Type);
+        return this;
+    }
+
+    public RuntimeReferenceNavigationBuilder<TEntity, TRelatedEntity> HasOne<TRelatedEntity>(
+        Expression<Func<TEntity, TRelatedEntity>> navigation)
+    {
+        return new RuntimeReferenceNavigationBuilder<TEntity, TRelatedEntity>(owner);
+    }
+}
+
+public sealed class RuntimeReferenceNavigationBuilder<TEntity, TRelatedEntity>(RuntimeExpressionModelBuilder owner)
+{
+    public RuntimeReferenceCollectionBuilder<TRelatedEntity, TEntity> WithMany(
+        Expression<Func<TRelatedEntity, IEnumerable<TEntity>>> navigation)
+    {
+        return new RuntimeReferenceCollectionBuilder<TRelatedEntity, TEntity>(owner);
+    }
+
+    public RuntimeReferenceReferenceBuilder<TRelatedEntity, TEntity> WithOne(
+        Expression<Func<TRelatedEntity, TEntity>> navigation)
+    {
+        return new RuntimeReferenceReferenceBuilder<TRelatedEntity, TEntity>(owner);
+    }
+}
+
+public sealed class RuntimeReferenceCollectionBuilder<TEntity, TRelatedEntity>(RuntimeExpressionModelBuilder owner)
+{
+    public RuntimeReferenceCollectionBuilder<TEntity, TRelatedEntity> HasPrincipalKey<TPrincipalEntity>(
+        Expression<Func<TPrincipalEntity, object>> keyExpression)
+    {
+        return this;
+    }
+
+    public RuntimeReferenceCollectionBuilder<TEntity, TRelatedEntity> HasForeignKey<TDependentEntity>(
+        Expression<Func<TDependentEntity, object>> keyExpression)
+    {
+        return this;
+    }
+
+    public RuntimeReferenceCollectionBuilder<TEntity, TRelatedEntity> HasConstraintName(string name)
+    {
+        owner.RecordProperty(typeof(RuntimeReferenceCollectionBuilder<TEntity, TRelatedEntity>));
+        return this;
+    }
+}
+
+public sealed class RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity>(RuntimeExpressionModelBuilder owner)
+{
+    public RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity> HasPrincipalKey<TPrincipalEntity>(
+        Expression<Func<TPrincipalEntity, object>> keyExpression)
+    {
+        return this;
+    }
+
+    public RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity> HasForeignKey<TDependentEntity>(
+        Expression<Func<TDependentEntity, object>> keyExpression)
+    {
+        return this;
+    }
+
+    public RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity> OnDelete(ILCompilerCallMode? mode)
+    {
+        return this;
+    }
+
+    public RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity> HasConstraintName(string name)
+    {
+        owner.RecordProperty(typeof(RuntimeReferenceReferenceBuilder<TEntity, TRelatedEntity>));
+        return this;
+    }
+}
+
+public sealed class RuntimeExpressionPropertyBuilder<TProperty>
+{
+    public RuntimeExpressionPropertyBuilder<TProperty> ValueGeneratedOnAdd()
+    {
+        return this;
+    }
 }
 
 public sealed class RuntimeCoverageBag : IEnumerable<int>
