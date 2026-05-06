@@ -7,6 +7,7 @@ using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using NSharpLang.Compiler.Ast;
 using BlobBuilder = System.Reflection.Metadata.BlobBuilder;
 using MetadataTokens = System.Reflection.Metadata.Ecma335.MetadataTokens;
@@ -85,6 +86,7 @@ public partial class ILCompiler
     private readonly Dictionary<Type, MethodInfo> _delegateInvokeMethods = new();
     private readonly HashSet<string> _typesBeingDeclared = new(StringComparer.Ordinal);
     private readonly HashSet<string> _attemptedAssemblyNameLoads = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _attemptedNuGetPackageLoads = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loadedSharedFrameworks = new(StringComparer.OrdinalIgnoreCase);
     private TypeBuilder? _currentTypeBuilder;
     private int _asyncSequenceAdapterCounter = 0;
@@ -202,6 +204,12 @@ public partial class ILCompiler
                 continue;
             }
 
+            if (reference.Type == ReferenceType.NuGet && !string.IsNullOrWhiteSpace(reference.Nuget))
+            {
+                TryLoadNuGetAssembly(reference.Nuget, reference.Version);
+                continue;
+            }
+
             if (reference.Type != ReferenceType.Dll || string.IsNullOrWhiteSpace(reference.Dll))
             {
                 continue;
@@ -219,6 +227,125 @@ public partial class ILCompiler
             }
 
             TryLoadAssembly(assemblyPath);
+        }
+    }
+
+    private void TryLoadNuGetAssembly(string packageName, string? version)
+    {
+        var packageKey = $"{packageName}@{version ?? "*"}";
+        if (!_attemptedNuGetPackageLoads.Add(packageKey))
+        {
+            return;
+        }
+
+        var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var packageDirectory = Path.Combine(homeDirectory, ".nuget", "packages", packageName.ToLowerInvariant());
+        if (!Directory.Exists(packageDirectory))
+        {
+            TryLoadAssemblyByName(packageName);
+            return;
+        }
+
+        var versionDirectory = version != null
+            ? Path.Combine(packageDirectory, version)
+            : Directory.GetDirectories(packageDirectory).OrderByDescending(path => path).FirstOrDefault();
+        if (versionDirectory == null || !Directory.Exists(versionDirectory))
+        {
+            TryLoadAssemblyByName(packageName);
+            return;
+        }
+
+        TryLoadNuGetDependencies(versionDirectory);
+
+        var targetFramework = _projectConfig?.TargetFramework ?? "net10.0";
+        var candidatePaths = new[]
+        {
+            Path.Combine(versionDirectory, "lib", targetFramework, $"{packageName}.dll"),
+            Path.Combine(versionDirectory, "lib", "net10.0", $"{packageName}.dll"),
+            Path.Combine(versionDirectory, "lib", "net9.0", $"{packageName}.dll"),
+            Path.Combine(versionDirectory, "lib", "net8.0", $"{packageName}.dll"),
+            Path.Combine(versionDirectory, "lib", "netstandard2.1", $"{packageName}.dll"),
+            Path.Combine(versionDirectory, "lib", "netstandard2.0", $"{packageName}.dll")
+        };
+
+        foreach (var candidatePath in candidatePaths)
+        {
+            if (File.Exists(candidatePath))
+            {
+                TryLoadAssembly(candidatePath);
+                TryLoadReferencedAssemblies(candidatePath);
+                return;
+            }
+        }
+
+        TryLoadAssemblyByName(packageName);
+    }
+
+    private void TryLoadNuGetDependencies(string versionDirectory)
+    {
+        try
+        {
+            var nuspecPath = Directory.GetFiles(versionDirectory, "*.nuspec", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault();
+            if (nuspecPath == null)
+            {
+                return;
+            }
+
+            XNamespace ns = "http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd";
+            var document = XDocument.Load(nuspecPath);
+            var dependencyElements = document.Descendants(ns + "dependency")
+                .Concat(document.Descendants("dependency"));
+            foreach (var dependency in dependencyElements)
+            {
+                var id = dependency.Attribute("id")?.Value;
+                if (string.IsNullOrWhiteSpace(id))
+                {
+                    continue;
+                }
+
+                var dependencyVersion = dependency.Attribute("version")?.Value;
+                TryLoadNuGetAssembly(id, NormalizeNuGetDependencyVersion(dependencyVersion));
+            }
+        }
+        catch
+        {
+            // Best-effort dependency loading for NuGet-backed extension methods.
+        }
+    }
+
+    private static string? NormalizeNuGetDependencyVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return null;
+        }
+
+        return version.Trim().Trim('[', ']', '(', ')')
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+    }
+
+    private void TryLoadReferencedAssemblies(string assemblyPath)
+    {
+        try
+        {
+            var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
+            var assembly = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(candidate => AssemblyName.ReferenceMatchesDefinition(candidate.GetName(), assemblyName));
+            if (assembly == null)
+            {
+                return;
+            }
+
+            foreach (var reference in assembly.GetReferencedAssemblies())
+            {
+                TryLoadAssemblyByName(reference.Name ?? string.Empty);
+            }
+        }
+        catch
+        {
+            // Best-effort dependency loading for NuGet-backed extension methods.
         }
     }
 
@@ -2784,6 +2911,27 @@ public partial class ILCompiler
             return true;
         }
 
+        var nullableParameterType = Nullable.GetUnderlyingType(parameterType);
+        if (nullableParameterType != null && IsParameterTypeCompatible(nullableParameterType, argumentType))
+        {
+            return true;
+        }
+
+        if (parameterType.IsGenericType)
+        {
+            try
+            {
+                var constructedArgumentType = FindConstructedGenericMatch(parameterType, argumentType);
+                if (constructedArgumentType != null && AreTypeIdentitiesEquivalent(parameterType, constructedArgumentType))
+                {
+                    return true;
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
         try
         {
             if (parameterType.IsAssignableFrom(argumentType))
@@ -2836,6 +2984,27 @@ public partial class ILCompiler
         if (AreTypeIdentitiesEquivalent(parameterType, argumentType))
         {
             return 8;
+        }
+
+        var nullableParameterType = Nullable.GetUnderlyingType(parameterType);
+        if (nullableParameterType != null && AreParameterTypesCompatible(nullableParameterType, argumentType))
+        {
+            return 4;
+        }
+
+        if (parameterType.IsGenericType)
+        {
+            try
+            {
+                var constructedArgumentType = FindConstructedGenericMatch(parameterType, argumentType);
+                if (constructedArgumentType != null && AreTypeIdentitiesEquivalent(parameterType, constructedArgumentType))
+                {
+                    return 4;
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
         }
 
         if (parameterType.ContainsGenericParameters)
@@ -8873,7 +9042,7 @@ public partial class ILCompiler
                 return;
             }
 
-            throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {objectType.Name} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
+            throw new InvalidOperationException($"Method {memberAccess.MemberName} not found on type {objectType.Name} at {call.Line}:{call.Column} with arguments ({DescribeCallArgumentTypes(call.Arguments)})");
         }
 
         // Handle special built-in functions
@@ -11203,6 +11372,11 @@ public partial class ILCompiler
 
     private Type GetLambdaExpressionType(LambdaExpression lambda)
     {
+        if (_expectedExpressionType != null && TryGetExpressionTreeDelegateType(_expectedExpressionType, out _))
+        {
+            return _expectedExpressionType;
+        }
+
         GetLambdaSignature(lambda, out var parameterTypes, out var returnType);
         return CreateDelegateType(parameterTypes, returnType);
     }

@@ -41,6 +41,34 @@ public partial class ILCompiler
         return openFuncType.MakeGenericType(allTypes);
     }
 
+    private static bool TryGetExpressionTreeDelegateType(Type type, out Type delegateType)
+    {
+        delegateType = typeof(void);
+
+        if (!type.IsGenericType)
+        {
+            return false;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = type.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        if (genericDefinition != typeof(System.Linq.Expressions.Expression<>))
+        {
+            return false;
+        }
+
+        delegateType = type.GetGenericArguments()[0];
+        return IsDelegateLikeType(delegateType);
+    }
+
     private static bool RequiresCustomDelegateType(Type[] parameterTypes, Type returnType)
     {
         if (parameterTypes.Any(parameterType => parameterType.IsByRef) || returnType.IsByRef)

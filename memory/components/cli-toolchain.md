@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input conversion is available through `nlc convert`.
 
 ---
 
@@ -31,10 +31,24 @@ The executable toolchain is now IL-only:
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
+| `nlc convert` | Convert C# source syntax to N# | `nlc convert --file Program.cs -o Program.nl` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
+
+### C# Source Conversion (`nlc convert`)
+
+`nlc convert` parses C# with Roslyn and emits N# syntax for the common migration path: namespaces, imports, classes, records, interfaces, enums, fields, properties, constructors, methods, locals, conditionals, loops, calls, object creation, lambdas, interpolation, and basic expressions.
+
+```bash
+nlc convert --file Program.cs --output Program.nl
+nlc convert --dir ./src --output ./src-nl
+nlc convert --file Program.cs --dry-run
+cat Program.cs | nlc convert --stdin
+```
+
+Unsupported C# constructs are kept visible as `TODO(nlc convert)` comments and stderr diagnostics. A conversion that needs manual review exits with code 1; syntax-valid C# that maps cleanly exits with code 0.
 
 ### Code Intelligence (`nlc query`)
 

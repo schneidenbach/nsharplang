@@ -65,6 +65,8 @@ public partial class ILCompiler
 
     private BoundRuntimeMethodCall? BindRuntimeExtensionMethodCall(Type receiverType, string methodName, Expression receiver, CallExpression call)
     {
+        EnsureImportedRuntimeExtensionAssembliesLoaded();
+
         var arguments = new List<Argument>(call.Arguments.Count + 1)
         {
             new(null, receiver)
@@ -81,6 +83,22 @@ public partial class ILCompiler
             .ToArray();
 
         return BindRuntimeMethodCandidates(receiverType, candidates, arguments, call.TypeArguments);
+    }
+
+    private void EnsureImportedRuntimeExtensionAssembliesLoaded()
+    {
+        if (!_compilationUnit.Imports.Any(import =>
+            import.Alias == null
+            && string.Equals(import.Namespace, "Microsoft.EntityFrameworkCore", StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        var entityFrameworkVersion = _projectConfig?.Dependencies
+            .Concat(_projectConfig.TestDependencies)
+            .FirstOrDefault(reference => reference.Nuget?.StartsWith("Microsoft.EntityFrameworkCore.", StringComparison.OrdinalIgnoreCase) == true)
+            ?.Version;
+        TryLoadNuGetAssembly("Microsoft.EntityFrameworkCore.Relational", entityFrameworkVersion);
     }
 
     private bool IsImportedExtensionContainerType(Type type)
@@ -120,7 +138,16 @@ public partial class ILCompiler
             {
                 try
                 {
-                    candidateMethod = TypeBuilder.GetMethod(targetType, candidateMethod);
+                    var methodForRetarget = candidateMethod.IsGenericMethod && !candidateMethod.IsGenericMethodDefinition
+                        ? candidateMethod.GetGenericMethodDefinition()
+                        : candidateMethod;
+                    var retargetedMethod = TypeBuilder.GetMethod(targetType, methodForRetarget);
+                    if (candidateMethod.IsGenericMethod && !candidateMethod.IsGenericMethodDefinition)
+                    {
+                        retargetedMethod = retargetedMethod.MakeGenericMethod(candidateMethod.GetGenericArguments());
+                    }
+
+                    candidateMethod = retargetedMethod;
                 }
                 catch (ArgumentException)
                 {
@@ -140,6 +167,15 @@ public partial class ILCompiler
             }
 
             var closedMethodBindings = GetClosedRuntimeMethodBindings(candidateMethod, candidateDefinition);
+            var closedTypeBindings = GetClosedRuntimeTypeBindings(targetType, candidateDefinition);
+            if (closedTypeBindings.Count > 0)
+            {
+                runtimeParameterTypes = runtimeParameterTypes
+                    .Select(type => ApplyRuntimeGenericBindings(type, closedTypeBindings))
+                    .ToArray();
+                runtimeReturnType = ApplyRuntimeGenericBindings(runtimeReturnType, closedTypeBindings);
+            }
+
             if (closedMethodBindings.Count > 0)
             {
                 runtimeParameterTypes = runtimeParameterTypes
@@ -206,6 +242,51 @@ public partial class ILCompiler
 
         var definitionArguments = candidateDefinition.GetGenericArguments();
         var actualArguments = candidateMethod.GetGenericArguments();
+        for (int i = 0; i < definitionArguments.Length && i < actualArguments.Length; i++)
+        {
+            bindings[definitionArguments[i].Name] = actualArguments[i];
+        }
+
+        return bindings;
+    }
+
+    private static Dictionary<string, Type> GetClosedRuntimeTypeBindings(Type targetType, MethodInfo candidateDefinition)
+    {
+        var bindings = new Dictionary<string, Type>(StringComparer.Ordinal);
+        if (!targetType.IsGenericType || targetType.IsGenericTypeDefinition)
+        {
+            return bindings;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = targetType.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return bindings;
+        }
+
+        Type? declaringType;
+        try
+        {
+            declaringType = candidateDefinition.DeclaringType;
+        }
+        catch (NotSupportedException)
+        {
+            return bindings;
+        }
+
+        if (declaringType == null
+            || !declaringType.IsGenericTypeDefinition
+            || declaringType != genericDefinition)
+        {
+            return bindings;
+        }
+
+        var definitionArguments = genericDefinition.GetGenericArguments();
+        var actualArguments = targetType.GetGenericArguments();
         for (int i = 0; i < definitionArguments.Length && i < actualArguments.Length; i++)
         {
             bindings[definitionArguments[i].Name] = actualArguments[i];
@@ -679,9 +760,13 @@ public partial class ILCompiler
         score = 0;
 
         parameterType = ApplyRuntimeGenericBindings(GetByRefElementType(parameterType), genericBindings);
-        if (TryGetDelegateInvokeMethod(parameterType, out var invokeMethod) && invokeMethod != null)
+        var contextualDelegateType = TryGetExpressionTreeDelegateType(parameterType, out var expressionDelegateType)
+            ? expressionDelegateType
+            : parameterType;
+
+        if (TryGetDelegateInvokeMethod(contextualDelegateType, out var invokeMethod) && invokeMethod != null)
         {
-            var expectedParameterTypes = GetDelegateInvokeParameterTypes(parameterType, invokeMethod)
+            var expectedParameterTypes = GetDelegateInvokeParameterTypes(contextualDelegateType, invokeMethod)
                 .Select(type => ApplyRuntimeGenericBindings(type, genericBindings))
                 .ToArray();
             if (expectedParameterTypes.Length != lambda.Parameters.Count)
@@ -710,7 +795,7 @@ public partial class ILCompiler
                     : expectedParameterTypes[i].ContainsGenericParameters ? 4 : 8;
             }
 
-            var expectedReturnType = ApplyRuntimeGenericBindings(GetDelegateInvokeReturnType(parameterType, invokeMethod), genericBindings);
+            var expectedReturnType = ApplyRuntimeGenericBindings(GetDelegateInvokeReturnType(contextualDelegateType, invokeMethod), genericBindings);
             var lambdaReturnType = InferRuntimeLambdaReturnType(lambda, lambdaParameterTypes, expectedReturnType);
             if (expectedReturnType != typeof(void)
                 && !AreMethodArgumentTypesCompatible(expectedReturnType, lambdaReturnType, genericBindings))
