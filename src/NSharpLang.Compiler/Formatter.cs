@@ -310,6 +310,7 @@ public class Formatter
 
     private void FormatFunction(FunctionDeclaration func, StringBuilder sb)
     {
+        FormatAttributes(func.Attributes, sb);
         Indent(sb);
 
         // Format modifiers
@@ -385,6 +386,7 @@ public class Formatter
 
     private void FormatClass(ClassDeclaration cls, StringBuilder sb)
     {
+        FormatAttributes(cls.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(cls.Modifiers);
@@ -441,6 +443,7 @@ public class Formatter
 
     private void FormatStruct(StructDeclaration str, StringBuilder sb)
     {
+        FormatAttributes(str.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(str.Modifiers);
@@ -476,6 +479,7 @@ public class Formatter
 
     private void FormatRecord(RecordDeclaration rec, StringBuilder sb)
     {
+        FormatAttributes(rec.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(rec.Modifiers);
@@ -536,6 +540,7 @@ public class Formatter
 
     private void FormatInterface(InterfaceDeclaration iface, StringBuilder sb)
     {
+        FormatAttributes(iface.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(iface.Modifiers);
@@ -576,6 +581,7 @@ public class Formatter
 
     private void FormatUnion(UnionDeclaration union, StringBuilder sb)
     {
+        FormatAttributes(union.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(union.Modifiers);
@@ -623,6 +629,7 @@ public class Formatter
 
     private void FormatEnum(EnumDeclaration enumDecl, StringBuilder sb)
     {
+        FormatAttributes(enumDecl.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(enumDecl.Modifiers);
@@ -670,6 +677,7 @@ public class Formatter
 
     private void FormatField(FieldDeclaration field, StringBuilder sb)
     {
+        FormatAttributes(field.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(field.Modifiers);
@@ -705,6 +713,7 @@ public class Formatter
 
     private void FormatProperty(PropertyDeclaration prop, StringBuilder sb)
     {
+        FormatAttributes(prop.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(prop.Modifiers);
@@ -763,6 +772,7 @@ public class Formatter
 
     private void FormatConstructor(ConstructorDeclaration ctor, StringBuilder sb)
     {
+        FormatAttributes(ctor.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(ctor.Modifiers);
@@ -799,6 +809,7 @@ public class Formatter
 
     private void FormatIndexer(IndexerDeclaration indexer, StringBuilder sb)
     {
+        FormatAttributes(indexer.Attributes, sb);
         Indent(sb);
 
         var mods = FormatModifiers(indexer.Modifiers);
@@ -1895,19 +1906,8 @@ public class Formatter
         {
             foreach (var attr in param.Attributes)
             {
-                sb.Append("[");
-                sb.Append(attr.Name);
-                if (attr.Arguments.Count > 0)
-                {
-                    sb.Append("(");
-                    for (int i = 0; i < attr.Arguments.Count; i++)
-                    {
-                        if (i > 0) sb.Append(", ");
-                        FormatExpression(attr.Arguments[i].Value, sb);
-                    }
-                    sb.Append(")");
-                }
-                sb.Append("] ");
+                FormatAttributeInline(attr, sb);
+                sb.Append(" ");
             }
         }
         if (param.IsThis)
@@ -1934,6 +1934,44 @@ public class Formatter
             sb.Append(" = ");
             FormatExpression(param.DefaultValue, sb);
         }
+    }
+
+    private void FormatAttributes(IReadOnlyList<AttributeNode>? attributes, StringBuilder sb)
+    {
+        if (attributes is not { Count: > 0 })
+        {
+            return;
+        }
+
+        foreach (var attr in attributes)
+        {
+            Indent(sb);
+            FormatAttributeInline(attr, sb);
+            sb.AppendLine();
+        }
+    }
+
+    private void FormatAttributeInline(AttributeNode attr, StringBuilder sb)
+    {
+        sb.Append("[");
+        sb.Append(attr.Name);
+        if (attr.Arguments.Count > 0)
+        {
+            sb.Append("(");
+            for (int i = 0; i < attr.Arguments.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                var argument = attr.Arguments[i];
+                if (argument.Name != null)
+                {
+                    sb.Append(argument.Name);
+                    sb.Append(" = ");
+                }
+                FormatExpression(argument.Value, sb);
+            }
+            sb.Append(")");
+        }
+        sb.Append("]");
     }
 
     private string FormatTypeReference(TypeReference type)
