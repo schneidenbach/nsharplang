@@ -376,6 +376,17 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void DecimalSuffixLiteral_AssignableToDecimal()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                value: decimal = 0m
+                other: decimal = 1.25m
+            }
+        ");
+    }
+
+    [Fact]
     public void BinaryArithmetic_InvalidOperands()
     {
         AssertHasError(@"
@@ -1504,6 +1515,20 @@ public class AnalyzerTests
 
             func Main() {
                 let items: IEnumerable<string> = [""a"", ""b""]
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericInterfaceAssignment_ListToICollection_Valid()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            class Item {}
+
+            class Container {
+                Items: ICollection<Item> = new List<Item>()
             }
         ");
     }

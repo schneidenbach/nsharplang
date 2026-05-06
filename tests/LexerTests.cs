@@ -715,6 +715,14 @@ World
     }
 
     [Fact]
+    public void TestDecimalSuffixOnWholeNumber()
+    {
+        var tokens = Tokenize("0m");
+        Assert.Equal(TokenType.FloatLiteral, tokens[0].Type);
+        Assert.Equal("0m", tokens[0].Value);
+    }
+
+    [Fact]
     public void TestDoubleSuffix()
     {
         var tokens = Tokenize("1.5d");

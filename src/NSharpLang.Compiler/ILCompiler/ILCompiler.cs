@@ -923,7 +923,7 @@ public partial class ILCompiler
         return expression switch
         {
             IntLiteralExpression intLiteral => ParseIntLiteralValue(intLiteral.Value),
-            FloatLiteralExpression floatLiteral => ParseFloatLiteralValue(floatLiteral.Value),
+            FloatLiteralExpression floatLiteral => ParseFloatingLiteralObject(floatLiteral.Value),
             StringLiteralExpression stringLiteral => stringLiteral.Value.Trim('"'),
             BoolLiteralExpression boolLiteral => boolLiteral.Value,
             NullLiteralExpression => null,
@@ -2185,7 +2185,7 @@ public partial class ILCompiler
         return expression switch
         {
             IntLiteralExpression intLiteral => (ParseIntLiteralValue(intLiteral.Value), typeof(int)),
-            FloatLiteralExpression floatLiteral => (ParseFloatLiteralValue(floatLiteral.Value), typeof(double)),
+            FloatLiteralExpression floatLiteral => EvaluateFloatingLiteralArgument(floatLiteral.Value),
             StringLiteralExpression stringLiteral => (stringLiteral.Value.Trim('"'), typeof(string)),
             BoolLiteralExpression boolLiteral => (boolLiteral.Value, typeof(bool)),
             UnaryExpression unary => EvaluateAttributeUnaryArgument(unary),
@@ -7702,9 +7702,61 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        if (IsDecimalLiteral(floatLit.Value))
+        {
+            EmitDecimalLiteral(ParseDecimalLiteralValue(floatLit.Value));
+            return;
+        }
+
+        if (IsSingleLiteral(floatLit.Value))
+        {
+            _currentIL.Emit(OpCodes.Ldc_R4, (float)ParseFloatLiteralValue(floatLit.Value));
+            return;
+        }
+
         var value = ParseFloatLiteralValue(floatLit.Value);
         _currentIL.Emit(OpCodes.Ldc_R8, value);
     }
+
+    private void EmitDecimalLiteral(decimal value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var bits = decimal.GetBits(value);
+        var scale = (byte)((bits[3] >> 16) & 0x7F);
+        var sign = (bits[3] & unchecked((int)0x80000000)) != 0;
+        var ctor = typeof(decimal).GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte) })
+            ?? throw new InvalidOperationException("decimal constructor not found");
+
+        _currentIL.Emit(OpCodes.Ldc_I4, bits[0]);
+        _currentIL.Emit(OpCodes.Ldc_I4, bits[1]);
+        _currentIL.Emit(OpCodes.Ldc_I4, bits[2]);
+        _currentIL.Emit(sign ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Ldc_I4_S, (sbyte)scale);
+        _currentIL.Emit(OpCodes.Newobj, ctor);
+    }
+
+    private static object ParseFloatingLiteralObject(string text)
+    {
+        if (IsDecimalLiteral(text))
+            return ParseDecimalLiteralValue(text);
+        if (IsSingleLiteral(text))
+            return (float)ParseFloatLiteralValue(text);
+        return ParseFloatLiteralValue(text);
+    }
+
+    private static (object? Value, Type Type) EvaluateFloatingLiteralArgument(string text)
+    {
+        if (IsDecimalLiteral(text))
+            return (ParseDecimalLiteralValue(text), typeof(decimal));
+        if (IsSingleLiteral(text))
+            return ((float)ParseFloatLiteralValue(text), typeof(float));
+        return (ParseFloatLiteralValue(text), typeof(double));
+    }
+
+    private static bool IsDecimalLiteral(string text) => text.Trim().EndsWith("m", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSingleLiteral(string text) => text.Trim().EndsWith("f", StringComparison.OrdinalIgnoreCase);
 
     private static double ParseFloatLiteralValue(string text)
     {
@@ -7716,6 +7768,18 @@ public partial class ILCompiler
 
         var clean = span.ToString().Replace("_", "");
         return double.Parse(clean, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static decimal ParseDecimalLiteralValue(string text)
+    {
+        var span = text.AsSpan().Trim();
+        while (span.Length > 0 && (span[^1] is 'm' or 'M'))
+        {
+            span = span[..^1];
+        }
+
+        var clean = span.ToString().Replace("_", "");
+        return decimal.Parse(clean, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>
@@ -11094,6 +11158,8 @@ public partial class ILCompiler
         return expression switch
         {
             IntLiteralExpression => typeof(int),
+            FloatLiteralExpression floatLiteral when IsDecimalLiteral(floatLiteral.Value) => typeof(decimal),
+            FloatLiteralExpression floatLiteral when IsSingleLiteral(floatLiteral.Value) => typeof(float),
             FloatLiteralExpression => typeof(double),
             StringLiteralExpression => typeof(string),
             InterpolatedStringExpression => typeof(string),

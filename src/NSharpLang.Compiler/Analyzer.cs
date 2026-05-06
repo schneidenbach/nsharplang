@@ -2109,7 +2109,7 @@ public class Analyzer : IDisposable
         var type = expr switch
         {
             IntLiteralExpression => BuiltInTypes.Int,
-            FloatLiteralExpression => BuiltInTypes.Double,
+            FloatLiteralExpression floatLiteral => GetFloatLiteralType(floatLiteral.Value),
             StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
             InterpolatedStringExpression interpolated => AnalyzeInterpolatedString(interpolated),
             BoolLiteralExpression => BuiltInTypes.Bool,
@@ -5848,6 +5848,8 @@ public class Analyzer : IDisposable
         // Same type name (string comparison fallback for types we can't structurally compare)
         if (resolvedTarget.ToString() == resolvedSource.ToString()) return true;
 
+        if (IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)) return true;
+
         // CLR implicit numeric conversions
         if (IsImplicitNumericConversion(resolvedSource, resolvedTarget)) return true;
 
@@ -5888,6 +5890,41 @@ public class Analyzer : IDisposable
         }
 
         return false;
+    }
+
+    private static TypeInfo GetFloatLiteralType(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith("m", StringComparison.OrdinalIgnoreCase))
+            return BuiltInTypes.Decimal;
+        if (trimmed.EndsWith("f", StringComparison.OrdinalIgnoreCase))
+            return BuiltInTypes.Float;
+        return BuiltInTypes.Double;
+    }
+
+    private bool IsKnownGenericTypeAssignable(TypeInfo target, TypeInfo source)
+    {
+        if (target is not GenericTypeInfo targetGeneric || source is not GenericTypeInfo sourceGeneric)
+            return false;
+
+        if (targetGeneric.TypeArguments.Count != sourceGeneric.TypeArguments.Count)
+            return false;
+
+        for (var i = 0; i < targetGeneric.TypeArguments.Count; i++)
+        {
+            if (!TypesEqual(targetGeneric.TypeArguments[i], sourceGeneric.TypeArguments[i]))
+                return false;
+        }
+
+        return (targetGeneric.Name, sourceGeneric.Name) switch
+        {
+            ("IEnumerable", "List" or "ICollection" or "IList" or "HashSet" or "Queue") => true,
+            ("ICollection", "List" or "IList" or "HashSet") => true,
+            ("IList", "List") => true,
+            ("IReadOnlyCollection", "List" or "IReadOnlyList" or "HashSet" or "Queue") => true,
+            ("IReadOnlyList", "List") => true,
+            _ => false
+        };
     }
 
     /// <summary>

@@ -670,6 +670,12 @@ public class Lexer
         {
             ConsumeFloatSuffix(sb);
         }
+        else if (!IsAtEnd() && (Peek() == 'm' || Peek() == 'M'))
+        {
+            sb.Append(Peek());
+            Advance();
+            isFloat = true;
+        }
         else
         {
             ConsumeIntegerSuffix(sb);
