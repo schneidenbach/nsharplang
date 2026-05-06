@@ -296,6 +296,24 @@ func Add(x: int, y: int): int
     }
 
     [Fact]
+    public void Format_PreservesDeclarationAttributes()
+    {
+        var input = @"class Person {
+[Column(""Last Name"")]
+[StringLength(19)]
+IdNumber: string = null
+}";
+        var expected = @"class Person {
+    [Column(""Last Name"")]
+    [StringLength(19)]
+    IdNumber: string = null
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_MatchExpression()
     {
         var input = @"func Test(x: int): string {
