@@ -26,6 +26,7 @@ public class Analyzer : IDisposable
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private TypeInfo? _currentReturnType;
+    private bool _currentFunctionIsAsync;
     private bool _inLoop;
     private bool _inConstructor;
     private ClassDeclaration? _currentClass;
@@ -97,6 +98,7 @@ public class Analyzer : IDisposable
         _semanticScopeIds.Clear();
         _currentLine = 0;
         _currentReturnType = null;
+        _currentFunctionIsAsync = false;
         _inLoop = false;
         _inConstructor = false;
         _currentFilePath = currentFilePath;
@@ -423,7 +425,9 @@ public class Analyzer : IDisposable
         }
 
         // Set expected return type
+        var previousFunctionIsAsync = _currentFunctionIsAsync;
         _currentReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
         // Record function return type in semantic model for IDE features (scoped)
         RecordFunctionInCurrentScope(func.Name, _currentReturnType);
@@ -436,7 +440,8 @@ public class Analyzer : IDisposable
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
-            if (_currentReturnType != BuiltInTypes.Void && !isIterator && !StatementAlwaysReturns(func.Body))
+            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (IsUnitTaskLikeType(_currentReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
+            if (_currentReturnType != BuiltInTypes.Void && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
             {
                 var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
                     ? _sourceLines[func.Line - 1]
@@ -495,7 +500,55 @@ public class Analyzer : IDisposable
         }
 
         _currentReturnType = null;
+        _currentFunctionIsAsync = previousFunctionIsAsync;
         PopScope();
+    }
+
+    private static bool IsUnitTaskLikeType(TypeInfo type)
+    {
+        return type switch
+        {
+            SimpleTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" } => true,
+            GenericTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask", TypeArguments.Count: 0 } => true,
+            ReflectionTypeInfo { Type: var reflectionType } => reflectionType == typeof(System.Threading.Tasks.Task) || reflectionType == typeof(System.Threading.Tasks.ValueTask),
+            ExternalTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" } => true,
+            _ when IsUnitTaskLikeName(type.ToString()) => true,
+            _ => false
+        };
+    }
+
+    private static bool IsUnitTaskLikeName(string name)
+    {
+        return name is "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask"
+            || name.EndsWith(".Task", StringComparison.Ordinal)
+            || name.EndsWith(".ValueTask", StringComparison.Ordinal);
+    }
+
+    private static bool IsUnitTaskLikeTypeReference(TypeReference? typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference simple => IsUnitTaskLikeName(simple.Name),
+            GenericTypeReference { TypeArguments.Count: 0 } generic => IsUnitTaskLikeName(generic.Name),
+            _ => false
+        };
+    }
+
+    private bool TryGetTaskLikeResultType(TypeInfo type, out TypeInfo resultType)
+    {
+        switch (type)
+        {
+            case GenericTypeInfo { Name: "Task" or "ValueTask" or "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask", TypeArguments.Count: 1 } generic:
+                resultType = generic.TypeArguments[0];
+                return true;
+            case ReflectionTypeInfo { Type: var reflectionType } when reflectionType.IsGenericType &&
+                (reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>) || reflectionType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>)):
+                resultType = ConvertReflectionType(reflectionType.GetGenericArguments()[0]);
+                return true;
+            default:
+                resultType = BuiltInTypes.Unknown;
+                return false;
+        }
     }
 
     private static bool StatementAlwaysReturns(Statement statement)
@@ -1213,8 +1266,10 @@ public class Analyzer : IDisposable
 
         // Save current function context
         var previousReturnType = _currentReturnType;
+        var previousFunctionIsAsync = _currentFunctionIsAsync;
         TypeInfo? returnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = returnType;
+        _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
         // Analyze body
         if (func.Body != null)
@@ -1234,6 +1289,7 @@ public class Analyzer : IDisposable
 
         // Restore function context
         _currentReturnType = previousReturnType;
+        _currentFunctionIsAsync = previousFunctionIsAsync;
 
         PopScope();
     }
@@ -1673,10 +1729,13 @@ public class Analyzer : IDisposable
         if (returnStmt.Value != null)
         {
             var previousExpectedType = _currentExpectedType;
-            _currentExpectedType = _currentReturnType;
+            var expectedReturnValueType = _currentFunctionIsAsync && TryGetTaskLikeResultType(_currentReturnType, out var asyncResultType)
+                ? asyncResultType
+                : _currentReturnType;
+            _currentExpectedType = expectedReturnValueType;
             var returnedType = AnalyzeExpression(returnStmt.Value);
             _currentExpectedType = previousExpectedType;
-            if (!IsAssignable(_currentReturnType, returnedType))
+            if (!IsAssignable(expectedReturnValueType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message
                 var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
@@ -1698,14 +1757,14 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"This function should return '{_currentReturnType}', but this return statement gives back '{returnedType}'",
+                    Error(ErrorCode.TypeMismatch, $"This function should return '{expectedReturnValueType}', but this return statement gives back '{returnedType}'",
                         returnStmt.Line, returnStmt.Column);
                 }
             }
         }
         else
         {
-            if (_currentReturnType != BuiltInTypes.Void)
+            if (_currentReturnType != BuiltInTypes.Void && !(_currentFunctionIsAsync && IsUnitTaskLikeType(_currentReturnType)))
             {
                 var sourceSnippet = _sourceLines != null && returnStmt.Line > 0 && returnStmt.Line <= _sourceLines.Length
                     ? _sourceLines[returnStmt.Line - 1]

@@ -20,6 +20,9 @@
     <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>dotnet;language;compiler;nlang;csharp;il;export</PackageTags>
+
+    <!-- Ensure project-reference assemblies are included in the dotnet tool package. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>

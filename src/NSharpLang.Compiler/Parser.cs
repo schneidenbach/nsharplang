@@ -1829,8 +1829,10 @@ public class Parser
         if (Check(TokenType.LeftBrace))
             return ParseBlock();
 
-        // Local function (C# 7): [static] func Name(...) { }
-        if (Check(TokenType.Static) && LookAhead(1).Type == TokenType.Func)
+        // Local function (C# 7): [static] [async] func Name(...) { }
+        if ((Check(TokenType.Static) || Check(TokenType.Async)) && LookAhead(1).Type == TokenType.Func)
+            return ParseLocalFunction();
+        if (Check(TokenType.Static) && LookAhead(1).Type == TokenType.Async && LookAhead(2).Type == TokenType.Func)
             return ParseLocalFunction();
         if (Check(TokenType.Func))
             return ParseLocalFunction();
@@ -1872,12 +1874,25 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
 
-        // Handle optional 'static' modifier for local functions
+        // Handle optional 'static' and 'async' modifiers for local functions
         Modifiers modifiers = Modifiers.None;
-        if (Check(TokenType.Static))
+        var scanningModifiers = true;
+        while (scanningModifiers)
         {
-            modifiers |= Modifiers.Static;
-            Advance();
+            if (Check(TokenType.Static))
+            {
+                modifiers |= Modifiers.Static;
+                Advance();
+            }
+            else if (Check(TokenType.Async))
+            {
+                modifiers |= Modifiers.Async;
+                Advance();
+            }
+            else
+            {
+                scanningModifiers = false;
+            }
         }
 
         Consume(TokenType.Func, "Expected 'func'");

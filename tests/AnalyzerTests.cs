@@ -2878,12 +2878,65 @@ public class AnalyzerTests
             import Microsoft.AspNetCore.Mvc
 
             class EmployeesController : ControllerBase {
-                func async GetDataAsync(): Task<IActionResult> {
+                async func GetDataAsync(): Task<IActionResult> {
                     await Task.Delay(100)
                     return Ok()
                 }
             }
         ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AsyncTask_ReturningUnitTask_DoesNotRequireExplicitReturn()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            async func DoWork(): Task {
+                await Task.Delay(100)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AsyncValueTask_ReturningUnitValueTask_DoesNotRequireExplicitReturn()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            async func DoWork(): ValueTask {
+                await Task.Delay(100)
+            }
+        ");
+    }
+
+    [Fact]
+    public void AsyncTaskOfT_StillRequiresExplicitReturnValue()
+    {
+        AssertHasError(@"
+            import System.Threading.Tasks
+
+            async func GetValue(): Task<int> {
+                await Task.Delay(100)
+            }
+        ", "not all code paths return");
+    }
+
+    [Fact]
+    public void LocalAsyncFunction_UsesAsyncBeforeFuncSyntax()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            async func Main(): Task<int> {
+                async func getValue(): Task<int> {
+                    await Task.Delay(100)
+                    return 42
+                }
+
+                return await getValue()
+            }
+        ");
     }
 
     [Fact]
