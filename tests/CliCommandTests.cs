@@ -545,6 +545,10 @@ func Load(input: string?): Result<string> {
         _ => Result.Success { value: value }
     }
 }
+
+async func Ping(): string {
+    return "pong"
+}
 """);
             File.WriteAllText(Path.Combine(tempDir, "Legacy.cs"), """
 public class LegacyDto

@@ -175,7 +175,7 @@ public static class IdiomCommand
         var lineStarts = GetLineStarts(text);
 
         var csharpModifiers = FindMatches(text, relative, lineStarts,
-            new Regex(@"\b(public|private|protected|internal|sealed|abstract|static|readonly|virtual|override|async)\b", RegexOptions.Compiled));
+            new Regex(@"\b(public|private|protected|internal|sealed|abstract|static|readonly|virtual|override)\b", RegexOptions.Compiled));
         var semicolons = Path.GetExtension(file).Equals(".nl", StringComparison.OrdinalIgnoreCase)
             ? FindSemicolonArtifacts(text, relative)
             : [];
@@ -437,7 +437,7 @@ public static class IdiomCommand
         int semicolons,
         int propertySyntax,
         int underscoreFields,
-        int nullForging,
+        int nullForgiving,
         int outVar,
         int tryGetValue,
         int actionResults,
@@ -457,7 +457,7 @@ public static class IdiomCommand
         if (semicolons > 0) recommendations.Add("Remove C# statement semicolons from migrated N# files except where syntax explicitly requires them.");
         if (propertySyntax > 0) recommendations.Add("Replace C# property blocks with N# field/property syntax.");
         if (underscoreFields > 0) recommendations.Add("Rename private `_field` members to camelCase N# fields.");
-        if (nullForging > 0) recommendations.Add("Review null-forgiving/default-forgiving operators and model nullability explicitly.");
+        if (nullForgiving > 0) recommendations.Add("Review null-forgiving/default-forgiving operators and model nullability explicitly.");
         if (outVar > 0 || tryGetValue > 0) recommendations.Add("Replace out-var/TryGetValue flows with result-returning helpers or matchable results.");
         if (actionResults > 0) recommendations.Add("Prefer typed ASP.NET results or concrete return records over IActionResult defaults when endpoint shape is known.");
         if (anonymousApiDtos > 0) recommendations.Add("Promote anonymous API DTOs to named N# records at framework boundaries.");
