@@ -361,13 +361,13 @@ func Main() {
         title: 'Async / Await',
         code: `import System.Threading.Tasks
 
-func async FetchData(url: string): string {
+async func FetchData(url: string): string {
     client := new HttpClient()
     result := await client.GetStringAsync(url)
     return result
 }
 
-func async Main() {
+async func Main() {
     data := await FetchData("https://example.com")
     print data
 }`,
@@ -377,14 +377,14 @@ func async Main() {
         code: `import System.Collections.Generic
 import System.Threading.Tasks
 
-func async* GetNumbersAsync(): IAsyncEnumerable<int> {
+async func* GetNumbersAsync(): IAsyncEnumerable<int> {
     for i := 0; i < 10; i++ {
         await Task.Delay(100)
         yield i
     }
 }
 
-func async Main() {
+async func Main() {
     await foreach num in GetNumbersAsync() {
         print $"Received: {num}"
     }
@@ -575,11 +575,9 @@ export default function Examples() {
       title="Examples"
       description="Learn N# through real, runnable code examples.">
       <div className="examples-page">
-        <div style={{marginBottom: 48}}>
-          <h1 style={{fontSize: 'clamp(1.75rem, 3vw, 2.5rem)', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 8}}>
-            Examples
-          </h1>
-          <p style={{color: 'var(--ifm-color-emphasis-600)', fontSize: '1.0625rem'}}>
+        <div className="examples-page__header">
+          <h1 className="examples-page__title">Examples</h1>
+          <p className="examples-page__lede">
             Learn N# through real, runnable code examples.
           </p>
         </div>

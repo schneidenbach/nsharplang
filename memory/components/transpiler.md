@@ -162,9 +162,9 @@ int[] items = [1, 2, 3];  // NOT: var items = [1, 2, 3];
 This avoids C# 12 collection expression ambiguity.
 
 ### Async Iterator Functions
-`func async*` exports to `async IAsyncEnumerable<T>`:
+`async func*` exports to `async IAsyncEnumerable<T>`:
 ```
-func async* GetNumbers(): IAsyncEnumerable<int> {
+async func* GetNumbers(): IAsyncEnumerable<int> {
     yield 1
 }
 

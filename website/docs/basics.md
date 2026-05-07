@@ -81,7 +81,7 @@ greet("World")
 Use the `async` keyword for asynchronous functions:
 
 ```n#
-func async fetchData(): string {
+async func fetchData(): string {
     result := await httpClient.GetStringAsync("https://api.example.com/data")
     return result
 }
@@ -244,7 +244,7 @@ result := match value {
 ### Pattern Matching in Functions
 
 ```n#
-func async GetById(id: Guid): IActionResult {
+async func GetById(id: Guid): IActionResult {
     employee := await db.Employees.FindAsync(id)
 
     return match employee {
@@ -327,7 +327,7 @@ N# supports .NET attributes:
 FirstName: string
 
 [HttpGet]
-func async GetAll(): IActionResult {
+async func GetAll(): IActionResult {
     // ...
 }
 ```

@@ -181,7 +181,7 @@ go fetchData()
 
 **N#:**
 ```n#
-func async fetchData(): string {
+async func fetchData(): string {
     return await client.GetStringAsync(url)
 }
 

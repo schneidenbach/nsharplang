@@ -1723,6 +1723,86 @@ async func main(): Task<int> {
     }
 
     [Fact]
+    public async Task ILCompiler_ExplicitAsyncTask_DoesNotRequireReturnValue()
+    {
+        var source = @"
+import System.Threading.Tasks
+import NSharpLang.Tests
+
+async func DoWork(): Task {
+    await ILCompilerAsyncHelpers.GetValueAsync(0)
+}
+
+async func main(): Task<int> {
+    await DoWork()
+    return 42
+}";
+
+        var result = await CompileAndInvokeTaskResult(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public async Task ILCompiler_ExplicitAsyncTaskOfT_ReturnsBareResultValue()
+    {
+        var source = @"
+import System.Threading.Tasks
+import NSharpLang.Tests
+
+async func GetValue(): Task<int> {
+    await ILCompilerAsyncHelpers.GetValueAsync(0)
+    return 42
+}
+
+async func main(): Task<int> {
+    return await GetValue()
+}";
+
+        var result = await CompileAndInvokeTaskResult(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public async Task ILCompiler_ExplicitAsyncValueTask_DoesNotRequireReturnValue()
+    {
+        var source = @"
+import System.Threading.Tasks
+import NSharpLang.Tests
+
+async func DoWork(): ValueTask {
+    await ILCompilerAsyncHelpers.GetValueAsync(0)
+}
+
+async func main(): Task<int> {
+    await DoWork()
+    return 42
+}";
+
+        var result = await CompileAndInvokeTaskResult(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public async Task ILCompiler_ExplicitAsyncValueTaskOfT_ReturnsBareResultValue()
+    {
+        var source = @"
+import System.Threading.Tasks
+import NSharpLang.Tests
+
+async func GetValue(): ValueTask<int> {
+    await ILCompilerAsyncHelpers.GetValueAsync(0)
+    return 42
+}
+
+async func main(): Task<int> {
+    return await GetValue()
+}";
+
+        var result = await CompileAndInvokeTaskResult(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteGeneratorFunction()
     {
         var source = @"
@@ -2145,7 +2225,7 @@ func main(value: int): int {
     {
         var source = @"
 async func main(): Task<int> {
-    func async getValue(): Task<int> {
+    async func getValue(): Task<int> {
         return await ILCompilerAsyncHelpers.GetValueAsync(42)
     }
 

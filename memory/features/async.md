@@ -7,7 +7,7 @@ N# supports C# async/await for asynchronous programming.
 ### Async Functions
 
 ```
-func async FetchData(url: string): Task<string> {
+async func FetchData(url: string): Task<string> {
     response := await Http.GetAsync(url)
     return await response.Content.ReadAsStringAsync()
 }
@@ -22,7 +22,7 @@ result := await SomeAsyncOperation()
 ### Async Main
 
 ```
-func async Main() {
+async func Main() {
     await DoWorkAsync()
 }
 ```
@@ -38,7 +38,7 @@ asyncDefaultType: ValueTask
 Then async functions without explicit return type use `ValueTask`:
 
 ```
-func async Process() {
+async func Process() {
     // Return type: ValueTask (not Task)
     await DoWorkAsync()
 }
@@ -53,7 +53,7 @@ Async streams combine async/await with yield for lazy asynchronous iteration.
 Use `async*` modifier:
 
 ```
-func async* GetDataAsync(): IAsyncEnumerable<string> {
+async func* GetDataAsync(): IAsyncEnumerable<string> {
     for i := 0; i < 10; i++ {
         await Task.Delay(100)
         yield $"Item {i}"
@@ -66,7 +66,7 @@ func async* GetDataAsync(): IAsyncEnumerable<string> {
 Use `await foreach`:
 
 ```
-func async ProcessData() {
+async func ProcessData() {
     await foreach item in GetDataAsync() {
         print $"Got: {item}"
     }
@@ -84,7 +84,7 @@ func async ProcessData() {
 
 ```
 class ApiClient {
-    func async* FetchPagesAsync(url: string): IAsyncEnumerable<Page> {
+    async func* FetchPagesAsync(url: string): IAsyncEnumerable<Page> {
         nextUrl: string? = url
 
         while nextUrl != null {
@@ -108,7 +108,7 @@ await foreach page in client.FetchPagesAsync("/api/data") {
 
 **N# code:**
 ```
-func async Fetch(): Task<string> {
+async func Fetch(): Task<string> {
     return await GetDataAsync()
 }
 ```
@@ -125,7 +125,7 @@ public static async Task<string> Fetch()
 
 **N# code:**
 ```
-func async* GetNumbers(): IAsyncEnumerable<int> {
+async func* GetNumbers(): IAsyncEnumerable<int> {
     yield 1
     yield 2
 }
@@ -147,7 +147,7 @@ public static async IAsyncEnumerable<int> GetNumbers()
 Early termination of iterators:
 
 ```
-func async* GetItems(): IAsyncEnumerable<int> {
+async func* GetItems(): IAsyncEnumerable<int> {
     for i := 0; i < 100; i++ {
         if i > 50 {
             yield break  // Stop iteration
@@ -168,7 +168,7 @@ Async streams work with CancellationToken:
 using System.Runtime.CompilerServices
 using System.Threading
 
-func async* GenerateNumbers(
+async func* GenerateNumbers(
     [EnumeratorCancellation] token: CancellationToken
 ): IAsyncEnumerable<int> {
     i := 0
@@ -211,7 +211,7 @@ Use try-catch or N# error handling pattern:
 
 ```
 // Try-catch
-func async Fetch() {
+async func Fetch() {
     try {
         return await Http.GetAsync(url)
     } catch e {

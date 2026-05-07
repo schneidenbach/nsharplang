@@ -552,6 +552,40 @@ return result
     }
 
     [Fact]
+    public void Format_LegacyPostfixAsyncFunctionCanonicalizes()
+    {
+        var input = @"func async GetData(): Task<string> {
+result := await FetchData()
+return result
+}";
+        var expected = @"async func GetData(): Task<string> {
+    result := await FetchData()
+    return result
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_OverrideAsyncFunctionKeepsAsyncAdjacentToFunc()
+    {
+        var input = @"class Repository : BaseRepository {
+override async func GetData(): Task<string> {
+return FetchData()
+}
+}";
+        var expected = @"class Repository: BaseRepository {
+    override async func GetData(): Task<string> {
+        return FetchData()
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_YieldStatement()
     {
         var input = @"func* Generate(): IEnumerable<int> {

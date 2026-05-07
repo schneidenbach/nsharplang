@@ -1394,7 +1394,7 @@ async func main() {
 import System.Threading.Tasks
 
 async func main(): Task<int> {
-    func async helper(): int {
+    async func helper(): int {
         await Task.Yield()
         return 4
     }

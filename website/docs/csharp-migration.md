@@ -517,6 +517,7 @@ Required cleanup before review:
 - Statement semicolons, C# property blocks, `_field` private naming, null-forgiving suppressions, and `default!` placeholders are removed or waived with diagnostic-backed rationale.
 - DTO-shaped API/request/response classes become records unless mutation or identity is required.
 - Domain failure flows become unions plus exhaustive `match`; ASP.NET/EF code maps those domain results at the boundary.
+- Ordinary async methods can use implicit N# return types, but xUnit/framework-discovered methods that require C# `Task` signatures must declare explicit `: Task` or `: Task<T>`; `Task<T>` bodies return bare `T` values.
 - `nlc idiom` reports the score, grade, thresholds, aggregate C#-ism counts, per-file occurrences, and recommendations so agents can drive the next edit cluster without scraping prose.
 
 Completion requires zero `nlc check` errors, no remaining safe fixes in `nlc fix --dry-run --json`, no blocking `nlc idiom` C# artifacts, and passing project tests.

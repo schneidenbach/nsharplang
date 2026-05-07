@@ -33,7 +33,8 @@ Migrated output must look like N#, not C# with fewer semicolons:
 - Convert DTO-shaped request/response/view-model classes to `record` unless mutation or identity is required.
 - Model domain results and expected failures with `union` plus exhaustive `match`; map those results once at the ASP.NET/framework boundary.
 - Use canonical N# object initialization: `new Type { Name: value }`.
-- Preserve direct ASP.NET Core and EF Core interop at boundaries, but make the N# side idiomatic: typed results/records for APIs, thin controllers/endpoints, services owning EF queries, LINQ method chains rather than C# query syntax.
+- Preserve direct ASP.NET Core, EF Core, xUnit, and framework interop at boundaries, but make the N# side idiomatic: typed results/records for APIs, thin controllers/endpoints, services owning EF queries, LINQ method chains rather than C# query syntax.
+- Keep ordinary async methods idiomatic with implicit return types, but emit explicit `async func Name(...): Task` or `: Task<T>` when a framework-discovered surface must have a C# `Task` signature; `Task<T>` bodies return bare `T` values.
 - Clean up nullability instead of suppressing it.
 
 ## Rejected hybrid output

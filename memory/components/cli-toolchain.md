@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input conversion is available through `nlc convert`.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. Legacy C# input conversion is still exposed through `nlc convert`, but migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating converter output as final.
 
 ---
 
@@ -31,7 +31,7 @@ The executable toolchain is now IL-only:
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
-| `nlc convert` | Convert C# source syntax to N# | `nlc convert --file Program.cs -o Program.nl` |
+| `nlc convert` | Legacy/prototype C# source syntax conversion to N# | `nlc convert --file Program.cs -o Program.nl` |
 | `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
@@ -39,7 +39,7 @@ The executable toolchain is now IL-only:
 
 ### C# Source Conversion (`nlc convert`)
 
-`nlc convert` parses C# with Roslyn and emits N# syntax for the common migration path: namespaces, imports, classes, records, interfaces, enums, fields, properties, constructors, methods, locals, conditionals, loops, calls, object creation, lambdas, interpolation, and basic expressions.
+`nlc convert` parses C# with Roslyn and emits a first-pass N# syntax snapshot. Treat this as a legacy/prototype converter, not the canonical migration strategy: converted output must still go through `nlc check`, diagnostic clustering, `nlc lint`, `nlc idiom`, and human/AI cleanup before it is considered idiomatic N#.
 
 ```bash
 nlc convert --file Program.cs --output Program.nl

@@ -15,7 +15,7 @@ Async streams (C# 8+) allow you to iterate over data that arrives asynchronously
 
 ```nsharp
 // Async iterator function with async* modifier
-func async* GetNumbersAsync(): IAsyncEnumerable<int> {
+async func* GetNumbersAsync(): IAsyncEnumerable<int> {
     for i := 0; i < 10; i++ {
         await Task.Delay(100)
         yield i
@@ -23,7 +23,7 @@ func async* GetNumbersAsync(): IAsyncEnumerable<int> {
 }
 
 // Consuming async streams
-func async ProcessNumbers() {
+async func ProcessNumbers() {
     await foreach num in GetNumbersAsync() {
         print $"Got: {num}"
     }
@@ -75,7 +75,7 @@ public record AwaitForEachStatement(
 using System.Collections.Generic
 using System.Threading.Tasks
 
-func async* GetDataAsync(): IAsyncEnumerable<string> {
+async func* GetDataAsync(): IAsyncEnumerable<string> {
     data := ["hello", "world", "async", "streams"]
 
     for item in data {
@@ -84,7 +84,7 @@ func async* GetDataAsync(): IAsyncEnumerable<string> {
     }
 }
 
-func async Main() {
+async func Main() {
     print "Starting..."
 
     await foreach item in GetDataAsync() {
@@ -124,7 +124,7 @@ public static async Task Main()
 ### Example 2: Real-World - Paginated API
 ```nsharp
 class ApiClient {
-    func async* FetchPagesAsync(url: string): IAsyncEnumerable<Page> {
+    async func* FetchPagesAsync(url: string): IAsyncEnumerable<Page> {
         nextUrl: string? = url
 
         while nextUrl != null {
@@ -135,7 +135,7 @@ class ApiClient {
     }
 }
 
-func async ProcessApi() {
+async func ProcessApi() {
     client := new ApiClient()
 
     await foreach page in client.FetchPagesAsync("/api/data") {
@@ -150,7 +150,7 @@ func async ProcessApi() {
 using System.Runtime.CompilerServices
 using System.Threading
 
-func async* GenerateNumbers(
+async func* GenerateNumbers(
     [EnumeratorCancellation] cancel: CancellationToken
 ): IAsyncEnumerable<int> {
     i := 0
@@ -178,7 +178,7 @@ func async* GenerateNumbers(
 [Fact]
 public void TestAsyncIteratorParsing()
 {
-    var source = "func async* GetData(): IAsyncEnumerable<int> { yield 1 }";
+    var source = "async func* GetData(): IAsyncEnumerable<int> { yield 1 }";
     var tokens = new Lexer(source, "test").Tokenize();
     var parser = new Parser(tokens, "test");
     var unit = parser.ParseCompilationUnit();
@@ -192,7 +192,7 @@ public void TestAsyncIteratorParsing()
 [Fact]
 public void TestAwaitForEachParsing()
 {
-    var source = "func async Test() { await foreach item in items { print item } }";
+    var source = "async func Test() { await foreach item in items { print item } }";
     var tokens = new Lexer(source, "test").Tokenize();
     var parser = new Parser(tokens, "test");
     var unit = parser.ParseCompilationUnit();
@@ -210,7 +210,7 @@ public void TestAwaitForEachParsing()
 public void TestAsyncIteratorTranspilation()
 {
     var source = @"
-func async* GetNumbers(): IAsyncEnumerable<int> {
+async func* GetNumbers(): IAsyncEnumerable<int> {
     yield 1
     yield 2
 }";
@@ -226,7 +226,7 @@ func async* GetNumbers(): IAsyncEnumerable<int> {
 public void TestAwaitForEachTranspilation()
 {
     var source = @"
-func async Process() {
+async func Process() {
     await foreach num in GetNumbers() {
         print num
     }

@@ -11,7 +11,7 @@
   "Async Function": {
     "prefix": "async",
     "body": [
-      "func async ${1:name}(${2:params}): ${3:returnType} {",
+      "async func ${1:name}(${2:params}): ${3:returnType} {",
       "\t$0",
       "}"
     ],

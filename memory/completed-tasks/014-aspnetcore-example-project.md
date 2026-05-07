@@ -166,12 +166,12 @@ class WeatherController {
     }
 
     [HttpGet]
-    func async Get(): WeatherForecast[] {
+    async func Get(): WeatherForecast[] {
         return service.GetForecasts()
     }
 
     [HttpGet("{id}")]
-    func async GetById(id: int): IActionResult {
+    async func GetById(id: int): IActionResult {
         forecast := service.GetForecast(id)
 
         return match forecast {

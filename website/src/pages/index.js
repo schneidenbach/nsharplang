@@ -306,30 +306,14 @@ export default function Home() {
 
       {/* Hero */}
       <header className="hero--nsharp">
-        <div className="container" style={{position: 'relative', textAlign: 'center'}}>
-          <div style={{maxWidth: 800, margin: '0 auto 60px'}}>
-            <div className="hero__badge">Open Source Language for .NET</div>
-            <h1 style={{
-              fontSize: 'clamp(2.5rem, 5vw, 4rem)',
-              fontWeight: 800,
-              lineHeight: 1.1,
-              letterSpacing: '-0.03em',
-              marginBottom: 20,
-            }}>
-              <span className="hero__title-accent">N#</span>
-            </h1>
-            <p style={{
-              fontSize: 'clamp(1.125rem, 2vw, 1.375rem)',
-              color: 'var(--ifm-color-emphasis-600)',
-              lineHeight: 1.5,
-              maxWidth: 600,
-              margin: '0 auto',
-            }}>
-              Simple by design. Powerful by .NET.
-            </p>
+        <div className="container hero__inner">
+          <div className="hero__intro">
+            <div className="hero__badge">Open source language for .NET</div>
+            <h1 className="hero__title">N#</h1>
+            <p className="hero__lede">Simple by design. Powerful by .NET.</p>
             <div className="hero__buttons">
-              <Link className="btn--primary" to="/docs/getting-started">Get Started</Link>
-              <Link className="btn--secondary" to="/examples">See Examples</Link>
+              <Link className="btn--primary" to="/docs/getting-started">Get started</Link>
+              <Link className="btn--secondary" to="/examples">Examples</Link>
               <a className="btn--secondary" href="https://github.com/schneidenbach/nsharplang" target="_blank" rel="noopener noreferrer">GitHub</a>
             </div>
           </div>
@@ -428,7 +412,7 @@ export default function Home() {
           <div className="examples-grid">
             {exampleCards.map((e, i) => <ExampleCard key={i} {...e} />)}
           </div>
-          <div style={{textAlign: 'center', marginTop: 32}}>
+          <div className="section__action">
             <Link className="btn--secondary" to="/examples">
               See all examples →
             </Link>

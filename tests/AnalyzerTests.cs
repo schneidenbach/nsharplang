@@ -2128,7 +2128,7 @@ public class AnalyzerTests
         AssertNoErrors(@"
             import System.Threading.Tasks
 
-            func async GetDataAsync(): string {
+            async func GetDataAsync(): string {
                 await Task.Delay(100)
                 return ""data""
             }
@@ -2372,7 +2372,7 @@ public class AnalyzerTests
         AssertNoErrors(@"
             import System.Threading.Tasks
 
-            func async DoWork() {
+            async func DoWork() {
                 await Task.Delay(100)
             }
         ");
@@ -2410,7 +2410,7 @@ public class AnalyzerTests
         AssertNoErrors(@"
             import System.Net.Http
 
-            func async GetData(): string {
+            async func GetData(): string {
                 client := new HttpClient()
                 return await client.GetStringAsync(""https://example.com"")
             }
@@ -2494,13 +2494,13 @@ public class AnalyzerTests
             import System.Threading.Tasks
 
             class Base {
-                virtual func async GetDataAsync(): string {
+                virtual async func GetDataAsync(): string {
                     return ""base""
                 }
             }
 
             class Derived : Base {
-                override func async GetDataAsync(): string {
+                override async func GetDataAsync(): string {
                     await Task.Delay(10)
                     return ""derived""
                 }
@@ -2911,12 +2911,50 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void AsyncTaskOfT_ReturnsBareResultValue()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            async func GetValue(): Task<int> {
+                await Task.Delay(100)
+                return 42
+            }
+        ");
+    }
+
+    [Fact]
     public void AsyncTaskOfT_StillRequiresExplicitReturnValue()
     {
         AssertHasError(@"
             import System.Threading.Tasks
 
             async func GetValue(): Task<int> {
+                await Task.Delay(100)
+            }
+        ", "not all code paths return");
+    }
+
+    [Fact]
+    public void AsyncValueTaskOfT_ReturnsBareResultValue()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+
+            async func GetValue(): ValueTask<int> {
+                await Task.Delay(100)
+                return 42
+            }
+        ");
+    }
+
+    [Fact]
+    public void AsyncValueTaskOfT_StillRequiresExplicitReturnValue()
+    {
+        AssertHasError(@"
+            import System.Threading.Tasks
+
+            async func GetValue(): ValueTask<int> {
                 await Task.Delay(100)
             }
         ", "not all code paths return");

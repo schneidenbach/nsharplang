@@ -40,6 +40,22 @@ public class DiagnosticClusteringTests
     }
 
     [Fact]
+    public void CheckJson_ClassifiesCanonicalAsyncFunctionDeclarations()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            MissingSemicolon("src/A.nl", 12, "async func Load(): Task<int> {"),
+            MissingSemicolon("src/B.nl", 20, "override async func Save(): Task {")
+        };
+
+        var json = OutputFormatter.CheckToJson(diagnostics, "/repo", checkedFiles: 2);
+
+        using var doc = JsonDocument.Parse(json);
+        var cluster = Assert.Single(doc.RootElement.GetProperty("diagnosticClusters").EnumerateArray());
+        Assert.Equal("function-declaration", cluster.GetProperty("sourceConstruct").GetString());
+    }
+
+    [Fact]
     public void DiagnosticsText_StartsWithClusterSummaryBeforeIndividualDiagnostics()
     {
         var diagnostics = new List<DiagnosticResult>
