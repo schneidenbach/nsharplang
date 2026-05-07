@@ -32,6 +32,7 @@ public sealed class CSharpToNSharpConverter
     {
         private readonly StringBuilder _builder = new();
         private readonly List<string> _warnings = new();
+        private readonly Stack<Dictionary<string, string>> _memberNameAliases = new();
         private int _indent;
 
         public IReadOnlyList<string> Warnings => _warnings;
@@ -165,6 +166,7 @@ public sealed class CSharpToNSharpConverter
             TypeParameterListSyntax? typeParameterList,
             SyntaxList<MemberDeclarationSyntax> members)
         {
+            _memberNameAliases.Push(BuildMemberNameAliases(members));
             WriteLine($"{Modifiers(modifiers)}{keyword} {name}{TypeParameters(typeParameterList)} {{".TrimStart());
             _indent++;
             for (var i = 0; i < members.Count; i++)
@@ -178,6 +180,7 @@ public sealed class CSharpToNSharpConverter
 
             _indent--;
             WriteLine("}");
+            _memberNameAliases.Pop();
         }
 
         private void EmitEnum(EnumDeclarationSyntax declaration)
@@ -226,13 +229,11 @@ public sealed class CSharpToNSharpConverter
 
         private void EmitConstructor(ConstructorDeclarationSyntax constructor)
         {
-            WriteLine($"{Modifiers(constructor.Modifiers)}constructor({Parameters(constructor.ParameterList.Parameters)}) {{".TrimStart());
+            var initializer = constructor.Initializer != null
+                ? $": {constructor.Initializer.ThisOrBaseKeyword.ValueText}({Arguments(constructor.Initializer.ArgumentList.Arguments)})"
+                : string.Empty;
+            WriteLine($"constructor({Parameters(constructor.ParameterList.Parameters)}){initializer} {{");
             _indent++;
-            if (constructor.Initializer != null)
-            {
-                EmitUnsupported(constructor.Initializer, "constructor initializer");
-            }
-
             EmitBlockStatements(constructor.Body?.Statements ?? default);
             _indent--;
             WriteLine("}");
@@ -282,7 +283,7 @@ public sealed class CSharpToNSharpConverter
             foreach (var variable in field.Declaration.Variables)
             {
                 var value = variable.Initializer != null ? $" = {Expression(variable.Initializer.Value)}" : string.Empty;
-                WriteLine($"{Modifiers(field.Modifiers)}{variable.Identifier.Text}: {TypeName(field.Declaration.Type)}{value}".TrimStart());
+                WriteLine($"{StaticModifier(field.Modifiers)}{ConvertMemberName(variable.Identifier.Text)}: {TypeName(field.Declaration.Type)}{value}".TrimStart());
             }
         }
 
@@ -355,6 +356,9 @@ public sealed class CSharpToNSharpConverter
                 case ThrowStatementSyntax throwStatement:
                     WriteLine(throwStatement.Expression == null ? "throw" : $"throw {Expression(throwStatement.Expression)}");
                     break;
+                case TryStatementSyntax tryStatement:
+                    EmitTry(tryStatement);
+                    break;
                 default:
                     EmitUnsupported(statement, "statement");
                     break;
@@ -395,6 +399,37 @@ public sealed class CSharpToNSharpConverter
             WriteLine("}");
         }
 
+        private void EmitTry(TryStatementSyntax tryStatement)
+        {
+            WriteLine("try {");
+            _indent++;
+            EmitBlockStatements(tryStatement.Block.Statements);
+            _indent--;
+
+            foreach (var catchClause in tryStatement.Catches)
+            {
+                if (catchClause.Declaration != null || catchClause.Filter != null)
+                {
+                    AddWarning(catchClause, "C# catch declarations/filters are converted to a plain N# catch block; review exception handling manually.");
+                }
+
+                WriteLine("} catch {");
+                _indent++;
+                EmitBlockStatements(catchClause.Block.Statements);
+                _indent--;
+            }
+
+            if (tryStatement.Finally != null)
+            {
+                WriteLine("} finally {");
+                _indent++;
+                EmitBlockStatements(tryStatement.Finally.Block.Statements);
+                _indent--;
+            }
+
+            WriteLine("}");
+        }
+
         private void EmitEmbeddedStatement(StatementSyntax statement)
         {
             if (statement is BlockSyntax block)
@@ -411,6 +446,8 @@ public sealed class CSharpToNSharpConverter
             return expression switch
             {
                 LiteralExpressionSyntax literal => literal.Token.Text,
+                PredefinedTypeSyntax predefined => TypeName(predefined),
+                IdentifierNameSyntax identifier when TryMemberAlias(identifier.Identifier.Text, out var alias) => alias,
                 IdentifierNameSyntax identifier => identifier.Identifier.Text,
                 GenericNameSyntax generic => $"{generic.Identifier.Text}<{string.Join(", ", generic.TypeArgumentList.Arguments.Select(TypeName))}>",
                 ThisExpressionSyntax => "this",
@@ -421,13 +458,15 @@ public sealed class CSharpToNSharpConverter
                 InvocationExpressionSyntax invocation => Invocation(invocation),
                 ObjectCreationExpressionSyntax creation => ObjectCreation(creation),
                 ImplicitObjectCreationExpressionSyntax creation => $"new({Arguments(creation.ArgumentList?.Arguments ?? default)}){InitializerOrEmpty(creation.Initializer)}",
-                AssignmentExpressionSyntax assignment => $"{Expression(assignment.Left)} {assignment.OperatorToken.Text} {Expression(assignment.Right)}",
+                AssignmentExpressionSyntax assignment => Assignment(assignment),
                 BinaryExpressionSyntax binary => $"{Expression(binary.Left)} {binary.OperatorToken.Text} {Expression(binary.Right)}",
                 PrefixUnaryExpressionSyntax unary => $"{unary.OperatorToken.Text}{Expression(unary.Operand)}",
+                PostfixUnaryExpressionSyntax unary when unary.IsKind(SyntaxKind.SuppressNullableWarningExpression) => Expression(unary.Operand),
                 PostfixUnaryExpressionSyntax unary => $"{Expression(unary.Operand)}{unary.OperatorToken.Text}",
                 ParenthesizedExpressionSyntax parenthesized => $"({Expression(parenthesized.Expression)})",
                 ElementAccessExpressionSyntax element => $"{Expression(element.Expression)}[{Arguments(element.ArgumentList.Arguments)}]",
                 ConditionalExpressionSyntax conditional => $"{Expression(conditional.Condition)} ? {Expression(conditional.WhenTrue)} : {Expression(conditional.WhenFalse)}",
+                DeclarationExpressionSyntax declaration => DeclarationExpression(declaration),
                 CastExpressionSyntax cast => $"({TypeName(cast.Type)}){Expression(cast.Expression)}",
                 IsPatternExpressionSyntax isPattern => $"{Expression(isPattern.Expression)} is {isPattern.Pattern}",
                 AwaitExpressionSyntax awaitExpression => $"await {Expression(awaitExpression.Expression)}",
@@ -435,10 +474,47 @@ public sealed class CSharpToNSharpConverter
                 SimpleLambdaExpressionSyntax lambda => $"{lambda.Parameter.Identifier.Text} => {LambdaBody(lambda.Body)}",
                 ParenthesizedLambdaExpressionSyntax lambda => $"({string.Join(", ", lambda.ParameterList.Parameters.Select(Parameter))}) => {LambdaBody(lambda.Body)}",
                 AnonymousObjectCreationExpressionSyntax anonymous => AnonymousObject(anonymous),
+                ArrayCreationExpressionSyntax array => ArrayCreation(array),
+                ImplicitArrayCreationExpressionSyntax array => InitializerExpression(array.Initializer),
                 InitializerExpressionSyntax initializer => Initializer(initializer),
+                SwitchExpressionSyntax switchExpression => SwitchExpression(switchExpression),
+                TupleExpressionSyntax tuple => $"({Arguments(tuple.Arguments)})",
                 TypeOfExpressionSyntax typeOf => $"typeof({TypeName(typeOf.Type)})",
                 DefaultExpressionSyntax => "default",
                 _ => UnsupportedExpression(expression)
+            };
+        }
+
+        private string Assignment(AssignmentExpressionSyntax assignment)
+        {
+            if (assignment.Left is IdentifierNameSyntax leftIdentifier
+                && TryMemberAlias(leftIdentifier.Identifier.Text, out var alias)
+                && assignment.Right is IdentifierNameSyntax rightIdentifier
+                && string.Equals(alias, rightIdentifier.Identifier.Text, StringComparison.Ordinal))
+            {
+                return $"this.{alias} {assignment.OperatorToken.Text} {Expression(assignment.Right)}";
+            }
+
+            return $"{Expression(assignment.Left)} {assignment.OperatorToken.Text} {Expression(assignment.Right)}";
+        }
+
+        private string SwitchExpression(SwitchExpressionSyntax switchExpression)
+        {
+            var arms = switchExpression.Arms.Select((arm, index) =>
+                $"{Pattern(arm.Pattern)} => {Expression(arm.Expression)}{(index < switchExpression.Arms.Count - 1 ? "," : string.Empty)}");
+            return $"match {Expression(switchExpression.GoverningExpression)} {{ {string.Join(" ", arms)} }}";
+        }
+
+        private string Pattern(PatternSyntax pattern)
+        {
+            return pattern switch
+            {
+                DiscardPatternSyntax => "_",
+                ConstantPatternSyntax constant => Expression(constant.Expression),
+                DeclarationPatternSyntax declaration => TypeName(declaration.Type),
+                VarPatternSyntax varPattern => varPattern.Designation.ToString(),
+                RecursivePatternSyntax recursive when recursive.Type != null => TypeName(recursive.Type),
+                _ => pattern.ToString()
             };
         }
 
@@ -463,9 +539,75 @@ public sealed class CSharpToNSharpConverter
             return $"new {TypeName(creation.Type)}({Arguments(creation.ArgumentList?.Arguments ?? default)}){InitializerOrEmpty(creation.Initializer)}";
         }
 
+        private string ArrayCreation(ArrayCreationExpressionSyntax array)
+        {
+            return array.Initializer != null
+                ? InitializerExpression(array.Initializer)
+                : $"new {TypeName(array.Type)}";
+        }
+
+        private string InitializerExpression(InitializerExpressionSyntax initializer)
+        {
+            return $"[{string.Join(", ", initializer.Expressions.Select(Expression))}]";
+        }
+
+        private string DeclarationExpression(DeclarationExpressionSyntax declaration)
+        {
+            return declaration.Designation switch
+            {
+                SingleVariableDesignationSyntax single => single.Identifier.Text,
+                ParenthesizedVariableDesignationSyntax parenthesized => $"({string.Join(", ", parenthesized.Variables.Select(variable => variable.ToString()))})",
+                DiscardDesignationSyntax => "_",
+                _ => declaration.Designation.ToString()
+            };
+        }
+
         private string AnonymousObject(AnonymousObjectCreationExpressionSyntax anonymous)
         {
             return $"new() {{ {string.Join(", ", anonymous.Initializers.Select(initializer => $"{initializer.NameEquals?.Name ?? initializer.Expression}: {Expression(initializer.Expression)}"))} }}";
+        }
+
+        private static Dictionary<string, string> BuildMemberNameAliases(SyntaxList<MemberDeclarationSyntax> members)
+        {
+            var aliases = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var field in members.OfType<FieldDeclarationSyntax>())
+            {
+                foreach (var variable in field.Declaration.Variables)
+                {
+                    var original = variable.Identifier.Text;
+                    var converted = ConvertMemberName(original);
+                    if (!string.Equals(original, converted, StringComparison.Ordinal))
+                    {
+                        aliases[original] = converted;
+                    }
+                }
+            }
+
+            return aliases;
+        }
+
+        private static string ConvertMemberName(string name)
+        {
+            if (name.Length > 1 && name[0] == '_' && char.IsLetter(name[1]))
+            {
+                return char.ToLowerInvariant(name[1]) + name[2..];
+            }
+
+            return name;
+        }
+
+        private bool TryMemberAlias(string name, out string alias)
+        {
+            foreach (var aliases in _memberNameAliases)
+            {
+                if (aliases.TryGetValue(name, out alias!))
+                {
+                    return true;
+                }
+            }
+
+            alias = string.Empty;
+            return false;
         }
 
         private string InitializerOrEmpty(InitializerExpressionSyntax? initializer)
@@ -497,17 +639,49 @@ public sealed class CSharpToNSharpConverter
             return body switch
             {
                 ExpressionSyntax expression => Expression(expression),
-                BlockSyntax block => "{ " + string.Join(" ", block.Statements.Select(statement => statement.ToString().Trim().TrimEnd(';'))) + " }",
+                BlockSyntax block => "{ " + string.Join(" ", block.Statements.Select(StatementInline)) + " }",
                 _ => UnsupportedNode(body, "lambda body")
             };
+        }
+
+        private string StatementInline(StatementSyntax statement)
+        {
+            return statement switch
+            {
+                BlockSyntax block => string.Join(" ", block.Statements.Select(StatementInline)),
+                ReturnStatementSyntax returnStatement => returnStatement.Expression == null ? "return" : $"return {Expression(returnStatement.Expression)}",
+                IfStatementSyntax ifStatement => IfInline(ifStatement),
+                ForEachStatementSyntax foreachStatement => $"foreach {foreachStatement.Identifier.Text} in {Expression(foreachStatement.Expression)} {{ {StatementInline(foreachStatement.Statement)} }}",
+                ExpressionStatementSyntax expressionStatement => Expression(expressionStatement.Expression),
+                LocalDeclarationStatementSyntax local => string.Join(" ", local.Declaration.Variables.Select(variable =>
+                {
+                    var initializer = variable.Initializer != null ? Expression(variable.Initializer.Value) : DefaultFor(local.Declaration.Type);
+                    return local.Declaration.Type is IdentifierNameSyntax { Identifier.Text: "var" }
+                        ? $"{variable.Identifier.Text} := {initializer}"
+                        : $"{variable.Identifier.Text}: {TypeName(local.Declaration.Type)} = {initializer}";
+                })),
+                _ => UnsupportedNode(statement, "lambda statement")
+            };
+        }
+
+        private string IfInline(IfStatementSyntax ifStatement)
+        {
+            var value = $"if {Expression(ifStatement.Condition)} {{ {StatementInline(ifStatement.Statement)} }}";
+            if (ifStatement.Else != null)
+            {
+                value += $" else {{ {StatementInline(ifStatement.Else.Statement)} }}";
+            }
+
+            return value;
         }
 
         private string Arguments(SeparatedSyntaxList<ArgumentSyntax> arguments)
         {
             return string.Join(", ", arguments.Select(argument =>
             {
-                var prefix = argument.NameColon != null ? $"{argument.NameColon.Name}: " : string.Empty;
-                return prefix + Expression(argument.Expression);
+                var namePrefix = argument.NameColon != null ? $"{argument.NameColon.Name}: " : string.Empty;
+                var refPrefix = argument.RefKindKeyword.IsKind(SyntaxKind.None) ? string.Empty : $"{argument.RefKindKeyword.ValueText} ";
+                return namePrefix + refPrefix + Expression(argument.Expression);
             }));
         }
 
@@ -548,10 +722,10 @@ public sealed class CSharpToNSharpConverter
                     "void" => "void",
                     _ => predefined.Keyword.ValueText
                 },
-                IdentifierNameSyntax identifier => identifier.Identifier.Text,
+                IdentifierNameSyntax identifier => MapTypeName(identifier.Identifier.Text),
                 QualifiedNameSyntax qualified => $"{TypeName(qualified.Left)}.{TypeName(qualified.Right)}",
                 AliasQualifiedNameSyntax aliasQualified => $"{aliasQualified.Alias}.{TypeName(aliasQualified.Name)}",
-                GenericNameSyntax generic => $"{generic.Identifier.Text}<{string.Join(", ", generic.TypeArgumentList.Arguments.Select(TypeName))}>",
+                GenericNameSyntax generic => GenericTypeName(generic),
                 ArrayTypeSyntax array => $"{TypeName(array.ElementType)}{string.Concat(array.RankSpecifiers.Select(rank => "[" + new string(',', rank.Rank - 1) + "]"))}",
                 NullableTypeSyntax nullable => $"{TypeName(nullable.ElementType)}?",
                 TupleTypeSyntax tuple => $"({string.Join(", ", tuple.Elements.Select(element => element.Identifier.IsKind(SyntaxKind.None) ? TypeName(element.Type) : $"{element.Identifier.Text}: {TypeName(element.Type)}"))})",
@@ -559,23 +733,40 @@ public sealed class CSharpToNSharpConverter
             };
         }
 
+        private string GenericTypeName(GenericNameSyntax generic)
+        {
+            var name = MapTypeName(generic.Identifier.Text);
+            return $"{name}<{string.Join(", ", generic.TypeArgumentList.Arguments.Select(TypeName))}>";
+        }
+
+        private static string MapTypeName(string name)
+        {
+            return name switch
+            {
+                "IActionResult" => "Result",
+                "ActionResult" => "Result",
+                _ => name
+            };
+        }
+
         private string Modifiers(SyntaxTokenList modifiers)
         {
             var parts = modifiers
-                .Where(modifier => modifier.IsKind(SyntaxKind.PublicKeyword)
-                    || modifier.IsKind(SyntaxKind.PrivateKeyword)
-                    || modifier.IsKind(SyntaxKind.ProtectedKeyword)
-                    || modifier.IsKind(SyntaxKind.InternalKeyword)
-                    || modifier.IsKind(SyntaxKind.StaticKeyword)
+                .Where(modifier => modifier.IsKind(SyntaxKind.StaticKeyword)
                     || modifier.IsKind(SyntaxKind.AbstractKeyword)
-                    || modifier.IsKind(SyntaxKind.VirtualKeyword)
                     || modifier.IsKind(SyntaxKind.OverrideKeyword)
                     || modifier.IsKind(SyntaxKind.SealedKeyword)
-                    || modifier.IsKind(SyntaxKind.PartialKeyword))
+                    || modifier.IsKind(SyntaxKind.PartialKeyword)
+                    || modifier.IsKind(SyntaxKind.FileKeyword))
                 .Select(modifier => modifier.ValueText);
 
             var value = string.Join(" ", parts);
             return value.Length == 0 ? string.Empty : value + " ";
+        }
+
+        private string StaticModifier(SyntaxTokenList modifiers)
+        {
+            return modifiers.Any(SyntaxKind.StaticKeyword) ? "static " : string.Empty;
         }
 
         private string DefaultFor(TypeSyntax type)
