@@ -466,7 +466,7 @@ public sealed class CSharpToNSharpConverter
                 ParenthesizedExpressionSyntax parenthesized => $"({Expression(parenthesized.Expression)})",
                 ElementAccessExpressionSyntax element => $"{Expression(element.Expression)}[{Arguments(element.ArgumentList.Arguments)}]",
                 ConditionalExpressionSyntax conditional => $"{Expression(conditional.Condition)} ? {Expression(conditional.WhenTrue)} : {Expression(conditional.WhenFalse)}",
-                DeclarationExpressionSyntax declaration => DeclarationExpression(declaration),
+                DeclarationExpressionSyntax declaration => DeclarationExpressionToString(declaration),
                 CastExpressionSyntax cast => $"({TypeName(cast.Type)}){Expression(cast.Expression)}",
                 IsPatternExpressionSyntax isPattern => $"{Expression(isPattern.Expression)} is {isPattern.Pattern}",
                 AwaitExpressionSyntax awaitExpression => $"await {Expression(awaitExpression.Expression)}",
@@ -551,7 +551,7 @@ public sealed class CSharpToNSharpConverter
             return $"[{string.Join(", ", initializer.Expressions.Select(Expression))}]";
         }
 
-        private string DeclarationExpression(DeclarationExpressionSyntax declaration)
+        private string DeclarationExpressionToString(DeclarationExpressionSyntax declaration)
         {
             return declaration.Designation switch
             {
