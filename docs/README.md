@@ -73,6 +73,7 @@ dotnet run
 ### Migration & Interop
 
 - **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - strategies and common patterns
+- **[COTM Migration Benchmark](cotm-migration-benchmark.md)** - Opt-in external regression benchmark for compiler/CLI migration changes
 - **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
 
 ### Development & Deployment
