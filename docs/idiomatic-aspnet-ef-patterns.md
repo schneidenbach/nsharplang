@@ -353,13 +353,27 @@ class IssueApiTests : IClassFixture<WebApplicationFactory<Program>> {
     }
 
     [Fact]
-    async func GetMissingIssueReturns404() {
+    async func GetMissingIssueReturns404(): Task {
         client := factory.CreateClient()
         response := await client.GetAsync("/api/issues/00000000-0000-0000-0000-000000000000")
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode)
     }
 }
 ```
+
+Ordinary async N# methods should usually keep the implicit return form (`async func Load(): IssueDto` lowers to the configured async wrapper). Framework interop surfaces are different: if xUnit, ASP.NET, or another .NET framework expects a C# `Task` signature, emit it explicitly:
+
+```nsharp
+async func Name(...): Task {
+    await WorkAsync()
+}
+
+async func LoadIssue(...): Task<IssueDto> {
+    return await GetIssueAsync()
+}
+```
+
+For `Task<T>`, declare `: Task<T>` and return a bare `T` value from the async body; do not return `Task.FromResult(...)` just to satisfy the signature.
 
 Rules:
 
@@ -380,7 +394,7 @@ When AI-assisted migration produces C#-shaped N#, implementers should normalize 
 5. Replace anonymous response objects with DTO records.
 6. Replace hand-written validation branches with FluentValidation validators where rules are input-shape validation.
 7. Convert C# query syntax or over-parenthesized LINQ into N# method chains.
-8. Convert xUnit fixture-heavy tests into simple `test "..."` blocks unless xUnit fixture interop is required.
+8. Convert xUnit fixture-heavy tests into simple `test "..."` blocks unless xUnit fixture interop is required; when keeping class-based xUnit/framework interop, preserve required C# async signatures with explicit `: Task` or `: Task<T>`.
 
 ## 9. Compiler migration follow-up checklist
 
@@ -391,6 +405,7 @@ Implementers should verify or add tests for these interop expectations:
 - FluentValidation chained method calls preserve indentation and lambda syntax.
 - EF extension methods resolve when `Microsoft.EntityFrameworkCore` is imported and the project references EF packages.
 - xUnit fixture interfaces (`IClassFixture<T>`, `IAsyncLifetime`, `IDisposable`) emit the required public members even when N# source uses idiomatic casing.
+- xUnit/framework async methods that must be discovered or invoked through C# signatures emit explicit `Task`/`Task<T>` returns rather than implicit async wrappers.
 - Migration cleanup rewrites `_field` private backing fields to camelCase fields when safe, but does not rename serialized/public contract members.
 
 ## Non-goals
