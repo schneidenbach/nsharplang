@@ -39,4 +39,4 @@ jobs:
       run: dotnet tool install --global NSharpLang.Cli --no-cache --source artifacts/nuget
 
     - name: Lint
-      run: nlc lint
+      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll lint
