@@ -6,7 +6,7 @@ import TaskCli.Models
 import TaskCli.Services
 import TaskCli.Commands
 
-func async Main() {
+async func Main() {
     rawArgs := Environment.GetCommandLineArgs()
 
     if rawArgs.Length < 2 {

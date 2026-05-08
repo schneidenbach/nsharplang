@@ -487,19 +487,19 @@ doWork(new MemoryReader())  // works via structural typing
 #### Async/Await
 - Full async/await support with implicit wrapping
 - Return type wrapping:
-  - `func async FetchData(): string { }` → lowers to `ValueTask<string>` (or `Task<string>` based on project config)
-  - Explicit types allowed: `func async GetData(): Task<string> { }` (for nested Task types)
+  - `async func FetchData(): string { }` → lowers to `ValueTask<string>` (or `Task<string>` based on project config)
+  - Explicit Task/ValueTask types follow .NET async semantics: `async func GetData(): Task<string> { }` returns a `string` from the body and lowers to `Task<string>`
   - Configurable default in `project.yml`: `language.asyncDefaultType: ValueTask` or `Task`
 - Examples:
   ```
   // Implicit wrapping (recommended)
-  func async FetchData(): string {
+  async func FetchData(): string {
       return await LoadFromDb()
   }
 
-  // Explicit when needed (e.g., Task<Task<string>>)
-  func async GetNestedTask(): Task<string> {
-      return Task.FromResult("value")
+  // Explicit Task<T> uses normal .NET async return semantics
+  async func GetData(): Task<string> {
+      return await LoadFromDb()
   }
 
   // Usage

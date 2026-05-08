@@ -106,7 +106,7 @@ func add(a: int, b: int): int {
     return a + b
 }
 
-func async fetchData(): string {
+async func fetchData(): string {
     return await client.GetStringAsync(url)
 }
 ```

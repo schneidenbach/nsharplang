@@ -52,79 +52,6 @@ public class CliCommandTests
     }
 
     [Fact]
-    public void ConvertCommand_Help_IsSideEffectFree()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => ConvertCommand.Execute(new[] { "--help" }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage:", stdout);
-        Assert.Contains("nlc convert --file", stdout);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-    }
-
-    [Fact]
-    public void ConvertCommand_Stdin_ConvertsCommonCSharpSyntax()
-    {
-        const string source = """
-using System;
-
-namespace Demo;
-
-public class Greeter
-{
-    public string Name { get; set; } = "world";
-
-    public void SayHello()
-    {
-        var message = $"Hello, {Name}!";
-        Console.WriteLine(message);
-    }
-}
-""";
-
-        var (exitCode, stdout, stderr) = CaptureConsole(
-            () => ConvertCommand.Execute(new[] { "--stdin" }),
-            source);
-
-        Assert.Equal(0, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-        Assert.Contains("namespace Demo", stdout);
-        Assert.Contains("import System", stdout);
-        Assert.Contains("class Greeter", stdout);
-        Assert.Contains("Name: string = \"world\"", stdout);
-        Assert.Contains("func SayHello()", stdout);
-        Assert.Contains("message := $\"Hello, {Name}!\"", stdout);
-        Assert.Contains("print message", stdout);
-    }
-
-    [Fact]
-    public void ConvertCommand_File_WritesOutputFile()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-convert-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var sourceFile = Path.Combine(tempDir, "Program.cs");
-            var outputFile = Path.Combine(tempDir, "Program.nl");
-            File.WriteAllText(sourceFile, "public class Program { public static int Add(int left, int right) { return left + right; } }");
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                ConvertCommand.Execute(new[] { "--file", sourceFile, "--output", outputFile }));
-
-            Assert.Equal(0, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-            Assert.Contains("Converted", stdout);
-            var converted = File.ReadAllText(outputFile);
-            Assert.Contains("static func Add(left: int, right: int): int", converted);
-            Assert.Contains("return left + right", converted);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void FixCommand_DryRun_DefaultsToJsonEnvelope()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-fix-{Guid.NewGuid():N}");
@@ -577,6 +504,152 @@ func Main() {
         var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
         Assert.Contains(results, r => r.GetProperty("name").GetString() == "Square");
         Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Circle");
+    }
+
+    [Fact]
+    public void IdiomCommand_Help_IsSideEffectFree()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => IdiomCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Usage: nlc idiom", stdout);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+    }
+
+    [Fact]
+    public void IdiomCommand_EmitsMachineReadableMigrationReport()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-idiom-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Customer.nl"), """
+class CustomerDto {
+    public id: string
+    private _legacyId: string
+    Name: string
+}
+
+record Order(id: string, total: decimal)
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Services", "Store.nl"), """
+package Models
+
+using System;
+namespace Legacy.Api;
+
+func Load(input: string?): Result<string> {
+    value := input!
+    built := new User {
+        Name = "A"
+    }
+    legacy := value;
+    // TODO(migration): manual review required
+    return match value {
+        "" => Result.Failure { error: "empty" },
+        _ => Result.Success { value: value }
+    }
+}
+
+async func Ping(): string {
+    return "pong"
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Legacy.cs"), """
+public class LegacyDto
+{
+    public string Name { get; set; } = null!;
+    public IActionResult Get() => Ok(new { Name = "legacy" });
+    public bool TryRead(Dictionary<string, string> map, string key, out var value)
+        => map.TryGetValue(key, out value);
+    public string FromQuery(IEnumerable<User> users) =>
+        (from user in users where user.Id == id select user.Name).First();
+    public User Build() => new User { Name = "A" };
+    public string MustRead(Result<string> result) => result.Value;
+    public string Missing() => default!;
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                IdiomCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            AssertJsonContract("idiom", stdout);
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal("idiom", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("ok").GetBoolean());
+            Assert.Equal(3, root.GetProperty("scannedFiles").GetInt32());
+            Assert.InRange(root.GetProperty("score").GetInt32(), 1, 99);
+
+            Assert.True(root.TryGetProperty("grade", out _));
+            Assert.True(root.TryGetProperty("thresholds", out _));
+
+            var csharp = root.GetProperty("signals").GetProperty("csharpIsms");
+            Assert.Equal(10, csharp.GetProperty("modifiers").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("propertySyntax").GetInt32());
+            Assert.Equal(3, csharp.GetProperty("nullForgiving").GetInt32());
+            Assert.Equal(2, csharp.GetProperty("outVar").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("tryGetValue").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("semicolons").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("underscoreFields").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("actionResults").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("anonymousApiDtos").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("querySyntax").GetInt32());
+            Assert.Equal(2, csharp.GetProperty("equalsInitializers").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("unsafeValueAccess").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("usingDirectives").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("namespaceDeclarations").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("missingPackageDeclarations").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("wrongPackageDeclarations").GetInt32());
+
+            var adoption = root.GetProperty("signals").GetProperty("nsharpAdoption");
+            Assert.Equal(1, adoption.GetProperty("records").GetInt32());
+            Assert.Equal(1, adoption.GetProperty("matchExpressions").GetInt32());
+            Assert.Equal(4, adoption.GetProperty("resultMentions").GetInt32());
+            Assert.Equal(2, adoption.GetProperty("packageLayoutDirectories").GetInt32());
+
+            Assert.Equal(2, root.GetProperty("signals").GetProperty("dtoClasses").GetProperty("count").GetInt32());
+            Assert.Equal(1, root.GetProperty("signals").GetProperty("casingVisibilityIssues").GetProperty("count").GetInt32());
+            Assert.Equal(1, root.GetProperty("signals").GetProperty("manualReviewIslands").GetProperty("count").GetInt32());
+            Assert.True(root.GetProperty("recommendations").GetArrayLength() > 0);
+
+            var modifierExample = csharp.GetProperty("examples").GetProperty("modifiers")[0];
+            Assert.True(modifierExample.TryGetProperty("file", out _));
+            Assert.True(modifierExample.TryGetProperty("line", out _));
+            Assert.True(modifierExample.TryGetProperty("column", out _));
+            Assert.True(modifierExample.TryGetProperty("text", out _));
+            Assert.False(modifierExample.TryGetProperty("File", out _));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IdiomCommand_MissingProject_ReturnsMachineReadableErrorEnvelope()
+    {
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-missing-idiom-{Guid.NewGuid():N}");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            IdiomCommand.Execute(new[] { "--project", missingDir }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        var root = doc.RootElement;
+        Assert.Equal("idiom", root.GetProperty("command").GetString());
+        Assert.False(root.GetProperty("ok").GetBoolean());
+        Assert.Equal(NormalizePath(Path.GetFullPath(missingDir)), root.GetProperty("projectRoot").GetString());
+        Assert.Equal("directoryNotFound", root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Contains("Directory not found", root.GetProperty("error").GetProperty("message").GetString());
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)

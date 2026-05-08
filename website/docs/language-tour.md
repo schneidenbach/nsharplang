@@ -353,17 +353,17 @@ func main() {
 
 ## Async/Await
 
-Async functions are declared with `func async`. The return type is automatically wrapped in `Task` or `ValueTask`.
+Async functions are declared with `async func`. The return type is automatically wrapped in `Task` or `ValueTask`.
 
 ```n#
 import System.Threading.Tasks
 
-func async fetchData(): string {
+async func fetchData(): string {
     await Task.Delay(100)
     return "data loaded"
 }
 
-func async main() {
+async func main() {
     result := await fetchData()
     print result   // data loaded
 }
@@ -371,21 +371,21 @@ func async main() {
 
 ### Async Streams
 
-Use `func async*` for async iterators and `await foreach` to consume them.
+Use `async func*` for async iterators and `await foreach` to consume them.
 
 ```n#
 import System
 import System.Collections.Generic
 import System.Threading.Tasks
 
-func async* getNumbersAsync(): IAsyncEnumerable<int> {
+async func* getNumbersAsync(): IAsyncEnumerable<int> {
     for i := 0; i < 5; i++ {
         await Task.Delay(100)
         yield i
     }
 }
 
-func async main() {
+async func main() {
     await foreach num in getNumbersAsync() {
         print $"Got: {num}"
     }

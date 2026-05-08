@@ -26,50 +26,41 @@ parts := trimmed.Split(pipeDelim)
 
 ### BUG-2: Async return type validation incorrect for `Task<T>` methods
 **Severity**: High
+**Status**: Fixed
 **File**: Services/Store.nl, Services/TaskService.nl
 
-The N# analyzer requires the return expression type to match the full `Task<T>` return type, even though async methods in C# automatically wrap the return value:
+The analyzer now accepts bare result values in async methods whose declared return type is `Task<T>`:
 ```nl
-// BROKEN: NL202 "actual: List<TaskItem>, expected: Task<List<TaskItem>>"
-func async Load(): Task<List<TaskItem>> {
-    return new List<TaskItem>()  // This should be valid in async context
+async func Load(): Task<List<TaskItem>> {
+    return new List<TaskItem>()
 }
 ```
 
-**Workaround**: Use `return await Task.FromResult(value)` to satisfy the type checker:
-```nl
-func async Load(): Task<List<TaskItem>> {
-    empty := new List<TaskItem>()
-    return await Task.FromResult(empty)
-}
-```
-
-**Expected**: In async methods, `return T` should be valid when the return type is `Task<T>`.
+**Expected**: In async methods, `return T` is valid when the return type is `Task<T>`.
 
 ---
 
 ### BUG-3: Void async methods (`Task` return) report "not all code paths return"
 **Severity**: High
+**Status**: Fixed
 **File**: Services/Store.nl, Services/TaskService.nl
 
-Async methods that return `Task` (void async) require an explicit return value, but there's nothing meaningful to return:
+Async methods that return `Task` no longer require an explicit return value:
 ```nl
-// BROKEN: NL305 "Not all code paths return a value of type 'Task'"
-func async Save(tasks: List<TaskItem>): Task {
+async func Save(tasks: List<TaskItem>): Task {
     await File.WriteAllLinesAsync(filePath, lines)
-    // No return needed - this is void async
 }
 ```
 
-**Workaround**: Change return type to `Task<bool>` and return a dummy value:
+`Task<T>` methods also accept bare `T` returns, so boolean async wrappers can return directly:
 ```nl
-func async Save(tasks: List<TaskItem>): Task<bool> {
-    await File.WriteAllLinesAsync(filePath, lines)
-    return await Task.FromResult(true)
+async func SaveTasks(): Task<bool> {
+    await store.Save(tasks)
+    return true
 }
 ```
 
-**Expected**: `func async Foo(): Task` should not require a return statement.
+**Expected**: `async func Foo(): Task` does not require a return statement.
 
 ---
 

@@ -237,7 +237,7 @@ mapped := names.Select(name => name.ToUpper())
 Declare async functions with the `async` keyword:
 
 ```n#
-func async fetchData(url: string): string {
+async func fetchData(url: string): string {
     client := new HttpClient()
     result := await client.GetStringAsync(url)
     return result
@@ -247,16 +247,27 @@ func async fetchData(url: string): string {
 ### Async with Task<T>
 
 ```n#
-func async processFile(path: string): Task<string> {
+async func processFile(path: string): Task<string> {
     content := await File.ReadAllTextAsync(path)
     return content.ToUpper()
+}
+```
+
+Explicit `Task<T>` signatures use C# async return semantics: return the `T`
+value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
+are unit-returning async methods, so no `return` statement is required after the
+last `await`.
+
+```n#
+async func save(path: string, content: string): Task {
+    await File.WriteAllTextAsync(path, content)
 }
 ```
 
 ### Async with ValueTask<T>
 
 ```n#
-func async getValue(): ValueTask<int> {
+async func getValue(): ValueTask<int> {
     // ValueTask is optimized for synchronous completion
     await Task.Delay(100)
     return 42
@@ -267,7 +278,7 @@ func async getValue(): ValueTask<int> {
 
 ```n#
 // Only for event handlers
-func async onButtonClick() {
+async func onButtonClick() {
     await Task.Delay(1000)
     Console.WriteLine("Clicked!")
 }
@@ -278,7 +289,7 @@ func async onButtonClick() {
 N# automatically wraps return values in Task<T>:
 
 ```n#
-func async getUser(id: int): User {
+async func getUser(id: int): User {
     // Compiler wraps User in Task<User>
     user := await database.FindAsync(id)
     return user
@@ -288,7 +299,7 @@ func async getUser(id: int): User {
 ### Async LINQ
 
 ```n#
-func async processItems(items: List<string>): List<int> {
+async func processItems(items: List<string>): List<int> {
     results := new List<int>()
     for item in items {
         value := await fetchValueAsync(item)
@@ -301,7 +312,7 @@ func async processItems(items: List<string>): List<int> {
 ### Async Streams (IAsyncEnumerable)
 
 ```n#
-func async* generateNumbers(count: int): IAsyncEnumerable<int> {
+async func* generateNumbers(count: int): IAsyncEnumerable<int> {
     for i := 0; i < count; i += 1 {
         await Task.Delay(100)
         yield i
@@ -427,8 +438,8 @@ func processData(input: string): string {
 ### Async Local Functions
 
 ```n#
-func async orchestrate(): Task<int> {
-    func async fetchAsync(id: int): Task<string> {
+async func orchestrate(): Task<int> {
+    async func fetchAsync(id: int): Task<string> {
         await Task.Delay(100)
         return $"Item {id}"
     }
@@ -520,7 +531,7 @@ func double(x: int): int {
 
 ```n#
 // Good
-func async fetchAndProcess(): string {
+async func fetchAndProcess(): string {
     data := await fetchDataAsync()
     return processData(data)
 }
@@ -598,8 +609,8 @@ class DataProcessor {
     }
 
     // Async function
-    func async processAsync(): Task<int> {
-        func async validateAsync(item: string): Task<bool> {
+    async func processAsync(): Task<int> {
+        async func validateAsync(item: string): Task<bool> {
             await Task.Delay(10)
             return !string.IsNullOrEmpty(item)
         }

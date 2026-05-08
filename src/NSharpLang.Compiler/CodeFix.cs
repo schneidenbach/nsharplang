@@ -88,6 +88,7 @@ public class CodeFixService
         _providers.Add(new ConvertToInterpolationCodeFixProvider());
         _providers.Add(new RemoveUnusedImportCodeFixProvider());
         _providers.Add(new ChangeLetToConstCodeFixProvider());
+        _providers.Add(new MigrationCSharpismCodeFixProvider());
     }
 
     /// <summary>
@@ -467,5 +468,104 @@ public class ChangeLetToConstCodeFixProvider : CodeFixProvider
             FixSafety.Safe));
 
         return actions;
+    }
+}
+
+/// <summary>
+/// Migration scaffolding fixes for source-only C# leftover diagnostics.
+/// Potentially behavior-changing edits are ReviewNeeded; broader rewrites are SuggestionOnly.
+/// </summary>
+public class MigrationCSharpismCodeFixProvider : CodeFixProvider
+{
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL101", "NL102", "NL103", "NL104", "NL105", "NL106" };
+
+    public override List<CodeAction> GetCodeActions(
+        Diagnostic diagnostic,
+        CompilationUnit ast,
+        string sourceCode)
+    {
+        return diagnostic.Code switch
+        {
+            "NL101" => GetModifierActions(diagnostic, sourceCode),
+            "NL103" => GetNullForgivingActions(diagnostic, sourceCode),
+            "NL102" => Suggest(diagnostic, "Convert C# auto-property syntax to N# property/record syntax"),
+            "NL104" => Suggest(diagnostic, "Rewrite out var / TryGetValue pattern for N#"),
+            "NL105" => Suggest(diagnostic, "Convert DTO-shaped class to an N# record"),
+            "NL106" => Suggest(diagnostic, "Replace catch-to-500 boilerplate with centralized error handling"),
+            _ => new List<CodeAction>()
+        };
+    }
+
+    private static List<CodeAction> GetModifierActions(Diagnostic diagnostic, string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var modifier = ExtractQuotedText(diagnostic.Message);
+        if (modifier == null)
+            return actions;
+
+        var sourceLines = sourceCode.Split('\n');
+        var line = diagnostic.Location.Line;
+        if (line <= 0 || line > sourceLines.Length)
+            return actions;
+
+        var sourceLine = sourceLines[line - 1];
+        var startIndex = Math.Max(0, diagnostic.Location.Column - 1);
+        var tokenIndex = sourceLine.IndexOf(modifier, startIndex, StringComparison.Ordinal);
+        if (tokenIndex < 0)
+            tokenIndex = sourceLine.IndexOf(modifier, StringComparison.Ordinal);
+        if (tokenIndex < 0)
+            return actions;
+
+        var endIndex = tokenIndex + modifier.Length;
+        if (endIndex < sourceLine.Length && sourceLine[endIndex] == ' ')
+            endIndex++;
+
+        actions.Add(new CodeAction(
+            $"Remove '{modifier}' C# modifier",
+            "NL101",
+            new List<TextEdit> { new(line, tokenIndex + 1, line, endIndex + 1, "") },
+            CodeActionKind.QuickFix,
+            FixSafety.ReviewNeeded));
+
+        return actions;
+    }
+
+    private static List<CodeAction> GetNullForgivingActions(Diagnostic diagnostic, string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var sourceLines = sourceCode.Split('\n');
+        var line = diagnostic.Location.Line;
+        if (line <= 0 || line > sourceLines.Length)
+            return actions;
+
+        var sourceLine = sourceLines[line - 1];
+        var startIndex = Math.Max(0, diagnostic.Location.Column - 1);
+        var bangIndex = sourceLine.IndexOf('!', startIndex);
+        if (bangIndex < 0)
+            return actions;
+
+        actions.Add(new CodeAction(
+            "Remove null-forgiving '!' artifact",
+            "NL103",
+            new List<TextEdit> { new(line, bangIndex + 1, line, bangIndex + 2, "") },
+            CodeActionKind.QuickFix,
+            FixSafety.ReviewNeeded));
+
+        return actions;
+    }
+
+    private static List<CodeAction> Suggest(Diagnostic diagnostic, string title)
+    {
+        return new List<CodeAction>
+        {
+            new(title, diagnostic.Code, new List<TextEdit>(), CodeActionKind.RefactorRewrite, FixSafety.SuggestionOnly)
+        };
+    }
+
+    private static string? ExtractQuotedText(string message)
+    {
+        var start = message.IndexOf('\'');
+        var end = message.IndexOf('\'', start + 1);
+        return start >= 0 && end > start ? message[(start + 1)..end] : null;
     }
 }

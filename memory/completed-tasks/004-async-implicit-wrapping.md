@@ -12,18 +12,18 @@ Support implicit Task/ValueTask wrapping for async methods - user writes unwrapp
 
 ### Implicit Wrapping (Recommended)
 ```
-func async FetchData(): string {
+async func FetchData(): string {
     return await LoadFromDb()
 }
 // Transpiles to: async ValueTask<string> FetchData() { ... }
 ```
 
-### Explicit (For Nested Task Types)
+### Explicit Task/ValueTask Return Types
 ```
-func async GetTask(): Task<string> {
-    return Task.FromResult("value")
+async func GetTask(): Task<string> {
+    return await LoadFromDb()
 }
-// Transpiles to: async Task<Task<string>> GetTask() { ... }
+// Transpiles to: async Task<string> GetTask() { ... }
 ```
 
 ### Configuration
@@ -52,7 +52,7 @@ language:
 - Read language config from project settings
 - When analyzing async function:
   - If return type is NOT Task/ValueTask → implicit wrapping mode
-  - If return type IS Task/ValueTask → explicit mode (nested scenarios)
+  - If return type IS Task/ValueTask → explicit .NET async return mode
 - Track whether wrapping needed in function metadata
 
 ### 4. Transpiler
@@ -70,16 +70,16 @@ language:
   - Implicit wrapping detection
   - Explicit Task type detection
 - Transpiler tests:
-  - `func async Foo(): string` → `async ValueTask<string> Foo()`
-  - `func async Bar(): Task<string>` → `async Task<Task<string>> Bar()`
+  - `async func Foo(): string` → `async ValueTask<string> Foo()`
+  - `async func Bar(): Task<string>` → `async Task<string> Bar()`
   - Config: Task mode → `async Task<string>`
 - Integration test: Read config from project.yml
 
 ## Success Criteria
-- [x] `func async Foo(): string` transpiles with ValueTask wrapper by default
+- [x] `async func Foo(): string` transpiles with ValueTask wrapper by default
 - [x] project.yml config changes default wrapper type
 - [x] Explicit Task/ValueTask types work for nested scenarios
-- [x] Void async functions work: `func async DoWork() { }`
+- [x] Void async functions work: `async func DoWork() { }`
 - [x] All tests pass
 
 ## Notes

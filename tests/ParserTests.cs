@@ -799,6 +799,23 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestLegacyPostfixAsyncFunctionStillParses()
+    {
+        var source = @"
+            func async FetchData(): Task<string> {
+                result := await GetDataAsync()
+                return result
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+        Assert.Equal("FetchData", funcDecl!.Name);
+        Assert.True(funcDecl.Modifiers.HasFlag(Modifiers.Async));
+    }
+
+    [Fact]
     public void TestIteratorFunction()
     {
         var source = @"

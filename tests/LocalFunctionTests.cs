@@ -72,7 +72,7 @@ func Outer(): void {
     {
         var source = @"
 func Outer(): void {
-    func async Inner(): string {
+    async func Inner(): string {
         return ""test""
     }
 }";
@@ -81,6 +81,23 @@ func Outer(): void {
         var outerFunc = Assert.IsType<FunctionDeclaration>(ast.Declarations[0]);
         var localFunc = Assert.IsType<LocalFunctionStatement>(outerFunc.Body!.Statements[0]);
         Assert.True(localFunc.Function.Modifiers.HasFlag(Modifiers.Async));
+    }
+
+    [Fact]
+    public void TestLegacyPostfixAsyncIteratorLocalFunctionStillParses()
+    {
+        var source = @"
+func Outer(): void {
+    func async* Inner(): IAsyncEnumerable<int> {
+        yield 1
+    }
+}";
+        var ast = Parse(source);
+
+        var outerFunc = Assert.IsType<FunctionDeclaration>(ast.Declarations[0]);
+        var localFunc = Assert.IsType<LocalFunctionStatement>(outerFunc.Body!.Statements[0]);
+        Assert.True(localFunc.Function.Modifiers.HasFlag(Modifiers.Async));
+        Assert.True(localFunc.Function.Modifiers.HasFlag(Modifiers.Generator));
     }
 
     // C# export tests

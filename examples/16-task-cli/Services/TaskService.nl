@@ -19,7 +19,7 @@ class TaskService {
     }
 
     // Load tasks from persistent storage
-    func async LoadTasks(): Task<bool> {
+    async func LoadTasks(): Task<bool> {
         tasks = await store.Load()
         // Calculate next available ID
         maxId := 0
@@ -29,13 +29,13 @@ class TaskService {
             }
         }
         nextId = maxId + 1
-        return await Task.FromResult(true)
+        return true
     }
 
     // Save tasks to persistent storage
-    func async SaveTasks(): Task<bool> {
+    async func SaveTasks(): Task<bool> {
         await store.Save(tasks)
-        return await Task.FromResult(true)
+        return true
     }
 
     // Add a new task

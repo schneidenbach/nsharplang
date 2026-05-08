@@ -16,7 +16,7 @@ Updated: 2026-05-06
 | `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
-| `nlc convert` | Convert C# source syntax to N# | `--file`, `--dir`, `--stdin`, `--output`, `--dry-run` | `nlc convert --file Program.cs -o Program.nl` |
+| `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -65,23 +65,58 @@ nlc watch test --filter "should add"
 # Documentation and automation
 nlc doc --json
 nlc export csharp --project . --output ./myapp-csharp
-nlc convert --dir ./src --output ./src-nl
 nlc query inspect --summary --file Program.nl --pos 42:7
+
+# AI-assisted C# migration gate
+# Start from AI-authored .nl files, then iterate on diagnostics.
+nlc check --project ./migrated-nsharp --json
+nlc idiom --project ./migrated-nsharp
+nlc fix --project ./migrated-nsharp --dry-run --json
+nlc format --check --project ./migrated-nsharp
+nlc test --project ./migrated-nsharp
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
 
-## C# Conversion
 
-`nlc convert` is the migration entry point for C# input. It uses Roslyn for parsing and emits deterministic N# syntax for common C# declarations and statements:
+## AI-Assisted C# Migration Loop
+
+Do not treat syntax conversion as the migration contract. Start from AI-authored `.nl` files, then make the reviewable artifact the result of the full check/idiom/fix loop:
 
 ```bash
-nlc convert --file Program.cs --output Program.nl
-nlc convert --dir ./src --output ./src-nl
-nlc convert --file Program.cs --dry-run
-cat Program.cs | nlc convert --stdin
+# Produce ./migrated-nsharp with an AI migration pass that writes idiomatic N# directly.
+nlc check --project ./migrated-nsharp --json
+nlc idiom --project ./migrated-nsharp
+nlc fix --project ./migrated-nsharp --dry-run --json
+nlc format --check --project ./migrated-nsharp
+nlc test --project ./migrated-nsharp
 ```
 
-Unsupported constructs are preserved as `TODO(nlc convert)` comments and stderr diagnostics so manual cleanup is explicit rather than silent.
+Agent rules:
+
+- Treat `nlc check --json` errors as the first edit queue; cluster by diagnostic/root cause before touching files.
+- Treat `nlc idiom` C#-ism signals as migration debt even if the project compiles. Clear copied modifiers, semicolons, property blocks, `_field` names, null/default-forgiving suppressions, DTO classes, C# initializer syntax, and query syntax before review unless explicitly waived.
+- Treat `nlc fix --dry-run --json` as a patch planner. Apply `safe` fixes automatically only after inspecting the target diff; require human/agent review for `reviewNeeded`; record rationale for `suggestionOnly` waivers.
+- Re-run the loop after each cluster of changes. Passing tests with a poor idiom grade is not enough for an AI-assisted migration handoff.
+
+There is intentionally no `nlc convert` command in the public migration loop. If a prototype converter exists in a local build, treat it as non-contractual scratch output only; never mark migrated code done until diagnostics, idiom debt, formatting, and tests are clean.
+
+## Migration Idiom Report
+
+`nlc idiom` emits a stable JSON report for AI agents reviewing C# to N# migrations:
+
+```bash
+nlc idiom --project .
+```
+
+The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomatic`, `mixed`, `csharp-heavy`, or `needs-migration`), thresholds, and machine-readable counts for:
+
+- remaining C#-isms: explicit modifiers, statement semicolons in `.nl`, C# property blocks, underscore fields, null/default-forgiving operators, `out` parameter flows, `TryGetValue` flows, C# `using` directives (`usingDirectives`), and C# `namespace` declarations (`namespaceDeclarations`)
+- framework/API migration smells: `IActionResult`, anonymous API DTOs, LINQ query syntax, C# equals-style object initializers (`equalsInitializers`), and unsafe `.Value` access on result/option-like values
+- package migration blockers: `.nl` files under package folders missing declarations (`missingPackageDeclarations`) or declaring the wrong package for their file layout (`wrongPackageDeclarations`)
+- idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`
+- migration cleanup signals: DTO-shaped classes that might become records, visibility/casing conflicts, and TODO/manual-review islands
+
+The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, and `recommendations[]` is ordered migration guidance.
 
 ## Exit Codes
 
@@ -93,7 +128,7 @@ Unsupported constructs are preserved as `TODO(nlc convert)` comments and stderr 
 | `lint` | No issues | At least one issue was reported |
 | `check` | No errors | Errors present or analysis failed |
 | `fix` | Success | Failure, or `--dry-run` found pending fixes |
-| `convert` | Conversion completed with no manual-review diagnostics | Conversion failed or emitted manual-review diagnostics |
+| `idiom` | Report emitted successfully | Report failed |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 

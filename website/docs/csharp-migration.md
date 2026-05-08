@@ -13,6 +13,7 @@ This guide helps C# developers transition to N#. If you know C#, you'll feel rig
 - [Syntax Mapping](#syntax-mapping)
 - [Type System Enhancements](#type-system-enhancements)
 - [Migration Strategies](#migration-strategies)
+- [AI-Assisted C# Migration Contract](#ai-assisted-c-migration-contract)
 - [Common Patterns](#common-patterns)
 
 ## Key Differences
@@ -248,7 +249,7 @@ public async Task<string> FetchDataAsync(string url)
 
 **N#:**
 ```n#
-func async fetchDataAsync(url: string): string {
+async func fetchDataAsync(url: string): string {
     client := new HttpClient()
     result := await client.GetStringAsync(url)
     return result
@@ -448,11 +449,15 @@ dotnet run
 
 ### Strategy 2: Gradual Migration
 
-Mix C# and N# in the same solution:
+Mix C# and N# in the same solution, but do not stop at syntactic translation:
 
-1. Add N# project to existing solution
-2. Reference C# projects from N# (full interop!)
-3. Migrate modules incrementally
+1. Add an N# project to the existing solution.
+2. Reference C# projects from N# (full interop!).
+3. Migrate one module/feature slice at a time.
+4. Run `nlc check --project <nsharp-out> --json` to clear parse/semantic diagnostics.
+5. Run `nlc idiom --project <nsharp-out>` to catch C#-shaped output such as semicolons, copied modifiers, `_field` names, property blocks, DTO classes, and null-forgiving suppressions.
+6. Run `nlc fix --project <nsharp-out> --dry-run --json`; apply safe fixes, review `reviewNeeded` fixes manually, and waive suggestion-only items only with rationale.
+7. Re-run check/idiom/fix/format/tests after every cluster of edits.
 
 **Example Solution Structure:**
 ```
@@ -488,6 +493,35 @@ using MyLibrary;
 var calc = new Calculator();
 var result = calc.Add(5, 10);  // Works perfectly!
 ```
+
+## AI-Assisted C# Migration Contract
+
+AI-generated migration output must be idiomatic N#, not C# with lighter syntax. The full implementation contract lives in the [AI C# Migration Contract](./ai-csharp-migration-contract.md); the operating summary is:
+
+```bash
+# Produce <nsharp-out> with an AI migration pass that writes idiomatic N# directly.
+# Do not rely on syntax-conversion as the migration contract.
+
+cd <nsharp-out>
+nlc check --project . --json
+nlc idiom --project .
+nlc fix --project . --dry-run --json
+nlc format --check --project .
+nlc test --project .
+```
+
+Required cleanup before review:
+
+- Package declarations and folder/package layout match the target N# project shape; the loop flags missing or wrong `package` declarations in `.nl` files under package folders.
+- C# `using` directives and `namespace` declarations are converted to N# `import`/`package` form before review.
+- Public framework-discovered surface stays PascalCase; private implementation details use camelCase; copied C# `public`/`private` modifiers are removed unless interop requires them.
+- Statement semicolons, C# property blocks, `_field` private naming, null-forgiving suppressions, `default!` placeholders, and C# equals-style object initializers are removed or waived with diagnostic-backed rationale.
+- DTO-shaped API/request/response classes become records unless mutation or identity is required.
+- Domain failure flows become unions plus exhaustive `match`; ASP.NET/EF code maps those domain results at the boundary.
+- Ordinary async methods can use implicit N# return types, but xUnit/framework-discovered methods that require C# `Task` signatures must declare explicit `: Task` or `: Task<T>`; `Task<T>` bodies return bare `T` values.
+- `nlc idiom` reports the score, grade, thresholds, aggregate C#-ism counts, using/namespace/package/initializer blockers, per-file occurrences, and recommendations so agents can drive the next edit cluster without scraping prose.
+
+Completion requires zero `nlc check` errors, no remaining safe fixes in `nlc fix --dry-run --json`, no blocking `nlc idiom` C# artifacts, and passing project tests.
 
 ## Common Patterns
 
@@ -529,25 +563,25 @@ public class UserRepository : IRepository<User>
 **N#:**
 ```n#
 interface IRepository<T> {
-    func async GetByIdAsync(id: Guid): T?
-    func async GetAllAsync(): List<T>
-    func async AddAsync(entity: T): void
+    async func GetByIdAsync(id: Guid): T?
+    async func GetAllAsync(): List<T>
+    async func AddAsync(entity: T): void
 }
 
 class UserRepository : IRepository<User> {
     private users: List<User> = new List<User>()
 
-    func async GetByIdAsync(id: Guid): User? {
+    async func GetByIdAsync(id: Guid): User? {
         await Task.Delay(10)
         return users.FirstOrDefault(u => u.Id == id)
     }
 
-    func async GetAllAsync(): List<User> {
+    async func GetAllAsync(): List<User> {
         await Task.Delay(10)
         return users
     }
 
-    func async AddAsync(entity: User) {
+    async func AddAsync(entity: User) {
         await Task.Delay(10)
         users.Add(entity)
     }
@@ -719,7 +753,7 @@ match findUser(id) {
 | Class | `public class Person { }` | `class Person { }` |
 | Property | `public string Name { get; set; }` | `Name: string` |
 | Constructor | `public Person(string name) { }` | `constructor(name: string) { }` |
-| Async method | `public async Task<string> Get() { }` | `func async get(): string { }` |
+| Async method | `public async Task<string> Get() { }` | `async func get(): string { }` |
 | Lambda | `x => x * 2` | `x => x * 2` |
 | Array | `var arr = new[] { 1, 2, 3 };` | `arr := [1, 2, 3]` |
 | For loop | `for (var i = 0; i < 10; i++) { }` | `for i := 0; i < 10; i += 1 { }` |
@@ -751,18 +785,20 @@ func getUser(id: Guid): User?
 func getUser(id: Guid): Result<User>
 ```
 
-### 4. Adopt Conventions Gradually
+### 4. Adopt N# Conventions Before Review
 
-Start with explicit modifiers, migrate to conventions:
+Do not treat copied C# modifiers as acceptable final migration output. Use casing for ordinary visibility and reserve explicit modifiers for real .NET interop needs:
 
 ```n#
-// Initially
+// C#-shaped migration debt
 public func ProcessData() { }
 private func validateInput() { }
+private _logger: ILogger<Service>
 
-// Eventually
-func ProcessData() { }  // PascalCase = public
-func validateInput() { }  // camelCase = private
+// Review-ready N#
+func ProcessData() { }      // PascalCase = public
+func validateInput() { }    // camelCase = private
+logger: ILogger<Service>
 ```
 
 ### 5. Use the Right Tool

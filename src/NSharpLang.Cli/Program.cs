@@ -57,7 +57,7 @@ partial class Program
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
-            "convert" => ConvertCommand.Execute(args.Skip(1).ToArray()),
+            "idiom" => IdiomCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             "transpile" => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
@@ -1249,7 +1249,7 @@ Project:
   new <name>           Create a new N# project
   init                 Initialize N# in the current directory
   export <target>      Export N# sources without changing the IL toolchain
-  convert              Convert C# source syntax to N#
+  idiom                Score migration idioms and emit a JSON report
   watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info
@@ -1272,8 +1272,6 @@ Common Workflows:
   nlc build --release          Optimized release build
   nlc export csharp --project . -o ./myapp-csharp
                                Export a C# migration bundle
-  nlc convert --file Program.cs -o Program.nl
-                               Convert a C# file to N# syntax
   nlc format --check           CI formatting gate
   nlc test --filter AddPerson  Run specific tests
   nlc test --coverage          Run tests with coverage
