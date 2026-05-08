@@ -10,8 +10,8 @@ AI-assisted C# to N# migration is not a one-shot syntax conversion. It is an ite
 ## Required loop
 
 ```bash
-# Optional when the converter command is available in your build.
-nlc convert --dir <csharp-src> --output <nsharp-out>
+# Produce <nsharp-out> with an AI migration pass that writes idiomatic N# directly.
+# Do not rely on syntax-conversion as the migration contract.
 
 cd <nsharp-out>
 nlc check --project . --json
@@ -21,7 +21,7 @@ nlc format --check --project .
 nlc test --project .
 ```
 
-If the installed `nlc` build does not register `convert`, use the available converter/manual first-pass path, record that limitation, and still enforce the `check`/`idiom`/`fix`/format/test gates.
+There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass, record any prototype converter output as scratch evidence only, and still enforce the `check`/`idiom`/`fix`/format/test gates.
 
 ## What review-ready N# means
 

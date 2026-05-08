@@ -16,7 +16,6 @@ Updated: 2026-05-06
 | `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
-| `nlc convert` | Convert C# sources into an initial N# migration workspace when available in the current build | `--file`, `--dir`, `--output` | `nlc convert --dir src-csharp --output src-nsharp` |
 | `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
@@ -69,29 +68,27 @@ nlc export csharp --project . --output ./myapp-csharp
 nlc query inspect --summary --file Program.nl --pos 42:7
 
 # AI-assisted C# migration gate
-nlc convert --dir ./legacy-csharp --output ./migrated-nsharp
-cd ./migrated-nsharp
-nlc check --project . --json
-nlc idiom --project .
-nlc fix --project . --dry-run --json
-nlc format --check --project .
-nlc test --project .
+# Start from AI-authored .nl files, then iterate on diagnostics.
+nlc check --project ./migrated-nsharp --json
+nlc idiom --project ./migrated-nsharp
+nlc fix --project ./migrated-nsharp --dry-run --json
+nlc format --check --project ./migrated-nsharp
+nlc test --project ./migrated-nsharp
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
 
 
 ## AI-Assisted C# Migration Loop
 
-Use `nlc convert` only as the first draft of a migration. The reviewable artifact is the result of the full check/idiom/fix loop:
+Do not treat syntax conversion as the migration contract. Start from AI-authored `.nl` files, then make the reviewable artifact the result of the full check/idiom/fix loop:
 
 ```bash
-nlc convert --dir <csharp-src> --output <nsharp-out>
-cd <nsharp-out>
-nlc check --project . --json
-nlc idiom --project .
-nlc fix --project . --dry-run --json
-nlc format --check --project .
-nlc test --project .
+# Produce ./migrated-nsharp with an AI migration pass that writes idiomatic N# directly.
+nlc check --project ./migrated-nsharp --json
+nlc idiom --project ./migrated-nsharp
+nlc fix --project ./migrated-nsharp --dry-run --json
+nlc format --check --project ./migrated-nsharp
+nlc test --project ./migrated-nsharp
 ```
 
 Agent rules:
@@ -101,7 +98,7 @@ Agent rules:
 - Treat `nlc fix --dry-run --json` as a patch planner. Apply `safe` fixes automatically only after inspecting the target diff; require human/agent review for `reviewNeeded`; record rationale for `suggestionOnly` waivers.
 - Re-run the loop after each cluster of changes. Passing tests with a poor idiom grade is not enough for an AI-assisted migration handoff.
 
-If your installed `nlc` build does not register `convert`, use the available converter/manual first-pass path, record that limitation, and still enforce the `check`/`idiom`/`fix`/format/test gates.
+There is intentionally no `nlc convert` command in the public migration loop. If a prototype converter exists in a local build, treat it as non-contractual scratch output only; never mark migrated code done until diagnostics, idiom debt, formatting, and tests are clean.
 
 ## Migration Idiom Report
 
@@ -113,7 +110,7 @@ nlc idiom --project .
 
 The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomatic`, `mixed`, `csharp-heavy`, or `needs-migration`), thresholds, and machine-readable counts for:
 
-- remaining C#-isms: explicit modifiers, statement semicolons in `.nl`, C# property blocks, underscore fields, null/default-forgiving operators, `out var`, `TryGetValue` flows, C# `using` directives (`usingDirectives`), and C# `namespace` declarations (`namespaceDeclarations`)
+- remaining C#-isms: explicit modifiers, statement semicolons in `.nl`, C# property blocks, underscore fields, null/default-forgiving operators, `out` parameter flows, `TryGetValue` flows, C# `using` directives (`usingDirectives`), and C# `namespace` declarations (`namespaceDeclarations`)
 - framework/API migration smells: `IActionResult`, anonymous API DTOs, LINQ query syntax, C# equals-style object initializers (`equalsInitializers`), and unsafe `.Value` access on result/option-like values
 - package migration blockers: `.nl` files under package folders missing declarations (`missingPackageDeclarations`) or declaring the wrong package for their file layout (`wrongPackageDeclarations`)
 - idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`

@@ -594,7 +594,7 @@ public class LegacyDto
             Assert.Equal(10, csharp.GetProperty("modifiers").GetInt32());
             Assert.Equal(1, csharp.GetProperty("propertySyntax").GetInt32());
             Assert.Equal(3, csharp.GetProperty("nullForgiving").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("outVar").GetInt32());
+            Assert.Equal(2, csharp.GetProperty("outVar").GetInt32());
             Assert.Equal(1, csharp.GetProperty("tryGetValue").GetInt32());
             Assert.Equal(1, csharp.GetProperty("semicolons").GetInt32());
             Assert.Equal(1, csharp.GetProperty("underscoreFields").GetInt32());

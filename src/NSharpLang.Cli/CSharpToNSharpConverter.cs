@@ -67,13 +67,13 @@ public sealed class CSharpToNSharpConverter
             switch (member)
             {
                 case FileScopedNamespaceDeclarationSyntax fileNamespace:
-                    WriteLine($"namespace {fileNamespace.Name}");
+                    WriteLine($"package {fileNamespace.Name}");
                     WriteLine();
                     EmitUsings(fileNamespace.Usings);
                     EmitTopLevelMembers(fileNamespace.Members);
                     break;
                 case NamespaceDeclarationSyntax namespaceDeclaration:
-                    WriteLine($"namespace {namespaceDeclaration.Name}");
+                    WriteLine($"package {namespaceDeclaration.Name}");
                     WriteLine();
                     EmitUsings(namespaceDeclaration.Usings);
                     EmitTopLevelMembers(namespaceDeclaration.Members);
@@ -680,8 +680,13 @@ public sealed class CSharpToNSharpConverter
             return string.Join(", ", arguments.Select(argument =>
             {
                 var namePrefix = argument.NameColon != null ? $"{argument.NameColon.Name}: " : string.Empty;
-                var refPrefix = argument.RefKindKeyword.IsKind(SyntaxKind.None) ? string.Empty : $"{argument.RefKindKeyword.ValueText} ";
-                return namePrefix + refPrefix + Expression(argument.Expression);
+                if (!argument.RefKindKeyword.IsKind(SyntaxKind.None))
+                {
+                    AddWarning(argument, $"C# {argument.RefKindKeyword.ValueText} argument requires manual migration to an N# tuple/result-returning API.");
+                    return namePrefix + $"manualReview(\"{argument.RefKindKeyword.ValueText} argument\", {Expression(argument.Expression)})";
+                }
+
+                return namePrefix + Expression(argument.Expression);
             }));
         }
 

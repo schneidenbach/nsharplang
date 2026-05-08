@@ -200,7 +200,7 @@ public static class IdiomCommand
         var nullForgiving = FindMatches(text, relative, lineStarts,
             new Regex(@"\b(?:null|default)!|(?<=[A-Za-z0-9_\]])!(?![=])", RegexOptions.Compiled));
         var outVar = FindMatches(text, relative, lineStarts,
-            new Regex(@"\bout\s+var\s+\w+", RegexOptions.Compiled));
+            new Regex(@"\bout\s+(?:var\s+)?\w+", RegexOptions.Compiled));
         var tryGetValue = FindMatches(text, relative, lineStarts,
             new Regex(@"\bTryGetValue\s*\(", RegexOptions.Compiled));
         var actionResults = FindMatches(text, relative, lineStarts,

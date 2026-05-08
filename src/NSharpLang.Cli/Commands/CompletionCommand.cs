@@ -29,7 +29,6 @@ public static class CompletionCommand
         "update",
         "publish",
         "export",
-        "convert",
         "idiom",
         "tree",
         "audit",

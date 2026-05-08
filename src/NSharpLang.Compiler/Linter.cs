@@ -257,12 +257,13 @@ public partial class Linter
                     "Remove the trailing '!' and model nullability explicitly in N#");
             }
 
-            if (codePart.Contains("out var ", StringComparison.Ordinal) || codePart.Contains("TryGetValue", StringComparison.Ordinal))
+            var outArgumentMatch = OutArgumentRegex().Match(codePart);
+            if (outArgumentMatch.Success || codePart.Contains("TryGetValue", StringComparison.Ordinal))
             {
-                var column = FirstPositiveIndex(codePart.IndexOf("TryGetValue", StringComparison.Ordinal), codePart.IndexOf("out var ", StringComparison.Ordinal)) + 1;
+                var column = FirstPositiveIndex(codePart.IndexOf("TryGetValue", StringComparison.Ordinal), outArgumentMatch.Success ? outArgumentMatch.Index : -1) + 1;
                 Add(
                     "NL104",
-                    "C# out var / TryGetValue pattern is a migration candidate",
+                    "C# out parameter / TryGetValue pattern is a migration candidate",
                     lineNumber,
                     column,
                     "Prefer an N# tuple/result-returning helper or a pattern that avoids out parameters");
@@ -492,6 +493,9 @@ public partial class Linter
 
     [GeneratedRegex(@"\b(?:null|default|[A-Za-z_][A-Za-z0-9_]*)!", RegexOptions.CultureInvariant)]
     private static partial Regex NullForgivingRegex();
+
+    [GeneratedRegex(@"\bout\s+(?:var\s+)?[A-Za-z_][A-Za-z0-9_]*", RegexOptions.CultureInvariant)]
+    private static partial Regex OutArgumentRegex();
 
     [GeneratedRegex(@"\bclass\s+([A-Z][A-Za-z0-9_]*(?:Dto|DTO|Request|Response|Model))\b", RegexOptions.CultureInvariant)]
     private static partial Regex DtoClassRegex();

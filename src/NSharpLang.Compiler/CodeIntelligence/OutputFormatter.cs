@@ -747,6 +747,20 @@ public static class OutputFormatter
         var messageLower = message.ToLowerInvariant();
         var snippetLower = snippet.ToLowerInvariant();
 
+        if (code == "NL102" && messageLower.Contains("auto-property"))
+        {
+            return new DiagnosticClusterTraits(
+                "csharp-migration-artifact",
+                "property-declaration",
+                "migration:rewrite-auto-property-as-record-or-explicit-nsharp-property",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Rewrite C# `{ get; set; }` accessors as an N# record for DTO-shaped data or explicit N# property syntax.",
+                    "Keep this diagnostic in the migration artifact cluster instead of treating it as a parse delimiter failure."
+                });
+        }
+
         if (code == "NL102" || messageLower.Contains("expected token") || messageLower.Contains("missing"))
         {
             var construct = InferSourceConstruct(snippetLower);

@@ -60,6 +60,7 @@ public class PeopleController : ControllerBase
 
         Assert.True(result.Success, string.Join("\n", result.Diagnostics));
         Assert.Contains("import Microsoft.AspNetCore.Mvc", result.Output);
+        Assert.Contains("package Demo.Api", result.Output);
         Assert.Contains("context: CotmDbContext", result.Output);
         Assert.Contains("logger: ILogger<PeopleController>", result.Output);
         Assert.Contains("constructor(context: CotmDbContext, logger: ILogger<PeopleController>): base() {", result.Output);
@@ -124,14 +125,15 @@ public class ProjectionController
         Assert.Contains("values := [1, 2, 3]", result.Output);
         Assert.Contains("named := [\"alpha\", \"beta\"]", result.Output);
         Assert.Contains("pair := (ids.Length, fallback)", result.Output);
-        Assert.Contains("names.TryGetValue(id, out personName) ? personName : string.Empty", result.Output);
+        Assert.Contains("Name: names.TryGetValue(id, manualReview(\"out argument\", personName)) ? personName : string.Empty", result.Output);
         Assert.Contains("if id == 0 { return null }", result.Output);
         Assert.Contains("return new PersonDto() { Id: id, Name:", result.Output);
         Assert.DoesNotContain("new[]", result.Output);
         Assert.DoesNotContain("new string[]", result.Output);
         Assert.DoesNotContain("out var", result.Output);
+        Assert.DoesNotContain("out personName", result.Output);
         Assert.DoesNotContain("Name =", result.Output);
         Assert.DoesNotContain("Unsupported expression", result.Output);
-        Assert.Empty(result.Diagnostics);
+        Assert.Contains("out argument requires manual migration", string.Join("\n", result.Diagnostics));
     }
 }

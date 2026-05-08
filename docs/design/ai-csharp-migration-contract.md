@@ -45,8 +45,8 @@ The migration is incomplete if any of these appear without an explicit diagnosti
 An AI agent should run this loop from the destination N# project root:
 
 ```bash
-# Optional when the converter is available in the current build.
-nlc convert --dir <csharp-src> --output <nsharp-out>
+# Produce <nsharp-out> with an AI migration pass that writes idiomatic N# directly.
+# Do not rely on syntax-conversion as the migration contract.
 
 cd <nsharp-out>
 nlc check --project . --json
@@ -65,7 +65,7 @@ Completion gates:
 - Suggestion-only domain/architecture recommendations are accepted or waived; they are never silently ignored.
 - Project tests pass after migrated source changes.
 
-If the local build does not register `nlc convert`, do not invent a successful conversion. Produce the initial `.nl` files by the available converter/manual migration path, record that `nlc convert` was unavailable, and still enforce the `check`/`idiom`/`fix`/format/test gates.
+There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass, record any prototype converter output as scratch evidence only, and still enforce the `check`/`idiom`/`fix`/format/test gates.
 
 ## `nlc idiom` report contract
 

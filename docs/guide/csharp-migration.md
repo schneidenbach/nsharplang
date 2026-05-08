@@ -494,8 +494,8 @@ var result = calc.Add(5, 10);  // Works perfectly!
 AI-generated migration output must be idiomatic N#, not C# with lighter syntax. The full implementation contract lives in [`../design/ai-csharp-migration-contract.md`](../design/ai-csharp-migration-contract.md); the operating summary is:
 
 ```bash
-# Optional when the converter command is available in your build.
-nlc convert --dir <csharp-src> --output <nsharp-out>
+# Produce <nsharp-out> with an AI migration pass that writes idiomatic N# directly.
+# Do not rely on syntax-conversion as the migration contract.
 
 cd <nsharp-out>
 nlc check --project . --json

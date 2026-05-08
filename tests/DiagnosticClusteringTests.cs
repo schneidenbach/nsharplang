@@ -56,6 +56,37 @@ public class DiagnosticClusteringTests
     }
 
     [Fact]
+    public void CheckJson_ClassifiesCSharpAutoPropertyAsMigrationArtifactNotParseFailure()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new(
+                Code: "NL102",
+                Severity: "warning",
+                Message: "C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax",
+                File: "src/Dto.nl",
+                Line: 4,
+                Column: 20,
+                Length: 12,
+                SourceSnippet: "Name: string { get; set; }",
+                Explanation: null,
+                Suggestion: "Prefer an N# record",
+                Hint: null,
+                ExpectedType: null,
+                ActualType: null,
+                DocsUrl: null)
+        };
+
+        var json = OutputFormatter.CheckToJson(diagnostics, "/repo", checkedFiles: 1);
+
+        using var doc = JsonDocument.Parse(json);
+        var cluster = Assert.Single(doc.RootElement.GetProperty("diagnosticClusters").EnumerateArray());
+        Assert.Equal("csharp-migration-artifact", cluster.GetProperty("syntaxShape").GetString());
+        Assert.Equal("property-declaration", cluster.GetProperty("sourceConstruct").GetString());
+        Assert.Equal("migration:rewrite-auto-property-as-record-or-explicit-nsharp-property", cluster.GetProperty("likelyRecipe").GetString());
+    }
+
+    [Fact]
     public void DiagnosticsText_StartsWithClusterSummaryBeforeIndividualDiagnostics()
     {
         var diagnostics = new List<DiagnosticResult>
