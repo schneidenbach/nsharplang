@@ -24,6 +24,7 @@ public partial class ILCompilerTests
 
     [Theory]
     [InlineData("name", Modifiers.Public, true)]
+    [InlineData("Name", Modifiers.Private, false)]
     [InlineData("Name", Modifiers.Internal, false)]
     [InlineData("Name", Modifiers.File, false)]
     [InlineData("Name", Modifiers.Protected, false)]
@@ -100,7 +101,7 @@ func helper(): int {
             Assert.Contains("public int visibleByModifier()", stub);
             Assert.Contains("internal int doIt()", stub);
             Assert.Contains("public const string Good", stub);
-            Assert.Contains("internal const string bad", stub);
+            Assert.Contains("public const string bad", stub);
             Assert.Contains("public sealed class Ok", stub);
             Assert.Contains("private sealed class err", stub);
             Assert.Contains("public static int Helper()", stub);
@@ -127,6 +128,9 @@ public class copiedPublicCamel {
 private class CopiedPrivatePascal {
 }
 
+private class SecretPascal {
+}
+
 internal class InternalPascal {
 }
 
@@ -145,10 +149,6 @@ func UseCopiedPublic(publicValue: copiedPublicCamel): int {
     return 1
 }
 
-func UseCopiedPrivate(copiedValue: CopiedPrivatePascal): int {
-    return 1
-}
-
 func UseExported(exportedValue: ExportedPascal): int {
     return 1
 }
@@ -159,8 +159,6 @@ func UseExported(exportedValue: ExportedPascal): int {
             Assert.Empty(visibleResult.Errors);
             var copiedPublicType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["publicValue"]);
             Assert.Equal("copiedPublicCamel", copiedPublicType.Declaration.Name);
-            var copiedPrivateType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["copiedValue"]);
-            Assert.Equal("CopiedPrivatePascal", copiedPrivateType.Declaration.Name);
             var exportedType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["exportedValue"]);
             Assert.Equal("ExportedPascal", exportedType.Declaration.Name);
 
@@ -168,6 +166,14 @@ func UseExported(exportedValue: ExportedPascal): int {
 import "./Library.nl"
 
 func UseInternal(internalValue: InternalPascal): int {
+    return 1
+}
+
+func UseCopiedPrivate(copiedValue: CopiedPrivatePascal): int {
+    return 1
+}
+
+func UseSecret(secretValue: SecretPascal): int {
     return 1
 }
 
@@ -181,6 +187,8 @@ func UseHidden(hiddenValue: hiddenCamel): int {
             var blockedResult = AnalyzeFile(blockedPath, tempDir, blockedSource);
             Assert.Empty(blockedResult.Errors);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["internalValue"]);
+            Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["copiedValue"]);
+            Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["secretValue"]);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["hiddenValue"]);
         }
         finally
@@ -199,6 +207,9 @@ public class copiedPublicCamel {
 private class CopiedPrivatePascal {
 }
 
+private class SecretPascal {
+}
+
 internal class InternalPascal {
 }
 
@@ -212,10 +223,11 @@ class hiddenCamel {
 
         var symbols = Analyzer.ExtractProjectSymbols(unit, "Project.nl").ToDictionary(symbol => symbol.Name);
 
-        Assert.True(symbols["CopiedPrivatePascal"].IsExported);
+        Assert.False(symbols["CopiedPrivatePascal"].IsExported);
         Assert.True(symbols["ExportedPascal"].IsExported);
         Assert.True(symbols["copiedPublicCamel"].IsExported);
         Assert.False(symbols["InternalPascal"].IsExported);
+        Assert.False(symbols["SecretPascal"].IsExported);
         Assert.False(symbols["hiddenCamel"].IsExported);
     }
 
@@ -291,7 +303,7 @@ union Result {
 
             var labels = Assert.Single(assembly.GetTypes(), type => type.Name == "Labels");
             Assert.True(labels.GetField("Good", BindingFlags.Public | BindingFlags.Static)!.IsPublic);
-            Assert.True(labels.GetField("bad", BindingFlags.NonPublic | BindingFlags.Static)!.IsAssembly);
+            Assert.True(labels.GetField("bad", BindingFlags.Public | BindingFlags.Static)!.IsPublic);
 
             var result = Assert.Single(assembly.GetTypes(), type => type.Name == "Result");
             Assert.NotNull(result.GetNestedType("Ok", BindingFlags.Public));

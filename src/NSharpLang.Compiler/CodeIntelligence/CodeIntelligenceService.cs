@@ -1789,7 +1789,7 @@ public class CodeIntelligenceService
                 e.Name, SymbolKind.Enum, file, e.Line, e.Column,
                 TypeName: null,
                 Modifiers: FormatModifiers(e.Modifiers),
-                Members: e.Members.Where(m => IsPublicSurfaceName(m.Name, Modifiers.None)).Select(m => new SymbolResult(
+                Members: e.Members.Select(m => new SymbolResult(
                     m.Name, SymbolKind.EnumMember, file, 0, 0, null, null, null, null)).ToArray(),
                 Parameters: null),
 

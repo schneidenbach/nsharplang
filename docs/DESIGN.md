@@ -61,7 +61,9 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 2. **Do not write C# `public`/`private` for ordinary N# code.** The formatter drops them and the linter flags them as migration debris.
 
 3. **Explicit modifiers are narrow .NET interop escape hatches:**
-   - `internal`, `protected`, and `file` are available when a .NET/framework boundary really needs that shape.
+   - `public`, `private`, `internal`, `protected`, and `file` are available when a .NET/framework boundary really needs that shape.
+   - Explicit modifiers override casing: `public legacyCamel` is exported and `private SecretPascal` is hidden.
+   - Enum cases are value-set members; export is controlled by the containing enum, so lowercase cases remain visible on an exported enum.
 
 **Examples:**
 ```
@@ -70,6 +72,7 @@ class MyClass {
     privateField: string            // private (camelCase convention)
     internal InternalField: string  // explicit .NET interop escape hatch
     protected ProtectedField: int   // explicit .NET interop escape hatch
+    private SecretPascal: int       // explicit modifier forces hiding
 
     // Do not write public/private here; rename instead
     LowercasePublic: string         // exported by casing
@@ -79,7 +82,7 @@ class MyClass {
 
 **Why this approach:**
 - Simple default: just follow naming conventions
-- Flexibility: use explicit modifiers only for real interop boundaries (`internal`, `protected`, `file`)
+- Flexibility: use explicit modifiers only for real interop boundaries (`public`, `private`, `internal`, `protected`, `file`)
 - Consistency: analyzer/linter catch C#-shaped `public`/`private` migration debris
 
 #### File-Scoped Types (C# 11)

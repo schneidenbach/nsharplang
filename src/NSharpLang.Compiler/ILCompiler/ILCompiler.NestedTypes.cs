@@ -355,7 +355,7 @@ public partial class ILCompiler
                 var fieldBuilder = stringEnumType.DefineField(
                     member.Name,
                     typeof(string),
-                    VisibilityConventions.GetMemberFieldAttributes(member.Name, Modifiers.None) | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
+                    FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
 
                 var constantValue = member.Value is StringLiteralExpression stringLiteral
                     ? stringLiteral.Value.Trim('"')

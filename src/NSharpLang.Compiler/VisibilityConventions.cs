@@ -14,27 +14,40 @@ public static class VisibilityConventions
 
     public static bool IsExportedIdentifier(string? name, Modifiers modifiers)
     {
-        if (HasExplicitVisibility(modifiers))
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return true;
+        }
+
+        if (modifiers.HasFlag(Modifiers.Private)
+            || modifiers.HasFlag(Modifiers.Protected)
+            || modifiers.HasFlag(Modifiers.Internal)
+            || modifiers.HasFlag(Modifiers.File))
         {
             return false;
         }
 
-        return modifiers.HasFlag(Modifiers.Public) || IsExportedIdentifier(name);
+        return IsExportedIdentifier(name);
     }
 
     public static bool HasExplicitVisibility(Modifiers modifiers)
     {
-        // `private` is migration debris in N#: ordinary visibility is determined
-        // by casing. Explicit `public` remains a migration/interoperability escape
-        // hatch for copied C# code that has not yet been renamed. The restrictive
-        // interop/framework escape hatches below override the casing convention.
-        return modifiers.HasFlag(Modifiers.Protected)
+        // Explicit visibility modifiers are interop/migration escape hatches that
+        // override casing, including `private PascalCase` to force a symbol hidden.
+        return modifiers.HasFlag(Modifiers.Public)
+            || modifiers.HasFlag(Modifiers.Private)
+            || modifiers.HasFlag(Modifiers.Protected)
             || modifiers.HasFlag(Modifiers.Internal)
             || modifiers.HasFlag(Modifiers.File);
     }
 
     public static string GetTopLevelTypeVisibilityKeyword(string name, Modifiers modifiers)
     {
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return "public";
+        }
+
         if (modifiers.HasFlag(Modifiers.Internal) || modifiers.HasFlag(Modifiers.File))
         {
             return "internal";
@@ -45,9 +58,19 @@ public static class VisibilityConventions
 
     public static string GetNestedTypeVisibilityKeyword(string name, Modifiers modifiers)
     {
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return "public";
+        }
+
         if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
         {
             return "protected internal";
+        }
+
+        if (modifiers.HasFlag(Modifiers.Private))
+        {
+            return "private";
         }
 
         if (modifiers.HasFlag(Modifiers.Protected))
@@ -65,9 +88,19 @@ public static class VisibilityConventions
 
     public static string GetMemberVisibilityKeyword(string name, Modifiers modifiers)
     {
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return "public";
+        }
+
         if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
         {
             return "protected internal";
+        }
+
+        if (modifiers.HasFlag(Modifiers.Private))
+        {
+            return "private";
         }
 
         if (modifiers.HasFlag(Modifiers.Protected))
@@ -87,6 +120,11 @@ public static class VisibilityConventions
 
     public static TypeAttributes GetTopLevelTypeAttributes(string name, Modifiers modifiers)
     {
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return TypeAttributes.Public;
+        }
+
         if (modifiers.HasFlag(Modifiers.Internal) || modifiers.HasFlag(Modifiers.File))
         {
             return TypeAttributes.NotPublic;
@@ -97,9 +135,19 @@ public static class VisibilityConventions
 
     public static TypeAttributes GetNestedTypeAttributes(string name, Modifiers modifiers)
     {
+        if (modifiers.HasFlag(Modifiers.Public))
+        {
+            return TypeAttributes.NestedPublic;
+        }
+
         if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
         {
             return TypeAttributes.NestedFamORAssem;
+        }
+
+        if (modifiers.HasFlag(Modifiers.Private))
+        {
+            return TypeAttributes.NestedPrivate;
         }
 
         if (modifiers.HasFlag(Modifiers.Protected))

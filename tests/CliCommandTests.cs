@@ -312,6 +312,11 @@ func BuildItem(): Item {
     return new Item()
 }
 
+enum Status {
+    Ready,
+    hidden
+}
+
 public func buildExplicit(): explicitItem {
     return new explicitItem()
 }
@@ -326,6 +331,7 @@ func Main() {
     explicitValue := buildExplicit()
     print item.Visible()
     print explicitValue.visibleExplicit()
+    print Status.hidden
 }
 """);
 
@@ -367,12 +373,10 @@ class Item {
     }
 }
 
-class hiddenThing {
+private class SecretPascal {
 }
 
-enum Status {
-    Ready
-    hidden
+class hiddenThing {
 }
 
 union Outcome {
@@ -391,9 +395,9 @@ package App
 
 func Main() {
     thing := new hiddenThing()
+    secret := new SecretPascal()
     item := new Item()
     print item.hiddenMethod()
-    print Status.hidden
     print Outcome.hidden
     print hiddenFunction()
 }
@@ -407,6 +411,7 @@ func Main() {
             using var doc = JsonDocument.Parse(stdout);
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'SecretPascal' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));
@@ -544,11 +549,14 @@ class Item {
     }
 }
 
+private class SecretPascal {
+}
+
 class hiddenThing {
 }
 
 enum Status {
-    Ready
+    Ready,
     hidden
 }
 
@@ -568,9 +576,9 @@ import Models
 
 func Main() {
     thing := new hiddenThing()
+    secret := new SecretPascal()
     item := new Item()
     print item.hiddenMethod()
-    print Status.hidden
     print Outcome.hidden
     print hiddenFunction()
 }
@@ -584,6 +592,7 @@ func Main() {
             using var doc = JsonDocument.Parse(stdout);
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'SecretPascal' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
             Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));

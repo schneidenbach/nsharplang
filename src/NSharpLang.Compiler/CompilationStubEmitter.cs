@@ -452,7 +452,7 @@ public static class CompilationStubEmitter
                 foreach (var member in declaration.Members)
                 {
                     var value = TryFormatConstantExpression(member.Value) ?? $"\"{EscapeString(member.Name)}\"";
-                    WriteLine($"{VisibilityConventions.GetMemberVisibilityKeyword(member.Name, Modifiers.None)} const string {member.Name} = {value};");
+                    WriteLine($"public const string {member.Name} = {value};");
                 }
                 _indentLevel--;
                 WriteLine("}");

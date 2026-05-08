@@ -2584,7 +2584,7 @@ public class Analyzer : IDisposable
                 filePath = GetDeclarationFileForType(enumType);
                 if (enumType.Declaration.Members.Any(enumMember => enumMember.Name == memberName))
                 {
-                    isExported = VisibilityConventions.IsExportedIdentifier(memberName);
+                    isExported = true;
                     return true;
                 }
                 return false;

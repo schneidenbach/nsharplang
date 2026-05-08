@@ -659,10 +659,14 @@ Explicit modifiers are narrow .NET interop escape hatches, not the normal way to
 
 ```n#
 class Service {
+    public legacyCamel: string      // forced public for interop/migration
+    private SecretPascal: string    // forced hidden despite PascalCase
     internal ConnectionString: string
     protected BaseUrl: string
 }
 ```
+
+Enum cases are part of the containing enum's value set. Export is controlled by the enum itself, so lowercase enum cases remain visible when the enum is exported; use casing diagnostics as style guidance, not as API hiding.
 
 ## Next Steps
 

@@ -200,7 +200,8 @@ class hiddenSurface {
 }
 
 enum Labels: string {
-    Good = "good"
+    Good = "good",
+    bad = "bad"
 }
 
 union Result {
@@ -223,7 +224,7 @@ func helper(): int {
             var symbols = _service.GetSymbols(snapshot);
             var names = symbols.Select(s => s.Name).ToList();
 
-            Assert.Contains("CopiedPrivateSurface", names);
+            Assert.DoesNotContain("CopiedPrivateSurface", names);
             Assert.Contains("ExportedSurface", names);
             Assert.Contains("Labels", names);
             Assert.Contains("Result", names);
@@ -238,6 +239,7 @@ func helper(): int {
 
             var labels = Assert.Single(symbols, s => s.Name == "Labels");
             Assert.Contains(labels.Members!, m => m.Name == "Good");
+            Assert.Contains(labels.Members!, m => m.Name == "bad");
 
             var result = Assert.Single(symbols, s => s.Name == "Result");
             Assert.Contains(result.Members!, m => m.Name == "Ok");

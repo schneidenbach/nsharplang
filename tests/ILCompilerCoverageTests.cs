@@ -1310,7 +1310,7 @@ internal class VisibilityBox {
 
             var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             Assert.Contains(fields, field => field.Name == "shown" && field.IsPublic);
-            Assert.Contains(fields, field => field.Name == "hidden" && field.IsAssembly);
+            Assert.Contains(fields, field => field.Name == "hidden" && field.IsPrivate);
             Assert.Contains(fields, field => field.Name == "guarded" && field.IsFamily);
             Assert.Contains(fields, field => field.Name == "shared" && field.IsAssembly);
             Assert.Contains(fields, field => field.Name == "bridge" && field.IsFamilyOrAssembly);
@@ -1319,7 +1319,7 @@ internal class VisibilityBox {
                 .Where(method => !method.IsSpecialName)
                 .ToArray();
             Assert.Contains(methods, method => method.Name == "shownMethod" && method.IsPublic);
-            Assert.Contains(methods, method => method.Name == "hiddenMethod" && method.IsAssembly);
+            Assert.Contains(methods, method => method.Name == "hiddenMethod" && method.IsPrivate);
             Assert.Contains(methods, method => method.Name == "guardedMethod" && method.IsFamily);
             Assert.Contains(methods, method => method.Name == "sharedMethod" && method.IsAssembly);
             Assert.Contains(methods, method => method.Name == "bridgeMethod" && method.IsFamilyOrAssembly);
