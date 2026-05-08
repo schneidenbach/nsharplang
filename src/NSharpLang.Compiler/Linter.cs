@@ -485,7 +485,7 @@ public partial class Linter
         }
     }
 
-    [GeneratedRegex(@"\b(public|private|protected|override|virtual|partial|readonly)\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(public|private|override|virtual|partial|readonly)\b", RegexOptions.CultureInvariant)]
     private static partial Regex CSharpModifierRegex();
 
     [GeneratedRegex(@"\{\s*get\s*;\s*(set|init)\s*;\s*\}", RegexOptions.CultureInvariant)]

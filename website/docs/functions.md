@@ -47,11 +47,11 @@ func validateInput(input: string): bool {
     return !string.IsNullOrEmpty(input)
 }
 
-// Explicit modifiers
-public func PublicMethod() { }
-private func privateMethod() { }
+// Interop escape hatches when a .NET boundary really needs them
 internal func InternalMethod() { }
 protected func ProtectedMethod() { }
+
+// Do not write public/private in ordinary N#; casing carries that meaning.
 ```
 
 ## Function Parameters

@@ -34,6 +34,19 @@ public partial class UserDto {
     }
 
     [Fact]
+    public void LintSource_DoesNotFlagInteropVisibilityEscapeHatches()
+    {
+        var diagnostics = LintSource("""
+internal class HostBridge {
+    protected virtual func OnStart() { }
+}
+""");
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101" && d.Message.Contains("internal"));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101" && d.Message.Contains("protected"));
+    }
+
+    [Fact]
     public void LintSource_FlagsCSharpPropertySyntaxAndNullForgivingArtifacts()
     {
         var diagnostics = LintSource("""

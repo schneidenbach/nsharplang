@@ -328,7 +328,7 @@ public static class CompilationStubEmitter
 
         private void EmitClass(ClassDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = new List<string>();
             if (declaration.BaseClass != null)
@@ -359,7 +359,7 @@ public static class CompilationStubEmitter
 
         private void EmitStruct(StructDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = declaration.Interfaces.Select(TranspileTypeReference).ToList();
 
@@ -384,7 +384,7 @@ public static class CompilationStubEmitter
 
         private void EmitRecord(RecordDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, forceSealed: true);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name, forceSealed: true);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = declaration.Interfaces.Select(TranspileTypeReference).ToList();
             var keyword = declaration.IsStruct ? "record struct" : "record";
@@ -424,7 +424,7 @@ public static class CompilationStubEmitter
 
         private void EmitInterface(InterfaceDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
 
             Write($"{modifiers}interface {declaration.Name}{typeParameters}");
@@ -443,7 +443,7 @@ public static class CompilationStubEmitter
 
         private void EmitEnum(EnumDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             if (declaration.Type == EnumType.String)
             {
                 WriteLine($"{modifiers}static class {declaration.Name}");
@@ -452,7 +452,7 @@ public static class CompilationStubEmitter
                 foreach (var member in declaration.Members)
                 {
                     var value = TryFormatConstantExpression(member.Value) ?? $"\"{EscapeString(member.Name)}\"";
-                    WriteLine($"public const string {member.Name} = {value};");
+                    WriteLine($"{VisibilityConventions.GetMemberVisibilityKeyword(member.Name, Modifiers.None)} const string {member.Name} = {value};");
                 }
                 _indentLevel--;
                 WriteLine("}");
@@ -474,7 +474,7 @@ public static class CompilationStubEmitter
 
         private void EmitUnion(UnionDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, forceAbstract: true);
+            var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name, forceAbstract: true);
             WriteLine($"{modifiers}class {declaration.Name}");
             WriteLine("{");
             _indentLevel++;
@@ -485,14 +485,14 @@ public static class CompilationStubEmitter
             foreach (var unionCase in declaration.Cases)
             {
                 _output.AppendLine();
-                WriteLine($"public sealed class {unionCase.Name} : {declaration.Name}");
+                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} sealed class {unionCase.Name} : {declaration.Name}");
                 WriteLine("{");
                 _indentLevel++;
                 if (unionCase.Properties != null)
                 {
                     foreach (var property in unionCase.Properties)
                     {
-                        WriteLine($"public {TranspileTypeReference(property.Type)} {property.Name};");
+                        WriteLine($"{VisibilityConventions.GetMemberVisibilityKeyword(property.Name, Modifiers.None)} {TranspileTypeReference(property.Type)} {property.Name};");
                     }
                 }
                 WriteLine($"public {unionCase.Name}()");
@@ -508,7 +508,7 @@ public static class CompilationStubEmitter
 
         private void EmitNewtype(NewtypeDeclaration declaration, bool isNestedType)
         {
-            var modifiers = GetTypeModifierString(Modifiers.Public, isNestedType, forceReadonly: true);
+            var modifiers = GetTypeModifierString(Modifiers.None, isNestedType, declaration.Name, forceReadonly: true);
             WriteLine($"{modifiers}record struct {declaration.Name}({TranspileTypeReference(declaration.UnderlyingType)} Value);");
         }
 
@@ -694,15 +694,15 @@ public static class CompilationStubEmitter
             }
 
             var modifiers = isTopLevelFunction
-                ? "public static "
+                ? $"{VisibilityConventions.GetMemberVisibilityKeyword(declaration.Name, declaration.Modifiers)} static "
                 : GetMethodModifierString(declaration.Modifiers, declaration.Name);
             return $"{modifiers}{returnTypeName} {methodName}{typeParameters}({parametersList})";
         }
 
-        private string GetTypeModifierString(Modifiers modifiers, bool isNestedType, bool forceAbstract = false, bool forceSealed = false, bool forceReadonly = false)
+        private string GetTypeModifierString(Modifiers modifiers, bool isNestedType, string name, bool forceAbstract = false, bool forceSealed = false, bool forceReadonly = false)
         {
             var parts = new List<string>();
-            parts.Add(GetTypeVisibilityKeyword(modifiers, isNestedType));
+            parts.Add(GetTypeVisibilityKeyword(modifiers, isNestedType, name));
 
             if (modifiers.HasFlag(Modifiers.Static))
             {
@@ -734,29 +734,11 @@ public static class CompilationStubEmitter
             return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part))) + " ";
         }
 
-        private static string GetTypeVisibilityKeyword(Modifiers modifiers, bool isNestedType)
+        private static string GetTypeVisibilityKeyword(Modifiers modifiers, bool isNestedType, string name)
         {
-            if (modifiers.HasFlag(Modifiers.Private))
-            {
-                return "private";
-            }
-
-            if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
-            {
-                return "protected internal";
-            }
-
-            if (modifiers.HasFlag(Modifiers.Protected))
-            {
-                return "protected";
-            }
-
-            if (modifiers.HasFlag(Modifiers.Internal) || modifiers.HasFlag(Modifiers.File))
-            {
-                return "internal";
-            }
-
-            return "public";
+            return isNestedType
+                ? VisibilityConventions.GetNestedTypeVisibilityKeyword(name, modifiers)
+                : VisibilityConventions.GetTopLevelTypeVisibilityKeyword(name, modifiers);
         }
 
         private static string GetMethodModifierString(Modifiers modifiers, string name)
@@ -880,7 +862,7 @@ public static class CompilationStubEmitter
                 return "public";
             }
 
-            return !string.IsNullOrEmpty(name) && char.IsUpper(name[0]) ? "public" : "private";
+            return VisibilityConventions.GetMemberVisibilityKeyword(name, modifiers);
         }
 
         private static string GetPropertyAccessorList(PropertyDeclaration declaration)

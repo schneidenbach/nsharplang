@@ -722,10 +722,10 @@ public class Transpiler
             // If no explicit visibility modifier, apply naming convention
             // Exception: methods required by duck interfaces must be public for C# interface compliance
             else if (!func.Modifiers.HasFlag(Modifiers.Public) && !func.Modifiers.HasFlag(Modifiers.Private) &&
-                !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal))
+                !func.Modifiers.HasFlag(Modifiers.Protected) && !func.Modifiers.HasFlag(Modifiers.Internal) && !func.Modifiers.HasFlag(Modifiers.File))
             {
                 var isDuckRequired = _duckInterfaceMethodNames?.Contains(func.Name) == true;
-                modifiers = (char.IsUpper(func.Name[0]) || isDuckRequired)
+                modifiers = (VisibilityConventions.IsExportedIdentifier(func.Name) || isDuckRequired)
                     ? "public " + modifiers
                     : "private " + modifiers;
             }
@@ -808,13 +808,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!cls.Modifiers.HasFlag(Modifiers.Public) &&
             !cls.Modifiers.HasFlag(Modifiers.Private) && !cls.Modifiers.HasFlag(Modifiers.Protected) &&
-            !cls.Modifiers.HasFlag(Modifiers.Internal))
+            !cls.Modifiers.HasFlag(Modifiers.Internal) && !cls.Modifiers.HasFlag(Modifiers.File))
         {
             if (cls.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(cls.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(cls.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -884,13 +884,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!str.Modifiers.HasFlag(Modifiers.Public) &&
             !str.Modifiers.HasFlag(Modifiers.Private) && !str.Modifiers.HasFlag(Modifiers.Protected) &&
-            !str.Modifiers.HasFlag(Modifiers.Internal))
+            !str.Modifiers.HasFlag(Modifiers.Internal) && !str.Modifiers.HasFlag(Modifiers.File))
         {
             if (str.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(str.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(str.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -959,13 +959,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!rec.Modifiers.HasFlag(Modifiers.Public) &&
             !rec.Modifiers.HasFlag(Modifiers.Private) && !rec.Modifiers.HasFlag(Modifiers.Protected) &&
-            !rec.Modifiers.HasFlag(Modifiers.Internal))
+            !rec.Modifiers.HasFlag(Modifiers.Internal) && !rec.Modifiers.HasFlag(Modifiers.File))
         {
             if (rec.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(rec.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(rec.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -1043,13 +1043,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!iface.Modifiers.HasFlag(Modifiers.Public) &&
             !iface.Modifiers.HasFlag(Modifiers.Private) && !iface.Modifiers.HasFlag(Modifiers.Protected) &&
-            !iface.Modifiers.HasFlag(Modifiers.Internal))
+            !iface.Modifiers.HasFlag(Modifiers.Internal) && !iface.Modifiers.HasFlag(Modifiers.File))
         {
             if (iface.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(iface.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(iface.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -1097,13 +1097,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!enm.Modifiers.HasFlag(Modifiers.Public) &&
             !enm.Modifiers.HasFlag(Modifiers.Private) && !enm.Modifiers.HasFlag(Modifiers.Protected) &&
-            !enm.Modifiers.HasFlag(Modifiers.Internal))
+            !enm.Modifiers.HasFlag(Modifiers.Internal) && !enm.Modifiers.HasFlag(Modifiers.File))
         {
             if (enm.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(enm.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(enm.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -1126,7 +1126,7 @@ public class Transpiler
             foreach (var member in enm.Members)
             {
                 var value = member.Value != null ? TranspileExpression(member.Value) : $"\"{member.Name}\"";
-                WriteLine($"public static readonly {enm.Name} {member.Name} = new {enm.Name}({value});");
+                WriteLine($"{VisibilityConventions.GetMemberVisibilityKeyword(member.Name, Modifiers.None)} static readonly {enm.Name} {member.Name} = new {enm.Name}({value});");
             }
             WriteLine();
 
@@ -1203,13 +1203,13 @@ public class Transpiler
         // Infer visibility based on naming convention (PascalCase = public, camelCase = private/internal)
         if (!union.Modifiers.HasFlag(Modifiers.Public) &&
             !union.Modifiers.HasFlag(Modifiers.Private) && !union.Modifiers.HasFlag(Modifiers.Protected) &&
-            !union.Modifiers.HasFlag(Modifiers.Internal))
+            !union.Modifiers.HasFlag(Modifiers.Internal) && !union.Modifiers.HasFlag(Modifiers.File))
         {
             if (union.Modifiers.HasFlag(Modifiers.File))
             {
                 // File-local types cannot combine `file` with accessibility modifiers in C#.
             }
-            else if (char.IsUpper(union.Name[0]))
+            else if (VisibilityConventions.IsExportedIdentifier(union.Name))
             {
                 modifiers = "public " + modifiers;
             }
@@ -1236,11 +1236,11 @@ public class Transpiler
             if (unionCase.Properties != null && unionCase.Properties.Count > 0)
             {
                 var props = string.Join(", ", unionCase.Properties.Select(p => $"{TranspileTypeReference(p.Type)} {p.Name}"));
-                WriteLine($"public record {unionCase.Name}({props}) : {union.Name};");
+                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name}({props}) : {union.Name};");
             }
             else
             {
-                WriteLine($"public record {unionCase.Name} : {union.Name};");
+                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name} : {union.Name};");
             }
         }
 
@@ -1261,7 +1261,7 @@ public class Transpiler
         var underlyingType = TranspileTypeReference(newtype.UnderlyingType);
 
         // Infer visibility from naming convention (PascalCase = public, camelCase = file-private)
-        var visibility = char.IsUpper(newtype.Name[0]) ? "public " : "";
+        var visibility = VisibilityConventions.GetTopLevelTypeVisibilityKeyword(newtype.Name, Modifiers.None) + " ";
 
         // Emit as readonly record struct with a single Value property
         WriteLine($"{visibility}readonly record struct {newtype.Name}({underlyingType} Value);");
@@ -1413,9 +1413,9 @@ public class Transpiler
 
         // Determine visibility based on naming convention if no explicit modifier
         if (!field.Modifiers.HasFlag(Modifiers.Public) && !field.Modifiers.HasFlag(Modifiers.Private) &&
-            !field.Modifiers.HasFlag(Modifiers.Protected) && !field.Modifiers.HasFlag(Modifiers.Internal))
+            !field.Modifiers.HasFlag(Modifiers.Protected) && !field.Modifiers.HasFlag(Modifiers.Internal) && !field.Modifiers.HasFlag(Modifiers.File))
         {
-            modifiers = char.IsUpper(field.Name[0]) ? "public " + modifiers : "private " + modifiers;
+            modifiers = VisibilityConventions.GetMemberVisibilityKeyword(field.Name, field.Modifiers) + " " + modifiers;
         }
 
         // Add required modifier if present
@@ -1455,9 +1455,9 @@ public class Transpiler
 
         // Apply convention-based visibility if no explicit modifier
         if (!prop.Modifiers.HasFlag(Modifiers.Public) && !prop.Modifiers.HasFlag(Modifiers.Private) &&
-            !prop.Modifiers.HasFlag(Modifiers.Protected) && !prop.Modifiers.HasFlag(Modifiers.Internal))
+            !prop.Modifiers.HasFlag(Modifiers.Protected) && !prop.Modifiers.HasFlag(Modifiers.Internal) && !prop.Modifiers.HasFlag(Modifiers.File))
         {
-            modifiers = char.IsUpper(prop.Name[0]) ? "public " + modifiers : "private " + modifiers;
+            modifiers = VisibilityConventions.GetMemberVisibilityKeyword(prop.Name, prop.Modifiers) + " " + modifiers;
         }
 
         // Add required modifier if present
@@ -1521,7 +1521,7 @@ public class Transpiler
 
         var modifiers = GetModifierString(ctor.Modifiers);
         if (!ctor.Modifiers.HasFlag(Modifiers.Public) && !ctor.Modifiers.HasFlag(Modifiers.Private) &&
-            !ctor.Modifiers.HasFlag(Modifiers.Protected) && !ctor.Modifiers.HasFlag(Modifiers.Internal))
+            !ctor.Modifiers.HasFlag(Modifiers.Protected) && !ctor.Modifiers.HasFlag(Modifiers.Internal) && !ctor.Modifiers.HasFlag(Modifiers.File))
         {
             modifiers = "public " + modifiers;
         }
@@ -3145,9 +3145,9 @@ public class Transpiler
         // Use public if any implementing type is public (PascalCase convention),
         // otherwise internal. C# forbids public types implementing less-accessible interfaces.
         var hasPublicImplementor = _compilationUnit.Declarations.Any(d =>
-            d is ClassDeclaration cls && StructurallyMatchesDuckInterface(cls.Members, iface) && char.IsUpper(cls.Name[0]) ||
-            d is StructDeclaration str && StructurallyMatchesDuckInterface(str.Members, iface) && char.IsUpper(str.Name[0]) ||
-            d is RecordDeclaration rec && StructurallyMatchesDuckInterface(rec.Members, iface) && char.IsUpper(rec.Name[0]));
+            d is ClassDeclaration cls && StructurallyMatchesDuckInterface(cls.Members, iface) && VisibilityConventions.IsExportedIdentifier(cls.Name) ||
+            d is StructDeclaration str && StructurallyMatchesDuckInterface(str.Members, iface) && VisibilityConventions.IsExportedIdentifier(str.Name) ||
+            d is RecordDeclaration rec && StructurallyMatchesDuckInterface(rec.Members, iface) && VisibilityConventions.IsExportedIdentifier(rec.Name));
         var accessibility = hasPublicImplementor ? "public" : "internal";
 
         WriteLine($"{accessibility} interface {iface.Name}{typeParams}");

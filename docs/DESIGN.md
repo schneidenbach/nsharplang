@@ -52,37 +52,35 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 
 ### Visibility
 
-**Rule: Convention with explicit override**
+**Rule: visibility follows casing by default**
 
-1. **No modifier?** Use naming convention:
-   - `PascalCase` = public
-   - `camelCase` = private
+1. **Ordinary API surface uses naming convention:**
+   - `PascalCase` = exported/public
+   - `camelCase` = unexported/private-by-convention
 
-2. **Explicit modifier present?** Modifier wins, case is ignored:
-   - `public`, `private`, `internal`, `protected`, `file`
+2. **Do not write C# `public`/`private` for ordinary N# code.** The formatter drops them and the linter flags them as migration debris.
 
-3. **Conflict warning:** Analyzer warns if modifier conflicts with case convention
-   - Example: `public myField` triggers warning (public but camelCase)
-   - Suggestion: "Consider using PascalCase or removing public modifier"
+3. **Explicit modifiers are narrow .NET interop escape hatches:**
+   - `internal`, `protected`, and `file` are available when a .NET/framework boundary really needs that shape.
 
 **Examples:**
 ```
 class MyClass {
     PublicField: string             // public (PascalCase convention)
     privateField: string            // private (camelCase convention)
-    internal InternalField: string  // internal (explicit modifier)
-    protected ProtectedField: int   // protected (explicit modifier)
+    internal InternalField: string  // explicit .NET interop escape hatch
+    protected ProtectedField: int   // explicit .NET interop escape hatch
 
-    // Allowed but warned: modifier overrides case
-    public lowercasePublic: string  // public (explicit wins) ⚠️ warning
-    private UppercasePrivate: int   // private (explicit wins) ⚠️ warning
+    // Do not write public/private here; rename instead
+    LowercasePublic: string         // exported by casing
+    uppercasePrivate: int           // unexported by casing
 }
 ```
 
 **Why this approach:**
 - Simple default: just follow naming conventions
-- Flexibility: use explicit modifiers when needed (internal, protected)
-- Consistency: analyzer catches conflicts
+- Flexibility: use explicit modifiers only for real interop boundaries (`internal`, `protected`, `file`)
+- Consistency: analyzer/linter catch C#-shaped `public`/`private` migration debris
 
 #### File-Scoped Types (C# 11)
 - Types marked with `file` modifier are only visible within the declaring file
@@ -225,8 +223,8 @@ result := match value {
 - Syntax:
   ```
   class Person {
-      Name: string        // public property (PascalCase)
-      age: int            // private property (camelCase)
+      Name: string        // exported property (PascalCase)
+      age: int            // unexported/private-by-convention property (camelCase)
 
       // Expression-bodied property (type inferred)
       FullName => $"{FirstName} {LastName}"
@@ -245,7 +243,7 @@ result := match value {
   }
   ```
 - Fields emit as properties under the hood
-- Visibility follows naming convention (PascalCase = public, camelCase = private)
+- Visibility follows naming convention (PascalCase = exported/public, camelCase = unexported/private-by-convention)
 - Default constructor always available
 - Multiple constructors supported (for DI scenarios)
 - Compiler tracks which properties are set in constructors

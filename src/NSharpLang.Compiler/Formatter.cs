@@ -1992,8 +1992,8 @@ public class Formatter
     {
         var parts = new List<string>();
 
-        if (modifiers.HasFlag(Modifiers.Public)) parts.Add("public");
-        if (modifiers.HasFlag(Modifiers.Private)) parts.Add("private");
+        // Public/private visibility is idiomatic N# casing, not syntax. Preserve
+        // narrower .NET interop escape hatches such as internal/protected/file.
         if (modifiers.HasFlag(Modifiers.Internal)) parts.Add("internal");
         if (modifiers.HasFlag(Modifiers.Protected)) parts.Add("protected");
         if (modifiers.HasFlag(Modifiers.Static)) parts.Add("static");

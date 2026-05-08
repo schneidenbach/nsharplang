@@ -5816,32 +5816,15 @@ public class Analyzer : IDisposable
     // Convention-based visibility checking
     private void CheckVisibilityConvention(string name, Modifiers modifiers, int line, int column)
     {
-        bool isPascalCase = char.IsUpper(name[0]);
-        bool isCamelCase = char.IsLower(name[0]);
-
-        bool hasExplicitVisibility = modifiers.HasFlag(Modifiers.Public)
-            || modifiers.HasFlag(Modifiers.Private)
-            || modifiers.HasFlag(Modifiers.Internal)
-            || modifiers.HasFlag(Modifiers.Protected);
-
-        // If explicit modifiers are present, don't check convention
-        if (hasExplicitVisibility)
+        if (string.IsNullOrEmpty(name) || VisibilityConventions.HasExplicitVisibility(modifiers))
             return;
 
-        // Check convention: PascalCase = public, camelCase = private
-        if (isPascalCase)
-        {
-            // Should be public (convention)
-        }
-        else if (isCamelCase)
-        {
-            // Should be private (convention)
-        }
-        else
-        {
-            Warning($"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means file-private",
-                line, column);
-        }
+        // Check convention: PascalCase = public/exported, camelCase = private/unexported.
+        if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
+            return;
+
+        Warning($"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
+            line, column);
     }
 
     // Type checking helpers
@@ -7660,9 +7643,8 @@ public class Analyzer : IDisposable
                 _ => null
             };
 
-            if (name != null && !string.IsNullOrEmpty(name) && char.IsUpper(name[0]))
+            if (name != null && IsExportedDeclaration(decl, name))
             {
-                // Only export PascalCase (public) symbols
                 var typeInfo = decl switch
                 {
                     ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
@@ -7691,7 +7673,37 @@ public class Analyzer : IDisposable
     }
 
     private static bool IsTypeDeclarationKind(string kind) =>
-        kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias";
+        kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
+
+    private static bool IsExportedDeclaration(Declaration declaration, string name)
+    {
+        var modifiers = GetDeclarationModifiers(declaration);
+        if (VisibilityConventions.HasExplicitVisibility(modifiers))
+        {
+            return false;
+        }
+
+        return VisibilityConventions.IsExportedIdentifier(name);
+    }
+
+    private static Modifiers GetDeclarationModifiers(Declaration declaration)
+    {
+        return declaration switch
+        {
+            ClassDeclaration c => c.Modifiers,
+            StructDeclaration s => s.Modifiers,
+            RecordDeclaration r => r.Modifiers,
+            InterfaceDeclaration i => i.Modifiers,
+            UnionDeclaration u => u.Modifiers,
+            EnumDeclaration e => e.Modifiers,
+            FunctionDeclaration f => f.Modifiers,
+            FieldDeclaration f => f.Modifiers,
+            PropertyDeclaration p => p.Modifiers,
+            ConstructorDeclaration c => c.Modifiers,
+            IndexerDeclaration i => i.Modifiers,
+            _ => Modifiers.None
+        };
+    }
 
     /// <summary>
     /// Extract all public (PascalCase) symbols from a compilation unit for project-level auto-discovery.
@@ -7718,7 +7730,7 @@ public class Analyzer : IDisposable
                 _ => null
             };
 
-            if (name != null && !string.IsNullOrEmpty(name) && char.IsUpper(name[0]))
+            if (name != null && IsExportedDeclaration(decl, name))
             {
                 var typeInfo = decl switch
                 {

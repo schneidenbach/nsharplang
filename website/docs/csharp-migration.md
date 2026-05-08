@@ -24,7 +24,7 @@ This guide helps C# developers transition to N#. If you know C#, you'll feel rig
 |---------|----|----|
 | **Semicolons** | Required | Optional (not used) |
 | **Variable Declaration** | `var x = 5;` | `x := 5` |
-| **Visibility** | Explicit modifiers | Convention-based (PascalCase = public, camelCase = private) |
+| **Visibility** | Explicit modifiers | Convention-based (PascalCase = exported/public, camelCase = unexported/private-by-convention) |
 | **Discriminated Unions** | Manual class hierarchies | Built-in `union` keyword |
 | **Structural Typing** | Not supported | `duck interface` |
 | **String Enums** | Workarounds | Built-in `enum` with string values |
@@ -138,7 +138,7 @@ public class Product
         {
             if (value < 0)
                 throw new ArgumentException("Price cannot be negative");
-            _price = value;
+            price = value;
         }
     }
     public string DisplayName => $"{Name} (${Price})";
@@ -150,14 +150,14 @@ public class Product
 class Product {
     Name: string
 
-    private _price: decimal
+    price: decimal
     Price: decimal {
-        get => _price
+        get => price
         set {
             if value < 0 {
                 throw new ArgumentException("Price cannot be negative")
             }
-            _price = value
+            price = value
         }
     }
 
@@ -569,7 +569,7 @@ interface IRepository<T> {
 }
 
 class UserRepository : IRepository<User> {
-    private users: List<User> = new List<User>()
+    users: List<User> = new List<User>()
 
     async func GetByIdAsync(id: Guid): User? {
         await Task.Delay(10)
@@ -631,9 +631,9 @@ public class PersonBuilder
 **N#:**
 ```n#
 class PersonBuilder {
-    private name: string = ""
-    private age: int = 0
-    private email: string = ""
+    name: string = ""
+    age: int = 0
+    email: string = ""
 
     func WithName(name: string): PersonBuilder {
         this.name = name
@@ -789,15 +789,17 @@ func getUser(id: Guid): Result<User>
 
 Do not treat copied C# modifiers as acceptable final migration output. Use casing for ordinary visibility and reserve explicit modifiers for real .NET interop needs:
 
-```n#
+```text
 // C#-shaped migration debt
 public func ProcessData() { }
 private func validateInput() { }
 private _logger: ILogger<Service>
+```
 
+```n#
 // Review-ready N#
-func ProcessData() { }      // PascalCase = public
-func validateInput() { }    // camelCase = private
+func ProcessData() { }      // PascalCase = exported/public
+func validateInput() { }    // camelCase = unexported/private-by-convention
 logger: ILogger<Service>
 ```
 

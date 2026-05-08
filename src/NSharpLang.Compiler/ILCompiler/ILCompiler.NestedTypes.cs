@@ -91,34 +91,7 @@ public partial class ILCompiler
 
     private static TypeAttributes GetNestedTypeVisibilityAttributes(string name, Modifiers modifiers)
     {
-        if (modifiers.HasFlag(Modifiers.Private))
-        {
-            return TypeAttributes.NestedPrivate;
-        }
-
-        if (modifiers.HasFlag(Modifiers.Protected) && modifiers.HasFlag(Modifiers.Internal))
-        {
-            return TypeAttributes.NestedFamORAssem;
-        }
-
-        if (modifiers.HasFlag(Modifiers.Protected))
-        {
-            return TypeAttributes.NestedFamily;
-        }
-
-        if (modifiers.HasFlag(Modifiers.Internal) || modifiers.HasFlag(Modifiers.File))
-        {
-            return TypeAttributes.NestedAssembly;
-        }
-
-        if (modifiers.HasFlag(Modifiers.Public))
-        {
-            return TypeAttributes.NestedPublic;
-        }
-
-        return !string.IsNullOrEmpty(name) && char.IsUpper(name[0])
-            ? TypeAttributes.NestedPublic
-            : TypeAttributes.NestedPrivate;
+        return VisibilityConventions.GetNestedTypeAttributes(name, modifiers);
     }
 
     private bool IsStringEnumContainer(TypeBuilder typeBuilder)
@@ -382,7 +355,7 @@ public partial class ILCompiler
                 var fieldBuilder = stringEnumType.DefineField(
                     member.Name,
                     typeof(string),
-                    FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
+                    VisibilityConventions.GetMemberFieldAttributes(member.Name, Modifiers.None) | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
 
                 var constantValue = member.Value is StringLiteralExpression stringLiteral
                     ? stringLiteral.Value.Trim('"')
@@ -427,7 +400,7 @@ public partial class ILCompiler
             var fieldBuilder = enumType.DefineField(
                 member.Name,
                 enumType,
-                FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
+                VisibilityConventions.GetMemberFieldAttributes(member.Name, Modifiers.None) | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
             fieldBuilder.SetConstant(constantValue);
             _fields[GetFieldKey(enumType, member.Name)] = fieldBuilder;
             _fieldConstants[GetFieldKey(enumType, member.Name)] = constantValue;

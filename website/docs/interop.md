@@ -455,8 +455,8 @@ func main() {
 
 | N# Type | C# Type | Notes |
 |---------|---------|-------|
-| `class Person` | `public class Person` | PascalCase = public |
-| `class person` | `internal class person` | camelCase = internal |
+| `class Person` | `public class Person` | PascalCase exports the public .NET surface |
+| `class person` | `internal class person` | camelCase stays unexported/private-by-convention in N# and emits non-public CLR surface |
 | `record User` | `public record User` | Records map directly |
 | `union Result<T>` | `abstract class Result<T>` | Sealed nested classes for cases |
 | `duck interface IReader` | `internal interface IReader` | Compile-time only, auto-implemented |
@@ -538,7 +538,7 @@ union ParseResult {
     Error { message: string }
 }
 
-private func parseInternal(input: string): ParseResult {
+func parseInternal(input: string): ParseResult {
     // Implementation
 }
 

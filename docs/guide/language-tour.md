@@ -58,12 +58,12 @@ func main() {
 
 ### Classes
 
-Classes are the primary type construct. Visibility is convention-based: PascalCase = public, camelCase = private.
+Classes are the primary type construct. Visibility is convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention.
 
 ```n#
 class Person {
-    Name: string         // public (PascalCase)
-    age: int             // private (camelCase)
+    Name: string         // exported/public (PascalCase)
+    age: int             // unexported/private-by-convention (camelCase)
 
     constructor(name: string, age: int) {
         Name = name
@@ -633,24 +633,24 @@ class UserService {
 
 ## Visibility
 
-N# uses naming conventions for visibility — no `public`/`private` keywords needed in most cases.
+N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code.
 
 | Convention | Visibility |
 |------------|-----------|
-| `PascalCase` | public |
-| `camelCase` | private |
+| `PascalCase` | exported/public |
+| `camelCase` | unexported/private-by-convention |
 
 ```n#
 class Account {
-    Balance: decimal      // public (PascalCase)
-    accountId: string     // private (camelCase)
+    Balance: decimal      // exported/public (PascalCase)
+    accountId: string     // unexported/private-by-convention (camelCase)
 
-    func Deposit(amount: decimal) { }   // public
-    func validate() { }                  // private
+    func Deposit(amount: decimal) { }   // exported/public
+    func validate() { }                  // unexported/private-by-convention
 }
 ```
 
-You can still use explicit modifiers when needed:
+Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility:
 
 ```n#
 class Service {

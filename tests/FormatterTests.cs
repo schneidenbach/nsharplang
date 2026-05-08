@@ -536,6 +536,42 @@ Value: int
     }
 
     [Fact]
+    public void Format_StripsExplicitPublicAndPrivateVisibilityModifiers()
+    {
+        var input = @"public class Account {
+private id: string
+public func GetId(): string {
+return id
+}
+}";
+        var expected = @"class Account {
+    id: string
+    func GetId(): string {
+        return id
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesInteropVisibilityModifiers()
+    {
+        var input = @"internal class HostBridge {
+protected virtual func OnStart() {
+}
+}";
+        var expected = @"internal class HostBridge {
+    protected virtual func OnStart() {
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_AsyncFunction()
     {
         var input = @"async func GetData(): Task<string> {

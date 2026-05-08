@@ -1271,7 +1271,7 @@ class Covered {
     }
 
     [Fact]
-    public void ILCompiler_EmitsExplicitFieldAndMethodVisibilityModifiers()
+    public void ILCompiler_EmitsInteropVisibilityModifiersAndIgnoresPublicPrivateMigrationDebris()
     {
         var source = @"
 internal class VisibilityBox {
@@ -1309,8 +1309,8 @@ internal class VisibilityBox {
             Assert.False(type!.IsPublic);
 
             var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            Assert.Contains(fields, field => field.Name == "shown" && field.IsPublic);
-            Assert.Contains(fields, field => field.Name == "hidden" && field.IsPrivate);
+            Assert.Contains(fields, field => field.Name == "shown" && field.IsAssembly);
+            Assert.Contains(fields, field => field.Name == "hidden" && field.IsAssembly);
             Assert.Contains(fields, field => field.Name == "guarded" && field.IsFamily);
             Assert.Contains(fields, field => field.Name == "shared" && field.IsAssembly);
             Assert.Contains(fields, field => field.Name == "bridge" && field.IsFamilyOrAssembly);
@@ -1318,8 +1318,8 @@ internal class VisibilityBox {
             var methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                 .Where(method => !method.IsSpecialName)
                 .ToArray();
-            Assert.Contains(methods, method => method.Name == "shownMethod" && method.IsPublic);
-            Assert.Contains(methods, method => method.Name == "hiddenMethod" && method.IsPrivate);
+            Assert.Contains(methods, method => method.Name == "shownMethod" && method.IsAssembly);
+            Assert.Contains(methods, method => method.Name == "hiddenMethod" && method.IsAssembly);
             Assert.Contains(methods, method => method.Name == "guardedMethod" && method.IsFamily);
             Assert.Contains(methods, method => method.Name == "sharedMethod" && method.IsAssembly);
             Assert.Contains(methods, method => method.Name == "bridgeMethod" && method.IsFamilyOrAssembly);
