@@ -5,7 +5,7 @@ title: CLI Reference
 
 # N# CLI Reference
 
-Updated: 2026-03-29
+Updated: 2026-05-06
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -20,7 +20,8 @@ Updated: 2026-03-29
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--keep-generated` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc transpile <file>` | Print generated C# | none | `nlc transpile Program.nl` |
+| `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
+| `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -68,20 +69,41 @@ nlc watch test --filter "should add"
 
 # Documentation and automation
 nlc doc --json
+nlc export csharp --project . --output ./myapp-csharp
+nlc idiom --project .
 nlc query inspect --summary --file Program.nl --pos 42:7
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
+
+## Migration Idiom Report
+
+`nlc idiom` emits a stable JSON report for AI agents reviewing C# to N# migrations:
+
+```bash
+nlc idiom --project .
+```
+
+The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomatic`, `mixed`, `csharp-heavy`, or `needs-migration`), thresholds, and machine-readable counts for:
+
+- remaining C#-isms: explicit modifiers, statement semicolons in `.nl`, C# property blocks, underscore fields, null/default-forgiving operators, `out` parameter flows, `TryGetValue` flows, C# `using` directives (`usingDirectives`), and C# `namespace` declarations (`namespaceDeclarations`)
+- framework/API migration smells: `IActionResult`, anonymous API DTOs, LINQ query syntax, C# equals-style object initializers (`equalsInitializers`), and unsafe `.Value` access on result/option-like values
+- package migration blockers: `.nl` files under package folders missing declarations (`missingPackageDeclarations`) or declaring the wrong package for their file layout (`wrongPackageDeclarations`)
+- idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`
+- migration cleanup signals: DTO-shaped classes that might become records, visibility/casing conflicts, and TODO/manual-review islands
+
+The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, and `recommendations[]` is ordered migration guidance.
 
 ## Exit Codes
 
 | Command Group | `0` | `1` |
 |---------------|-----|-----|
-| `build`, `run`, `transpile`, `new`, `clean`, `watch`, `doc`, `completion` | Success | Failure |
+| `build`, `run`, `new`, `clean`, `watch`, `doc`, `completion` | Success | Failure |
 | `test` | Tests passed | Build or test execution failed |
 | `format` | Success or already formatted | Formatting failed or `--check` found drift |
 | `lint` | No issues | At least one issue was reported |
 | `check` | No errors | Errors present or analysis failed |
 | `fix` | Success | Failure, or `--dry-run` found pending fixes |
+| `idiom` | Report emitted successfully | Report failed |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 

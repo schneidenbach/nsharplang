@@ -158,6 +158,7 @@ public static class OutputFormatter
             Warnings: results.Count(d => d.Severity == "warning"),
             Info: results.Count(d => d.Severity == "info")
         );
+        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -165,6 +166,7 @@ public static class OutputFormatter
             ok = summary.Errors == 0,
             projectRoot = NormalizePath(projectRoot),
             results = results.Select(Normalize).ToList(),
+            diagnosticClusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -178,6 +180,7 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info")
         );
 
+        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -186,6 +189,7 @@ public static class OutputFormatter
             checkedFiles,
             ok = summary.Errors == 0,
             results = results.Select(Normalize).ToList(),
+            diagnosticClusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -199,6 +203,7 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info")
         );
 
+        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -207,6 +212,7 @@ public static class OutputFormatter
             lintedFiles,
             ok = summary.Errors == 0 && summary.Warnings == 0,
             results = results.Select(Normalize).ToList(),
+            diagnosticClusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -624,6 +630,337 @@ public static class OutputFormatter
                 sampledGroups));
     }
 
+    // ── Diagnostic Clustering ───────────────────────────────────────────
+
+    private const int DiagnosticClusterExampleLimit = 3;
+
+    private sealed record DiagnosticCluster(
+        string Id,
+        string Code,
+        string Severity,
+        int Count,
+        string SyntaxShape,
+        string SourceConstruct,
+        string LikelyRecipe,
+        DiagnosticClusterLocation RootLocation,
+        string MessagePattern,
+        string[] SuggestedNextActions,
+        DiagnosticClusterExample[] Examples);
+
+    private sealed record DiagnosticClusterLocation(string File, int Line, int Column);
+
+    private sealed record DiagnosticClusterExample(
+        string File,
+        int Line,
+        int Column,
+        string Message,
+        string? SourceSnippet,
+        string? Suggestion);
+
+    private sealed record DiagnosticClusterTraits(
+        string SyntaxShape,
+        string SourceConstruct,
+        string LikelyRecipe,
+        string MessagePattern,
+        string[] SuggestedNextActions);
+
+    private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
+    {
+        return results
+            .Select(diagnostic => new { Diagnostic = Normalize(diagnostic), Traits = ClassifyDiagnostic(diagnostic) })
+            .GroupBy(item => new
+            {
+                item.Diagnostic.Code,
+                item.Diagnostic.Severity,
+                item.Traits.SyntaxShape,
+                item.Traits.SourceConstruct,
+                item.Traits.LikelyRecipe,
+                item.Traits.MessagePattern
+            })
+            .Select(group =>
+            {
+                var ordered = group
+                    .Select(item => item.Diagnostic)
+                    .OrderBy(d => d.Line)
+                    .ThenBy(d => d.Column)
+                    .ThenBy(d => d.File, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var root = ordered.First();
+                var traits = group.First().Traits;
+
+                return new DiagnosticCluster(
+                    Id: CreateClusterId(root.Code, traits.SyntaxShape, traits.SourceConstruct, traits.LikelyRecipe),
+                    Code: root.Code,
+                    Severity: root.Severity,
+                    Count: ordered.Count,
+                    SyntaxShape: traits.SyntaxShape,
+                    SourceConstruct: traits.SourceConstruct,
+                    LikelyRecipe: traits.LikelyRecipe,
+                    RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
+                    MessagePattern: traits.MessagePattern,
+                    SuggestedNextActions: traits.SuggestedNextActions,
+                    Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
+                        d.File,
+                        d.Line,
+                        d.Column,
+                        d.Message,
+                        string.IsNullOrWhiteSpace(d.SourceSnippet) ? null : d.SourceSnippet.Trim(),
+                        string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
+            })
+            .OrderByDescending(cluster => cluster.Count)
+            .ThenBy(cluster => cluster.RootLocation.File, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(cluster => cluster.RootLocation.Line)
+            .ThenBy(cluster => cluster.RootLocation.Column)
+            .ToList();
+    }
+
+    private static void AppendDiagnosticClusterSummary(StringBuilder sb, List<DiagnosticCluster> clusters)
+    {
+        if (clusters.Count == 0)
+            return;
+
+        var diagnosticCount = clusters.Sum(cluster => cluster.Count);
+        sb.AppendLine($"Diagnostic clusters ({clusters.Count} group{(clusters.Count == 1 ? "" : "s")}, {diagnosticCount} diagnostic{(diagnosticCount == 1 ? "" : "s")})");
+        foreach (var cluster in clusters.Take(10))
+        {
+            sb.AppendLine($"  [{cluster.Count}x] {cluster.Code} / {cluster.SyntaxShape} / {cluster.SourceConstruct}");
+            sb.AppendLine($"       recipe: {cluster.LikelyRecipe}");
+            sb.AppendLine($"       root: {cluster.RootLocation.File}:{cluster.RootLocation.Line}:{cluster.RootLocation.Column}");
+            sb.AppendLine($"       example: {cluster.Examples[0].Message}");
+            foreach (var action in cluster.SuggestedNextActions.Take(2))
+            {
+                sb.AppendLine($"       next: {action}");
+            }
+        }
+        if (clusters.Count > 10)
+        {
+            sb.AppendLine($"  ... {clusters.Count - 10} more cluster{(clusters.Count - 10 == 1 ? "" : "s")} omitted; use --json for the full AI-consumable cluster list.");
+        }
+        sb.AppendLine();
+    }
+
+    private static DiagnosticClusterTraits ClassifyDiagnostic(DiagnosticResult diagnostic)
+    {
+        var message = diagnostic.Message ?? string.Empty;
+        var snippet = diagnostic.SourceSnippet ?? string.Empty;
+        var code = diagnostic.Code ?? string.Empty;
+        var messageLower = message.ToLowerInvariant();
+        var snippetLower = snippet.ToLowerInvariant();
+
+        if (code == "NL102" && messageLower.Contains("auto-property"))
+        {
+            return new DiagnosticClusterTraits(
+                "csharp-migration-artifact",
+                "property-declaration",
+                "migration:rewrite-auto-property-as-record-or-explicit-nsharp-property",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Rewrite C# `{ get; set; }` accessors as an N# record for DTO-shaped data or explicit N# property syntax.",
+                    "Keep this diagnostic in the migration artifact cluster instead of treating it as a parse delimiter failure."
+                });
+        }
+
+        if (code == "NL102" || messageLower.Contains("expected token") || messageLower.Contains("missing"))
+        {
+            var construct = InferSourceConstruct(snippetLower);
+            var shape = messageLower.Contains(";", StringComparison.Ordinal) || messageLower.Contains("semicolon", StringComparison.Ordinal)
+                ? "syntax-missing-terminator"
+                : "syntax-missing-delimiter";
+            var recipe = shape == "syntax-missing-terminator"
+                ? "migration:semicolon-elision-or-statement-boundary"
+                : "migration:delimiter-balancing";
+            return new DiagnosticClusterTraits(
+                shape,
+                construct,
+                recipe,
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
+                    "Inspect the migration/refactor recipe that emitted this construct and add a delimiter/terminator regression test."
+                });
+        }
+
+        if (code == "NL301" || messageLower.Contains("undefined variable") || messageLower.Contains("undefined symbol"))
+        {
+            return new DiagnosticClusterTraits(
+                "identifier-resolution",
+                InferSourceConstruct(snippetLower),
+                "migration:missing-import-qualification-or-rename",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Resolve the first missing identifier by adding the import/qualification or updating the rename map.",
+                    "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
+                });
+        }
+
+        if (code == "NL201" || code == "NL302" || messageLower.Contains("type not found") || messageLower.Contains("undefined type") || messageLower.Contains("cannot resolve type"))
+        {
+            return new DiagnosticClusterTraits(
+                "type-resolution",
+                InferSourceConstruct(snippetLower),
+                "migration:type-map-or-import-resolution",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Patch the type mapping/import recipe at the earliest root location before chasing downstream uses.",
+                    "Check whether the source construct needs full qualification or a project reference."
+                });
+        }
+
+        if (code == "NL202" || messageLower.Contains("type mismatch"))
+        {
+            return new DiagnosticClusterTraits(
+                "type-mismatch",
+                InferSourceConstruct(snippetLower),
+                "refactor:signature-or-expression-shape",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.",
+                    "Prefer fixing the producer expression over adding casts to each cascaded consumer."
+                });
+        }
+
+        if (code == "NL303" || messageLower.Contains("member") || messageLower.Contains("method"))
+        {
+            return new DiagnosticClusterTraits(
+                "member-resolution",
+                InferSourceConstruct(snippetLower),
+                "migration:api-rename-or-extension-import",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Verify the API/member rename map for the root receiver before fixing repeated call sites.",
+                    "Check whether an extension-method import or receiver type conversion was dropped."
+                });
+        }
+
+        return new DiagnosticClusterTraits(
+            "diagnostic-message-shape",
+            InferSourceConstruct(snippetLower),
+            "manual-triage:inspect-root-diagnostic",
+            NormalizeMessagePattern(message),
+            new[]
+            {
+                "Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.",
+                "After fixing the root cause, rerun diagnostics and compare the remaining cluster counts."
+            });
+    }
+
+    private static string InferSourceConstruct(string sourceSnippetLower)
+    {
+        var snippet = sourceSnippetLower.TrimStart();
+        if (snippet.StartsWith("let ", StringComparison.Ordinal) || snippet.Contains(" := ", StringComparison.Ordinal) || snippet.Contains(":=", StringComparison.Ordinal))
+            return "variable-declaration";
+        var declarationSnippet = StripLeadingDeclarationModifiers(snippet);
+        if (declarationSnippet.StartsWith("func ", StringComparison.Ordinal) || declarationSnippet.StartsWith("func* ", StringComparison.Ordinal))
+            return "function-declaration";
+        if (snippet.StartsWith("class ", StringComparison.Ordinal))
+            return "class-declaration";
+        if (snippet.StartsWith("interface ", StringComparison.Ordinal))
+            return "interface-declaration";
+        if (snippet.StartsWith("import ", StringComparison.Ordinal) || snippet.StartsWith("using ", StringComparison.Ordinal))
+            return "import";
+        if (snippet.StartsWith("return ", StringComparison.Ordinal))
+            return "return-statement";
+        if (snippet.StartsWith("if ", StringComparison.Ordinal) || snippet.StartsWith("for ", StringComparison.Ordinal) || snippet.StartsWith("while ", StringComparison.Ordinal) || snippet.StartsWith("match ", StringComparison.Ordinal))
+            return "control-flow";
+        if (snippet.Contains("(", StringComparison.Ordinal) && snippet.Contains(")", StringComparison.Ordinal))
+            return "call-or-construction";
+        return "unknown-construct";
+    }
+
+    private static string StripLeadingDeclarationModifiers(string snippet)
+    {
+        while (true)
+        {
+            var trimmed = snippet.TrimStart();
+            if (trimmed.StartsWith("async ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["async ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("static ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["static ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("override ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["override ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("public ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["public ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("private ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["private ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("protected ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["protected ".Length..];
+                continue;
+            }
+
+            if (trimmed.StartsWith("internal ", StringComparison.Ordinal))
+            {
+                snippet = trimmed["internal ".Length..];
+                continue;
+            }
+
+            return trimmed;
+        }
+    }
+
+    private static string NormalizeMessagePattern(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return "unknown-message";
+
+        var builder = new StringBuilder(message.Length);
+        var inQuoted = false;
+        foreach (var c in message)
+        {
+            if (c == '\'' || c == '"')
+            {
+                inQuoted = !inQuoted;
+                if (inQuoted)
+                    builder.Append("{value}");
+                continue;
+            }
+
+            if (!inQuoted)
+            {
+                builder.Append(char.IsDigit(c) ? '#' : c);
+            }
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static string CreateClusterId(string code, string syntaxShape, string sourceConstruct, string likelyRecipe)
+    {
+        var key = $"{code}|{syntaxShape}|{sourceConstruct}|{likelyRecipe}";
+        var hash = 17;
+        foreach (var c in key)
+        {
+            hash = (hash * 31) + c;
+        }
+        return $"diag-{Math.Abs(hash):x}";
+    }
+
     // ── Elm-Style Text Output ──────────────────────────────────────────
 
     public static string DiagnosticsToText(List<DiagnosticResult> results)
@@ -635,6 +972,8 @@ public static class OutputFormatter
         var errors = results.Count(d => d.Severity == "error");
         var warnings = results.Count(d => d.Severity == "warning");
         var info = results.Count(d => d.Severity == "info");
+
+        AppendDiagnosticClusterSummary(sb, BuildDiagnosticClusters(results));
 
         foreach (var diag in results)
         {

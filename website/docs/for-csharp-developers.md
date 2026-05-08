@@ -183,13 +183,13 @@ public class UserRepo : IRepository<User>
 **N#:**
 ```n#
 interface IRepository<T> {
-    func async GetByIdAsync(id: Guid): T?
-    func async GetAllAsync(): List<T>
+    async func GetByIdAsync(id: Guid): T?
+    async func GetAllAsync(): List<T>
 }
 
 class UserRepo : IRepository<User> {
-    func async GetByIdAsync(id: Guid): User? { ... }
-    func async GetAllAsync(): List<User> { ... }
+    async func GetByIdAsync(id: Guid): User? { ... }
+    async func GetAllAsync(): List<User> { ... }
 }
 ```
 
@@ -262,7 +262,7 @@ public async Task<string> FetchDataAsync(string url)
 
 **N#:**
 ```n#
-func async FetchDataAsync(url: string): string {
+async func FetchDataAsync(url: string): string {
     client := new HttpClient()
     return await client.GetStringAsync(url)
 }
@@ -561,7 +561,7 @@ Convention-based: PascalCase = public, camelCase = private. Use explicit modifie
 | Class | `public class C { }` | `class C { }` |
 | Property | `public string X { get; set; }` | `X: string` |
 | Constructor | `public C(string x) { }` | `constructor(x: string) { }` |
-| Async | `async Task<T> F()` | `func async F(): T` |
+| Async | `async Task<T> F()` | `async func F(): T` |
 | Lambda | `x => x * 2` | `x => x * 2` |
 | Array | `new[] { 1, 2, 3 }` | `[1, 2, 3]` |
 | For-each | `foreach (var x in items)` | `for x in items { }` |

@@ -13,6 +13,7 @@ All tasks follow the protocol in `STANDARD-SUFFIX.md`: test → Codex review →
 - **F**: [Type aliases → real `using` directives](F-type-aliases.md) — Transpiler.cs
 - **G**: [Parser error recovery](G-parser-error-recovery.md) — Parser.cs
 - **H**: [Error message quality audit](H-error-message-quality.md) — ErrorReporting.cs
+- **T**: [Nullability migration ergonomics](T-nullability-migration-ergonomics.md) — Analyzer.cs + lint/fix tooling
 
 ## Queue — Validation
 - **I**: [Stress test app](I-stress-test-app.md) — examples/16-task-cli
@@ -28,15 +29,14 @@ All tasks follow the protocol in `STANDARD-SUFFIX.md`: test → Codex review →
 
 ## Queue — Ecosystem
 - **M**: [GitHub Action](M-github-action.md) — actions/setup-nsharp/
-- **N**: [C# → N# converter](N-removed-internal-migration.md) — nlc convert command
 - **R**: [NuGet publishing pipeline](R-nuget-publishing.md) — SDK + templates
 
 ## Parallelism
 
 ```
 Language (conflict zone — sequence these):
-  E (Analyzer) → F (Transpiler) → G (Parser) → H (ErrorReporting)
+  E/T (Analyzer) → F (Transpiler) → G (Parser) → H (ErrorReporting)
 
 Everything else is independent — run in parallel:
-  I, J, K, L, M, N, O, P, Q, R
+  I, J, K, L, M, O, P, Q, R, S
 ```

@@ -146,7 +146,7 @@ Add new features that make N# more expressive.
 
 9. **Async Streams (IAsyncEnumerable)**
    ```
-   func async* GetItems(): IAsyncEnumerable<int> {
+   async func* GetItems(): IAsyncEnumerable<int> {
        for i := 0; i < 10; i++ {
            await Task.Delay(100)
            yield i

@@ -417,13 +417,14 @@ public class Parser
                 Advance();
             }
 
-            // Check for async: func async or func async* (async iterator)
+            // Compatibility: accept legacy postfix async (`func async` / `func async*`).
+            // Canonical syntax is parsed via modifiers before `func`: `async func` / `async func*`.
             if (Check(TokenType.Async))
             {
                 modifiers |= Modifiers.Async;
                 Advance();
 
-                // Check for async iterator: func async*
+                // Compatibility: accept legacy postfix async iterator `func async*`.
                 if (Check(TokenType.Star))
                 {
                     modifiers |= Modifiers.Generator;
@@ -1904,11 +1905,18 @@ public class Parser
             Advance();
         }
 
-        // Check for async: func async
+        // Compatibility: accept legacy postfix async (`func async` / `func async*`) for local functions.
         if (Check(TokenType.Async))
         {
             modifiers |= Modifiers.Async;
             Advance();
+
+            // Compatibility: accept legacy postfix async iterator `func async*`.
+            if (Check(TokenType.Star))
+            {
+                modifiers |= Modifiers.Generator;
+                Advance();
+            }
         }
 
         var name = ConsumeIdentifier("Expected function name");

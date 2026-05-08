@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -151,13 +152,21 @@ public static class FixApplicator
         var parser = new Parser(tokens, filePath, source);
         var parseResult = parser.ParseCompilationUnit();
 
-        if (parseResult.CompilationUnit == null)
-            return new List<CodeAction>();
+        var ast = parseResult.CompilationUnit ?? new CompilationUnit(
+            null,
+            new List<ImportDirective>(),
+            new List<Statement>(),
+            null,
+            new List<Declaration>(),
+            1,
+            1);
 
-        // Lint to get diagnostics
+        // Lint to get diagnostics. Source-only migration lints still run when parsing failed.
         var fileDir = System.IO.Path.GetDirectoryName(filePath) ?? System.IO.Directory.GetCurrentDirectory();
         var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
-        var diagnostics = linter.Lint(parseResult.CompilationUnit, filePath, source);
+        var diagnostics = parseResult.CompilationUnit == null
+            ? linter.LintSource(source, filePath)
+            : linter.Lint(ast, filePath, source);
 
         // Get fixes from CodeFixService
         var fixService = new CodeFixService();
@@ -165,7 +174,7 @@ public static class FixApplicator
 
         foreach (var diagnostic in diagnostics)
         {
-            var actions = fixService.GetCodeActions(diagnostic, parseResult.CompilationUnit, source);
+            var actions = fixService.GetCodeActions(diagnostic, ast, source);
             allActions.AddRange(actions);
         }
 

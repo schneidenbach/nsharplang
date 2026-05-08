@@ -19,10 +19,9 @@ class TaskStore {
     }
 
     // Load all tasks from disk
-    func async Load(): Task<List<TaskItem>> {
+    async func Load(): Task<List<TaskItem>> {
         if !File.Exists(filePath) {
-            empty := new List<TaskItem>()
-            return await Task.FromResult(empty)
+            return new List<TaskItem>()
         }
 
         lines := await File.ReadAllLinesAsync(filePath)
@@ -40,17 +39,17 @@ class TaskStore {
             }
         }
 
-        return await Task.FromResult(tasks)
+        return tasks
     }
 
     // Save all tasks to disk
-    func async Save(tasks: List<TaskItem>): Task<bool> {
+    async func Save(tasks: List<TaskItem>): Task<bool> {
         lines := new List<string>()
         for task in tasks {
             lines.Add(FormatLine(task))
         }
         await File.WriteAllLinesAsync(filePath, lines)
-        return await Task.FromResult(true)
+        return true
     }
 
     // Format a task as a pipe-delimited line

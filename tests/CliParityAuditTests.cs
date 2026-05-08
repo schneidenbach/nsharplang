@@ -50,6 +50,7 @@ public class CliParityAuditTests
         Assert.Contains("doc", stdout);
         Assert.Contains("completion", stdout);
         Assert.Contains("export", stdout);
+        Assert.DoesNotContain("convert", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
 
@@ -254,6 +255,7 @@ func Main() {
         Assert.Contains("Common Workflows:", stdout);
         Assert.Contains("--version, -V", stdout);
         Assert.Contains("export <target>", stdout);
+        Assert.DoesNotContain("convert", stdout);
         Assert.DoesNotContain("transpile", stdout);
     }
 
@@ -458,6 +460,16 @@ func Main() {
         Assert.Equal(1, exitCode);
         Assert.Contains("removed", stderr);
         Assert.Contains("nlc export csharp", stderr);
+    }
+
+    [Fact]
+    public void ConvertCommand_IsNotRegisteredAsPublicCliSurface()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("convert", "--help"));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Unknown command: convert", stderr);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────

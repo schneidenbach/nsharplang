@@ -95,13 +95,13 @@ package MyApi
 [Route("api/[controller]")]
 class UsersController : ControllerBase {
     [HttpGet]
-    func async GetAll(): IActionResult {
+    async func GetAll(): IActionResult {
         users := await db.Users.ToListAsync()
         return Ok(users)
     }
 
     [HttpGet("{id}")]
-    func async GetById(id: Guid): IActionResult {
+    async func GetById(id: Guid): IActionResult {
         user := await db.Users.FindAsync(id)
         return match user {
             null => NotFound(),
@@ -337,7 +337,7 @@ namespace MyLibrary
 ```n#
 import MyLibrary
 
-func async main() {
+async func main() {
     service := new DataService()
 
     // Async works
@@ -518,7 +518,7 @@ N# types are consumed by C#, so design with C# consumers in mind:
 ```n#
 // Good - C# friendly
 class UserService {
-    func async GetUserAsync(id: Guid): User? {
+    async func GetUserAsync(id: Guid): User? {
         return await db.FindAsync(id)
     }
 }

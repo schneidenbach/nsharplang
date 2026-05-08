@@ -30,6 +30,7 @@
     "ok",
     "projectRoot",
     "results",
+    "diagnosticClusters",
     "summary"
   ],
   "doc": [
@@ -102,6 +103,7 @@
     "checkedFiles",
     "ok",
     "results",
+    "diagnosticClusters",
     "summary"
   ],
   "fix": [
@@ -139,6 +141,20 @@
     "name",
     "version",
     "packagePath"
+  ],
+  "idiom": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "scannedFiles",
+    "score",
+    "grade",
+    "summary",
+    "signals",
+    "files",
+    "recommendations",
+    "thresholds"
   ],
   "hover": [
     "schemaVersion",

@@ -40,7 +40,7 @@ func Outer(): void {
 ### Async Local Function
 ```n#
 func Outer(): void {
-    func async Inner(): Task<string> {
+    async func Inner(): Task<string> {
         return "result"
     }
 }

@@ -250,7 +250,7 @@ Call C# async methods:
 ```
 using System.Net.Http
 
-func async FetchData(url: string): Task<string> {
+async func FetchData(url: string): Task<string> {
     client := new HttpClient()
     return await client.GetStringAsync(url)
 }

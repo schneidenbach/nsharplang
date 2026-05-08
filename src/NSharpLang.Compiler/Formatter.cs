@@ -2003,8 +2003,8 @@ public class Formatter
         if (modifiers.HasFlag(Modifiers.Partial)) parts.Add("partial");
         if (modifiers.HasFlag(Modifiers.Readonly)) parts.Add("readonly");
         if (modifiers.HasFlag(Modifiers.Const)) parts.Add("const");
-        if (modifiers.HasFlag(Modifiers.Async)) parts.Add("async");
         if (modifiers.HasFlag(Modifiers.Override)) parts.Add("override");
+        if (modifiers.HasFlag(Modifiers.Async)) parts.Add("async");
         if (modifiers.HasFlag(Modifiers.File)) parts.Add("file");
 
         return string.Join(" ", parts);
