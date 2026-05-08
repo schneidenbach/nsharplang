@@ -280,6 +280,321 @@ func Main() {
     }
 
     [Fact]
+    public void CheckCommand_PackageImport_AllowsPascalCaseExports()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-package-exports-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: PackageVisibility
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Item.nl"), """
+package Models
+
+class Item {
+    func Visible(): string {
+        return "visible"
+    }
+}
+
+public class explicitItem {
+    public func visibleExplicit(): string {
+        return "explicit"
+    }
+}
+
+func BuildItem(): Item {
+    return new Item()
+}
+
+public func buildExplicit(): explicitItem {
+    return new explicitItem()
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Models
+
+package App
+
+func Main() {
+    item := BuildItem()
+    explicitValue := buildExplicit()
+    print item.Visible()
+    print explicitValue.visibleExplicit()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("check", doc.RootElement.GetProperty("command").GetString());
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_PackageImport_RejectsCamelCaseTypesMembersAndFunctions()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-package-hidden-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: PackageVisibility
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Item.nl"), """
+package Models
+
+class Item {
+    func hiddenMethod(): string {
+        return "hidden"
+    }
+}
+
+class hiddenThing {
+}
+
+enum Status {
+    Ready
+    hidden
+}
+
+union Outcome {
+    Ok
+    hidden
+}
+
+func hiddenFunction(): string {
+    return "hidden"
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Models
+
+package App
+
+func Main() {
+    thing := new hiddenThing()
+    item := new Item()
+    print item.hiddenMethod()
+    print Status.hidden
+    print Outcome.hidden
+    print hiddenFunction()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_PackageImport_UsesImportedPackageBeforeDuplicateProjectSymbolAmbiguity()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-package-duplicate-export-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+        Directory.CreateDirectory(Path.Combine(tempDir, "Other"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: PackageVisibility
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Item.nl"), """
+package Models
+
+class Item {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Other", "Item.nl"), """
+package Other
+
+class Item {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Models
+
+package App
+
+func Main() {
+    item := new Item()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_PackageImport_ReportsUnexportedImportedDuplicateInsteadOfAmbiguity()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-package-duplicate-hidden-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+        Directory.CreateDirectory(Path.Combine(tempDir, "Other"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: PackageVisibility
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Item.nl"), """
+package Models
+
+class hiddenThing {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Other", "Item.nl"), """
+package Other
+
+class hiddenThing {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Models
+
+package App
+
+func Main() {
+    thing := new hiddenThing()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
+            Assert.DoesNotContain(results, result => result.GetProperty("message").GetString()!.Contains("defined in multiple files"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_NamespaceImport_RejectsCamelCaseTypesMembersAndFunctions()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-namespace-hidden-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: NamespaceVisibility
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Item.nl"), """
+namespace Models
+
+class Item {
+    func hiddenMethod(): string {
+        return "hidden"
+    }
+}
+
+class hiddenThing {
+}
+
+enum Status {
+    Ready
+    hidden
+}
+
+union Outcome {
+    Ok
+    hidden
+}
+
+func hiddenFunction(): string {
+    return "hidden"
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+namespace App
+
+import Models
+
+func Main() {
+    thing := new hiddenThing()
+    item := new Item()
+    print item.hiddenMethod()
+    print Status.hidden
+    print Outcome.hidden
+    print hiddenFunction()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
+            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_MissingProject_ReturnsStructuredErrorEnvelope()
     {
         var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-missing-{Guid.NewGuid():N}");

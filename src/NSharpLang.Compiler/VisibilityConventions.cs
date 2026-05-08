@@ -12,11 +12,22 @@ public static class VisibilityConventions
         return !string.IsNullOrEmpty(name) && char.IsUpper(name[0]);
     }
 
+    public static bool IsExportedIdentifier(string? name, Modifiers modifiers)
+    {
+        if (HasExplicitVisibility(modifiers))
+        {
+            return false;
+        }
+
+        return modifiers.HasFlag(Modifiers.Public) || IsExportedIdentifier(name);
+    }
+
     public static bool HasExplicitVisibility(Modifiers modifiers)
     {
-        // `public`/`private` are migration debris in N#: ordinary visibility is
-        // determined by casing. Only the interop/framework escape hatches below
-        // override the casing convention.
+        // `private` is migration debris in N#: ordinary visibility is determined
+        // by casing. Explicit `public` remains a migration/interoperability escape
+        // hatch for copied C# code that has not yet been renamed. The restrictive
+        // interop/framework escape hatches below override the casing convention.
         return modifiers.HasFlag(Modifiers.Protected)
             || modifiers.HasFlag(Modifiers.Internal)
             || modifiers.HasFlag(Modifiers.File);
@@ -29,7 +40,7 @@ public static class VisibilityConventions
             return "internal";
         }
 
-        return IsExportedIdentifier(name) ? "public" : "internal";
+        return IsExportedIdentifier(name, modifiers) ? "public" : "internal";
     }
 
     public static string GetNestedTypeVisibilityKeyword(string name, Modifiers modifiers)
@@ -49,7 +60,7 @@ public static class VisibilityConventions
             return "internal";
         }
 
-        return IsExportedIdentifier(name) ? "public" : "private";
+        return IsExportedIdentifier(name, modifiers) ? "public" : "private";
     }
 
     public static string GetMemberVisibilityKeyword(string name, Modifiers modifiers)
@@ -71,7 +82,7 @@ public static class VisibilityConventions
 
         // Lowercase members are unexported by convention but remain assembly-visible
         // in emitted CLR so same-project N# calls/object initializers continue to work.
-        return IsExportedIdentifier(name) ? "public" : "internal";
+        return IsExportedIdentifier(name, modifiers) ? "public" : "internal";
     }
 
     public static TypeAttributes GetTopLevelTypeAttributes(string name, Modifiers modifiers)
@@ -81,7 +92,7 @@ public static class VisibilityConventions
             return TypeAttributes.NotPublic;
         }
 
-        return IsExportedIdentifier(name) ? TypeAttributes.Public : TypeAttributes.NotPublic;
+        return IsExportedIdentifier(name, modifiers) ? TypeAttributes.Public : TypeAttributes.NotPublic;
     }
 
     public static TypeAttributes GetNestedTypeAttributes(string name, Modifiers modifiers)
@@ -101,7 +112,7 @@ public static class VisibilityConventions
             return TypeAttributes.NestedAssembly;
         }
 
-        return IsExportedIdentifier(name) ? TypeAttributes.NestedPublic : TypeAttributes.NestedPrivate;
+        return IsExportedIdentifier(name, modifiers) ? TypeAttributes.NestedPublic : TypeAttributes.NestedPrivate;
     }
 
     public static MethodAttributes GetMemberMethodAttributes(string name, Modifiers modifiers)

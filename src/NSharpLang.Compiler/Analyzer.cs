@@ -44,7 +44,8 @@ public class Analyzer : IDisposable
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
-    private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces
+    private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
+    private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
@@ -106,6 +107,8 @@ public class Analyzer : IDisposable
         _compilationUnit = unit;
         _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
+        _projectNamespaceCache.Clear();
+        _projectFileNamespaceCache.Clear();
         _typeDeclarationFiles.Clear();
         _autoResolvedNamespaces.Clear(); // Reset per-file; _projectSymbols persists
 
@@ -2507,6 +2510,7 @@ public class Analyzer : IDisposable
         }
 
         var objectType = AnalyzeExpression(member.Object);
+        ValidateDeclaredMemberVisibility(objectType, member);
         TryRecordMemberBinding(objectType, member);
 
         // Resolve member on type
@@ -2519,6 +2523,105 @@ public class Analyzer : IDisposable
         {
             RecordMemberBinding(member, declaration);
         }
+    }
+
+    private void ValidateDeclaredMemberVisibility(TypeInfo objectType, MemberAccessExpression member)
+    {
+        if (TryFindMemberExportVisibility(objectType, member.MemberName, out var isExported, out var filePath)
+            && IsCrossPackageFile(filePath)
+            && !isExported)
+        {
+            ReportInaccessibleMember(member.MemberName, filePath, member.Line, GetMemberNameColumn(member));
+        }
+    }
+
+    private bool TryFindMemberExportVisibility(TypeInfo objectType, string memberName, out bool isExported, out string? filePath)
+    {
+        isExported = false;
+        filePath = null;
+
+        switch (objectType)
+        {
+            case ClassTypeInfo classType:
+                filePath = GetDeclarationFileForType(classType);
+                if (TryFindDeclarationMemberNode(classType.Declaration.Members, memberName, out var classMember))
+                {
+                    isExported = IsExportedByCasingOrModifier(memberName, classMember);
+                    return true;
+                }
+                if (classType.Declaration.BaseClass != null)
+                    return TryFindMemberExportVisibility(ResolveType(classType.Declaration.BaseClass), memberName, out isExported, out filePath);
+                return false;
+
+            case StructTypeInfo structType:
+                filePath = GetDeclarationFileForType(structType);
+                if (TryFindDeclarationMemberNode(structType.Declaration.Members, memberName, out var structMember))
+                {
+                    isExported = IsExportedByCasingOrModifier(memberName, structMember);
+                    return true;
+                }
+                return false;
+
+            case RecordTypeInfo recordType:
+                filePath = GetDeclarationFileForType(recordType);
+                if (TryFindDeclarationMemberNode(recordType.Declaration.Members, memberName, out var recordMember))
+                {
+                    isExported = IsExportedByCasingOrModifier(memberName, recordMember);
+                    return true;
+                }
+                return false;
+
+            case InterfaceTypeInfo interfaceType:
+                filePath = GetDeclarationFileForType(interfaceType);
+                if (TryFindDeclarationMemberNode(interfaceType.Declaration.Members, memberName, out var interfaceMember))
+                {
+                    isExported = IsExportedByCasingOrModifier(memberName, interfaceMember);
+                    return true;
+                }
+                return false;
+
+            case EnumTypeInfo enumType:
+                filePath = GetDeclarationFileForType(enumType);
+                if (enumType.Declaration.Members.Any(enumMember => enumMember.Name == memberName))
+                {
+                    isExported = VisibilityConventions.IsExportedIdentifier(memberName);
+                    return true;
+                }
+                return false;
+
+            case UnionTypeInfo unionType:
+                filePath = GetDeclarationFileForType(unionType);
+                if (unionType.Declaration.Cases.Any(unionCase => unionCase.Name == memberName))
+                {
+                    isExported = VisibilityConventions.IsExportedIdentifier(memberName);
+                    return true;
+                }
+                return false;
+
+            case AliasTypeInfo aliasType:
+                return TryFindMemberExportVisibility(ResolveType(aliasType.AliasedType), memberName, out isExported, out filePath);
+
+            case NullableTypeInfo nullableType:
+                return TryFindMemberExportVisibility(nullableType.InnerType, memberName, out isExported, out filePath);
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryFindDeclarationMemberNode(IEnumerable<Declaration> members, string memberName, out Declaration declaration)
+    {
+        foreach (var member in members)
+        {
+            if (GetDeclarationName(member) == memberName)
+            {
+                declaration = member;
+                return true;
+            }
+        }
+
+        declaration = null!;
+        return false;
     }
 
     private void RecordMemberBinding(MemberAccessExpression member, SymbolDeclaration declaration)
@@ -7349,6 +7452,19 @@ public class Analyzer : IDisposable
         if (externalCandidates.Count == 0)
             return false;
 
+        // Prefer symbols made visible by the current package/namespace or its imports before
+        // falling back to the historical project-wide ambiguity behavior. This keeps
+        // unrelated packages with the same local name from changing diagnostics for an
+        // explicitly imported package.
+        var currentNamespace = GetUnitNamespace(_compilationUnit);
+        var visibleCandidates = externalCandidates
+            .Where(candidate => IsProjectSymbolInResolutionScope(candidate, currentNamespace))
+            .ToList();
+        if (visibleCandidates.Count > 0)
+        {
+            externalCandidates = visibleCandidates;
+        }
+
         if (externalCandidates.Count > 1)
         {
             // Multiple candidates from different files — ambiguous
@@ -7358,13 +7474,20 @@ public class Analyzer : IDisposable
         }
 
         var resolved = externalCandidates[0];
+        if (!resolved.IsExported && IsCrossPackageFile(resolved.SourceFile))
+        {
+            ReportInaccessibleProjectSymbol(resolved, line, column);
+            type = new UnknownTypeInfo(UnknownKind.ErrorRecovery);
+            return true;
+        }
+
         type = resolved.Type;
 
         // Track the namespace for C# export using-directive generation
         if (resolved.Namespace != null)
         {
             // Get the current file's namespace to compare
-            var currentNs = _compilationUnit?.Namespace?.Name ?? _compilationUnit?.Package?.Name;
+            var currentNs = GetUnitNamespace(_compilationUnit);
             if (currentNs == null || !string.Equals(resolved.Namespace, currentNs, StringComparison.Ordinal))
             {
                 _autoResolvedNamespaces.Add(resolved.Namespace);
@@ -7387,6 +7510,16 @@ public class Analyzer : IDisposable
         }
 
         return true;
+    }
+
+    private bool IsProjectSymbolInResolutionScope(ProjectSymbolInfo candidate, string? currentNamespace)
+    {
+        if (string.Equals(candidate.Namespace, currentNamespace, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return candidate.Namespace != null && _usingNamespaces.Contains(candidate.Namespace);
     }
 
     private void RegisterNamespaceImport(string namespaceName, string? alias, int line, int column)
@@ -7587,7 +7720,7 @@ public class Analyzer : IDisposable
                 var lexer = new Lexer(source, filePath);
                 var parser = new Parser(lexer.Tokenize(), filePath, source);
                 var parseResult = parser.ParseCompilationUnit();
-                var declaredNamespace = parseResult.CompilationUnit?.Namespace?.Name;
+                var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
                 if (!string.IsNullOrWhiteSpace(declaredNamespace))
                 {
                     namespaces.Add(declaredNamespace);
@@ -7601,6 +7734,90 @@ public class Analyzer : IDisposable
 
         _projectNamespaceCache[projectRoot] = namespaces;
         return namespaces;
+    }
+
+    private string? GetNamespaceForFile(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        var fullPath = Path.GetFullPath(filePath);
+        if (_projectFileNamespaceCache.TryGetValue(fullPath, out var cachedNamespace))
+        {
+            return cachedNamespace;
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            _projectFileNamespaceCache[fullPath] = null;
+            return null;
+        }
+
+        try
+        {
+            var source = File.ReadAllText(fullPath);
+            var lexer = new Lexer(source, fullPath);
+            var parser = new Parser(lexer.Tokenize(), fullPath, source);
+            var parseResult = parser.ParseCompilationUnit();
+            var declaredNamespace = GetUnitNamespace(parseResult.CompilationUnit);
+            _projectFileNamespaceCache[fullPath] = declaredNamespace;
+            return declaredNamespace;
+        }
+        catch
+        {
+            _projectFileNamespaceCache[fullPath] = null;
+            return null;
+        }
+    }
+
+    private static string? GetUnitNamespace(CompilationUnit? unit)
+    {
+        return unit?.Package?.Name ?? unit?.Namespace?.Name;
+    }
+
+    private bool IsCrossPackageFile(string? declarationFile)
+    {
+        if (string.IsNullOrWhiteSpace(declarationFile) || string.IsNullOrWhiteSpace(_currentFilePath))
+        {
+            return false;
+        }
+
+        var currentPath = Path.GetFullPath(_currentFilePath);
+        var declarationPath = Path.GetFullPath(declarationFile);
+        if (string.Equals(currentPath, declarationPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var currentNamespace = GetUnitNamespace(_compilationUnit) ?? GetNamespaceForFile(currentPath);
+        var declarationNamespace = GetNamespaceForFile(declarationPath);
+        return !string.Equals(currentNamespace, declarationNamespace, StringComparison.Ordinal);
+    }
+
+    private static bool IsExportedByCasingOrModifier(string name, Declaration declaration)
+    {
+        return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration));
+    }
+
+    private bool ReportInaccessibleProjectSymbol(ProjectSymbolInfo symbol, int line, int column)
+    {
+        Error(
+            $"'{symbol.Name}' is not exported from package/namespace '{symbol.Namespace ?? "<global>"}' — use PascalCase for cross-package visibility or keep camelCase names inside the declaring package",
+            line,
+            column);
+        return true;
+    }
+
+    private bool ReportInaccessibleMember(string memberName, string? declarationFile, int line, int column)
+    {
+        var declaringNamespace = GetNamespaceForFile(declarationFile) ?? "<global>";
+        Error(
+            $"'{memberName}' is not exported from package/namespace '{declaringNamespace}' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package",
+            line,
+            column);
+        return true;
     }
 
     private static bool IsBuildArtifactPath(string filePath)
@@ -7677,13 +7894,7 @@ public class Analyzer : IDisposable
 
     private static bool IsExportedDeclaration(Declaration declaration, string name)
     {
-        var modifiers = GetDeclarationModifiers(declaration);
-        if (VisibilityConventions.HasExplicitVisibility(modifiers))
-        {
-            return false;
-        }
-
-        return VisibilityConventions.IsExportedIdentifier(name);
+        return VisibilityConventions.IsExportedIdentifier(name, GetDeclarationModifiers(declaration));
     }
 
     private static Modifiers GetDeclarationModifiers(Declaration declaration)
@@ -7712,7 +7923,7 @@ public class Analyzer : IDisposable
     public static List<ProjectSymbolInfo> ExtractProjectSymbols(CompilationUnit unit, string filePath)
     {
         var symbols = new List<ProjectSymbolInfo>();
-        var ns = unit.Namespace?.Name ?? unit.Package?.Name;
+        var ns = GetUnitNamespace(unit);
 
         foreach (var decl in unit.Declarations)
         {
@@ -7730,7 +7941,7 @@ public class Analyzer : IDisposable
                 _ => null
             };
 
-            if (name != null && IsExportedDeclaration(decl, name))
+            if (name != null && !string.IsNullOrEmpty(name))
             {
                 var typeInfo = decl switch
                 {
@@ -7757,7 +7968,8 @@ public class Analyzer : IDisposable
                         typeInfo,
                         new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl)),
                         filePath,
-                        ns));
+                        ns,
+                        IsExportedByCasingOrModifier(name, decl)));
                 }
             }
         }
@@ -8595,7 +8807,8 @@ public sealed record ProjectSymbolInfo(
     TypeInfo Type,
     SymbolDeclaration Declaration,
     string SourceFile,
-    string? Namespace // The namespace the symbol is declared in (for using-directive generation)
+    string? Namespace, // The namespace/package the symbol is declared in (for using-directive generation)
+    bool IsExported
 );
 
 // Type system

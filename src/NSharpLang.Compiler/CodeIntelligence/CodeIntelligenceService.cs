@@ -2105,12 +2105,7 @@ public class CodeIntelligenceService
 
     private static bool IsPublicSurfaceName(string name, Ast.Modifiers modifiers)
     {
-        if (VisibilityConventions.HasExplicitVisibility(modifiers))
-        {
-            return false;
-        }
-
-        return VisibilityConventions.IsExportedIdentifier(name);
+        return VisibilityConventions.IsExportedIdentifier(name, modifiers);
     }
 
     private static string GetDeclarationKind(Declaration decl) => decl switch

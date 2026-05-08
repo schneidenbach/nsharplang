@@ -228,7 +228,7 @@ func helper(): int {
             Assert.Contains("Labels", names);
             Assert.Contains("Result", names);
             Assert.Contains("Helper", names);
-            Assert.DoesNotContain("copiedPublicSurface", names);
+            Assert.Contains("copiedPublicSurface", names);
             Assert.DoesNotContain("hiddenSurface", names);
             Assert.DoesNotContain("helper", names);
 

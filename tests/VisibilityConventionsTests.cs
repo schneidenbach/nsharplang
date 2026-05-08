@@ -22,6 +22,21 @@ public partial class ILCompilerTests
         Assert.Equal(expected, VisibilityConventions.IsExportedIdentifier(name));
     }
 
+    [Theory]
+    [InlineData("name", Modifiers.Public, true)]
+    [InlineData("Name", Modifiers.Internal, false)]
+    [InlineData("Name", Modifiers.File, false)]
+    [InlineData("Name", Modifiers.Protected, false)]
+    [InlineData("Name", Modifiers.None, true)]
+    [InlineData("name", Modifiers.None, false)]
+    public void VisibilityConventions_IsExportedIdentifier_HonorsExplicitVisibilityEscapes(
+        string name,
+        Modifiers modifiers,
+        bool expected)
+    {
+        Assert.Equal(expected, VisibilityConventions.IsExportedIdentifier(name, modifiers));
+    }
+
     [Fact]
     public void CompilationStubEmitter_UsesCasingForTypesMembersTopLevelFunctionsAndStringEnumCases()
     {
@@ -41,6 +56,12 @@ class Exported {
 
     func doIt(): int {
         return 2
+    }
+}
+
+public class explicitlyPublicCamel {
+    public func visibleByModifier(): int {
+        return 3
     }
 }
 
@@ -71,10 +92,12 @@ func helper(): int {
                 new[] { sourcePath });
 
             Assert.Contains("public class Exported", stub);
+            Assert.Contains("public class explicitlyPublicCamel", stub);
             Assert.Contains("internal class unexported", stub);
             Assert.Contains("public int Visible;", stub);
             Assert.Contains("internal int hidden;", stub);
             Assert.Contains("public int Do()", stub);
+            Assert.Contains("public int visibleByModifier()", stub);
             Assert.Contains("internal int doIt()", stub);
             Assert.Contains("public const string Good", stub);
             Assert.Contains("internal const string bad", stub);
@@ -118,6 +141,10 @@ class hiddenCamel {
             var consumerSource = """
 import "./Library.nl"
 
+func UseCopiedPublic(publicValue: copiedPublicCamel): int {
+    return 1
+}
+
 func UseCopiedPrivate(copiedValue: CopiedPrivatePascal): int {
     return 1
 }
@@ -130,6 +157,8 @@ func UseExported(exportedValue: ExportedPascal): int {
 
             var visibleResult = AnalyzeFile(consumerPath, tempDir, consumerSource);
             Assert.Empty(visibleResult.Errors);
+            var copiedPublicType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["publicValue"]);
+            Assert.Equal("copiedPublicCamel", copiedPublicType.Declaration.Name);
             var copiedPrivateType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["copiedValue"]);
             Assert.Equal("CopiedPrivatePascal", copiedPrivateType.Declaration.Name);
             var exportedType = Assert.IsType<ClassTypeInfo>(visibleResult.SemanticModel.Variables["exportedValue"]);
@@ -137,10 +166,6 @@ func UseExported(exportedValue: ExportedPascal): int {
 
             var blockedSource = """
 import "./Library.nl"
-
-func UseCopiedPublic(copiedValue: copiedPublicCamel): int {
-    return 1
-}
 
 func UseInternal(internalValue: InternalPascal): int {
     return 1
@@ -155,7 +180,6 @@ func UseHidden(hiddenValue: hiddenCamel): int {
 
             var blockedResult = AnalyzeFile(blockedPath, tempDir, blockedSource);
             Assert.Empty(blockedResult.Errors);
-            Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["copiedValue"]);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["internalValue"]);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["hiddenValue"]);
         }
@@ -186,13 +210,31 @@ class hiddenCamel {
 """;
         var unit = ParseCompilationUnit(source, "Project.nl");
 
-        var symbols = Analyzer.ExtractProjectSymbols(unit, "Project.nl").Select(symbol => symbol.Name).ToList();
+        var symbols = Analyzer.ExtractProjectSymbols(unit, "Project.nl").ToDictionary(symbol => symbol.Name);
 
-        Assert.Contains("CopiedPrivatePascal", symbols);
-        Assert.Contains("ExportedPascal", symbols);
-        Assert.DoesNotContain("copiedPublicCamel", symbols);
-        Assert.DoesNotContain("InternalPascal", symbols);
-        Assert.DoesNotContain("hiddenCamel", symbols);
+        Assert.True(symbols["CopiedPrivatePascal"].IsExported);
+        Assert.True(symbols["ExportedPascal"].IsExported);
+        Assert.True(symbols["copiedPublicCamel"].IsExported);
+        Assert.False(symbols["InternalPascal"].IsExported);
+        Assert.False(symbols["hiddenCamel"].IsExported);
+    }
+
+    [Fact]
+    public void Analyzer_ProjectSymbolsPreferPackageOverNamespaceForScopeIdentity()
+    {
+        var source = """
+namespace Legacy.Namespace
+
+package ActualPackage
+
+class ExportedPascal {
+}
+""";
+        var unit = ParseCompilationUnit(source, "Project.nl");
+
+        var symbol = Assert.Single(Analyzer.ExtractProjectSymbols(unit, "Project.nl"));
+
+        Assert.Equal("ActualPackage", symbol.Namespace);
     }
 
     [Fact]
@@ -209,6 +251,12 @@ class Exported {
 
     func doIt(): int {
         return 2
+    }
+}
+
+public class explicitlyPublicCamel {
+    public func visibleByModifier(): int {
+        return 3
     }
 }
 
@@ -229,13 +277,16 @@ union Result {
         CompileAndInspect(source, new ProjectConfig { OutputType = "library" }, assembly =>
         {
             var exported = Assert.Single(assembly.GetTypes(), type => type.Name == "Exported");
+            var explicitlyPublicCamel = Assert.Single(assembly.GetTypes(), type => type.Name == "explicitlyPublicCamel");
             var unexported = Assert.Single(assembly.GetTypes(), type => type.Name == "unexported");
             Assert.True(exported.IsPublic);
+            Assert.True(explicitlyPublicCamel.IsPublic);
             Assert.False(unexported.IsPublic);
 
             Assert.True(exported.GetField("Visible", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);
             Assert.True(exported.GetField("hidden", BindingFlags.NonPublic | BindingFlags.Instance)!.IsAssembly);
             Assert.True(exported.GetMethod("Do", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);
+            Assert.True(explicitlyPublicCamel.GetMethod("visibleByModifier", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);
             Assert.True(exported.GetMethod("doIt", BindingFlags.NonPublic | BindingFlags.Instance)!.IsAssembly);
 
             var labels = Assert.Single(assembly.GetTypes(), type => type.Name == "Labels");
