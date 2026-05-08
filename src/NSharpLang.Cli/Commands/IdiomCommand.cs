@@ -64,6 +64,10 @@ public static class IdiomCommand
             querySyntax = fileReports.Sum(file => file.QuerySyntax.Count),
             equalsInitializers = fileReports.Sum(file => file.EqualsInitializers.Count),
             unsafeValueAccess = fileReports.Sum(file => file.UnsafeValueAccess.Count),
+            usingDirectives = fileReports.Sum(file => file.UsingDirectives.Count),
+            namespaceDeclarations = fileReports.Sum(file => file.NamespaceDeclarations.Count),
+            missingPackageDeclarations = fileReports.Sum(file => file.MissingPackageDeclarations.Count),
+            wrongPackageDeclarations = fileReports.Sum(file => file.WrongPackageDeclarations.Count),
             examples = new
             {
                 modifiers = Sample(fileReports.SelectMany(file => file.CSharpModifiers)),
@@ -77,7 +81,11 @@ public static class IdiomCommand
                 anonymousApiDtos = Sample(fileReports.SelectMany(file => file.AnonymousApiDtos)),
                 querySyntax = Sample(fileReports.SelectMany(file => file.QuerySyntax)),
                 equalsInitializers = Sample(fileReports.SelectMany(file => file.EqualsInitializers)),
-                unsafeValueAccess = Sample(fileReports.SelectMany(file => file.UnsafeValueAccess))
+                unsafeValueAccess = Sample(fileReports.SelectMany(file => file.UnsafeValueAccess)),
+                usingDirectives = Sample(fileReports.SelectMany(file => file.UsingDirectives)),
+                namespaceDeclarations = Sample(fileReports.SelectMany(file => file.NamespaceDeclarations)),
+                missingPackageDeclarations = Sample(fileReports.SelectMany(file => file.MissingPackageDeclarations)),
+                wrongPackageDeclarations = Sample(fileReports.SelectMany(file => file.WrongPackageDeclarations))
             }
         };
 
@@ -112,6 +120,10 @@ public static class IdiomCommand
             + csharpIsms.querySyntax
             + csharpIsms.equalsInitializers
             + csharpIsms.unsafeValueAccess
+            + csharpIsms.usingDirectives
+            + csharpIsms.namespaceDeclarations
+            + csharpIsms.missingPackageDeclarations
+            + csharpIsms.wrongPackageDeclarations
             + dtoClasses.Length
             + casingVisibilityIssues.Length
             + manualReviewIslands.Length;
@@ -154,7 +166,9 @@ public static class IdiomCommand
             recommendations = BuildRecommendations(csharpIsms.modifiers, csharpIsms.semicolons, csharpIsms.propertySyntax,
                 csharpIsms.underscoreFields, csharpIsms.nullForgiving, csharpIsms.outVar, csharpIsms.tryGetValue,
                 csharpIsms.actionResults, csharpIsms.anonymousApiDtos, csharpIsms.querySyntax,
-                csharpIsms.equalsInitializers, csharpIsms.unsafeValueAccess, dtoClasses.Length,
+                csharpIsms.equalsInitializers, csharpIsms.unsafeValueAccess, csharpIsms.usingDirectives,
+                csharpIsms.namespaceDeclarations, csharpIsms.missingPackageDeclarations,
+                csharpIsms.wrongPackageDeclarations, dtoClasses.Length,
                 casingVisibilityIssues.Length, manualReviewIslands.Length,
                 adoption.records, adoption.matchExpressions, adoption.resultMentions, adoption.packageLayoutDirectories),
             thresholds = new
@@ -195,10 +209,16 @@ public static class IdiomCommand
             new Regex(@"\bnew\s*\{", RegexOptions.Compiled));
         var querySyntax = FindMatches(text, relative, lineStarts,
             new Regex(@"\bfrom\s+\w+\s+in\b", RegexOptions.Compiled));
-        var equalsInitializers = FindMatches(text, relative, lineStarts,
-            new Regex(@"\bnew\s+[^\n{]+\{[^\n{}]*\w+\s*=", RegexOptions.Compiled));
+        var equalsInitializers = FindEqualsStyleInitializers(text, relative);
         var unsafeValueAccess = FindMatches(text, relative, lineStarts,
             new Regex(@"\.\s*Value\b", RegexOptions.Compiled));
+        var usingDirectives = Path.GetExtension(file).Equals(".nl", StringComparison.OrdinalIgnoreCase)
+            ? FindLineMatches(text, relative, new Regex(@"^\s*using\s+(?:static\s+)?[A-Za-z_][A-Za-z0-9_.]*(?:\s*=\s*[A-Za-z_][A-Za-z0-9_.<>]*)?\s*;\s*$", RegexOptions.Compiled))
+            : [];
+        var namespaceDeclarations = Path.GetExtension(file).Equals(".nl", StringComparison.OrdinalIgnoreCase)
+            ? FindLineMatches(text, relative, new Regex(@"^\s*namespace\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s*;|\s*\{)?\s*$", RegexOptions.Compiled))
+            : [];
+        var (missingPackageDeclarations, wrongPackageDeclarations) = FindPackageDeclarationIssues(relative, text);
         var dtoClasses = FindMatches(text, relative, lineStarts,
             new Regex(@"\bclass\s+\w*(?:Dto|DTO|Request|Response|ViewModel)\b", RegexOptions.Compiled));
         var records = FindMatches(text, relative, lineStarts,
@@ -224,6 +244,10 @@ public static class IdiomCommand
             querySyntax,
             equalsInitializers,
             unsafeValueAccess,
+            usingDirectives,
+            namespaceDeclarations,
+            missingPackageDeclarations,
+            wrongPackageDeclarations,
             dtoClasses,
             records,
             matchExpressions,
@@ -267,6 +291,128 @@ public static class IdiomCommand
             .ToList();
     }
 
+    private static List<Occurrence> FindLineMatches(string text, string file, Regex regex)
+    {
+        var issues = new List<Occurrence>();
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = StripLineComment(lines[i]);
+            var match = regex.Match(code);
+            if (match.Success)
+            {
+                issues.Add(new Occurrence(file, i + 1, match.Index + 1, lines[i].Trim()));
+            }
+        }
+        return issues;
+    }
+
+    private static List<Occurrence> FindEqualsStyleInitializers(string text, string file)
+    {
+        var issues = new List<Occurrence>();
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        var startRegex = new Regex(@"\bnew\s+[^\n{}]+\{", RegexOptions.Compiled);
+        var memberRegex = new Regex(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", RegexOptions.Compiled);
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = StripLineComment(lines[i]);
+            if (!startRegex.IsMatch(code))
+                continue;
+
+            var braceDepth = code.Count(c => c == '{') - code.Count(c => c == '}');
+            for (var j = i; j < lines.Length && j <= i + 20; j++)
+            {
+                var candidate = StripLineComment(lines[j]);
+                var match = memberRegex.Match(candidate);
+                if (match.Success)
+                {
+                    issues.Add(new Occurrence(file, j + 1, match.Groups[1].Index + 1, lines[j].Trim()));
+                    break;
+                }
+
+                if (j > i)
+                {
+                    braceDepth += candidate.Count(c => c == '{');
+                    braceDepth -= candidate.Count(c => c == '}');
+                }
+
+                if (j > i && braceDepth <= 0)
+                    break;
+            }
+        }
+
+        return issues;
+    }
+
+    private static (List<Occurrence> Missing, List<Occurrence> Wrong) FindPackageDeclarationIssues(string relativeFile, string text)
+    {
+        var missing = new List<Occurrence>();
+        var wrong = new List<Occurrence>();
+        if (!Path.GetExtension(relativeFile).Equals(".nl", StringComparison.OrdinalIgnoreCase))
+            return (missing, wrong);
+
+        var expectedPackage = ExpectedPackageFromRelativePath(relativeFile);
+        if (string.IsNullOrWhiteSpace(expectedPackage))
+            return (missing, wrong);
+
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = StripLineComment(lines[i]).Trim();
+            if (code.Length == 0)
+                continue;
+
+            var match = Regex.Match(code, @"^package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$");
+            if (!match.Success)
+            {
+                missing.Add(new Occurrence(relativeFile, i + 1, Math.Max(1, lines[i].IndexOf(code, StringComparison.Ordinal) + 1), $"expected package {expectedPackage}"));
+                return (missing, wrong);
+            }
+
+            var actualPackage = match.Groups[1].Value;
+            if (!string.Equals(actualPackage, expectedPackage, StringComparison.Ordinal))
+            {
+                wrong.Add(new Occurrence(relativeFile, i + 1, Math.Max(1, lines[i].IndexOf(actualPackage, StringComparison.Ordinal) + 1), $"package {actualPackage}; expected {expectedPackage}"));
+            }
+            return (missing, wrong);
+        }
+
+        return (missing, wrong);
+    }
+
+    private static string? ExpectedPackageFromRelativePath(string relativeFile)
+    {
+        var directory = Path.GetDirectoryName(relativeFile);
+        if (string.IsNullOrWhiteSpace(directory))
+            return null;
+
+        var parts = directory.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Where(part => !string.IsNullOrWhiteSpace(part) && part != ".")
+            .ToArray();
+        var start = Array.FindIndex(parts, IsPackageLayoutSegment);
+        if (start < 0)
+            return null;
+
+        return string.Join('.', parts.Skip(start).Select(part => Regex.Replace(part, @"[^A-Za-z0-9_]", "_")));
+    }
+
+    private static bool IsPackageLayoutSegment(string segment)
+        => segment is "Commands" or "Database" or "Endpoints" or "Handlers" or "Models" or "Services" or "Types" or "Views" or "Workflow" or "Workflows";
+
+    private static string StripLineComment(string line)
+    {
+        var inString = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '"' && (i == 0 || line[i - 1] != '\\'))
+                inString = !inString;
+            if (!inString && i + 1 < line.Length && line[i] == '/' && line[i + 1] == '/')
+                return line[..i];
+        }
+        return line;
+    }
+
     private static List<Occurrence> FindSemicolonArtifacts(string text, string file)
     {
         var issues = new List<Occurrence>();
@@ -275,7 +421,9 @@ public static class IdiomCommand
         {
             var line = lines[i];
             var trimmed = line.TrimStart();
-            if (trimmed.StartsWith("for ", StringComparison.Ordinal))
+            if (trimmed.StartsWith("for ", StringComparison.Ordinal)
+                || trimmed.StartsWith("using ", StringComparison.Ordinal)
+                || trimmed.StartsWith("namespace ", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -445,6 +593,10 @@ public static class IdiomCommand
         int querySyntax,
         int equalsInitializers,
         int unsafeValueAccess,
+        int usingDirectives,
+        int namespaceDeclarations,
+        int missingPackageDeclarations,
+        int wrongPackageDeclarations,
         int dtoClasses,
         int casingVisibilityIssues,
         int manualReviewIslands,
@@ -464,6 +616,10 @@ public static class IdiomCommand
         if (querySyntax > 0) recommendations.Add("Rewrite C# query syntax to fluent LINQ calls or explicit loops.");
         if (equalsInitializers > 0) recommendations.Add("Use canonical N# object initialization with colon fields: new Type { Name: value }.");
         if (unsafeValueAccess > 0) recommendations.Add("Replace unsafe .Value access on result/option-like values with match or checked unwrap helpers.");
+        if (usingDirectives > 0) recommendations.Add("Convert C# using directives in .nl files to N# import declarations or project references.");
+        if (namespaceDeclarations > 0) recommendations.Add("Replace C# namespace declarations in .nl files with N# package declarations.");
+        if (missingPackageDeclarations > 0) recommendations.Add("Add package declarations to .nl files that live under package-layout directories.");
+        if (wrongPackageDeclarations > 0) recommendations.Add("Align .nl package declarations with their file layout or move the files to the declared package.");
         if (dtoClasses > records) recommendations.Add("Convert DTO-shaped classes to records where identity/mutation is not required.");
         if (matchExpressions == 0) recommendations.Add("Introduce match expressions for branching over unions, enums, and sentinel states.");
         if (resultMentions == 0) recommendations.Add("Prefer Result-style unions for recoverable failures instead of sentinel values or out parameters.");
@@ -545,6 +701,10 @@ Exit codes:
         List<Occurrence> QuerySyntax,
         List<Occurrence> EqualsInitializers,
         List<Occurrence> UnsafeValueAccess,
+        List<Occurrence> UsingDirectives,
+        List<Occurrence> NamespaceDeclarations,
+        List<Occurrence> MissingPackageDeclarations,
+        List<Occurrence> WrongPackageDeclarations,
         List<Occurrence> DtoClasses,
         List<Occurrence> Records,
         List<Occurrence> MatchExpressions,
@@ -564,6 +724,10 @@ Exit codes:
             + QuerySyntax.Count
             + EqualsInitializers.Count
             + UnsafeValueAccess.Count
+            + UsingDirectives.Count
+            + NamespaceDeclarations.Count
+            + MissingPackageDeclarations.Count
+            + WrongPackageDeclarations.Count
             + DtoClasses.Count
             + CasingVisibilityIssues.Count
             + ManualReviewIslands.Count;

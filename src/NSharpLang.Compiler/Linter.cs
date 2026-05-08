@@ -68,6 +68,10 @@ public class LinterConfig
                 { "NL104", DiagnosticSeverity.Info },    // Migration: out var / TryGetValue pattern
                 { "NL105", DiagnosticSeverity.Info },    // Migration: DTO class should be record candidate
                 { "NL106", DiagnosticSeverity.Info },    // Migration: try/catch returning 500 boilerplate
+                { "NL107", DiagnosticSeverity.Info },    // Migration: C# using directive in .nl file
+                { "NL108", DiagnosticSeverity.Info },    // Migration: C# namespace declaration in .nl file
+                { "NL109", DiagnosticSeverity.Info },    // Migration: missing/wrong N# package declaration
+                { "NL110", DiagnosticSeverity.Info },    // Migration: C# equals-style object initializer
             }
         };
     }
@@ -263,8 +267,33 @@ public partial class Linter
                     column,
                     "Prefer an N# tuple/result-returning helper or a pattern that avoids out parameters");
             }
+
+            var usingMatch = CSharpUsingDirectiveRegex().Match(codePart);
+            if (usingMatch.Success)
+            {
+                Add(
+                    "NL107",
+                    "C# using directive is a migration blocker in an N# file",
+                    lineNumber,
+                    usingMatch.Index + 1,
+                    "Convert C# using directives to N# import declarations or project references");
+            }
+
+            var namespaceMatch = CSharpNamespaceDeclarationRegex().Match(codePart);
+            if (namespaceMatch.Success)
+            {
+                Add(
+                    "NL108",
+                    "C# namespace declaration is a migration blocker in an N# file",
+                    lineNumber,
+                    namespaceMatch.Index + 1,
+                    "Use an N# package declaration such as `package My.Package` instead of `namespace My.Package;`");
+            }
+
         }
 
+        AddPackageDeclarationCandidate(lines, filePath, Add);
+        AddEqualsStyleObjectInitializerCandidates(lines, Add);
         AddDtoRecordCandidates(lines, Add);
         AddTryCatch500Candidates(lines, Add);
 
@@ -286,6 +315,109 @@ public partial class Linter
         }
 
         return line;
+    }
+
+    private static void AddPackageDeclarationCandidate(string[] lines, string? filePath, Action<string, string, int, int, string> add)
+    {
+        var expectedPackage = ExpectedPackageFromFilePath(filePath);
+        if (string.IsNullOrWhiteSpace(expectedPackage))
+            return;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = StripLineComment(lines[i]).Trim();
+            if (code.Length == 0)
+                continue;
+
+            var packageMatch = PackageDeclarationRegex().Match(code);
+            if (!packageMatch.Success)
+            {
+                add(
+                    "NL109",
+                    $"N# file is missing package declaration `package {expectedPackage}` for its package layout",
+                    i + 1,
+                    Math.Max(1, lines[i].IndexOf(code, StringComparison.Ordinal) + 1),
+                    $"Add `package {expectedPackage}` as the first declaration in this .nl file");
+                return;
+            }
+
+            var actualPackage = packageMatch.Groups[1].Value;
+            if (!string.Equals(actualPackage, expectedPackage, StringComparison.Ordinal))
+            {
+                add(
+                    "NL109",
+                    $"N# package declaration `{actualPackage}` does not match expected package `{expectedPackage}` for this file layout",
+                    i + 1,
+                    Math.Max(1, lines[i].IndexOf(actualPackage, StringComparison.Ordinal) + 1),
+                    $"Change the declaration to `package {expectedPackage}` or move the file to match `{actualPackage}`");
+            }
+            return;
+        }
+    }
+
+    private static string? ExpectedPackageFromFilePath(string? filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath)
+            || !Path.GetExtension(filePath).Equals(".nl", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var directory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrWhiteSpace(directory))
+            return null;
+
+        var parts = directory.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Where(part => !string.IsNullOrWhiteSpace(part) && part != ".")
+            .ToArray();
+        if (parts.Length == 0)
+            return null;
+
+        var start = Array.FindIndex(parts, IsPackageLayoutSegment);
+        if (start < 0)
+            return null;
+
+        return string.Join('.', parts.Skip(start).Select(SanitizePackageSegment));
+    }
+
+    private static bool IsPackageLayoutSegment(string segment)
+        => segment is "Commands" or "Database" or "Endpoints" or "Handlers" or "Models" or "Services" or "Types" or "Views" or "Workflow" or "Workflows";
+
+    private static string SanitizePackageSegment(string segment)
+        => Regex.Replace(segment, @"[^A-Za-z0-9_]", "_");
+
+    private static void AddEqualsStyleObjectInitializerCandidates(string[] lines, Action<string, string, int, int, string> add)
+    {
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var code = StripLineComment(lines[i]);
+            if (!ObjectInitializerStartRegex().IsMatch(code))
+                continue;
+
+            var braceDepth = code.Count(c => c == '{') - code.Count(c => c == '}');
+            for (var j = i; j < lines.Length && j <= i + 20; j++)
+            {
+                var candidate = StripLineComment(lines[j]);
+                var assignmentMatch = EqualsInitializerMemberRegex().Match(candidate);
+                if (assignmentMatch.Success)
+                {
+                    add(
+                        "NL110",
+                        "C# equals-style object initializer is a migration blocker in an N# file",
+                        j + 1,
+                        assignmentMatch.Groups[1].Index + 1,
+                        "Use canonical N# object initialization with colon fields: `new Type { Name: value }`");
+                    break;
+                }
+
+                if (j > i)
+                {
+                    braceDepth += candidate.Count(c => c == '{');
+                    braceDepth -= candidate.Count(c => c == '}');
+                }
+
+                if (j > i && braceDepth <= 0)
+                    break;
+            }
+        }
     }
 
     private static void AddDtoRecordCandidates(string[] lines, Action<string, string, int, int, string> add)
@@ -366,6 +498,21 @@ public partial class Linter
 
     [GeneratedRegex(@"^[A-Z][A-Za-z0-9_]*\s*:\s*[^=]+(?:=.*)?$", RegexOptions.CultureInvariant)]
     private static partial Regex DtoPropertyLikeRegex();
+
+    [GeneratedRegex(@"^\s*using\s+(?:static\s+)?[A-Za-z_][A-Za-z0-9_.]*(?:\s*=\s*[A-Za-z_][A-Za-z0-9_.<>]*)?\s*;\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex CSharpUsingDirectiveRegex();
+
+    [GeneratedRegex(@"^\s*namespace\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s*;|\s*\{)?\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex CSharpNamespaceDeclarationRegex();
+
+    [GeneratedRegex(@"\bnew\s+[^\n{}]+\{", RegexOptions.CultureInvariant)]
+    private static partial Regex ObjectInitializerStartRegex();
+
+    [GeneratedRegex(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", RegexOptions.CultureInvariant)]
+    private static partial Regex EqualsInitializerMemberRegex();
+
+    [GeneratedRegex(@"^package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex PackageDeclarationRegex();
 }
 
 /// <summary>

@@ -8,10 +8,10 @@ namespace NSharpLang.Tests;
 
 public class MigrationLintTests
 {
-    private static List<Diagnostic> LintSource(string source)
+    private static List<Diagnostic> LintSource(string source, string filePath = "test.nl")
     {
         var linter = new Linter();
-        return linter.LintSource(source, "test.nl");
+        return linter.LintSource(source, filePath);
     }
 
     [Fact]
@@ -73,6 +73,52 @@ func Get(id: string): Result {
         Assert.Contains(diagnostics, d => d.Code == "NL104" && d.Message.Contains("TryGetValue"));
         Assert.Contains(diagnostics, d => d.Code == "NL105" && d.Message.Contains("UserDto"));
         Assert.Contains(diagnostics, d => d.Code == "NL106" && d.Message.Contains("500"));
+    }
+
+    [Fact]
+    public void LintSource_FlagsCSharpUsingNamespacePackageAndInitializerBlockers()
+    {
+        var diagnostics = LintSource("""
+using System;
+namespace Legacy.Api;
+
+class UserDto {
+    func Create(): User => new User {
+        Name = "A"
+    }
+}
+""", "src/Services/User.nl");
+
+        Assert.Contains(diagnostics, d => d.Code == "NL107" && d.Message.Contains("using"));
+        Assert.Contains(diagnostics, d => d.Code == "NL108" && d.Message.Contains("namespace"));
+        Assert.Contains(diagnostics, d => d.Code == "NL109" && d.Message.Contains("package Services"));
+        Assert.Contains(diagnostics, d => d.Code == "NL110" && d.Message.Contains("object initializer"));
+    }
+
+    [Fact]
+    public void LintSource_FlagsWrongPackageDeclarationForFileLayout()
+    {
+        var diagnostics = LintSource("""
+package Models
+
+class UserDto {
+    Id: int
+}
+""", "Services/User.nl");
+
+        Assert.Contains(diagnostics, d => d.Code == "NL109" && d.Message.Contains("Models") && d.Message.Contains("Services"));
+    }
+
+    [Fact]
+    public void LintSource_DoesNotReportPackageLayoutOutsideKnownPackageFolders()
+    {
+        var diagnostics = LintSource("""
+class UserDto {
+    Id: int
+}
+""", "src/Features/User.nl");
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL109");
     }
 
     [Fact]

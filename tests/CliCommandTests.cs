@@ -536,8 +536,16 @@ class CustomerDto {
 record Order(id: string, total: decimal)
 """);
             File.WriteAllText(Path.Combine(tempDir, "Services", "Store.nl"), """
+package Models
+
+using System;
+namespace Legacy.Api;
+
 func Load(input: string?): Result<string> {
     value := input!
+    built := new User {
+        Name = "A"
+    }
     legacy := value;
     // TODO(migration): manual review required
     return match value {
@@ -593,8 +601,12 @@ public class LegacyDto
             Assert.Equal(1, csharp.GetProperty("actionResults").GetInt32());
             Assert.Equal(1, csharp.GetProperty("anonymousApiDtos").GetInt32());
             Assert.Equal(1, csharp.GetProperty("querySyntax").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("equalsInitializers").GetInt32());
+            Assert.Equal(2, csharp.GetProperty("equalsInitializers").GetInt32());
             Assert.Equal(1, csharp.GetProperty("unsafeValueAccess").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("usingDirectives").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("namespaceDeclarations").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("missingPackageDeclarations").GetInt32());
+            Assert.Equal(1, csharp.GetProperty("wrongPackageDeclarations").GetInt32());
 
             var adoption = root.GetProperty("signals").GetProperty("nsharpAdoption");
             Assert.Equal(1, adoption.GetProperty("records").GetInt32());
