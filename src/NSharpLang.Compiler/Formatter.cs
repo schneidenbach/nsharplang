@@ -314,7 +314,7 @@ public class Formatter
         Indent(sb);
 
         // Format modifiers
-        var mods = FormatModifiers(func.Modifiers);
+        var mods = FormatModifiers(func.Modifiers, func.Name, preserveCasingVisibility: !func.IsOperatorOverload && !func.IsConversionOperator);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -389,7 +389,7 @@ public class Formatter
         FormatAttributes(cls.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(cls.Modifiers);
+        var mods = FormatModifiers(cls.Modifiers, cls.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -446,7 +446,7 @@ public class Formatter
         FormatAttributes(str.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(str.Modifiers);
+        var mods = FormatModifiers(str.Modifiers, str.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -482,7 +482,7 @@ public class Formatter
         FormatAttributes(rec.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(rec.Modifiers);
+        var mods = FormatModifiers(rec.Modifiers, rec.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -543,7 +543,7 @@ public class Formatter
         FormatAttributes(iface.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(iface.Modifiers);
+        var mods = FormatModifiers(iface.Modifiers, iface.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -584,7 +584,7 @@ public class Formatter
         FormatAttributes(union.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(union.Modifiers);
+        var mods = FormatModifiers(union.Modifiers, union.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -632,7 +632,7 @@ public class Formatter
         FormatAttributes(enumDecl.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(enumDecl.Modifiers);
+        var mods = FormatModifiers(enumDecl.Modifiers, enumDecl.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -680,7 +680,7 @@ public class Formatter
         FormatAttributes(field.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(field.Modifiers);
+        var mods = FormatModifiers(field.Modifiers, field.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -716,7 +716,7 @@ public class Formatter
         FormatAttributes(prop.Attributes, sb);
         Indent(sb);
 
-        var mods = FormatModifiers(prop.Modifiers);
+        var mods = FormatModifiers(prop.Modifiers, prop.Name);
         if (!string.IsNullOrEmpty(mods))
         {
             sb.Append(mods);
@@ -1988,12 +1988,19 @@ public class Formatter
         };
     }
 
-    private string FormatModifiers(Modifiers modifiers)
+    private string FormatModifiers(Modifiers modifiers, string? identifierName = null, bool preserveCasingVisibility = true)
     {
         var parts = new List<string>();
 
-        if (modifiers.HasFlag(Modifiers.Public)) parts.Add("public");
-        if (modifiers.HasFlag(Modifiers.Private)) parts.Add("private");
+        // Public/private are omitted when casing already carries the same meaning,
+        // but preserved when they are semantic interop escape hatches. Dropping
+        // `public legacyCamel` or `private SecretPascal` would change export rules.
+        if (preserveCasingVisibility && ShouldPreserveExplicitCasingVisibility(modifiers, identifierName))
+        {
+            if (modifiers.HasFlag(Modifiers.Public)) parts.Add("public");
+            if (modifiers.HasFlag(Modifiers.Private)) parts.Add("private");
+        }
+
         if (modifiers.HasFlag(Modifiers.Internal)) parts.Add("internal");
         if (modifiers.HasFlag(Modifiers.Protected)) parts.Add("protected");
         if (modifiers.HasFlag(Modifiers.Static)) parts.Add("static");
@@ -2008,6 +2015,25 @@ public class Formatter
         if (modifiers.HasFlag(Modifiers.File)) parts.Add("file");
 
         return string.Join(" ", parts);
+    }
+
+    private static bool ShouldPreserveExplicitCasingVisibility(Modifiers modifiers, string? identifierName)
+    {
+        var hasPublic = modifiers.HasFlag(Modifiers.Public);
+        var hasPrivate = modifiers.HasFlag(Modifiers.Private);
+        if (!hasPublic && !hasPrivate)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(identifierName))
+        {
+            return true;
+        }
+
+        var withoutPublicPrivate = modifiers & ~Modifiers.Public & ~Modifiers.Private;
+        return VisibilityConventions.IsExportedIdentifier(identifierName, modifiers)
+            != VisibilityConventions.IsExportedIdentifier(identifierName, withoutPublicPrivate);
     }
 
     private string FormatBinaryOperator(BinaryOperator op)

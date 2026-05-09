@@ -227,6 +227,11 @@ public partial class Linter
             foreach (Match match in CSharpModifierRegex().Matches(codePart))
             {
                 var modifier = match.Groups[1].Value;
+                if (IsSemanticCasingVisibilityEscape(codePart, match.Index, modifier))
+                {
+                    continue;
+                }
+
                 Add(
                     "NL101",
                     $"C# modifier '{modifier}' looks out of place in an N# file",
@@ -485,8 +490,31 @@ public partial class Linter
         }
     }
 
-    [GeneratedRegex(@"\b(public|private|protected|override|virtual|partial|readonly)\b", RegexOptions.CultureInvariant)]
+    private static bool IsSemanticCasingVisibilityEscape(string codePart, int modifierIndex, string modifier)
+    {
+        if (modifier is not ("public" or "private"))
+        {
+            return false;
+        }
+
+        var suffix = codePart[modifierIndex..];
+        var nameMatch = VisibilityModifierDeclarationNameRegex().Match(suffix);
+        if (!nameMatch.Success)
+        {
+            return false;
+        }
+
+        var name = nameMatch.Groups[1].Value;
+        var withModifier = modifier == "public" ? Modifiers.Public : Modifiers.Private;
+        return VisibilityConventions.IsExportedIdentifier(name, withModifier)
+            != VisibilityConventions.IsExportedIdentifier(name, Modifiers.None);
+    }
+
+    [GeneratedRegex(@"\b(public|private|override|virtual|partial|readonly)\b", RegexOptions.CultureInvariant)]
     private static partial Regex CSharpModifierRegex();
+
+    [GeneratedRegex(@"^(?:public|private)\s+(?:(?:static|async|unsafe|extern|virtual|override|abstract|sealed|readonly|partial)\s+)*(?:(?:class|struct|record|interface|union|enum|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)\b", RegexOptions.CultureInvariant)]
+    private static partial Regex VisibilityModifierDeclarationNameRegex();
 
     [GeneratedRegex(@"\{\s*get\s*;\s*(set|init)\s*;\s*\}", RegexOptions.CultureInvariant)]
     private static partial Regex AutoPropertyRegex();

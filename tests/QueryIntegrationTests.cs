@@ -168,6 +168,89 @@ public class QueryIntegrationTests : IDisposable
         Assert.Contains(symbols, s => s.Name == "Main" && s.Kind == SymbolKind.Function);
     }
 
+    [Fact]
+    public void Symbols_PublicSurface_UsesGoStyleCasingAndInteropEscapes()
+    {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"nsharp_query_visibility_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(projectDir, "project.yml"), """
+name: QueryVisibility
+version: 1.0.0
+targetFramework: net10.0
+outputType: library
+""");
+            File.WriteAllText(Path.Combine(projectDir, "Api.nl"), """
+public class copiedPublicSurface {
+    Visible: int
+}
+
+private class CopiedPrivateSurface {
+    Visible: int
+}
+
+class ExportedSurface {
+    Visible: int
+    hidden: int
+}
+
+class hiddenSurface {
+    Visible: int
+}
+
+enum Labels: string {
+    Good = "good",
+    bad = "bad"
+}
+
+union Result {
+    Ok { Value: int }
+    err { message: string }
+}
+
+func Helper(): int {
+    return 1
+}
+
+func helper(): int {
+    return 2
+}
+""");
+
+            var snapshot = _service.LoadProject(projectDir);
+            Assert.Empty(snapshot.AllErrors.Where(e => e.Severity == Compiler.ErrorSeverity.Error));
+
+            var symbols = _service.GetSymbols(snapshot);
+            var names = symbols.Select(s => s.Name).ToList();
+
+            Assert.DoesNotContain("CopiedPrivateSurface", names);
+            Assert.Contains("ExportedSurface", names);
+            Assert.Contains("Labels", names);
+            Assert.Contains("Result", names);
+            Assert.Contains("Helper", names);
+            Assert.Contains("copiedPublicSurface", names);
+            Assert.DoesNotContain("hiddenSurface", names);
+            Assert.DoesNotContain("helper", names);
+
+            var exported = Assert.Single(symbols, s => s.Name == "ExportedSurface");
+            Assert.Contains(exported.Members!, m => m.Name == "Visible");
+            Assert.DoesNotContain(exported.Members!, m => m.Name == "hidden");
+
+            var labels = Assert.Single(symbols, s => s.Name == "Labels");
+            Assert.Contains(labels.Members!, m => m.Name == "Good");
+            Assert.Contains(labels.Members!, m => m.Name == "bad");
+
+            var result = Assert.Single(symbols, s => s.Name == "Result");
+            Assert.Contains(result.Members!, m => m.Name == "Ok");
+            Assert.DoesNotContain(result.Members!, m => m.Name == "err");
+        }
+        finally
+        {
+            Directory.Delete(projectDir, recursive: true);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  OUTLINE — does file structure look right?
     // ═══════════════════════════════════════════════════════════════════

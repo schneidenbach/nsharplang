@@ -4756,11 +4756,9 @@ public partial class ILCompiler
         }
     }
 
-    private static TypeAttributes GetTypeVisibilityAttributes(Modifiers modifiers)
+    private static TypeAttributes GetTypeVisibilityAttributes(string name, Modifiers modifiers)
     {
-        return modifiers.HasFlag(Modifiers.Internal) || modifiers.HasFlag(Modifiers.File)
-            ? TypeAttributes.NotPublic
-            : TypeAttributes.Public;
+        return VisibilityConventions.GetTopLevelTypeAttributes(name, modifiers);
     }
 
     private TypeAttributes GetInterfaceTypeVisibilityAttributes(InterfaceDeclaration interfaceDecl)
@@ -4770,19 +4768,19 @@ public partial class ILCompiler
             || interfaceDecl.Modifiers.HasFlag(Modifiers.Internal)
             || interfaceDecl.Modifiers.HasFlag(Modifiers.File))
         {
-            return GetTypeVisibilityAttributes(interfaceDecl.Modifiers);
+            return GetTypeVisibilityAttributes(interfaceDecl.Name, interfaceDecl.Modifiers);
         }
 
         var hasPublicImplementor = _compilationUnit.Declarations.Any(declaration => declaration switch
         {
             ClassDeclaration classDecl => !string.IsNullOrEmpty(classDecl.Name)
-                && char.IsUpper(classDecl.Name[0])
+                && VisibilityConventions.IsExportedIdentifier(classDecl.Name)
                 && StructurallyMatchesDuckInterface(classDecl.Members, interfaceDecl),
             StructDeclaration structDecl => !string.IsNullOrEmpty(structDecl.Name)
-                && char.IsUpper(structDecl.Name[0])
+                && VisibilityConventions.IsExportedIdentifier(structDecl.Name)
                 && StructurallyMatchesDuckInterface(structDecl.Members, interfaceDecl),
             RecordDeclaration recordDecl => !string.IsNullOrEmpty(recordDecl.Name)
-                && char.IsUpper(recordDecl.Name[0])
+                && VisibilityConventions.IsExportedIdentifier(recordDecl.Name)
                 && StructurallyMatchesDuckInterface(recordDecl.Members, interfaceDecl),
             _ => false
         });
@@ -4842,10 +4840,7 @@ public partial class ILCompiler
 
     private static bool HasExplicitVisibility(Modifiers modifiers)
     {
-        return modifiers.HasFlag(Modifiers.Public)
-            || modifiers.HasFlag(Modifiers.Private)
-            || modifiers.HasFlag(Modifiers.Protected)
-            || modifiers.HasFlag(Modifiers.Internal);
+        return VisibilityConventions.HasExplicitVisibility(modifiers);
     }
 
     private static FieldAttributes GetConventionFieldVisibilityAttributes(string name, Modifiers modifiers)
@@ -4855,9 +4850,7 @@ public partial class ILCompiler
             return GetVisibilityFieldAttributes(modifiers);
         }
 
-        return !string.IsNullOrEmpty(name) && char.IsUpper(name[0])
-            ? FieldAttributes.Public
-            : FieldAttributes.Private;
+        return VisibilityConventions.GetMemberFieldAttributes(name, modifiers);
     }
 
     private static MethodAttributes GetConventionMethodVisibilityAttributes(string name, Modifiers modifiers)
@@ -4867,9 +4860,7 @@ public partial class ILCompiler
             return GetVisibilityMethodAttributes(modifiers);
         }
 
-        return !string.IsNullOrEmpty(name) && char.IsUpper(name[0])
-            ? MethodAttributes.Public
-            : MethodAttributes.Private;
+        return VisibilityConventions.GetMemberMethodAttributes(name, modifiers);
     }
 
     private IEnumerable<InterfaceDeclaration> GetMatchingDuckInterfaces(IReadOnlyList<Declaration> typeMembers)
@@ -5859,7 +5850,7 @@ public partial class ILCompiler
         // Create method (without return type and parameter types yet if generic)
         var methodBuilder = typeBuilder.DefineMethod(
             emittedMethodName,
-            MethodAttributes.Public
+            VisibilityConventions.GetMemberMethodAttributes(function.Name, function.Modifiers)
             | MethodAttributes.Static
             | MethodAttributes.HideBySig
             | (function.IsOperatorOverload || function.IsConversionOperator ? MethodAttributes.SpecialName : 0));
@@ -12654,7 +12645,7 @@ public partial class ILCompiler
             return;
         }
 
-        var typeAttributes = GetTypeVisibilityAttributes(classDecl.Modifiers) | TypeAttributes.Class;
+        var typeAttributes = GetTypeVisibilityAttributes(classDecl.Name, classDecl.Modifiers) | TypeAttributes.Class;
 
         if (classDecl.Modifiers.HasFlag(Modifiers.Abstract))
             typeAttributes |= TypeAttributes.Abstract;
@@ -12718,7 +12709,7 @@ public partial class ILCompiler
             return;
         }
 
-        var typeAttributes = GetTypeVisibilityAttributes(structDecl.Modifiers) | TypeAttributes.Sealed;
+        var typeAttributes = GetTypeVisibilityAttributes(structDecl.Name, structDecl.Modifiers) | TypeAttributes.Sealed;
 
         var typeBuilder = moduleBuilder.DefineType(
             structDecl.Name,
@@ -12790,7 +12781,7 @@ public partial class ILCompiler
         {
             var typeBuilder = moduleBuilder.DefineType(
                 enumDecl.Name,
-                GetTypeVisibilityAttributes(enumDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+                GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
 
             RegisterStringEnumContainer(enumDecl.Name, typeBuilder);
 
@@ -12814,7 +12805,7 @@ public partial class ILCompiler
 
         var enumBuilder = moduleBuilder.DefineEnum(
             enumDecl.Name,
-            GetTypeVisibilityAttributes(enumDecl.Modifiers),
+            GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers),
             typeof(int));
         ApplyCustomAttributes(enumBuilder.SetCustomAttribute, enumDecl.Attributes);
 
@@ -12848,7 +12839,7 @@ public partial class ILCompiler
 
         var unionType = moduleBuilder.DefineType(
             unionDecl.Name,
-            GetTypeVisibilityAttributes(unionDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract);
+            GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract);
         ApplyCustomAttributes(unionType.SetCustomAttribute, unionDecl.Attributes);
         RegisterType(unionDecl.Name, unionType);
         var unionCtor = unionType.DefineConstructor(
@@ -12861,7 +12852,7 @@ public partial class ILCompiler
         {
             var caseType = unionType.DefineNestedType(
                 unionCase.Name,
-                TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed,
+                VisibilityConventions.GetNestedTypeAttributes(unionCase.Name, Modifiers.None) | TypeAttributes.Class | TypeAttributes.Sealed,
                 unionType);
 
             var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
@@ -12925,7 +12916,7 @@ public partial class ILCompiler
                 var fieldBuilder = caseType.DefineField(
                     property.Name,
                     fieldType,
-                    FieldAttributes.Public);
+                    VisibilityConventions.GetMemberFieldAttributes(property.Name, Modifiers.None));
                 _fields[GetFieldKey(caseType, property.Name)] = fieldBuilder;
             }
         }
@@ -13563,7 +13554,7 @@ public partial class ILCompiler
             .Select(p => ResolveParameterType(p, typeGenericParameters))
             .ToArray();
 
-        var methodAttributes = GetVisibilityMethodAttributes(funcDecl.Modifiers);
+        var methodAttributes = GetConventionMethodVisibilityAttributes(funcDecl.Name, funcDecl.Modifiers);
 
         if (funcDecl.IsOperatorOverload || funcDecl.IsConversionOperator)
         {
@@ -15146,13 +15137,13 @@ public partial class ILCompiler
         if (recordDecl.IsStruct)
         {
             // Record struct: value type, sealed
-            typeAttributes = GetTypeVisibilityAttributes(recordDecl.Modifiers) | TypeAttributes.Sealed;
+            typeAttributes = GetTypeVisibilityAttributes(recordDecl.Name, recordDecl.Modifiers) | TypeAttributes.Sealed;
             baseType = typeof(ValueType);
         }
         else
         {
             // Record class: reference type, sealed by default
-            typeAttributes = GetTypeVisibilityAttributes(recordDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Sealed;
+            typeAttributes = GetTypeVisibilityAttributes(recordDecl.Name, recordDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Sealed;
             baseType = typeof(object);
         }
 

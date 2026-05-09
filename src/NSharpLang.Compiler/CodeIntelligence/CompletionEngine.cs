@@ -523,8 +523,8 @@ public class CompletionEngine
 
     private bool IsStaticAccess(string name, SemanticModel? semanticModel)
     {
-        // If the name starts with uppercase and isn't a variable, it's likely a static type access
-        if (char.IsUpper(name[0]))
+        // If the name is exported and isn't a variable, it's likely a static type access
+        if (VisibilityConventions.IsExportedIdentifier(name))
         {
             if (semanticModel != null)
             {

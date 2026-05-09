@@ -58,12 +58,12 @@ func main() {
 
 ### Classes
 
-Classes are the primary type construct. Visibility is convention-based: PascalCase = public, camelCase = private.
+Classes are the primary type construct. Visibility is convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention.
 
 ```n#
 class Person {
-    Name: string         // public (PascalCase)
-    age: int             // private (camelCase)
+    Name: string         // exported/public (PascalCase)
+    age: int             // unexported/private-by-convention (camelCase)
 
     constructor(name: string, age: int) {
         Name = name
@@ -633,31 +633,35 @@ class UserService {
 
 ## Visibility
 
-N# uses naming conventions for visibility — no `public`/`private` keywords needed in most cases.
+N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
 
 | Convention | Visibility |
 |------------|-----------|
-| `PascalCase` | public |
-| `camelCase` | private |
+| `PascalCase` | exported/public |
+| `camelCase` | unexported/private-by-convention |
 
 ```n#
 class Account {
-    Balance: decimal      // public (PascalCase)
-    accountId: string     // private (camelCase)
+    Balance: decimal      // exported/public (PascalCase)
+    accountId: string     // unexported/private-by-convention (camelCase)
 
-    func Deposit(amount: decimal) { }   // public
-    func validate() { }                  // private
+    func Deposit(amount: decimal) { }   // exported/public
+    func validate() { }                  // unexported/private-by-convention
 }
 ```
 
-You can still use explicit modifiers when needed:
+Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility. When they override casing, the formatter preserves them because dropping them would change the exported API:
 
 ```n#
 class Service {
+    public legacyCamel: string      // forced public for interop/migration
+    private SecretPascal: string    // forced hidden despite PascalCase
     internal ConnectionString: string
     protected BaseUrl: string
 }
 ```
+
+Enum cases are part of the containing enum's value set. Export is controlled by the enum itself, so lowercase enum cases remain visible when the enum is exported; use casing diagnostics as style guidance, not as API hiding.
 
 ## Next Steps
 

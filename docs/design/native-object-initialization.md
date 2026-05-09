@@ -368,9 +368,9 @@ Linter rules:
 
 ### SampleMigration-style request DTO
 
-Before:
+Before (copied C#-style migration input, not idiomatic N#):
 
-```n#
+```csharp
 public class CreateIssueRequest {
     public string Title { get; set; }
     public string Description { get; set; }
