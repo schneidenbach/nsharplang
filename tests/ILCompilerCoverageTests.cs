@@ -1271,7 +1271,7 @@ class Covered {
     }
 
     [Fact]
-    public void ILCompiler_EmitsExplicitFieldAndMethodVisibilityModifiers()
+    public void ILCompiler_EmitsInteropVisibilityModifiersAndHonorsExplicitPublicMigrationEscape()
     {
         var source = @"
 internal class VisibilityBox {

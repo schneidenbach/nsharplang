@@ -18,6 +18,12 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
+    private static List<Diagnostic> LintSource(string source)
+    {
+        var linter = new Linter();
+        return linter.LintSource(source, "test.nl");
+    }
+
     private void AssertHasDiagnostic(List<Diagnostic> diagnostics, string code, string messageSubstring)
     {
         Assert.Contains(diagnostics, d => d.Code == code && d.Message.Contains(messageSubstring));
@@ -26,6 +32,34 @@ public class LinterTests
     private void AssertNoDiagnostics(List<Diagnostic> diagnostics)
     {
         Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void NL101_FlagsRedundantPublicPrivateVisibilityModifiers()
+    {
+        var diagnostics = LintSource(@"public class Account {
+private id: string
+public func GetId(): string { return id }
+}");
+
+        Assert.Equal(3, diagnostics.Count(d => d.Code == "NL101"));
+        AssertHasDiagnostic(diagnostics, "NL101", "C# modifier 'public'");
+        AssertHasDiagnostic(diagnostics, "NL101", "C# modifier 'private'");
+    }
+
+    [Fact]
+    public void NL101_AllowsPublicPrivateVisibilityEscapeHatches()
+    {
+        var diagnostics = LintSource(@"public class legacyCamel {
+public func visibleExplicit(): string { return ""ok"" }
+public valueExplicit: string
+private func HiddenMethod(): string { return ""hidden"" }
+private HiddenValue: string
+}
+
+private class SecretPascal { }");
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101");
     }
 
     #region NL001: Unused Variable Tests

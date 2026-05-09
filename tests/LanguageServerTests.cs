@@ -101,6 +101,8 @@ public class LanguageServerCollection : ICollectionFixture<LanguageServerFixture
 [Collection("LanguageServer")]
 public class LanguageServerTests
 {
+    private static readonly Lazy<Type> ConflictingClrPersonType = new(CreateConflictingClrPersonType);
+
     private readonly LanguageServerFixture _fixture;
     private readonly string _examplesDir;
 
@@ -108,6 +110,18 @@ public class LanguageServerTests
     {
         _fixture = fixture;
         _examplesDir = FindExamplesDir();
+    }
+
+    private static Type CreateConflictingClrPersonType()
+    {
+        var assemblyName = new System.Reflection.AssemblyName("NSharpLang.Tests.DynamicCompletionCollision");
+        var assemblyBuilder = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
+            assemblyName,
+            System.Reflection.Emit.AssemblyBuilderAccess.Run);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType("Person", System.Reflection.TypeAttributes.Public);
+        typeBuilder.DefineField("Name", typeof(string), System.Reflection.FieldAttributes.Public);
+        return typeBuilder.CreateType()!;
     }
 
     private static LspLocation ExtractSingleDefinitionLocation(LocationOrLocationLinks value)
@@ -2024,6 +2038,38 @@ func main(): void
 
         Assert.NotEmpty(completions.Items);
         // Should show N# class members from SymbolsInfo
+        Assert.Contains(completions.Items, c => c.Label == "Name");
+        Assert.Contains(completions.Items, c => c.Label == "Age");
+        Assert.Contains(completions.Items, c => c.Label == "Greet");
+    }
+
+    [Fact]
+    public async Task Completion_MemberAccess_NSharpClass_PrefersSourceMembersOverClrNameCollisionAsync()
+    {
+        _ = ConflictingClrPersonType.Value;
+
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/nsharp-class-clr-collision.nl";
+
+        var source = @"
+class Person {
+    Name: string
+    Age: int
+
+    func Greet(): string {
+        return ""Hello""
+    }
+}
+
+func main(): void
+    let p = new Person()
+    p.";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 12, 6);
+
+        Assert.NotEmpty(completions.Items);
         Assert.Contains(completions.Items, c => c.Label == "Name");
         Assert.Contains(completions.Items, c => c.Label == "Age");
         Assert.Contains(completions.Items, c => c.Label == "Greet");

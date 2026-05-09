@@ -318,6 +318,23 @@ public class CompletionHandler : CompletionHandlerBase
         _logger.LogDebug("Found MemberAccessExpression, resolving Object type for: {MemberName}",
             memberAccess.MemberName);
 
+        // Prefer source-defined N# symbols over same-named CLR types already loaded in the test/app domain.
+        // Reflection is only a fallback for framework/external types; otherwise a local `Person` can be
+        // shadowed by an unrelated CLR `Person` and hide source members such as Age/Greet.
+        if (memberAccess.Object is IdentifierExpression sourceId)
+        {
+            var sourceTypeInfo = doc.SemanticModel!.LookupIdentifier(sourceId.Name);
+            if (sourceTypeInfo != null)
+            {
+                var nsharpMembers = GetNSharpTypeMembers(sourceTypeInfo, doc);
+                if (nsharpMembers.Count > 0)
+                {
+                    _logger.LogDebug("Resolved '{Name}' as source N# type with {Count} members", sourceId.Name, nsharpMembers.Count);
+                    return nsharpMembers;
+                }
+            }
+        }
+
         // Try to resolve the type of the object expression (the part before the dot)
         var resolver = new ExpressionTypeResolver(doc.SemanticModel!);
         var objectType = resolver.ResolveExpressionType(memberAccess.Object);
@@ -575,12 +592,17 @@ public class CompletionHandler : CompletionHandlerBase
 
         // Try semantic model
         Type? type = null;
-        TypeInfo? nsharpTypeInfo = null;
-        if (doc.SemanticModel != null)
+        TypeInfo? nsharpTypeInfo = doc.SemanticModel?.LookupIdentifier(identifier);
+        if (nsharpTypeInfo != null)
         {
-            nsharpTypeInfo = doc.SemanticModel.LookupIdentifier(identifier);
-            if (nsharpTypeInfo != null)
-                type = _typeResolver.ResolveType(nsharpTypeInfo.ToString());
+            var nsharpMembers = GetNSharpTypeMembers(nsharpTypeInfo, doc);
+            if (nsharpMembers.Count > 0)
+            {
+                _logger.LogDebug("Fallback resolved '{Identifier}' as N# type with {Count} members", identifier, nsharpMembers.Count);
+                return nsharpMembers;
+            }
+
+            type = _typeResolver.ResolveType(nsharpTypeInfo.ToString());
         }
 
         // Try as type name
@@ -592,17 +614,6 @@ public class CompletionHandler : CompletionHandlerBase
                 ? MemberAccessMode.InstanceOnly
                 : MemberAccessMode.StaticOnly;
             return MembersToCompletionItems(_typeResolver.GetMembers(type, mode), doc, type);
-        }
-
-        // Try as N# user-defined type (class, struct, record) — not resolvable via reflection
-        if (nsharpTypeInfo != null)
-        {
-            var nsharpMembers = GetNSharpTypeMembers(nsharpTypeInfo, doc);
-            if (nsharpMembers.Count > 0)
-            {
-                _logger.LogDebug("Fallback resolved '{Identifier}' as N# type with {Count} members", identifier, nsharpMembers.Count);
-                return nsharpMembers;
-            }
         }
 
         return items;

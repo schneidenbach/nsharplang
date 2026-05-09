@@ -87,14 +87,14 @@ class Product {
     DisplayName: string => $"{Name} (${Price})"
 
     // Full property with getter and setter
-    private _stock: int
+    stock: int
     Stock: int {
-        get => _stock
+        get => stock
         set {
             if value < 0 {
                 throw new ArgumentException("Stock cannot be negative")
             }
-            _stock = value
+            stock = value
         }
     }
 }

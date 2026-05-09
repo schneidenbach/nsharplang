@@ -51,7 +51,7 @@ func formatName(first: string, last: string): string {
 }
 ```
 
-No access modifiers — PascalCase = public, camelCase = private. Parameters use `name: type` syntax.
+No access modifiers — PascalCase = exported/public, camelCase = unexported/private-by-convention. Parameters use `name: type` syntax.
 
 ## 3. Class Definition
 
@@ -103,7 +103,7 @@ public decimal Price
     set
     {
         if (value < 0) throw new ArgumentException();
-        _price = value;
+        price = value;
     }
 }
 ```
@@ -112,14 +112,14 @@ public decimal Price
 ```n#
 DisplayName: string => $"{First} {Last}"
 
-private _price: decimal
+price: decimal
 Price: decimal {
-    get => _price
+    get => price
     set {
         if value < 0 {
             throw new ArgumentException()
         }
-        _price = value
+        price = value
     }
 }
 ```
@@ -540,14 +540,14 @@ public class Service
 **N#:**
 ```n#
 class Service {
-    Name: string              // public (PascalCase)
-    count: int                // private (camelCase)
+    Name: string              // exported/public (PascalCase)
+    count: int                // unexported/private-by-convention (camelCase)
     internal ConnectionString: string
     protected virtual func OnInit() { }
 }
 ```
 
-Convention-based: PascalCase = public, camelCase = private. Use explicit modifiers for `internal`, `protected`, etc.
+Convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention. Do not carry C# `public`/`private` into N# for ordinary code; the formatter removes redundant `public`/`private` when casing already says the same thing. Explicit modifiers are interop escape hatches that override casing, so `public legacyCamel` is exported and `private SecretPascal` is hidden; the formatter preserves those semantically necessary modifiers. Use explicit `internal`, `protected`, or `file` only for real .NET interop boundaries.
 
 ## Quick Reference
 

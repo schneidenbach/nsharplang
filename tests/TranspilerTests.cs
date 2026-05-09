@@ -80,7 +80,7 @@ class Person {
 
         Assert.Contains("class Person", result);
         Assert.Contains("public string Name", result);
-        Assert.Contains("private int age", result);
+        Assert.Contains("internal int age", result);
     }
 
     [Fact]
@@ -174,7 +174,7 @@ class Counter {
         var result = Transpile(source);
 
         Assert.Contains("class Counter", result);
-        Assert.Contains("private int count", result);
+        Assert.Contains("internal int count", result);
         Assert.Contains("public int Count", result);
         Assert.Contains("get", result);
         Assert.Contains("set", result);
@@ -1028,7 +1028,7 @@ class MyClass {
         var result = Transpile(source);
 
         // Readonly fields transpile to properties with init accessors
-        Assert.Contains("private string id { get; init; }", result);
+        Assert.Contains("internal string id { get; init; }", result);
         Assert.Contains("public MyClass()", result);
         Assert.Contains("id = Guid.NewGuid().ToString()", result);
     }
@@ -1252,7 +1252,7 @@ class Data {
         var result = Transpile(source);
 
         Assert.Contains("class Data", result);
-        Assert.Contains("private int value", result);
+        Assert.Contains("internal int value", result);
         Assert.Contains("public int Value", result);
         Assert.Contains("get", result);
         Assert.Contains("return value", result);
@@ -1278,7 +1278,7 @@ class Logger {
         var result = Transpile(source);
 
         Assert.Contains("class Logger", result);
-        Assert.Contains("private string message", result);
+        Assert.Contains("internal string message", result);
         Assert.Contains("public string Message", result);
         Assert.Contains("set", result);
         Assert.Contains("message = value", result);

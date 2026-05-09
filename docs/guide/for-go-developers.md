@@ -13,7 +13,7 @@ N# is "Go for .NET." If you write Go, a lot of N# will feel familiar. Here's how
 | `go fmt` | `nlc format` | One canonical style |
 | `go test` | `nlc test` | Tests near code |
 | No semicolons | No semicolons | Clean syntax |
-| PascalCase = exported | PascalCase = public | Convention-based visibility |
+| PascalCase = exported | PascalCase = exported/public, camelCase = unexported/private-by-convention | Convention-based visibility; no C# `public`/`private` noise |
 
 ## Variables
 
@@ -429,7 +429,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 ## What Go Developers Will Love
 
-- **Convention-based visibility** — PascalCase = public, just like Go's exported names
+- **Convention-based visibility** — PascalCase is exported/public and camelCase is unexported/private-by-convention, just like Go's exported names. C# `public`/`private` modifiers are migration debris in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
 - **Tight syntax** — No semicolons, no noise
 - **`:=` everywhere** — Same declaration shorthand
 - **`duck interface`** — Structural typing, Go's best feature
