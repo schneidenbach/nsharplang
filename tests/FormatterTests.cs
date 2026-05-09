@@ -556,6 +556,92 @@ return id
     }
 
     [Fact]
+    public void Format_PreservesExplicitPublicWhenItOverridesCasing()
+    {
+        var input = @"package Models
+
+public class legacyCamel {
+public func visibleExplicit(): string {
+return ""ok""
+}
+public valueExplicit: string
+}";
+        var expected = @"package Models
+
+public class legacyCamel {
+    public func visibleExplicit(): string {
+        return ""ok""
+    }
+
+    public valueExplicit: string
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesExplicitTopLevelFunctionVisibilityWhenItOverridesCasing()
+    {
+        var input = @"public func legacyTop(): string {
+return ""ok""
+}
+
+private func SecretTop(): string {
+return ""hidden""
+}";
+        var expected = @"public func legacyTop(): string {
+    return ""ok""
+}
+
+private func SecretTop(): string {
+    return ""hidden""
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_PreservesExplicitPrivateWhenItOverridesCasing()
+    {
+        var input = @"private class SecretPascal {
+private func HiddenMethod(): string {
+return ""nope""
+}
+private HiddenValue: string
+}";
+        var expected = @"private class SecretPascal {
+    private func HiddenMethod(): string {
+        return ""nope""
+    }
+
+    private HiddenValue: string
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_DropsPublicPrivateForOperatorOverloadsEvenThoughOperatorNameIsLowercase()
+    {
+        var input = @"class Vector {
+public static func operator +(left: Vector, right: Vector): Vector {
+return left
+}
+}";
+        var expected = @"class Vector {
+    static func operator +(left: Vector, right: Vector): Vector {
+        return left
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_PreservesInteropVisibilityModifiers()
     {
         var input = @"internal class HostBridge {

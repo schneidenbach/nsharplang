@@ -787,7 +787,7 @@ func getUser(id: Guid): Result<User>
 
 ### 4. Adopt N# Conventions Before Review
 
-Do not treat copied C# modifiers as acceptable final migration output. Use casing for ordinary visibility and reserve explicit modifiers for real .NET interop needs:
+Do not treat copied C# modifiers as acceptable final migration output. Use casing for ordinary visibility and reserve explicit modifiers for real .NET interop needs. The formatter drops redundant `public`/`private` when casing already means the same thing, but preserves escape hatches such as `public legacyCamel` or `private SecretPascal` because removing those would change exported API semantics:
 
 ```text
 // C#-shaped migration debt

@@ -547,7 +547,7 @@ class Service {
 }
 ```
 
-Convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention. Do not carry C# `public`/`private` into N# for ordinary code; explicit modifiers are interop escape hatches that override casing, so `public legacyCamel` is exported and `private SecretPascal` is hidden. Use explicit `internal`, `protected`, or `file` only for real .NET interop boundaries.
+Convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention. Do not carry C# `public`/`private` into N# for ordinary code; the formatter removes redundant `public`/`private` when casing already says the same thing. Explicit modifiers are interop escape hatches that override casing, so `public legacyCamel` is exported and `private SecretPascal` is hidden; the formatter preserves those semantically necessary modifiers. Use explicit `internal`, `protected`, or `file` only for real .NET interop boundaries.
 
 ## Quick Reference
 

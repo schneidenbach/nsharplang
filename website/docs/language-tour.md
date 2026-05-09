@@ -638,7 +638,7 @@ class UserService {
 
 ## Visibility
 
-N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code.
+N# uses Go-style naming conventions for visibility — do not write C# `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.
 
 | Convention | Visibility |
 |------------|-----------|
@@ -655,7 +655,7 @@ class Account {
 }
 ```
 
-Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility:
+Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility. When they override casing, the formatter preserves them because dropping them would change the exported API:
 
 ```n#
 class Service {

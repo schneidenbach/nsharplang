@@ -434,7 +434,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 ## What Go Developers Will Love
 
-- **Convention-based visibility** — PascalCase is exported/public and camelCase is unexported/private-by-convention, just like Go's exported names. C# `public`/`private` modifiers are migration debris, not idiomatic N#.
+- **Convention-based visibility** — PascalCase is exported/public and camelCase is unexported/private-by-convention, just like Go's exported names. C# `public`/`private` modifiers are migration debris in ordinary N#; the formatter drops redundant ones but preserves semantic escape hatches like `public legacyCamel` and `private SecretPascal` when they intentionally override casing.
 - **Tight syntax** — No semicolons, no noise
 - **`:=` everywhere** — Same declaration shorthand
 - **`duck interface`** — Structural typing, Go's best feature
