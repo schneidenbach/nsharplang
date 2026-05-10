@@ -1,47 +1,12 @@
 # NSharpLang Developer Tooling Risk Audit
 
 Date: 2026-05-07
+Last refreshed against `origin/main`: 2026-05-09
 Scope: CLI, query/daemon contract surfaces, LSP/VS Code UX, templates/examples, shell completion, docs, and full-suite health.
-
-Existing worktree note: this audit observed pre-existing modifications in `src/NSharpLang.LanguageServer/Handlers/CodeLensHandler.cs` and `tests/LanguageServerTests.cs` and did not edit them.
 
 ## P0 Findings
 
-### P0-1 Full test suite is red in the current worktree
-
-Evidence:
-- `./scripts/test-all.sh` exited 1 with `FAILURES: 1`.
-- Unit-test section reported `Failed: 6, Passed: 2212, Skipped: 3, Total: 2221`.
-- Targeted rerun confirmed:
-  - `DiagnosticClusteringTests.CheckJson_IncludesAiConsumableDiagnosticClustersWithRootLocationExamplesAndActions`: missing `diagnosticClusters`.
-  - `DiagnosticClusteringTests.DiagnosticsText_StartsWithClusterSummaryBeforeIndividualDiagnostics`: missing cluster summary text.
-  - `CliCommandTests.CheckCommand_DefaultsToJsonEnvelope`: expected `diagnosticClusters`, actual root keys omit it.
-  - `CliCommandTests.QueryCommand_EmitsStableJsonEnvelope(...diagnostics...)`: expected `diagnosticClusters`, actual root keys omit it.
-  - `CodeIntelligenceOutputTests.JsonContracts_MatchGoldenRootKeys`: golden root keys expect `diagnosticClusters`.
-  - `CliParityAuditTests.CompletionCommand_Bash_IncludesTopLevelCommands`: completion output does not contain `convert`.
-- Golden contract evidence: `tests/fixtures/json-contract-root-keys.golden.json:27-35` requires `diagnosticClusters` for diagnostics.
-- Test evidence: `tests/DiagnosticClusteringTests.cs:22-58` asserts both JSON and text cluster output.
-
-Affected files:
-- `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs`
-- `src/NSharpLang.Cli/Commands/CheckCommand.cs`
-- `src/NSharpLang.Cli/Commands/QueryCommand.cs`
-- `src/NSharpLang.Cli/Commands/CompletionCommand.cs`
-- `tests/fixtures/json-contract-root-keys.golden.json`
-
-User impact:
-- CI/release gate is blocked.
-- More importantly, the structured JSON schema appears to have regressed by dropping an AI-consumable field that tests treat as stable.
-- Shell completion drift is now caught by tests but still shipped by the command output.
-
-Recommended fix:
-- Restore `diagnosticClusters` in `nlc check` and `nlc query diagnostics` JSON output and restore the cluster summary in text diagnostics, unless this is an intentional schema break. If intentional, introduce a new schema version and update tests/docs together.
-- Add `convert` and any other registered top-level commands to completion generation from a single source of truth.
-
-Test coverage needed:
-- Keep the existing golden-root-key tests.
-- Add an integration test that runs `nlc check` and `nlc query diagnostics` through the actual CLI binary and verifies `diagnosticClusters` on both clean and erroring projects.
-- Add one parity test that compares `nlc help` command names to generated bash/zsh/fish completions.
+No current P0 findings are carried by this audit after the 2026-05-09 refresh. A targeted current-source rerun of the previously cited diagnostic-clustering and completion parity tests passed 21/21, so the prior red-suite/`diagnosticClusters` claim is intentionally removed rather than preserved as current evidence.
 
 ## P1 Findings
 
@@ -134,33 +99,31 @@ Test coverage needed:
 
 ## P2 Findings
 
-### P2-1 Shell completion and docs drift from the actual command tree
+### P2-1 Shell completion and docs drift from the actual query command tree
 
 Evidence:
-- `Program.Execute` registers `convert` and `idiom`: `src/NSharpLang.Cli/Program.cs:59-61`.
-- `CompletionCommand.TopLevelCommands` omits both: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:8-37`.
+- Current `Program.Execute` registers `pack`, `export`, and `idiom`, with no `convert` command: `src/NSharpLang.Cli/Program.cs:58-60`.
+- `CompletionCommand.TopLevelCommands` already includes `export` and `idiom`: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:8-37`.
 - `QueryCommand` implements `hover`, `call-graph`, and `implementors`: `src/NSharpLang.Cli/Commands/QueryCommand.cs:31-45`.
-- Generated query completions omit those subcommands: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:87-92`, `src/NSharpLang.Cli/Commands/CompletionCommand.cs:130-133`.
-- Observed `nlc completion zsh` output omitted `convert`, `idiom`, `hover`, `call-graph`, and `implementors`.
+- Generated query completions omit those subcommands: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:88-93`, `src/NSharpLang.Cli/Commands/CompletionCommand.cs:131-134`.
+- Observed `nlc completion zsh` output includes top-level `export` and `idiom`, omits `convert` as expected, and still omits query subcommands `hover`, `call-graph`, and `implementors`.
 - `docs/guide/cli-reference.md:34-48` also omits `hover`, `call-graph`, and `implementors` from the query table, despite `nlc query help` listing them.
 
 Affected files:
 - `src/NSharpLang.Cli/Commands/CompletionCommand.cs`
-- `src/NSharpLang.Cli/Program.cs`
 - `src/NSharpLang.Cli/Commands/QueryCommand.cs`
 - `docs/guide/cli-reference.md`
 
 User impact:
-- Users and agents discover an incomplete command surface from shell completion and the main guide.
+- Users and agents discover an incomplete query command surface from shell completion and the main guide.
 - This is especially harmful for the LLM-first CLI story because shell completion is one of the primary machine-navigation affordances.
 
 Recommended fix:
-- Generate completions from a shared command registry or a tested data model, not hand-maintained string lists.
-- Update `docs/guide/cli-reference.md` from `nlc help` / `nlc query help` output or add a parity test that fails when docs omit implemented public commands.
+- Generate query completions from the same command registry or tested data model used by `QueryCommand`, not hand-maintained string lists.
+- Update `docs/guide/cli-reference.md` from `nlc query help` output or add a parity test that fails when docs omit implemented public query commands.
 
 Test coverage needed:
-- Compare top-level help, completion scripts, and docs command tables in one parity audit test.
-- Include query subcommands in the same parity check.
+- Compare `nlc query help`, query completion scripts, and docs query tables in one parity audit test.
 
 ### P2-2 VS Code Test Explorer debug mode reports skipped instead of debug results
 
@@ -190,7 +153,7 @@ Evidence:
 - `memory/testing.md:5` says `944+ total`.
 - `memory/components/cli-toolchain.md:3-4` says "Production-ready" and `1558+ tests passing`.
 - `README.md:130` and `README.md:192` still reference `876` tests.
-- Current observed unit count is `2221` total with 6 failures in `./scripts/test-all.sh`.
+- Hand-maintained counts conflict with each other and should not be presented as current without a fresh `./scripts/test-all.sh` artifact.
 - VS Code docs claim "Zero-config debugging" and automatic build/test tasks at `editors/vscode/README.md:35-49`, but the extension uses direct `dotnet` tasks that fail for csproj-free templates.
 - `editors/vscode/INTELLISENSE.md:91-95` claims `<100ms` completion performance with no observed performance gate in `./scripts/test-all.sh`.
 
@@ -204,7 +167,7 @@ Affected files:
 - `editors/vscode/INTELLISENSE.md`
 
 User impact:
-- Docs currently communicate confidence levels that are contradicted by the current suite and IDE workflow.
+- Docs currently communicate confidence levels that are contradicted by stale count drift and the IDE workflow evidence above.
 - Agents using memory docs as source of truth can make bad decisions about schema stability, command availability, and IDE readiness.
 
 Recommended fix:
@@ -244,19 +207,18 @@ Test coverage needed:
 
 ## Commands Run
 
-- `git status --short` — observed pre-existing modified `CodeLensHandler.cs` and `LanguageServerTests.cs`.
 - `rg --files ...`, `rg -n ...`, `sed`, `nl -ba`, `find` — repo/source/docs inspection.
-- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- help` — confirmed top-level help includes `convert` and `idiom`.
+- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- help` — confirmed top-level help includes `pack`, `export`, and `idiom`, with no `convert`.
 - `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help` — confirmed query help includes `hover`, `call-graph`, `implementors`.
-- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- completion zsh` — confirmed completion drift.
-- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- convert --help` — confirmed `convert` is currently registered.
+- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- completion zsh` — confirmed top-level `export`/`idiom` completion is present and query subcommand completion drift remains.
+- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- convert --help` — confirmed `convert` is not currently registered (`Unknown command: convert`).
 - `dotnet build templates/nsharp-console --disable-build-servers -v q` — failed with `MSB1003` because no project file exists.
 - `dotnet test templates/nsharp-console --disable-build-servers -v q` — failed with `MSB1003` because no project file exists.
-- `./scripts/test-all.sh` — failed in unit-test section; later VS Code smoke, package, template, example, and example-check sections passed.
-- `dotnet test --disable-build-servers tests/Tests.csproj -v n --nologo --filter ...` — first attempted with `--no-restore` after `test-all` cleared packages and hit `NETSDK1064`; rerun with restore captured the 6 failing unit tests above.
+- `./scripts/test-all.sh` — original 2026-05-07 audit run failed in the unit-test section; this refreshed document no longer treats that stale run as current P0 evidence.
+- `dotnet test --disable-build-servers tests/Tests.csproj -v q --nologo --filter ...` — 2026-05-09 current-source rerun of the previously cited diagnostic-clustering/completion tests passed 21/21.
 
 ## Non-Findings / Positive Signals
 
-- `convert` is not removed in this worktree; it is registered, has help text, and is covered by existing tests. The stale surface is completion/docs parity, not absence of the command.
+- `convert` is not a current top-level command; `export` and `idiom` are registered and present in shell completion. The remaining stale surface is query subcommand completion/docs parity.
 - `./scripts/test-all.sh` successfully built template-generated projects via `nlc build`.
 - VS Code smoke tests passed for extension activation, diagnostics, hover, and completion in this run.
