@@ -41,7 +41,7 @@ public class CodeLensHandler : CodeLensHandlerBase
 
         foreach (var decl in doc.CompilationUnit.Declarations)
         {
-            CollectCodeLenses(decl, lenses, uri);
+            CollectCodeLenses(decl, lenses, uri, isTopLevel: true);
         }
 
         _logger.LogDebug("Returning {Count} code lenses for {Uri}", lenses.Count, uri);
@@ -67,7 +67,7 @@ public class CodeLensHandler : CodeLensHandlerBase
         };
     }
 
-    private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses, string uri)
+    private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses, string uri, bool isTopLevel)
     {
         // Test declarations get Run/Debug lenses instead of reference counts
         if (decl is TestDeclaration test)
@@ -102,14 +102,9 @@ public class CodeLensHandler : CodeLensHandlerBase
         if (name == null) return;
 
         var line2 = decl.Line - 1; // Convert to 0-based
-
-        // Count actual references across all open documents using text-based search
-        var refCount = 0;
-        foreach (var doc in _documentManager.GetAllDocuments())
-        {
-            var refs = _documentManager.FindAllReferences(doc.Uri, name);
-            refCount += refs.Count;
-        }
+        var commandTitle = IsEntryPointCandidate(decl, isTopLevel, name)
+            ? "Entry point"
+            : FormatReferenceCount(CountReferencesExcludingDeclaration(name, uri, decl));
 
         lenses.Add(new CodeLens
         {
@@ -117,7 +112,7 @@ public class CodeLensHandler : CodeLensHandlerBase
                 line2, 0, line2, 0),
             Command = new Command
             {
-                Title = $"{refCount} reference{(refCount == 1 ? "" : "s")}",
+                Title = commandTitle,
                 Name = "nsharp.showReferences"
             }
         });
@@ -136,10 +131,51 @@ public class CodeLensHandler : CodeLensHandlerBase
         {
             foreach (var member in members)
             {
-                CollectCodeLenses(member, lenses, uri);
+                CollectCodeLenses(member, lenses, uri, isTopLevel: false);
             }
         }
     }
+
+    private int CountReferencesExcludingDeclaration(string name, string declarationUri, Declaration declaration)
+    {
+        var refCount = 0;
+        var declarationLine = declaration.Line - 1;
+        var declarationOccurrenceRemoved = false;
+
+        foreach (var doc in _documentManager.GetAllDocuments())
+        {
+            foreach (var reference in _documentManager.FindAllReferences(doc.Uri, name))
+            {
+                if (!declarationOccurrenceRemoved
+                    && doc.Uri == declarationUri
+                    && reference.Line == declarationLine)
+                {
+                    declarationOccurrenceRemoved = true;
+                    continue;
+                }
+
+                refCount++;
+            }
+        }
+
+        // FindAllReferences counts the declaration identifier itself. CodeLens reference counts
+        // should count usages only, matching VS Code/Roslyn's "N references" behavior.
+        return refCount;
+    }
+
+    private static bool IsEntryPointCandidate(Declaration decl, bool isTopLevel, string name)
+    {
+        if (decl is not FunctionDeclaration function
+            || !string.Equals(name, "main", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return isTopLevel || function.Modifiers.HasFlag(Modifiers.Static);
+    }
+
+    private static string FormatReferenceCount(int refCount) =>
+        $"{refCount} reference{(refCount == 1 ? "" : "s")}";
 
     private static string? GetDeclarationName(Declaration decl) => decl switch
     {
