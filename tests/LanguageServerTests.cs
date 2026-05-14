@@ -3563,7 +3563,7 @@ class Cat : IAnimal {
     return ""Hello, "" + name
 }
 
-func main() {
+func helper() {
     greet(""world"")
 }
 ";
@@ -3574,24 +3574,73 @@ func main() {
         Assert.True(lenses!.Count() >= 2,
             $"Expected at least 2 code lenses (one per function), got {lenses!.Count()}");
 
-        // Each lens should have a command with a title containing "reference"
+        // Each non-entry-point lens should have a command with a title containing "reference"
         Assert.All(lenses!, lens =>
         {
             Assert.NotNull(lens.Command);
             Assert.Contains("reference", lens.Command!.Title);
         });
 
-        // "greet" is declared once and called once, so it should have at least 2 references
-        // Verify the count title matches the actual FindAllReferences count
         var greetLens = lenses!.FirstOrDefault(l =>
             l.Range.Start.Line == 0); // greet is on line 0
-        if (greetLens != null)
-        {
-            var greetRefs = harness.DocumentManager.FindAllReferences(uri, "greet");
-            Assert.True(greetRefs.Count >= 2,
-                $"Expected at least 2 references for 'greet', got {greetRefs.Count}");
-            Assert.Contains($"{greetRefs.Count} reference", greetLens.Command!.Title);
-        }
+        Assert.NotNull(greetLens);
+        Assert.Equal("1 reference", greetLens!.Command!.Title);
+    }
+
+    [Fact]
+    public async Task CodeLens_UnreferencedFunctionExcludesItsDeclarationFromReferenceCount()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/codelens_unreferenced.nl";
+        var source = @"func unused() {
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var lenses = await harness.GetCodeLensesAsync(uri);
+
+        Assert.NotNull(lenses);
+        var unusedLens = Assert.Single(lenses!);
+        Assert.NotNull(unusedLens.Command);
+        Assert.Equal("0 references", unusedLens.Command!.Title);
+    }
+
+    [Fact]
+    public async Task CodeLens_MainFunctionShowsEntryPointInsteadOfReferenceCount()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/codelens_main.nl";
+        var source = @"func Main() {
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var lenses = await harness.GetCodeLensesAsync(uri);
+
+        Assert.NotNull(lenses);
+        var mainLens = Assert.Single(lenses!);
+        Assert.NotNull(mainLens.Command);
+        Assert.Equal("Entry point", mainLens.Command!.Title);
+    }
+
+    [Fact]
+    public async Task CodeLens_StaticMainMemberShowsEntryPointInsteadOfReferenceCount()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/codelens_static_main.nl";
+        var source = @"class Program {
+    static func Main() {
+    }
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var lenses = await harness.GetCodeLensesAsync(uri);
+
+        Assert.NotNull(lenses);
+        var mainLens = lenses!.Single(l => l.Range.Start.Line == 1);
+        Assert.NotNull(mainLens.Command);
+        Assert.Equal("Entry point", mainLens.Command!.Title);
     }
 
     [Fact]
