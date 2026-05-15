@@ -1,6 +1,8 @@
 # N# (NewLang Sharp)
 
-**Go for .NET - A pragmatic language for .NET developers sick of XML bullshit**
+**Go for .NET: a pragmatic CLR language with small syntax, project-first tooling, and C# interop.**
+
+N# is in active development. The repository has a working compiler, SDK, CLI, templates, VS Code support, and examples, but not every product gate is launch-green yet. Treat this README as the current developer-facing map, not a claim that every planned language feature or IDE workflow is complete.
 
 ## Quick Start
 
@@ -12,6 +14,8 @@ cd nsharplang
 ./scripts/setup-local.sh
 ```
 
+This local setup path is for contributors and private-feed consumers. Public package availability should be verified before using the NuGet/template commands outside this repo.
+
 ### 2. Create Project
 
 ```bash
@@ -20,11 +24,11 @@ cd MyApp
 ```
 
 **Files created:**
-- `project.yml` - YOUR config (edit this)
-- `Program.nl` - YOUR code
-- `MyApp.csproj` - 1 line (never touch)
-- `global.json` - SDK config
-- `NuGet.config` - Package sources (auto-configured)
+- `project.yml` - project configuration
+- `Program.nl` - N# source
+- `MyApp.csproj` - minimal SDK entry point
+- `global.json` - SDK selection
+- `NuGet.config` - package sources when using local/private packages
 
 ### 3. Build and Run
 
@@ -33,34 +37,38 @@ dotnet build
 dotnet run
 ```
 
-**Output:** `Hello, N#!`
+For repo-local CLI testing, use:
 
-**That's it. No manual config editing. It just works.**
+```bash
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
+```
 
 ---
 
 ## Philosophy
 
-- **Expressive types**: Discriminated unions and structural typing that C# lacks
-- **Pragmatism**: Embraces .NET realities (including null)
-- **Perfect C# interop**: C# consumers can't tell they're using N#-compiled code
-- **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
-- **No XML**: YAML for config, minimal `.csproj` you never edit
+- **Small syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
+- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, MSBuild, and C# interop
+- **Project-first workflow**: `project.yml` owns user-facing configuration; `.csproj` stays minimal
+- **Tooling matters**: `nlc check`, `nlc query`, formatting, tests, and VS Code support are product surface, not afterthoughts
+- **Evidence over hype**: docs should describe what is implemented and tested, not what the language hopes to become
 
 ## Why N#?
 
-Unlike F# which has poor C# interop, N# is designed for perfect .NET ecosystem integration:
+N# explores a tighter, Go-flavored developer experience for .NET while keeping C# interop as a core design constraint. The goal is to emit types and assemblies that fit normal .NET workflows while giving N# source a smaller, more direct shape.
 
-| Feature | N# | F# |
-|---------|----|----|
-| **Unions** | C# class hierarchies | Opaque to C# |
-| **Records** | C# records | Weird constructors |
-| **Async** | Task/ValueTask | Different type |
-| **Nullability** | C# nullable types | F# Option |
+| Area | N# direction |
+|------|--------------|
+| **Unions** | Discriminated unions that compile into C#-consumable shapes |
+| **Records/classes** | Familiar .NET object model with terser syntax |
+| **Async** | `Task`/`ValueTask` interop instead of a separate async ecosystem |
+| **Nullability** | Works with .NET nullable reference types and explicit checks |
+| **Visibility** | Go-style casing by default, explicit modifiers for interop escapes |
 
 ## Quick Example
 
-```n#
+```nsharp
 // Variables with type inference
 name := "Alice"
 items := [1, 2, 3, 4, 5]
@@ -89,25 +97,25 @@ func Process(r: IReader) {
     print r.Read()
 }
 
-Process(new FileReader())  // Works via structural typing!
+Process(new FileReader())
 ```
 
 ## Installation
 
 ### One-Liner (Private Feed)
 
-Requires the [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`:
+Requires the [GitHub CLI](https://cli.github.com/) authenticated with access to this repository/package feed:
 
 ```bash
 bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
 ```
 
-This installs the templates, CLI (`nlc`), and language server, and writes a reusable `NuGet.config` to `~/.nsharp/`.
+This installs templates, the `nlc` CLI, the language server, and a reusable `NuGet.config` under `~/.nsharp/` for the private feed path.
 
 ### From Templates
 
 ```bash
-# Install templates
+# Install templates from the configured package source
 dotnet new install NSharpLang.Templates
 
 # Create a new console app
@@ -119,7 +127,7 @@ dotnet build
 dotnet run
 ```
 
-The SDK (`NSharpLang.Sdk`) is automatically downloaded when you build.
+The SDK (`NSharpLang.Sdk`) is restored from the configured package source when you build.
 
 ### Build from Source
 
@@ -127,29 +135,50 @@ The SDK (`NSharpLang.Sdk`) is automatically downloaded when you build.
 git clone <repo-url>
 cd nsharplang
 dotnet build
-dotnet test  # 876 tests total, 873 passing, 3 skipped
+dotnet test tests/Tests.csproj
 ```
+
+Do not hard-code test totals in docs; they move quickly. Use the current `dotnet test` output for release/talk evidence.
 
 ### CLI Usage
 
 ```bash
-# Transpile to C# (stdout)
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- transpile Program.nl
-
-# Build single file (auto-cleanup)
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build Program.nl
-
-# Build all .nl files in project (auto-cleanup)
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build
+# Compile a project or single file
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build [file]
 
 # Build and run
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run Program.nl
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run [file]
 
-# Keep generated .cs files for debugging
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build --keep-generated
+# Fast check without building
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- check --text
+
+# Code intelligence for humans, editors, and agents
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help
+
+# Export C# for inspection or migration review
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- export csharp --project . --output ./nsharp-csharp
+
+# Build with detailed output/timings for debugging
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build --verbose --timings
 ```
 
-**Note:** Generated `.cs` files are automatically cleaned up after build. Use `--keep-generated` for debugging.
+There is intentionally no public `nlc convert` command. C#→N# migration should be AI-assisted and diagnostic-driven: author idiomatic `.nl`, run `nlc check`, `nlc idiom`, `nlc fix --dry-run`, `nlc format --check`, and tests, then iterate.
+
+## Current CLI Surface
+
+Current `nlc --help` lists these top-level commands:
+
+```text
+build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export idiom watch doc env completion help
+```
+
+`nlc query help` lists these query commands:
+
+```text
+batch symbols outline diagnostics type inspect definition/def references/refs completions doc hover call-graph implementors help
+```
+
+Shell completions are generated from the same registry. When docs drift, prefer the CLI help and `CommandRegistry` as the source of truth.
 
 ## Key Features
 
@@ -157,114 +186,83 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build --keep-generated
 - Type inference with `:=`
 - No semicolons required
 - String interpolation
-- Pattern matching with exhaustiveness checking
-- Collection expressions (C# 12)
-- List patterns (C# 11)
+- Pattern matching with exhaustiveness checks in supported cases
+- Collection expressions and list patterns where covered by the compiler/tests
 
 ### Advanced Types
-- Discriminated unions (transpile to C# class hierarchies)
-- Duck interfaces (structural typing)
-- Records with `with` expressions
-- Primary constructors (C# 12)
-- Required and init-only properties
+- Discriminated unions
+- Duck interfaces / structural typing
+- Records and classes
+- Required/init-style .NET interop patterns
 
 ### .NET Interop
-- Seamless C# interop (generated code is idiomatic C#)
-- Ref/out parameters
-- Params arrays/collections
-- Operator overloading
-- Extension methods
-- Async/await
+- C#-consumable generated assemblies and source where supported
+- Ref/out parameters and common C# call patterns
+- Operator overloads and extension methods in covered scenarios
+- Async/await over .NET tasks
 
 ## Examples
 
-See `examples/` directory:
-- **01-hello-world/** - Small project that builds with `dotnet run`
-- **04-pattern-matching/** - Pattern matching and exhaustiveness
-- **05-unions/** - Discriminated unions
-- **12-multi-file-projects/** - Multi-file apps and tests
-- **13-aspnet-demo/** - ASP.NET Core Web API
-- **14-minimal-api/** - Minimal API example
+See `examples/` for curated samples, including:
+- **01-hello-world/** - small console projects
+- **04-pattern-matching/** - pattern matching and exhaustiveness examples
+- **05-unions/** - discriminated unions
+- **12-multi-file-projects/** - multi-file apps and tests
+- **14-minimal-api/** - minimal API example
+- **16-task-cli/** and **17-issue-tracker/** - larger app-shaped examples
+
+Run the repo gates before presenting examples as release evidence; examples are code, not marketing proof by themselves.
 
 ## Status
 
-**Version:** v1.71
-**Tests:** 876 total, 873 passing, 3 skipped
-**Features:** All from DESIGN.md implemented + Assembly resolution + Override support
+N# is an active pre-release language/toolchain. Current strengths include a working compiler pipeline, project.yml-first SDK flow, a broad `nlc` command surface, query/diagnostic JSON for tooling, and a growing VS Code experience. Current launch caveats include full-suite reliability, IDE visual verification, packaging/public-feed proof, and feature-specific edge cases documented in `memory/limitations.md` and `docs/audits/`.
+
+Use exact command output for current counts and evidence:
+
+```bash
+dotnet test tests/Tests.csproj
+./scripts/test-all.sh
+```
+
+Do not claim the whole product is launch-ready/full-suite-green unless `./scripts/test-all.sh` completes cleanly in the target environment.
 
 ## CI/CD
 
-N# projects work seamlessly with standard .NET CI/CD tools. Ready-to-use templates available:
+N# projects are intended to work with standard .NET CI/CD tools. Template and example coverage exists in `ci/`, but verify the specific workflow before promising it in a release note or customer-facing page.
 
-### Quick Setup
-
-**GitHub Actions:**
-```bash
-mkdir -p .github/workflows
-cp ci/templates/github-actions/build.yml .github/workflows/
-```
-
-**Docker:**
-```bash
-cp ci/templates/docker/Dockerfile.webapi Dockerfile
-docker build -t myapp . && docker run -p 8080:8080 myapp
-```
-
-**Templates include:**
-- GitHub Actions (build, release, format-check, lint)
-- Azure Pipelines (complete multi-stage pipeline)
-- Docker (SDK, runtime, web API with multi-stage builds)
-- Docker Compose (local development with dependencies)
-
-**Complete examples:**
-- `ci/examples/console-app/` - Console app with automated NuGet publishing
-- `ci/examples/web-api/` - Web API with Docker deployment
-- `ci/examples/library/` - Library publishing with pre-release support
-
-See [CI/CD Guide](docs/guide/ci-cd.md) for full documentation.
+See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
 
 ## Documentation
 
-- **docs/DESIGN.md** - Complete language specification
-- **memory/** - Implementation notes and architecture
-- **CLAUDE.md** - Instructions for AI agents
-- **docs/** - User guides and references
-- **docs/guide/ci-cd.md** - CI/CD setup and best practices
+- **docs/DESIGN.md** - language design notes and intended semantics
+- **docs/guide/cli-reference.md** - CLI command reference aligned to current help/completions
+- **memory/** - implementation notes, component docs, and known limitations
+- **docs/audits/** and **docs/talk/** - launch evidence, risk registers, and public-claim guardrails
+- **docs/** - user guides and references
 
 ## Architecture
 
-```
-.nl source → Lexer → Parser → Analyzer → Transpiler → C# → IL
+```text
+.nl source → Lexer → Parser → Analyzer → IL compiler / generated C# paths → .NET assembly
 ```
 
-**Why transpile to C#?**
-- Perfect interop with C# ecosystem
-- Leverage existing .NET toolchain
-- Simpler implementation
-- Can inspect generated C# code
+Some workflows emit or inspect generated C#; the product direction is not a public one-shot converter.
 
 ## C# Interop Example
 
 N# code:
-```n#
+
+```nsharp
 class Calculator {
     func Add(x: int, y: int): int => x + y
 }
 ```
 
 C# consumer:
+
 ```csharp
 var calc = new Calculator();
-var result = calc.Add(2, 3);  // Works perfectly!
+var result = calc.Add(2, 3);
 ```
 
-## Who Should Use N#?
-
-- .NET developers wanting simpler syntax
-- Teams building libraries for C# consumption
-- Developers who love Go's simplicity but need .NET
-- Projects needing discriminated unions with C# interop
-
-## License
-
-MIT
+Interop claims should stay tied to scenarios covered by tests/examples until broader gates are green.

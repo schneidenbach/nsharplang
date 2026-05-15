@@ -5,9 +5,9 @@ Scope: ASP.NET Core controllers/minimal APIs, EF Core queries, DI, validation, t
 
 ## Assumptions
 
-- The SampleMigration converted sources are not present in this repo. This spec is based on the task handoff plus the current N# design/docs/examples in this repository.
+- The SampleMigration migration corpus is an internal validation target, not a public converter demo. Review SampleMigration through the AI diagnostic migration loop: AI-authored `.nl`, `nlc query diagnostics --clusters`, `nlc check --json`, `nlc idiom`, reviewed `nlc fix --dry-run --json`, format, and tests.
 - N# stays "Go for .NET": terse syntax, Go-style casing for default visibility, direct .NET interop, no wrapper framework unless interop forces it.
-- These are source-style rules for implementers/converter authors. Do not invent new language features to satisfy this document unless called out in "compiler/converter follow-up".
+- These are source-style rules for migration implementers and reviewers. Do not invent new language features to satisfy this document unless called out in compiler/tooling follow-up.
 
 ## Core decision
 
@@ -413,4 +413,4 @@ Implementers should verify or add tests for these interop expectations:
 - Do not create an N# web framework abstraction over ASP.NET Core.
 - Do not ban ASP.NET conventions that are necessary for model binding, DI, filters, or xUnit discovery.
 - Do not force every endpoint into unions. Use unions for domain/service results; use ASP.NET typed results at the HTTP boundary.
-- Do not optimize for the converter's easiest output. Optimize for the code humans should maintain after conversion.
+- Do not optimize for mechanically generated draft output. Optimize for the code humans should maintain after migration.

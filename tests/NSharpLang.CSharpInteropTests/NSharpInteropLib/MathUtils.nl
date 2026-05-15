@@ -1,5 +1,6 @@
 namespace NSharpInteropLib
 
+
 // Static utility class for testing static method calls from C#
 class MathUtils {
     static func Add(a: int, b: int): int {
@@ -18,9 +19,11 @@ class MathUtils {
         if value < min {
             return min
         }
+
         if value > max {
             return max
         }
+
         return value
     }
 
@@ -28,6 +31,7 @@ class MathUtils {
         if n <= 1 {
             return 1
         }
+
         return n * Factorial(n - 1)
     }
 }

@@ -196,6 +196,20 @@ public class FixApplicatorTests
     }
 
     [Fact]
+    public void ApplyEdits_DeleteLastLineWithoutTrailingNewline_RemovesLine()
+    {
+        var source = "line one\nline two";
+        var edits = new List<TextEdit>
+        {
+            new(2, 0, 3, 0, "")
+        };
+
+        var result = FixApplicator.ApplyEdits(source, edits);
+
+        Assert.Equal("line one", result);
+    }
+
+    [Fact]
     public void ApplyEdits_ReplaceWithMoreLines_ExpandsDocument()
     {
         var source = "one\ntwo\nthree";
@@ -228,18 +242,32 @@ public class FixApplicatorTests
     // ── Edge Cases ──────────────────────────────────────────────────────
 
     [Fact]
-    public void ApplyEdits_AppendPastEnd_AddsAtEnd()
+    public void ApplyEdits_AppendAtOnePastEnd_AddsAtEnd()
     {
         var source = "only line";
-        // Edit starts beyond the last line
+        // EOF insertion is allowed at one line past the document, column 0.
         var edits = new List<TextEdit>
         {
-            new(99, 0, 99, 0, "appended")
+            new(2, 0, 2, 0, "appended")
         };
 
         var result = FixApplicator.ApplyEdits(source, edits);
 
         Assert.Equal("only line\nappended", result);
+    }
+
+    [Fact]
+    public void ApplyEdits_AppendFarPastEnd_ThrowsInsteadOfClamping()
+    {
+        var source = "only line";
+        var edits = new List<TextEdit>
+        {
+            new(99, 0, 99, 0, "appended")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("outside the document", ex.Message);
     }
 
     [Fact]
@@ -268,6 +296,41 @@ public class FixApplicatorTests
         var result = FixApplicator.ApplyEdits(source, edits);
 
         Assert.Equal("hello world", result);
+    }
+
+    [Fact]
+    public void ApplyEdits_CrlfSource_ColumnsExcludeCarriageReturn()
+    {
+        var source = "alpha\r\nbeta\r\ngamma";
+        var edits = new List<TextEdit>
+        {
+            new(2, 4, 2, 4, "!")
+        };
+
+        var result = FixApplicator.ApplyEdits(source, edits);
+
+        Assert.Equal("alpha\nbeta!\ngamma", result);
+    }
+
+    [Fact]
+    public void ValidateAndSortEdits_CrlfSource_RejectsColumnPastLogicalLineEnd()
+    {
+        var source = "alpha\r\nbeta\r\ngamma";
+        var edits = new List<TextEdit>
+        {
+            new(2, 5, 2, 5, "!")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ValidateAndSortEdits(source, edits));
+        Assert.Contains("outside the document", ex.Message);
+    }
+
+    [Fact]
+    public void SourceTextLines_SplitLogicalLines_StripsCrLfAndStandaloneCrSeparators()
+    {
+        Assert.Equal(new[] { "one", "two", "three" },
+            SourceTextLines.SplitLogicalLines("one\r\ntwo\rthree"));
     }
 
     [Fact]
@@ -391,7 +454,7 @@ public class FixApplicatorTests
     }
 
     [Fact]
-    public void ApplyEdits_SamePositionZeroWidthInserts_Succeeds()
+    public void ApplyEdits_SamePositionZeroWidthInserts_PreservesInputOrder()
     {
         var source = "abcdef";
         var edits = new List<TextEdit>
@@ -400,9 +463,50 @@ public class FixApplicatorTests
             new(1, 3, 1, 3, "Y")   // insert at col 3 (same position, both zero-width)
         };
 
-        // Same-position zero-width inserts are allowed (order-dependent by design)
         var result = FixApplicator.ApplyEdits(source, edits);
-        Assert.Contains("X", result);
-        Assert.Contains("Y", result);
+
+        Assert.Equal("abcXYdef", result);
+    }
+
+    [Fact]
+    public void ApplyEdits_EndBeforeStart_ThrowsInsteadOfSilentlyReordering()
+    {
+        var source = "abcdef";
+        var edits = new List<TextEdit>
+        {
+            new(1, 5, 1, 2, "XX")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Invalid edit range", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_LineAndColumnMustBeNonNegativeAndOneBasedLines()
+    {
+        var source = "abcdef";
+        var edits = new List<TextEdit>
+        {
+            new(0, 0, 1, 0, "XX")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("Invalid edit position", ex.Message);
+    }
+
+    [Fact]
+    public void ApplyEdits_ColumnPastLineEnd_ThrowsInsteadOfClamping()
+    {
+        var source = "abcdef";
+        var edits = new List<TextEdit>
+        {
+            new(1, 99, 1, 99, "XX")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => FixApplicator.ApplyEdits(source, edits));
+        Assert.Contains("outside the document", ex.Message);
     }
 }

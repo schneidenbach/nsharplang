@@ -72,6 +72,7 @@ public class LinterConfig
                 { "NL108", DiagnosticSeverity.Info },    // Migration: C# namespace declaration in .nl file
                 { "NL109", DiagnosticSeverity.Info },    // Migration: missing/wrong N# package declaration
                 { "NL110", DiagnosticSeverity.Info },    // Migration: C# equals-style object initializer
+                { "NL111", DiagnosticSeverity.Info },    // Migration: unsafe .Value access on optional/result-like values
             }
         };
     }
@@ -254,12 +255,30 @@ public partial class Linter
 
             foreach (Match match in NullForgivingRegex().Matches(codePart))
             {
+                var artifact = match.Value;
+                var suggestion = artifact switch
+                {
+                    "null!" => "Replace the placeholder with a real nullable value, guard, or constructor/default path; do not carry C# null-forgiving syntax into N#",
+                    "default!" => "Replace the placeholder with a real initializer, explicit nullable/default value, or a reviewed construction path; do not carry C# default-forgiving syntax into N#",
+                    _ => "Remove the trailing '!' and use a direct null check, match, or explicit nullable model instead"
+                };
+
                 Add(
                     "NL103",
-                    $"Null-forgiving artifact '{match.Value}' is a C# migration leftover",
+                    $"Null-forgiving artifact '{artifact}' is a C# migration leftover",
                     lineNumber,
                     match.Index + 1,
-                    "Remove the trailing '!' and model nullability explicitly in N#");
+                    suggestion);
+            }
+
+            foreach (Match match in UnsafeValueAccessRegex().Matches(codePart))
+            {
+                Add(
+                    "NL111",
+                    $"Unsafe '.Value' access '{match.Value.Trim()}' is a migration leftover that can throw when the value is absent",
+                    lineNumber,
+                    match.Index + match.Value.IndexOf('.', StringComparison.Ordinal) + 1,
+                    "Prefer `match`, `??`, or a direct `x != null` guard before unwrapping; only keep `.Value` when the wrapper type owns that API and the access is proven safe");
             }
 
             var outArgumentMatch = OutArgumentRegex().Match(codePart);
@@ -402,8 +421,11 @@ public partial class Linter
             for (var j = i; j < lines.Length && j <= i + 20; j++)
             {
                 var candidate = StripLineComment(lines[j]);
-                var assignmentMatch = EqualsInitializerMemberRegex().Match(candidate);
-                if (assignmentMatch.Success)
+                var searchStart = j == i
+                    ? Math.Max(0, candidate.IndexOf('{'))
+                    : 0;
+
+                foreach (var assignmentMatch in EqualsInitializerMemberRegex().Matches(candidate, searchStart).Cast<Match>().Reverse())
                 {
                     add(
                         "NL110",
@@ -411,8 +433,10 @@ public partial class Linter
                         j + 1,
                         assignmentMatch.Groups[1].Index + 1,
                         "Use canonical N# object initialization with colon fields: `new Type { Name: value }`");
-                    break;
                 }
+
+                if (j == i && braceDepth <= 0)
+                    break;
 
                 if (j > i)
                 {
@@ -522,6 +546,9 @@ public partial class Linter
     [GeneratedRegex(@"\b(?:null|default|[A-Za-z_][A-Za-z0-9_]*)!", RegexOptions.CultureInvariant)]
     private static partial Regex NullForgivingRegex();
 
+    [GeneratedRegex(@"\b[A-Za-z_][A-Za-z0-9_]*(?:\s*\([^\n()]*\))?\s*\.\s*Value\b", RegexOptions.CultureInvariant)]
+    private static partial Regex UnsafeValueAccessRegex();
+
     [GeneratedRegex(@"\bout\s+(?:var\s+)?[A-Za-z_][A-Za-z0-9_]*", RegexOptions.CultureInvariant)]
     private static partial Regex OutArgumentRegex();
 
@@ -537,10 +564,10 @@ public partial class Linter
     [GeneratedRegex(@"^\s*namespace\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s*;|\s*\{)?\s*$", RegexOptions.CultureInvariant)]
     private static partial Regex CSharpNamespaceDeclarationRegex();
 
-    [GeneratedRegex(@"\bnew\s+[^\n{}]+\{", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\bnew(?:\s+[^\n{}]+)?\s*\{", RegexOptions.CultureInvariant)]
     private static partial Regex ObjectInitializerStartRegex();
 
-    [GeneratedRegex(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*=", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?<!=)=(?!=)", RegexOptions.CultureInvariant)]
     private static partial Regex EqualsInitializerMemberRegex();
 
     [GeneratedRegex(@"^package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$", RegexOptions.CultureInvariant)]

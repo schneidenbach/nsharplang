@@ -68,14 +68,14 @@ public sealed class LanguageServerWorkspaceDiagnosticsTests : IDisposable
     }
 
     [Fact]
-    public void GetDiagnosticsToPublish_WhenWorkspaceIsUnsynchronized_FallsBackToCurrentDocumentOnly()
+    public void GetDiagnosticsToPublish_WhenWorkspaceHasUnsavedBuffer_PublishesAllOpenFiles()
     {
         var onDiskProgramText = """
         func Main() {
         }
         """;
         var dirtyProgramText = """
-        func Main() -> int {
+        func Broken() -> int {
             return "oops"
         }
         """;
@@ -95,9 +95,9 @@ public sealed class LanguageServerWorkspaceDiagnosticsTests : IDisposable
 
         var publications = _documentManager.GetDiagnosticsToPublish(programUri);
 
-        Assert.Single(publications);
-        Assert.Equal(programUri, publications[0].Uri);
-        Assert.Contains(publications[0].CompilerDiagnostics, error => error.Severity == ErrorSeverity.Error);
+        Assert.Equal(2, publications.Count);
+        Assert.Contains(publications, p => p.Uri.ToString().EndsWith("Program.nl", StringComparison.Ordinal));
+        Assert.Contains(publications, p => p.Uri.ToString().EndsWith("Models/Person.nl", StringComparison.Ordinal));
     }
 
     [Fact]

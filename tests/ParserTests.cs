@@ -18,6 +18,17 @@ public class ParserTests
         return result.CompilationUnit!; // Tests expect valid syntax
     }
 
+    private static void AssertHasParseError(string source, string expectedMessage)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+
+        Assert.False(result.Success, "Expected parse error but got none");
+        Assert.Contains(result.Errors, error => error.Message.Contains(expectedMessage));
+    }
+
     [Fact]
     public void TestSimpleFunctionDeclaration()
     {
@@ -274,6 +285,28 @@ public class ParserTests
         Assert.NotNull(newExpr!.Initializer);
         // Use newExpr!.Initializer! for all following references
         Assert.Single(newExpr!.Initializer.Properties);
+    }
+
+    [Fact]
+    public void TestNewExpression_ObjectInitializerWithoutEmptyConstructorParens()
+    {
+        var source = @"
+            func Test() {
+                p := new Person { Name: ""Alice"", Age: 30 }
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var pDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
+
+        var newExpr = pDecl!.Initializer as NewExpression;
+        Assert.NotNull(newExpr);
+        Assert.Empty(newExpr!.ConstructorArguments);
+        Assert.NotNull(newExpr.Initializer);
+        Assert.Equal(2, newExpr.Initializer!.Properties.Count);
+        Assert.Equal("Name", newExpr.Initializer.Properties[0].Name);
+        Assert.Equal("Age", newExpr.Initializer.Properties[1].Name);
     }
 
     [Fact]
@@ -1450,6 +1483,36 @@ public class ParserTests
         Assert.NotNull(param1.Attributes);
         Assert.Equal("FromBody", param1.Attributes![0].Name);
         Assert.Equal(ParameterModifier.Params, param1.Modifier);
+    }
+
+    [Fact]
+    public void TestMethodAndParameterAttributesStayScoped()
+    {
+        var source = @"
+            [InlineData(1, 2)]
+            func Theory([FromServices] service: Calculator, value: int): void {
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        Assert.NotNull(funcDecl);
+
+        var methodAttribute = Assert.Single(funcDecl!.Attributes);
+        Assert.Equal("InlineData", methodAttribute.Name);
+
+        var parameterAttribute = Assert.Single(funcDecl.Parameters[0].Attributes!);
+        Assert.Equal("FromServices", parameterAttribute.Name);
+        Assert.Null(funcDecl.Parameters[1].Attributes);
+    }
+
+    [Fact]
+    public void TestParameterAttributesAfterNameReportParseError()
+    {
+        AssertHasParseError(@"
+            func Create(dto [FromBody]: TaskDto): void {
+            }
+        ", "Expected ':' after parameter name");
     }
 
     [Fact]
@@ -4542,12 +4605,132 @@ func Helper(): int {
         var varDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
         Assert.NotNull(varDecl);
         // Use varDecl! for all following references
-        var stringLiteral = varDecl!.Initializer as StringLiteralExpression;
-        Assert.NotNull(stringLiteral);
-        // Use stringLiteral! for all following references
-        Assert.StartsWith("$\"\"\"", stringLiteral!.Value);
-        Assert.EndsWith("\"\"\"", stringLiteral!.Value);
-        Assert.Contains("{person.Name}", stringLiteral!.Value);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(varDecl!.Initializer);
+        Assert.True(interpolated.IsRaw);
+        var hole = Assert.Single(interpolated.Parts.OfType<InterpolatedStringHole>());
+        var memberAccess = Assert.IsType<MemberAccessExpression>(hole.Expression);
+        var receiver = Assert.IsType<IdentifierExpression>(memberAccess.Object);
+        Assert.Equal("person", receiver.Name);
+        Assert.Equal("Name", memberAccess.MemberName);
+    }
+
+    [Fact]
+    public void TestInterpolatedStringHoleParsesSemanticExpressionWithSourcePosition()
+    {
+        var source = @"
+func Test() {
+    print $""Hello, {person.Name}!""
+}";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var printStmt = Assert.IsType<PrintStatement>(funcDecl.Body!.Statements[0]);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt.Value);
+        var hole = Assert.IsType<InterpolatedStringHole>(interpolated.Parts[1]);
+        var memberAccess = Assert.IsType<MemberAccessExpression>(hole.Expression);
+
+        Assert.Equal("Name", memberAccess.MemberName);
+        var receiver = Assert.IsType<IdentifierExpression>(memberAccess.Object);
+        Assert.Equal(3, memberAccess.Line);
+        Assert.Equal(21, receiver.Column);
+        Assert.Equal(27, memberAccess.Column);
+    }
+
+    [Fact]
+    public void TestInterpolatedStringEscapedBracesRemainTextAroundSemanticHole()
+    {
+        var source = @"
+func Test() {
+    print $""{{ {name} }}""
+}";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var printStmt = Assert.IsType<PrintStatement>(funcDecl.Body!.Statements[0]);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt.Value);
+
+        Assert.Collection(interpolated.Parts,
+            part => Assert.Equal("{ ", Assert.IsType<InterpolatedStringText>(part).Text),
+            part => Assert.Equal("name", Assert.IsType<IdentifierExpression>(Assert.IsType<InterpolatedStringHole>(part).Expression).Name),
+            part => Assert.Equal(" }", Assert.IsType<InterpolatedStringText>(part).Text));
+    }
+
+    [Fact]
+    public void TestInterpolatedStringHoleParsesTopLevelTernaryAsExpressionNotFormatClause()
+    {
+        var source = @"
+func Test() {
+    print $""{ok ? yes : no}""
+}";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var printStmt = Assert.IsType<PrintStatement>(funcDecl.Body!.Statements[0]);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt.Value);
+        var hole = Assert.Single(interpolated.Parts.OfType<InterpolatedStringHole>());
+        var ternary = Assert.IsType<TernaryExpression>(hole.Expression);
+
+        Assert.Null(hole.FormatClause);
+        Assert.Equal("ok", Assert.IsType<IdentifierExpression>(ternary.Condition).Name);
+        Assert.Equal("yes", Assert.IsType<IdentifierExpression>(ternary.ThenExpression).Name);
+        Assert.Equal("no", Assert.IsType<IdentifierExpression>(ternary.ElseExpression).Name);
+    }
+
+    [Fact]
+    public void TestInterpolatedStringHoleKeepsNullCoalescingFormatClause()
+    {
+        var source = @"
+func Test() {
+    print $""{value ?? fallback:N2}""
+}";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var printStmt = Assert.IsType<PrintStatement>(funcDecl.Body!.Statements[0]);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt.Value);
+        var hole = Assert.Single(interpolated.Parts.OfType<InterpolatedStringHole>());
+        var binary = Assert.IsType<BinaryExpression>(hole.Expression);
+
+        Assert.Equal(BinaryOperator.NullCoalesce, binary.Operator);
+        Assert.Equal("N2", hole.FormatClause);
+        Assert.Equal("value", Assert.IsType<IdentifierExpression>(binary.Left).Name);
+        Assert.Equal("fallback", Assert.IsType<IdentifierExpression>(binary.Right).Name);
+    }
+
+    [Fact]
+    public void TestInterpolatedStringHoleReportsTrailingExpressionSyntax()
+    {
+        var source = @"
+func Test() {
+    print $""{name extra}""
+}";
+
+        AssertHasParseError(source, "Unexpected token 'extra' after interpolated string expression");
+    }
+
+    [Fact]
+    public void TestInterpolatedRawStringHoleParsesSemanticExpressionWithMultilineSourcePosition()
+    {
+        var source = @"
+func Test() {
+    print $""""""
+Hello, {person.Name}!
+""""""
+}";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var printStmt = Assert.IsType<PrintStatement>(funcDecl.Body!.Statements[0]);
+        var interpolated = Assert.IsType<InterpolatedStringExpression>(printStmt.Value);
+        var hole = interpolated.Parts.OfType<InterpolatedStringHole>().Single();
+        var memberAccess = Assert.IsType<MemberAccessExpression>(hole.Expression);
+        var receiver = Assert.IsType<IdentifierExpression>(memberAccess.Object);
+
+        Assert.Equal("Name", memberAccess.MemberName);
+        Assert.Equal(4, receiver.Line);
+        Assert.Equal(9, receiver.Column);
+        Assert.Equal(4, memberAccess.Line);
+        Assert.Equal(15, memberAccess.Column);
     }
 
     [Fact]

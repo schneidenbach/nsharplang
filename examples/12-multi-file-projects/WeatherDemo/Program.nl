@@ -16,10 +16,12 @@ class Program {
         print "7-Day Weather Forecast:"
         forecasts := service.GetForecasts(7)
         for forecast in forecasts {
+
             // String interpolation with computed property
             summary := forecast.Summary ?? "Unknown"
             print $"  {forecast.Date:yyyy-MM-dd}: {forecast.TemperatureC}°C ({forecast.TemperatureF}°F) - {summary}"
         }
+
         print ""
 
         // Single day forecast

@@ -101,13 +101,14 @@ public class ProjectConfig
     /// <returns>Array of file paths</returns>
     public string[] GetSourceFiles(string projectRoot, bool includeTests = false)
     {
-        // Get all .nl files recursively
-        var allFiles = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories);
+        // Get all .nl files recursively, skipping build/tooling directories and
+        // local agent worktrees that can mirror the repo and explode the project size.
+        var allFiles = EnumerateSourceFiles(projectRoot).ToArray();
 
         // Filter out test files if not including them
         var files = includeTests
             ? allFiles
-            : allFiles.Where(f => !f.EndsWith(".tests.nl")).ToArray();
+            : allFiles.Where(f => !f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)).ToArray();
 
         // Apply exclude patterns
         if (Exclude.Count > 0)
@@ -120,6 +121,63 @@ public class ProjectConfig
         }
 
         return files;
+    }
+
+    private static readonly HashSet<string> DefaultSkippedSourceDirectories = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".context", ".git", ".github", ".hermes", ".vscode", ".vscode-test", ".worktrees",
+        "bin", "node_modules", "nsharp", "obj", "out"
+    };
+
+    public static IEnumerable<string> EnumerateSourceFiles(string projectRoot)
+    {
+        if (!Directory.Exists(projectRoot))
+        {
+            return Array.Empty<string>();
+        }
+
+        return EnumerateSourceFilesRecursive(Path.GetFullPath(projectRoot));
+    }
+
+    private static IEnumerable<string> EnumerateSourceFilesRecursive(string directory)
+    {
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(directory, "*.nl", SearchOption.TopDirectoryOnly);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (var file in files)
+        {
+            yield return file;
+        }
+
+        string[] subdirectories;
+        try
+        {
+            subdirectories = Directory.GetDirectories(directory, "*", SearchOption.TopDirectoryOnly);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (var subdirectory in subdirectories)
+        {
+            if (DefaultSkippedSourceDirectories.Contains(Path.GetFileName(subdirectory)))
+            {
+                continue;
+            }
+
+            foreach (var file in EnumerateSourceFilesRecursive(subdirectory))
+            {
+                yield return file;
+            }
+        }
     }
 
     /// <summary>

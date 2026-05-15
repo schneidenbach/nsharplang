@@ -1,308 +1,38 @@
 # Known Limitations
 
-This document lists current limitations and planned improvements.
+This file is the current public-facing limitations register for N# docs. Keep it factual, dated by evidence when possible, and avoid resolved-item graveyards. Historical notes can live in git history or audit files.
 
-## Type System
+## Launch and Verification
 
-### 1. Lambda Type Inference from Context (RESOLVED)
-**Current:** ✅ Lambda parameters inferred from contextual delegate types.
+- **Full product gate is not launch-green by default.** Use the latest `./scripts/test-all.sh` output as evidence before saying the whole product is ready. Prior audit notes record full-suite/VS Code integration risk, so do not replace this with a blanket "all tests pass" claim without a fresh run.
+- **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only in dated evidence artifacts such as `docs/talk/evidence-matrix.md`.
+- **Packaging/public feed status must be verified per release.** Local/private setup exists, but docs should not imply broadly available public NuGet packages unless the package/feed evidence is current.
 
-```
-// All of these now infer parameter types correctly:
-let handler: Func<int, int> = x => x * 2          // x inferred as int
-numbers.Select(x => x * 2)                         // x inferred from element type
-Apply(x => x * 2)                                  // x inferred from Func<int, int> param
-handler = x => x * 2                               // x inferred from handler's type
-return x => x * 2                                  // x inferred from function return type
-class Foo { Doubler: Func<int, int> = x => x * 2 } // x inferred from field type
+## CLI and Migration
 
-// Still requires explicit types (no context available):
-f := x => x * 2  // x is Unknown — no declared type to infer from
-```
+- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, `nlc idiom`, reviewed `nlc fix --dry-run`, formatting, and tests. Migration prototype code, if present in a checkout, is scratch/internal and should not appear as a public migration promise.
+- **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
-**Status:** Fully implemented. Contextual type flows through variable declarations, assignments, return statements, field initializers, function call arguments, and LINQ methods.
+## Language Semantics
 
-### 2. Generic Type Inference (RESOLVED)
-**Current:** ✅ Generic type parameters are inferred from argument types.
+- **Pattern guard exhaustiveness is conservative.** Guarded arms do not prove coverage. Add an unguarded union arm or wildcard fallback when a match must be exhaustive.
+- **Nested union matching has edge cases.** Curated nested-union patterns are supported, but deep/constrained nested coverage should be verified with focused tests before it is advertised as complete.
+- **Type alias emission inherits C# alias restrictions.** Same-namespace aliases and nullable reference aliases can hit C# `using` alias limitations.
+- **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover C# stubs plus IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
+- **Null-forgiving `!` is not the migration path.** Prefer explicit null checks or null-coalescing. `nlc idiom` should flag C#-style null/default-forgiving leftovers in migrations.
 
-```
-// Type inference — no explicit type args needed:
-let result := Identity(42)              // T inferred as int
-let pair := Pair(1, "hello")            // A=int, B=string inferred
-let first := First(myList)              // T inferred from List<T> arg
-let nums := CreateList(1, 2, 3)        // T=int inferred from params args
+## Build and Performance
 
-// Explicit type args still work when needed:
-let cast := items.Cast<object>()        // Can't infer — must be explicit
-let result := Identity<int>(42)         // Explicit still accepted
-```
-
-**Status:** Fully implemented. Constraint-solving algorithm infers type parameters from:
-- Direct argument types (T from argument)
-- Generic container arguments (List&lt;T&gt; from List&lt;int&gt;)
-- Array arguments (T[] from int[])
-- Nullable arguments (T? matching)
-- Params array elements
-- Multiple arguments constraining the same type param (LUB computation)
-- Partial inference (some explicit, some inferred)
-
-### 3. Property Type Inference (RESOLVED - Task 025)
-**Current:** ✅ Properties support type inference with `:=` syntax.
-
-```
-class Person {
-    Name: string = "Alice"    // Explicit type
-    Age := 30                 // Inferred as int
-    Items := [1, 2, 3]        // Inferred as int[]
-}
-```
-
-**Status:** Fully implemented in Task 025.
-
-## Method Resolution
-
-### 4. Overload Resolution by Type (RESOLVED)
-**Current:** ✅ Method overloads resolved by argument type with scoring system.
-
-```
-// All of these now work correctly:
-func Process(x: int)
-func Process(x: string)       // Same count, different types ✅
-func Handle(x: int)
-func Handle(x: long)          // Exact match preferred over implicit widening ✅
-5.Format("pre")               // Extension method overload resolution ✅
-5.Format(3)                   // Selects correct overload by arg type ✅
-```
-
-**Status:** Fully implemented. Scoring: exact match (8), implicit numeric (6), assignable (4). Tie-breaking: non-generic > generic, non-params > params.
-
-## Pattern Matching
-
-### 5. Exhaustiveness with Guards
-**Current:** Guarded arms do not count toward exhaustiveness coverage. Unguarded arms
-(including wildcard `_` and plain identifier bindings like `other`) still count as full coverage.
-If all union cases have only guarded arms and no wildcard/catch-all fallback, the compiler
-reports a non-exhaustive match error.
-
-```
-// This is now correctly flagged as non-exhaustive:
-result := value match {
-    Result.Ok { v } when v > 0 => "positive",
-    Result.Ok { v } when v <= 0 => "non-positive",
-    // Missing: Result.Err case — no unguarded arm covers it
-}
-```
-
-**Limitation:** Guard conditions are not analyzed semantically. The compiler cannot
-determine that `when x > 0` and `when x <= 0` together cover all integers.
-
-### 6. Nested Union Matching
-**Current:** Deep pattern matching on nested unions limited.
-
-```
-union Result<T> {
-    Success { value: T }
-    Failure { error: Error }
-}
-
-union Error {
-    Network { message: string }
-    Validation { errors: string[] }
-}
-
-// Limited nested matching support
-```
-
-**Future:** Full nested union pattern matching.
-
-## Extension Methods
-
-### 7. Extension Methods on Literals (RESOLVED)
-**Current:** ✅ Extension methods work on all expressions including literals.
-
-```
-5.Double()                    // ✅ Extension on int literal
-"hello".IsEmpty()             // ✅ Extension on string literal
-3.14.Negate()                 // ✅ Extension on double literal
-true.Toggle()                 // ✅ Extension on bool literal
-5.ToString().Length            // ✅ Chained member access on literal
-let s: string = 5.Double()   // ✅ Return type properly checked (errors if wrong type)
-```
-
-**Status:** Fully implemented. Fixed cross-assembly type comparison bug in IsAssignable (MLC types vs runtime types). Extension method overload groups now return NSharpMethodGroupInfo for proper resolution.
-
-## Import System
-
-### 8. Circular Import Detection
-**Current:** No detection of circular imports.
-
-```
-// File A imports B
-// File B imports A
-// May cause issues
-```
-
-**Future:** Detect and report circular imports.
-
-### 9. Implicit Symbol Resolution
-**Current:** Requires explicit file imports.
-
-```
-// Must import:
-import "Models/Person"
-
-// Can't auto-discover from namespace
-```
-
-**Future:** Automatic symbol resolution from project namespace.
-
-## Error Recovery
-
-### 10. Multi-Error Reporting (RESOLVED)
-**Current:** ✅ Parser uses panic-mode error recovery to report multiple diagnostics per file.
-Synchronization at declaration, statement, and member boundaries allows parsing to continue
-after errors. The analyzer collects all semantic errors without stopping. Both syntax and
-semantic diagnostics are reported in a single compilation pass, even when some files have
-parse errors.
-
-**Status:** Fully implemented (PR #20, dbdcfe4). Panic-mode recovery, cascading error
-suppression, and statement/declaration-level synchronization all working.
-
-## Transpiler
-
-### 11. Type Aliases — Same-Namespace and Nullable Limitations
-**Current:** Type aliases now emit as C# file-scoped `using` directives. However, two edge cases remain:
-
-1. **Same-namespace types:** `type Foo = MyLocalClass` where `MyLocalClass` is in the same file's namespace will fail because `using` aliases appear before the namespace declaration and can't see types declared later.
-2. **Nullable reference types:** `type MaybeString = string?` will fail with CS9132 — C# does not allow nullable reference types in `using` aliases.
-
-**Why:** C# `using` alias restrictions.
-
-**Future:** Consider emitting these edge cases as comments with a compiler warning diagnostic.
-
-## Performance
-
-### 12. Incremental Compilation
-**Current:** Full recompilation on every build.
-
-**Future:** Track changes, recompile only modified files.
-
-### 13. Parallel File Processing
-**Current:** Files compiled sequentially.
-
-**Future:** Parallel compilation for large projects.
+- **Incremental behavior depends on the active workflow.** The daemon caches analysis for CLI/query flows, but broad project builds may still do more work than a mature incremental compiler.
+- **Large-project performance needs scenario evidence.** Do not make Go/Rust-speed claims without benchmark output for the target repo and command.
 
 ## IDE Support
 
-### 14. Language Server Protocol - Limited Features
-**Current:** LSP Phase 1 & 2 complete (syntax highlighting, diagnostics).
+- **VS Code support is real but must be visually verified for launch claims.** Syntax highlighting, diagnostics, hover/completion, code actions, and related LSP behavior have tests, but user-facing IDE claims require a fresh extension reload plus real VS Code visual QA.
+- **Debugger UX is not a public polished workflow.** F5/debugging should remain hidden or caveated until there is a tested N# debugger-backed flow.
 
-**Not yet:**
-- Go-to-definition
-- Find all references
-- Rename symbol
-- Signature help
+## Documentation Rules
 
-**Future:** LSP Phase 3+ implementation.
-
-### 15. Debugger Support (RESOLVED)
-**Current:** Full debugging support in VS Code and any IDE with coreclr debugger.
-- Breakpoints in `.nl` files work directly
-- Step through, step over, step into
-- Variable inspection and watch window
-- Call stack shows N# source files
-- Generated scaffolding hidden from debugger via `#line hidden` directives
-
-## ASP.NET Core Support
-
-### 16. Parameter Attributes
-**Current:** Parameter-level attributes not supported.
-
-```
-// Doesn't work:
-func Create([FromBody] dto: TaskDto): IActionResult
-
-// Workaround: ASP.NET Core infers [FromBody] automatically for complex types
-func Create(dto: TaskDto): IActionResult  // ✅ Works
-```
-
-**Why:** Parser doesn't support attributes on parameters yet.
-
-**Priority:** Low - ASP.NET Core's implicit binding works for most scenarios.
-
-### 17. Null-Forgiving Operator
-**Current:** The `!` null-forgiving operator is not supported.
-
-```
-// Doesn't work:
-length := name!.Length
-
-// Workaround: Use null-coalescing or explicit null check
-length := (name ?? "").Length  // ✅ Works
-```
-
-**Why:** Parser doesn't recognize `!` as a postfix operator.
-
-**Priority:** Low - workaround is simple and more explicit.
-
-**Note:** All critical ASP.NET Core gaps (external type resolution, boolean inference) were resolved in Task 030. See GAPS.md for full status.
-
-## Tooling
-
-### 18. Code Formatter
-**Current:** No auto-formatter.
-
-**Future:** `nlc fmt` command (gofmt/rustfmt style).
-
-### 17. REPL
-**Current:** No interactive shell.
-
-**Future:** N# REPL for experimentation.
-
-## Testing
-
-### 18. N# Test Files
-**Current:** Tests written in C# (xUnit).
-
-**Future:** `.tests.nl` files with `nlc test` command.
-
-## Documentation
-
-### 19. API Documentation Generator
-**Current:** No automatic doc generation from code.
-
-**Future:** Tool to generate docs from N# source and comments.
-
-## Workarounds
-
-Most limitations have workarounds:
-
-1. **Lambda types**: Use explicit type annotations
-2. ~~**Generic inference**: Specify type parameters explicitly~~ (RESOLVED)
-3. ~~**Overload resolution**: Use unique method names or param counts~~ (RESOLVED)
-4. ~~**Extension on literals**: Assign to variable first~~ (RESOLVED)
-5. **Circular imports**: Refactor to eliminate cycles
-6. **Type aliases**: Use `using` statements where needed
-
-## Priority for Fixes
-
-**High Priority:**
-- ~~Method overload resolution by type~~ (RESOLVED)
-- ~~Extension methods on literals~~ (RESOLVED)
-- ✅ SemanticModel field/property recording (fields and properties now recorded in top-level dicts AND TypeMembers)
-- BindingMap for cross-file type references (import path doesn't record bindings)
-
-**Medium Priority:**
-- Exhaustiveness with guards
-- Circular import detection
-- ✅ Position-aware SemanticModel (scope tracking with LookupIdentifierAtPosition and GetVisibleVariablesAtPosition)
-
-**Low Priority:**
-- REPL
-- Nested union matching
-
-**Done (previously listed):**
-- ✅ Code formatter (`nlc format`)
-- ✅ LSP Phase 3 features (completion, hover, definition, rename, code actions)
-- ✅ API doc generator (partial — `nlc query` provides structured symbol/type info)
-- ✅ Incremental compilation (daemon mode caches analysis)
+- Avoid absolute claims such as "perfect interop," "all features implemented," "production-ready," or "it just works" unless the exact scenario is backed by a fresh gate.
+- Prefer phrases like "designed for," "covered scenarios," "curated examples," and "verify with" when describing active surfaces.
+- Keep SampleMigration/internal migration artifacts private unless explicitly redacted and approved.

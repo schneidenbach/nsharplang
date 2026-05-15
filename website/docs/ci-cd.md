@@ -18,7 +18,7 @@ This guide shows you how to set up continuous integration and deployment for you
 
 ## Quick Start
 
-N# projects work seamlessly with standard .NET CI/CD tools. Here's the fastest way to get started:
+N# projects are intended to fit standard .NET CI/CD tools, but package feeds, templates, and project shape should be verified for the target release. Here's the fastest path once your feed/tooling is configured:
 
 ### GitHub Actions (Recommended)
 

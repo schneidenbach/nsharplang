@@ -964,6 +964,10 @@ public static class CompilationStubEmitter
 
         private static string FormatParameter(Parameter parameter)
         {
+            var attributePrefix = parameter.Attributes is { Count: > 0 }
+                ? string.Join(" ", parameter.Attributes.Select(FormatAttributeInline)) + " "
+                : string.Empty;
+
             var modifier = parameter.Modifier switch
             {
                 ParameterModifier.Ref => "ref ",
@@ -974,8 +978,31 @@ public static class CompilationStubEmitter
 
             var defaultValue = TryFormatConstantExpression(parameter.DefaultValue);
             return defaultValue == null
-                ? $"{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name}"
-                : $"{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name} = {defaultValue}";
+                ? $"{attributePrefix}{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name}"
+                : $"{attributePrefix}{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name} = {defaultValue}";
+        }
+
+        private static string FormatAttributeInline(AttributeNode attribute)
+        {
+            var arguments = attribute.Arguments.Count > 0
+                ? $"({string.Join(", ", attribute.Arguments.Select(FormatAttributeArgument))})"
+                : string.Empty;
+            return $"[{attribute.Name}{arguments}]";
+        }
+
+        private static string FormatAttributeArgument(Argument argument)
+        {
+            var value = TryFormatConstantExpression(argument.Value)
+                ?? (argument.Value is AssignmentExpression { Target: IdentifierExpression identifier } assignment
+                    ? $"{identifier.Name} = {TryFormatConstantExpression(assignment.Value) ?? "null"}"
+                    : null);
+
+            if (argument.Name != null)
+            {
+                return $"{argument.Name} = {value ?? "null"}";
+            }
+
+            return value ?? "null";
         }
 
         private static string? TryFormatConstantExpression(Expression? expression)
@@ -985,16 +1012,55 @@ public static class CompilationStubEmitter
                 null => null,
                 IntLiteralExpression literal => literal.Value,
                 FloatLiteralExpression literal => literal.Value,
-                StringLiteralExpression literal => $"\"{EscapeString(literal.Value)}\"",
+                StringLiteralExpression literal => FormatStringLiteralForCSharp(literal.Value),
                 BoolLiteralExpression literal => literal.Value ? "true" : "false",
                 NullLiteralExpression => "null",
                 UnaryExpression { Operator: UnaryOperator.Negate, Operand: IntLiteralExpression literal } => "-" + literal.Value,
                 UnaryExpression { Operator: UnaryOperator.Negate, Operand: FloatLiteralExpression literal } => "-" + literal.Value,
-                MemberAccessExpression memberAccess when memberAccess.Object is IdentifierExpression identifier
-                    => $"{identifier.Name}.{memberAccess.MemberName}",
                 IdentifierExpression identifier => identifier.Name,
+                MemberAccessExpression memberAccess => $"{TryFormatConstantExpression(memberAccess.Object) ?? "null"}.{memberAccess.MemberName}",
+                BinaryExpression binary => TryFormatBinaryConstantExpression(binary),
+                ArrayLiteralExpression arrayLiteral => $"new[] {{ {string.Join(", ", arrayLiteral.Elements.Select(element => TryFormatConstantExpression(element) ?? "null"))} }}",
                 _ => null
             };
+        }
+
+        private static string FormatStringLiteralForCSharp(string value)
+        {
+            if (value.StartsWith("\"", StringComparison.Ordinal)
+                || value.StartsWith("$\"", StringComparison.Ordinal))
+            {
+                return value;
+            }
+
+            return $"\"{EscapeString(value)}\"";
+        }
+
+        private static string? TryFormatBinaryConstantExpression(BinaryExpression binary)
+        {
+            var left = TryFormatConstantExpression(binary.Left);
+            var right = TryFormatConstantExpression(binary.Right);
+            if (left == null || right == null)
+            {
+                return null;
+            }
+
+            var op = binary.Operator switch
+            {
+                BinaryOperator.Add => "+",
+                BinaryOperator.Subtract => "-",
+                BinaryOperator.Multiply => "*",
+                BinaryOperator.Divide => "/",
+                BinaryOperator.Modulo => "%",
+                BinaryOperator.BitwiseAnd => "&",
+                BinaryOperator.BitwiseOr => "|",
+                BinaryOperator.BitwiseXor => "^",
+                BinaryOperator.LeftShift => "<<",
+                BinaryOperator.RightShift => ">>",
+                _ => null
+            };
+
+            return op == null ? null : $"{left} {op} {right}";
         }
 
         private static string EscapeString(string value)

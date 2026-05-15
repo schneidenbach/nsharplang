@@ -10,6 +10,10 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// - Multiple edits per file (applied bottom-to-top so line numbers stay valid)
 /// - Overlapping edit detection
 /// - Insert-at-line-start (column 0)
+///
+/// TextEdit coordinates are 1-based lines and 0-based, end-exclusive columns.
+/// Whole-line deletion ranges may end at the next line, column 0; for the final
+/// document line that means one line past EOF at column 0.
 /// </summary>
 public static class FixApplicator
 {
@@ -22,23 +26,108 @@ public static class FixApplicator
     {
         if (edits.Count == 0) return source;
 
-        var lines = source.Split('\n').ToList();
+        var lines = SourceTextLines.SplitLogicalLines(source).ToList();
 
-        // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions
+        var sortedEdits = ValidateAndSortEdits(source, edits);
+
+        foreach (var edit in sortedEdits)
+        {
+            lines = ApplySingleEdit(lines, edit);
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>
+    /// Validate a set of edits, detect overlaps, and return them in the only safe application order:
+    /// bottom-to-top and right-to-left. This is intentionally public so callers such as nlc fix can
+    /// preflight a whole fix plan before writing any files.
+    /// </summary>
+    public static List<TextEdit> ValidateAndSortEdits(IReadOnlyCollection<TextEdit> edits)
+    {
+        // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions.
+        // Same-position zero-width inserts are applied in reverse input order so the final text
+        // preserves the caller's input order.
         var sortedEdits = edits
-            .OrderByDescending(e => e.StartLine)
-            .ThenByDescending(e => e.StartColumn)
-            .ThenBy(e => e.EndLine)
-            .ThenBy(e => e.EndColumn)
+            .Select((edit, index) => new { Edit = edit, Index = index })
+            .OrderByDescending(item => item.Edit.StartLine)
+            .ThenByDescending(item => item.Edit.StartColumn)
+            .ThenBy(item => item.Edit.EndLine)
+            .ThenBy(item => item.Edit.EndColumn)
+            .ThenByDescending(item => item.Index)
+            .Select(item => item.Edit)
             .ToList();
 
-        // Detect overlapping edits before applying any changes
+        foreach (var edit in sortedEdits)
+        {
+            if (edit.StartLine < 1 || edit.EndLine < 1 || edit.StartColumn < 0 || edit.EndColumn < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid edit position: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}). " +
+                    "Lines are 1-based and columns must be non-negative.");
+            }
+
+            var endBeforeStart = edit.EndLine < edit.StartLine
+                || (edit.EndLine == edit.StartLine && edit.EndColumn < edit.StartColumn);
+            if (endBeforeStart)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) ends before it starts.");
+            }
+        }
+
+        ValidateNonOverlapping(sortedEdits);
+        return sortedEdits;
+    }
+
+    /// <summary>
+    /// Source-aware validation for automated writes. Rejects coordinates outside the document instead
+    /// of silently clamping them, while preserving the single intentional EOF insertion shape.
+    /// </summary>
+    public static List<TextEdit> ValidateAndSortEdits(string source, IReadOnlyCollection<TextEdit> edits)
+    {
+        var sortedEdits = ValidateAndSortEdits(edits);
+        var lines = SourceTextLines.SplitLogicalLines(source);
+        var eofLine = lines.Length + 1;
+
+        foreach (var edit in sortedEdits)
+        {
+            var isEofInsert = edit.StartLine == eofLine
+                && edit.EndLine == eofLine
+                && edit.StartColumn == 0
+                && edit.EndColumn == 0;
+            if (isEofInsert)
+                continue;
+
+            var isLastLineWholeLineDeletion = string.IsNullOrEmpty(edit.NewText)
+                && edit.EndLine == eofLine
+                && edit.EndColumn == 0
+                && edit.StartLine == lines.Length
+                && edit.StartColumn == 0;
+            if (isLastLineWholeLineDeletion)
+                continue;
+
+            if (!IsPositionInDocument(lines, edit.StartLine, edit.StartColumn)
+                || !IsPositionInDocument(lines, edit.EndLine, edit.EndColumn))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid edit range: ({edit.StartLine},{edit.StartColumn})..({edit.EndLine},{edit.EndColumn}) is outside the document.");
+            }
+        }
+
+        return sortedEdits;
+    }
+
+    private static void ValidateNonOverlapping(List<TextEdit> sortedEdits)
+    {
+        // Detect overlapping edits before applying any changes.
         for (int i = 0; i < sortedEdits.Count - 1; i++)
         {
             var high = sortedEdits[i];     // higher start position (later in file)
             var low = sortedEdits[i + 1];  // lower start position (earlier in file)
 
-            // high overlaps with low if high's start is strictly before low's end
+            // high overlaps with low if high's start is strictly before low's end.
+            // Equal start/end is allowed only for multiple zero-width inserts at the same position.
             bool overlaps = high.StartLine < low.EndLine
                 || (high.StartLine == low.EndLine && high.StartColumn < low.EndColumn);
 
@@ -49,13 +138,14 @@ public static class FixApplicator
                     $"overlaps with edit at ({high.StartLine},{high.StartColumn})..({high.EndLine},{high.EndColumn})");
             }
         }
+    }
 
-        foreach (var edit in sortedEdits)
-        {
-            lines = ApplySingleEdit(lines, edit);
-        }
+    private static bool IsPositionInDocument(string[] lines, int line, int column)
+    {
+        if (line < 1 || line > lines.Length)
+            return false;
 
-        return string.Join('\n', lines);
+        return column <= lines[line - 1].Length;
     }
 
     private static List<string> ApplySingleEdit(List<string> lines, TextEdit edit)
@@ -78,7 +168,7 @@ public static class FixApplicator
             // Append at end
             if (!string.IsNullOrEmpty(edit.NewText))
             {
-                var newLines = edit.NewText.Split('\n');
+                var newLines = SourceTextLines.SplitLogicalLines(edit.NewText);
                 lines.AddRange(newLines);
             }
             return lines;
@@ -111,7 +201,7 @@ public static class FixApplicator
             {
                 var combined = lines[startLine];
                 lines.RemoveAt(startLine);
-                var splitLines = combined.Split('\n');
+                var splitLines = SourceTextLines.SplitLogicalLines(combined);
                 lines.InsertRange(startLine, splitLines);
             }
 
@@ -135,7 +225,7 @@ public static class FixApplicator
         }
 
         // Insert the replacement
-        var replacementLines = replacement.Split('\n');
+        var replacementLines = SourceTextLines.SplitLogicalLines(replacement);
         lines.InsertRange(startLine, replacementLines);
 
         return lines;

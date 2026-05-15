@@ -235,8 +235,8 @@ union Result<T> {
 }
 
 message := match result {
-    Result.Success<int> { value: v } => $"Success: {v}",
-    Result.Failure<int> { error: e, code: c } => $"Error {c}: {e}"
+    Result.Success { value: v } => $"Success: {v}",
+    Result.Failure { error: e, code: c } => $"Error {c}: {e}"
 }
 
 // Nested union matching
@@ -251,11 +251,11 @@ union Result<T> {
 }
 
 outcome := match result {
-    Result.Ok<Option<int>> { value: Option.Some<int> { value: x } } =>
+    Result.Ok { value: Option.Some { value: x } } =>
         $"Got value: {x}",
-    Result.Ok<Option<int>> { value: Option.None<int> { } } =>
+    Result.Ok { value: Option.None } =>
         "Got none",
-    Result.Error<Option<int>> { message: m } =>
+    Result.Error { message: m } =>
         $"Error: {m}"
 }
 ```
@@ -283,7 +283,27 @@ message := match status {
 message := match status {
     Status.Active { since: s } => $"Active since {s}",
     Status.Inactive { reason: r } => $"Inactive: {r}"
-    // Compiler error: Missing case for Status.Pending
+    // Compiler error: This match doesn't cover all cases — missing: Pending
+}
+```
+
+Property constraints make a union-case arm partial. For example, `Result.Success { value: 0 }` only covers successes whose value is `0`; the compiler reports the case as partially covered and suggests adding an unconstrained `Result.Success` arm or a wildcard `_` arm. Nested union-property patterns can prove coverage when all nested cases are covered:
+
+```n#
+union Option {
+    Some { value: int }
+    None
+}
+
+union Response {
+    Ok { data: Option }
+    Error { message: string }
+}
+
+value := match response {
+    Response.Ok { data: Option.Some { value: x } } => x,
+    Response.Ok { data: Option.None } => 0,
+    Response.Error { message: _ } => 0
 }
 ```
 
@@ -320,13 +340,13 @@ status := match person {
 
 // With union patterns
 message := match result {
-    Result.Success<int> { value: v } when v > 100 =>
+    Result.Success { value: v } when v > 100 =>
         $"Large success: {v}",
-    Result.Success<int> { value: v } =>
+    Result.Success { value: v } =>
         $"Success: {v}",
-    Result.Failure<int> { code: c } when c >= 500 =>
+    Result.Failure { code: c } when c >= 500 =>
         "Server error",
-    Result.Failure<int> { error: e } =>
+    Result.Failure { error: e } =>
         $"Client error: {e}"
 }
 ```
@@ -358,9 +378,9 @@ union Result<T> {
 }
 
 message := match response {
-    Response.Success { data: Result.Ok<User> { value: u } } =>
+    Response.Success { data: Result.Ok { value: u } } =>
         $"User: {u.Name}",
-    Response.Success { data: Result.Error<User> { message: m } } =>
+    Response.Success { data: Result.Error { message: m } } =>
         $"Data error: {m}",
     Response.Failure { error: e } =>
         $"Response error: {e}"
@@ -403,27 +423,30 @@ union HttpResult<T> {
 
 func handleResponse<T>(result: HttpResult<T>) {
     match result {
-        HttpResult.Ok<T> { body, statusCode: 200 } => {
+        HttpResult.Ok { body, statusCode: 200 } => {
             Console.WriteLine("Success!")
             processBody(body)
         },
-        HttpResult.Ok<T> { body, statusCode: code } => {
+        HttpResult.Ok { body, statusCode: code } => {
             Console.WriteLine($"Success with code {code}")
             processBody(body)
         },
-        HttpResult.Error<T> { message, statusCode: code } when code >= 500 => {
+        HttpResult.Error { message, statusCode: code } when code >= 500 => {
             Console.WriteLine($"Server error: {message}")
             logError(message)
         },
-        HttpResult.Error<T> { message, statusCode: code } => {
+        HttpResult.Error { message, statusCode: code } => {
             Console.WriteLine($"Client error ({code}): {message}")
         },
-        HttpResult.Redirect<T> { url, permanent: true } => {
+        HttpResult.Redirect { url, permanent: true } => {
             Console.WriteLine($"Permanent redirect to {url}")
             followRedirect(url)
         },
-        HttpResult.Redirect<T> { url, permanent: false } => {
+        HttpResult.Redirect { url, permanent: false } => {
             Console.WriteLine($"Temporary redirect to {url}")
+        },
+        HttpResult.Redirect { url, permanent } => {
+            Console.WriteLine($"Redirect to {url}")
         }
     }
 }
@@ -475,9 +498,9 @@ func divide(a: int, b: int): Option<int> {
 
 // Usage with pattern matching
 result := divide(10, 2)
-message := match result {
-    Option.Some<int> { value: v } => $"Result: {v}",
-    Option.None<int> { } => "Cannot divide by zero"
+description := match result {
+    Option.Some { value: v } => $"Result: {v}",
+    Option.None => "Cannot divide by zero"
 }
 ```
 
@@ -619,8 +642,8 @@ if age < 13 {
 ```n#
 // Let the compiler help you
 message := match result {
-    Result.Success<int> { value: v } => $"Got {v}",
-    Result.Failure<int> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Got {v}",
+    Result.Failure { error: e } => $"Error: {e}"
     // Compiler ensures all cases covered
 }
 ```

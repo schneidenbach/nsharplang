@@ -85,8 +85,8 @@ func Main() {
 
     // Basic record struct usage
     print "1. Basic Record Struct:"
-    p1 := new Point() { X: 3.0, Y: 4.0 }
-    p2 := new Point() { X: 3.0, Y: 4.0 }
+    p1 := new Point { X: 3.0, Y: 4.0 }
+    p2 := new Point { X: 3.0, Y: 4.0 }
     print $"Point 1: ({p1.X}, {p1.Y})"
     print $"Point 2: ({p2.X}, {p2.Y})"
     print $"p1 == p2: {p1 == p2}"

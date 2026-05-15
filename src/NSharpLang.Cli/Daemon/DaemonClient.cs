@@ -19,9 +19,26 @@ public static class DaemonClient
 
     /// <summary>
     /// Send a query to the daemon and get the raw JSON response.
-    /// Returns null if daemon is not running or connection fails.
+    /// Returns null if daemon is not running, connection fails, or the daemon returns an error.
     /// </summary>
     public static string? Query(string projectRoot, string method, Dictionary<string, object?>? parameters = null)
+    {
+        var response = QueryResponse(projectRoot, method, parameters);
+
+        if (response?.Error != null)
+        {
+            Console.Error.WriteLine(JsonSerializer.Serialize(response));
+            return null;
+        }
+
+        return response?.Result;
+    }
+
+    /// <summary>
+    /// Send a query to the daemon and get the structured JSON-RPC response.
+    /// Returns null only when the daemon cannot be reached or the response cannot be decoded.
+    /// </summary>
+    public static DaemonResponse? QueryResponse(string projectRoot, string method, Dictionary<string, object?>? parameters = null)
     {
         var socketPath = DaemonConstants.GetSocketPath(projectRoot);
 
@@ -46,7 +63,8 @@ public static class DaemonClient
 
             var requestJson = JsonSerializer.Serialize(request);
             var requestBytes = Encoding.UTF8.GetBytes(requestJson);
-            socket.Send(requestBytes);
+            SendAll(socket, requestBytes);
+            socket.Shutdown(SocketShutdown.Send);
 
             using var responseStream = new MemoryStream();
             var buffer = new byte[8192];
@@ -60,20 +78,15 @@ public static class DaemonClient
                 return null;
 
             var responseJson = Encoding.UTF8.GetString(responseStream.ToArray());
-            var response = JsonSerializer.Deserialize<DaemonResponse>(responseJson);
-
-            if (response?.Error != null)
-            {
-                Console.Error.WriteLine($"[daemon] Error: {response.Error.Message}");
-                return null;
-            }
-
-            return response?.Result;
+            return JsonSerializer.Deserialize<DaemonResponse>(responseJson);
         }
-        catch (SocketException)
+        catch (SocketException ex)
         {
-            // Daemon not running or socket stale — clean up
-            try { File.Delete(socketPath); } catch { }
+            // Daemon not running or socket stale — clean up only when connect proved it stale.
+            if (ShouldDeleteStaleSocket(ex))
+            {
+                try { File.Delete(socketPath); } catch { }
+            }
             return null;
         }
         catch (Exception ex)
@@ -105,16 +118,24 @@ public static class DaemonClient
             };
 
             var requestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request));
-            socket.Send(requestBytes);
+            SendAll(socket, requestBytes);
+            socket.Shutdown(SocketShutdown.Send);
 
             var buffer = new byte[1024];
             var received = socket.Receive(buffer);
             return received > 0;
         }
+        catch (SocketException ex)
+        {
+            // Socket exists but daemon is dead — clean up only when connect proved it stale.
+            if (ShouldDeleteStaleSocket(ex))
+            {
+                try { File.Delete(socketPath); } catch { }
+            }
+            return false;
+        }
         catch
         {
-            // Socket exists but daemon is dead — clean up
-            try { File.Delete(socketPath); } catch { }
             return false;
         }
     }
@@ -209,5 +230,19 @@ public static class DaemonClient
             dir = Directory.GetParent(dir)?.FullName;
         }
         return null;
+    }
+
+    private static bool ShouldDeleteStaleSocket(SocketException ex)
+    {
+        return ex.SocketErrorCode != SocketError.TimedOut;
+    }
+
+    private static void SendAll(Socket socket, byte[] bytes)
+    {
+        var sent = 0;
+        while (sent < bytes.Length)
+        {
+            sent += socket.Send(bytes, sent, bytes.Length - sent, SocketFlags.None);
+        }
     }
 }

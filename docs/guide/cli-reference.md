@@ -1,34 +1,47 @@
 # N# CLI Reference
 
-Updated: 2026-05-06
+Updated: 2026-05-14
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
 - Build and run loops are project-first.
 - `nlc check`, `nlc fix`, `nlc query`, and `nlc lint` default to structured JSON for automation.
-- `nlc format`, `nlc test`, `nlc clean`, and `nlc watch` support the fast inner-loop workflows developers expect from `gofmt`, `cargo test`, and `cargo watch`.
+- `nlc format`, `nlc test`, `nlc clean`, and `nlc watch` cover common inner-loop workflows; verify scenario-specific behavior before making release claims.
 - `nlc --version` prints the installed version.
 
 ## Top-Level Commands
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--output` | `nlc build` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--timings`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc export csharp` | Export a file or project bundle to C# | `--project`, `--output` | `nlc export csharp --project .` |
-| `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
+| `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
+| `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
-| `nlc watch <check\|build\|test>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
+| `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
 | `nlc completion <shell>` | Generate shell completion scripts | `bash`, `zsh`, `fish` | `nlc completion zsh` |
 | `nlc check` | Fast parse + analyze without building | `--project`, `--text`, `--json` | `nlc check --text` |
 | `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
 | `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
 | `nlc daemon <subcommand>` | Manage the background analysis daemon | `--project` | `nlc daemon status` |
+| `nlc add <package>` | Add a NuGet dependency to `project.yml` | package spec | `nlc add Serilog@3.1.0` |
+| `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
+| `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
+| `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
+| `nlc publish` | Publish project for deployment | `--project`, `--configuration`, `--runtime` | `nlc publish -c Release` |
+| `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
+| `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
+| `nlc tree` | Show dependency tree | `--project` | `nlc tree` |
+| `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
+| `nlc env` | Show environment and toolchain info | none | `nlc env` |
+| `nlc restore` | Generate build config from `project.yml` | `--project` | `nlc restore` |
+| `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
+| `nlc help` | Show top-level CLI help | none | `nlc help` |
 
 ## Query Commands
 
@@ -37,13 +50,19 @@ Updated: 2026-05-06
 | `nlc query batch --requests <file>` | Execute multiple semantic queries in one response | `nlc query batch --requests requests.json` |
 | `nlc query symbols` | List project symbols | `nlc query symbols --kind function` |
 | `nlc query outline <file>` | File structure and imports | `nlc query outline Program.nl` |
-| `nlc query diagnostics` | Rich diagnostics envelope | `nlc query diagnostics --text` |
+| `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned AI migration-loop JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
 | `nlc query type --file <file> --pos <line:col>` | Type at a position | `nlc query type --file Program.nl --pos 5:12` |
-| `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call | `nlc query inspect --summary --file Program.nl --pos 5:12` |
-| `nlc query definition` / `def` | Go-to-definition by position or name | `nlc query def --name Person` |
-| `nlc query references` / `refs` | Find references to a symbol | `nlc query refs --file Program.nl --pos 5:12` |
+| `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call; add `--compact` for token-efficient agent context (`--summary` is kept as an alias) | `nlc query inspect --compact --file Program.nl --pos 5:12` |
+| `nlc query definition` | Go-to-definition by position or name | `nlc query definition --name Person` |
+| `nlc query def` | Alias for `definition` | `nlc query def --file Program.nl --pos 5:12` |
+| `nlc query references` | Find references to a symbol | `nlc query references --file Program.nl --pos 5:12` |
+| `nlc query refs` | Alias for `references` | `nlc query refs --file Program.nl --pos 5:12` |
 | `nlc query completions` | LLM-optimized completions | `nlc query completions --file Program.nl --pos 5:12` |
 | `nlc query doc <query>` | Look up .NET API documentation | `nlc query doc Console.WriteLine` |
+| `nlc query hover` | Signature and docs at a position | `nlc query hover --file Program.nl --pos 5:12` |
+| `nlc query call-graph` | Callers and callees of a function | `nlc query call-graph --function Main` |
+| `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
+| `nlc query help` | Show query command help | `nlc query help` |
 
 ## Examples
 
@@ -65,7 +84,7 @@ nlc watch test --filter "should add"
 # Documentation and automation
 nlc doc --json
 nlc export csharp --project . --output ./myapp-csharp
-nlc query inspect --summary --file Program.nl --pos 42:7
+nlc query inspect --compact --file Program.nl --pos 42:7
 
 # AI-assisted C# migration gate
 # Start from AI-authored .nl files, then iterate on diagnostics.
@@ -116,7 +135,7 @@ The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomati
 - idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`
 - migration cleanup signals: DTO-shaped classes that might become records, visibility/casing conflicts, and TODO/manual-review islands
 
-The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, and `recommendations[]` is ordered migration guidance.
+The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `schemaVersion` is currently `2`, `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, `findings[]` gives one machine-checkable item per migration-quality issue (`id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, `confidence`), and `recommendations[]` is ordered migration guidance. Because `snippet` contains source text, share reports outside the project only after redacting proprietary code. A redacted SampleMigration sample lives at `docs/examples/idiom-v2.sample.json`.
 
 ## Exit Codes
 
@@ -208,6 +227,7 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 |------|----------|-------------|
 | NL001 | warning | Unused variable |
 | NL002 | error | Missing import |
+| NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
 | NL003 | warning | Unnecessary null check on value type |
 | NL004 | warning | Async function without await |
 | NL005 | info | Use pattern matching |
@@ -236,7 +256,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Run project | `go run .` | `cargo run` | `5` | `nlc run` supports project execution |
 | Build single file | `go build file.go` | n/a | `5` | `nlc build file.nl` |
 | Cross-compile | `GOOS=linux go build` | `cargo build --target` | `1` | Future work; depends on .NET targeting |
-| Release build | implicit | `cargo build --release` | `2` | Not exposed as a first-class `nlc` flag yet |
+| Release build | implicit | `cargo build --release` | `4` | `nlc build --release` is exposed; runtime/target publishing still needs scenario evidence |
 | Clean | `go clean` | `cargo clean` | `5` | `nlc clean`, `nlc clean --all` |
 | Verbose output | `-v` | `-v` | `2` | Not a first-class `nlc build -v` path yet |
 | Build timing | shell `time` / `--timings` | `--timings` | `2` | External timing works; built-in report not exposed |

@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // Typed variable declarations WITH initialization (supported)
 func TestTypedDeclarationsWithInit() {
     x: int = 42

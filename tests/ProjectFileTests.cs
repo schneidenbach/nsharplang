@@ -670,6 +670,45 @@ testFramework: nunit
     }
 
     [Fact]
+    public void TestGetSourceFilesSkipsToolingAndWorktreeDirectories()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func main() {}\n");
+            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "func test_main() {}\n");
+
+            var worktreeDir = Path.Combine(tempDir, ".worktrees", "mirror");
+            Directory.CreateDirectory(worktreeDir);
+            File.WriteAllText(Path.Combine(worktreeDir, "Mirror.nl"), "func mirror() {}\n");
+
+            var binDir = Path.Combine(tempDir, "bin");
+            Directory.CreateDirectory(binDir);
+            File.WriteAllText(Path.Combine(binDir, "Generated.nl"), "func generated() {}\n");
+
+            var serverDir = Path.Combine(tempDir, "server");
+            Directory.CreateDirectory(serverDir);
+            File.WriteAllText(Path.Combine(serverDir, "Api.nl"), "func api() {}\n");
+
+            var docsDir = Path.Combine(tempDir, "docs");
+            Directory.CreateDirectory(docsDir);
+            File.WriteAllText(Path.Combine(docsDir, "Example.nl"), "func example() {}\n");
+
+            var config = new ProjectConfig();
+            var files = config.GetSourceFiles(tempDir).Select(Path.GetFileName).OrderBy(f => f).ToArray();
+            Assert.Equal(new[] { "Api.nl", "Example.nl", "Program.nl" }, files);
+
+            var filesIncludingTests = config.GetSourceFiles(tempDir, includeTests: true).Select(Path.GetFileName).OrderBy(f => f).ToArray();
+            Assert.Equal(new[] { "Api.nl", "Example.nl", "Program.nl", "Program.tests.nl" }, filesIncludingTests);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestParseTestFrameworkInvalid()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

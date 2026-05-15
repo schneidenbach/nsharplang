@@ -1,6 +1,5 @@
 // Demonstrates records, with expressions, interfaces, and inheritance
 
-
 // Record type with value equality
 record Point {
     X: int
@@ -69,7 +68,7 @@ class Program {
         print "=== Records and With Expressions ==="
 
         // Create record instances
-        p1 := new Point() { X: 10, Y: 20 }
+        p1 := new Point { X: 10, Y: 20 }
         print $"Point 1: ({p1.X}, {p1.Y})"
 
         // Use with expression for non-destructive mutation
@@ -77,7 +76,7 @@ class Program {
         print $"Point 2: ({p2.X}, {p2.Y})"
 
         // Value equality
-        p3 := new Point() { X: 10, Y: 20 }
+        p3 := new Point { X: 10, Y: 20 }
         print $"p1 == p3: {p1.Equals(p3)}"
 
         print ""
@@ -95,7 +94,7 @@ class Program {
         print "=== Structs ==="
 
         // Struct value type
-        rect := new Rectangle() { Width: 10.0, Height: 5.0 }
+        rect := new Rectangle { Width: 10.0, Height: 5.0 }
         print $"Rectangle area: {rect.GetArea()}"
 
         print ""

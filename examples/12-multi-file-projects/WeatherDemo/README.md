@@ -132,7 +132,7 @@ This example proves that N# is ready for **real-world multi-file projects**:
 2. **Type-safe cross-file references** - Import system ensures type safety
 3. **Modern language features** - Records, pattern matching, LINQ, expression-bodied members
 4. **Pragmatic design** - Familiar .NET types and patterns
-5. **Production-ready** - Proper project structure with configuration
+5. **Project structure** - Configuration and multiple files in a realistic layout
 
 ## Next Steps
 

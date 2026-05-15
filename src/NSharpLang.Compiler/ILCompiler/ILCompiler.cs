@@ -594,7 +594,8 @@ public partial class ILCompiler
                 for (int i = 0; i < testDeclaration.TableParameters.Count; i++)
                 {
                     var parameter = testDeclaration.TableParameters[i];
-                    methodBuilder.DefineParameter(i + 1, GetParameterAttributes(parameter), parameter.Name);
+                    var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(parameter), parameter.Name);
+                    ApplyParameterAttributes(parameterBuilder, parameter);
                 }
             }
 
@@ -3095,6 +3096,19 @@ public partial class ILCompiler
             finally
             {
                 _expectedExpressionType = savedExpectedType;
+            }
+        }
+
+        if (expression is IdentifierExpression ident
+            && typeof(Delegate).IsAssignableFrom(expectedType)
+            && _localFunctionDeclarations != null
+            && _localFunctionDeclarations.TryGetValue(ident.Name, out var localFunctionDeclaration)
+            && localFunctionDeclaration.TypeParameters is not { Count: > 0 })
+        {
+            var delegateType = GetLocalFunctionDelegateType(localFunctionDeclaration);
+            if (IsParameterTypeCompatible(expectedType, delegateType))
+            {
+                return delegateType;
             }
         }
 
@@ -6184,9 +6198,12 @@ public partial class ILCompiler
             }
         }
 
+        var directLocalFunctions = GetDirectLocalFunctionDeclarations(block, localFunctions);
+
         foreach (var localFunction in localFunctions)
         {
-            if (localFunction.Function.TypeParameters is { Count: > 0 })
+            if (localFunction.Function.TypeParameters is { Count: > 0 }
+                || directLocalFunctions.Contains(localFunction.Function))
             {
                 DeclareGenericLocalFunction(localFunction);
                 continue;
@@ -6202,7 +6219,8 @@ public partial class ILCompiler
 
         foreach (var localFunction in localFunctions)
         {
-            if (localFunction.Function.TypeParameters is { Count: > 0 })
+            if (localFunction.Function.TypeParameters is { Count: > 0 }
+                || directLocalFunctions.Contains(localFunction.Function))
             {
                 EmitGenericLocalFunctionBody(localFunction);
                 continue;
@@ -6405,7 +6423,7 @@ public partial class ILCompiler
         var hadExistingLocal = _locals.TryGetValue(varDecl.Name, out var existingLocal);
         if (hadExistingLocal)
         {
-            local = existingLocal;
+            local = existingLocal!;
         }
         else
         {
@@ -6471,7 +6489,7 @@ public partial class ILCompiler
             var hadExistingLocal = _locals.TryGetValue(name, out var existingLocal);
             if (hadExistingLocal)
             {
-                local = existingLocal;
+                local = existingLocal!;
             }
             else
             {
@@ -8031,56 +8049,62 @@ public partial class ILCompiler
             return;
         }
 
-        // Emit each part
-        foreach (var part in parts)
+        _currentIL.Emit(OpCodes.Ldc_I4, parts.Count);
+        _currentIL.Emit(OpCodes.Newarr, typeof(string));
+
+        for (int index = 0; index < parts.Count; index++)
         {
-            switch (part)
-            {
-                case InterpolatedStringText text:
-                    _currentIL.Emit(OpCodes.Ldstr, text.Text);
-                    break;
-                case InterpolatedStringHole hole:
-                    var exprType = GetExpressionType(hole.Expression);
-
-                    if (!string.IsNullOrEmpty(hole.FormatClause))
-                    {
-                        var stringFormatMethod = typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) })
-                            ?? throw new InvalidOperationException("Could not resolve string.Format(string, object)");
-                        _currentIL.Emit(OpCodes.Ldstr, "{0:" + hole.FormatClause + "}");
-                        EmitExpression(hole.Expression);
-                        if (exprType.IsValueType)
-                        {
-                            _currentIL.Emit(OpCodes.Box, exprType);
-                        }
-
-                        _currentIL.Emit(OpCodes.Call, stringFormatMethod);
-                        break;
-                    }
-
-                    EmitExpression(hole.Expression);
-                    if (exprType != typeof(string))
-                    {
-                        if (exprType.IsValueType)
-                        {
-                            _currentIL.Emit(OpCodes.Box, exprType);
-                        }
-
-                        var concatObjectMethod = typeof(string).GetMethod("Concat", new[] { typeof(object) })
-                            ?? throw new InvalidOperationException("Could not resolve string.Concat(object)");
-                        _currentIL.Emit(OpCodes.Call, concatObjectMethod);
-                    }
-                    break;
-            }
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, index);
+            EmitInterpolatedStringPart(parts[index]);
+            _currentIL.Emit(OpCodes.Stelem_Ref);
         }
 
-        // Concatenate all parts
-        if (parts.Count > 1)
+        var concatArrayMethod = typeof(string).GetMethod("Concat", new[] { typeof(string[]) })
+            ?? throw new InvalidOperationException("Could not resolve string.Concat(string[])");
+        _currentIL.Emit(OpCodes.Call, concatArrayMethod);
+    }
+
+    private void EmitInterpolatedStringPart(InterpolatedStringPart part)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (part)
         {
-            var concatMethod = typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) })!;
-            for (int i = 1; i < parts.Count; i++)
-            {
-                _currentIL.Emit(OpCodes.Call, concatMethod);
-            }
+            case InterpolatedStringText text:
+                _currentIL.Emit(OpCodes.Ldstr, text.Text);
+                break;
+            case InterpolatedStringHole hole:
+                var exprType = GetExpressionType(hole.Expression);
+
+                if (!string.IsNullOrEmpty(hole.FormatClause))
+                {
+                    var stringFormatMethod = typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) })
+                        ?? throw new InvalidOperationException("Could not resolve string.Format(string, object)");
+                    _currentIL.Emit(OpCodes.Ldstr, "{0:" + hole.FormatClause + "}");
+                    EmitExpression(hole.Expression);
+                    if (exprType.IsValueType)
+                    {
+                        _currentIL.Emit(OpCodes.Box, exprType);
+                    }
+
+                    _currentIL.Emit(OpCodes.Call, stringFormatMethod);
+                    break;
+                }
+
+                EmitExpression(hole.Expression);
+                if (exprType != typeof(string))
+                {
+                    if (exprType.IsValueType)
+                    {
+                        _currentIL.Emit(OpCodes.Box, exprType);
+                    }
+
+                    var concatObjectMethod = typeof(string).GetMethod("Concat", new[] { typeof(object) })
+                        ?? throw new InvalidOperationException("Could not resolve string.Concat(object)");
+                    _currentIL.Emit(OpCodes.Call, concatObjectMethod);
+                }
+                break;
         }
     }
 
@@ -8128,6 +8152,12 @@ public partial class ILCompiler
                 // Load the field
                 _currentIL.Emit(OpCodes.Ldfld, closureField);
             }
+        }
+        else if (_localFunctionDeclarations != null
+            && _localFunctionDeclarations.TryGetValue(ident.Name, out var localFunctionDeclaration)
+            && TryEmitDirectLocalFunctionDelegateValue(localFunctionDeclaration))
+        {
+            return;
         }
         else if (TryResolveCurrentTypeMember(ident.Name, out _, out var fieldInfo, out var getter, out _))
         {
@@ -15249,6 +15279,13 @@ public partial class ILCompiler
                 MethodAttributes.Public,
                 CallingConventions.Standard,
                 paramTypes);
+
+            for (int i = 0; i < recordDecl.PrimaryConstructorParameters.Count; i++)
+            {
+                var parameter = recordDecl.PrimaryConstructorParameters[i];
+                var parameterBuilder = constructor.DefineParameter(i + 1, GetParameterAttributes(parameter), parameter.Name);
+                ApplyParameterAttributes(parameterBuilder, parameter);
+            }
 
             _constructors[GetConstructorKey(typeBuilder)] = constructor;
         }

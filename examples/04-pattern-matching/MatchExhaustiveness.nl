@@ -1,7 +1,6 @@
 namespace MatchExamplesDEMO
 
 
-
 // Discriminated union for HTTP responses
 union HttpResponse {
     Success { statusCode: int, body: string }

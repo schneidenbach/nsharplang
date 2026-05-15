@@ -34,8 +34,7 @@ export class NSharpTestRunner {
 
     async runTests(
         request: vscode.TestRunRequest,
-        token: vscode.CancellationToken,
-        debug = false
+        token: vscode.CancellationToken
     ): Promise<void> {
         const run = this.controller.createTestRun(request);
         const testsToRun = this.collectTests(request);
@@ -70,11 +69,7 @@ export class NSharpTestRunner {
             run.started(item);
         }
 
-        if (debug) {
-            await this.runDebug(run, testsToRun, cwd, filter, token);
-        } else {
-            await this.runNormal(run, testsToRun, cwd, filter, token);
-        }
+        await this.runNormal(run, testsToRun, cwd, filter, token);
 
         run.end();
     }
@@ -126,34 +121,6 @@ export class NSharpTestRunner {
         });
     }
 
-    private async runDebug(
-        run: vscode.TestRun,
-        testsToRun: vscode.TestItem[],
-        cwd: string,
-        filter: string | undefined,
-        token: vscode.CancellationToken
-    ): Promise<void> {
-        // For debug, run nlc test with dotnet test under the debugger
-        // First build, then launch with coreclr attach
-        const nlcPath = vscode.workspace.getConfiguration('nsharp').get<string>('cli.path') || 'nlc';
-        const args = ['test'];
-        if (filter) {
-            args.push('--filter', filter);
-        }
-
-        // Use terminal for debug mode so user can see output
-        const terminal = vscode.window.createTerminal({
-            name: 'N# Test Debug',
-            cwd
-        });
-        terminal.show();
-        terminal.sendText(`${nlcPath} ${args.join(' ')}`);
-
-        // Mark tests as passed (we can't capture results from terminal)
-        for (const item of testsToRun) {
-            run.skipped(item);
-        }
-    }
 
     private collectTests(request: vscode.TestRunRequest): vscode.TestItem[] {
         const tests: vscode.TestItem[] = [];

@@ -20,7 +20,11 @@ internal sealed record BatchQueryRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     bool IncludeKeywords = false,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    bool Summary = false);
+    bool Summary = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    bool Compact = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    bool Clusters = false);
 
 internal sealed record BatchQueryItemResult(
     int Index,
@@ -253,7 +257,9 @@ internal static class BatchQueryRunner
                 .ToList();
         }
 
-        return OutputFormatter.DiagnosticsToJson(results, snapshot.ProjectRoot);
+        return request.Clusters
+            ? OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot)
+            : OutputFormatter.DiagnosticsToJson(results, snapshot.ProjectRoot);
     }
 
     private static string ExecuteType(
@@ -345,7 +351,7 @@ internal static class BatchQueryRunner
                 references.ToArray()),
             completions);
 
-        return request.Summary
+        return request.Summary || request.Compact
             ? OutputFormatter.InspectSummaryToJson(inspect, resolvedFile, line, column)
             : OutputFormatter.InspectToJson(inspect, resolvedFile, line, column);
     }
@@ -511,7 +517,9 @@ internal static class BatchQueryRunner
             kind = normalized.Kind,
             severity = normalized.Severity,
             includeKeywords = normalized.IncludeKeywords ? true : (bool?)null,
-            summary = normalized.Summary ? true : (bool?)null
+            summary = normalized.Summary ? true : (bool?)null,
+            compact = normalized.Compact ? true : (bool?)null,
+            clusters = normalized.Clusters ? true : (bool?)null
         };
     }
 

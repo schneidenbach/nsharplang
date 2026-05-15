@@ -158,7 +158,6 @@ public static class OutputFormatter
             Warnings: results.Count(d => d.Severity == "warning"),
             Info: results.Count(d => d.Severity == "info")
         );
-        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -166,7 +165,26 @@ public static class OutputFormatter
             ok = summary.Errors == 0,
             projectRoot = NormalizePath(projectRoot),
             results = results.Select(Normalize).ToList(),
-            diagnosticClusters,
+            summary
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
+    {
+        var summary = new DiagnosticSummary(
+            Errors: results.Count(d => d.Severity == "error"),
+            Warnings: results.Count(d => d.Severity == "warning"),
+            Info: results.Count(d => d.Severity == "info")
+        );
+        var clusters = BuildDiagnosticClusters(results);
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "diagnostics.clusters",
+            ok = summary.Errors == 0,
+            projectRoot = NormalizePath(projectRoot),
+            clusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -180,7 +198,6 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info")
         );
 
-        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -189,7 +206,6 @@ public static class OutputFormatter
             checkedFiles,
             ok = summary.Errors == 0,
             results = results.Select(Normalize).ToList(),
-            diagnosticClusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -203,7 +219,6 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info")
         );
 
-        var diagnosticClusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -212,7 +227,6 @@ public static class OutputFormatter
             lintedFiles,
             ok = summary.Errors == 0 && summary.Warnings == 0,
             results = results.Select(Normalize).ToList(),
-            diagnosticClusters,
             summary
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
@@ -636,18 +650,29 @@ public static class OutputFormatter
 
     private sealed record DiagnosticCluster(
         string Id,
-        string Code,
-        string Severity,
+        string Category,
+        string Recipe,
+        string Risk,
         int Count,
-        string SyntaxShape,
-        string SourceConstruct,
-        string LikelyRecipe,
+        string Severity,
+        string[] Files,
+        DiagnosticClusterRelatedDiagnostic[] RelatedDiagnostics,
+        string NextCommand,
         DiagnosticClusterLocation RootLocation,
         string MessagePattern,
+        string SourceConstruct,
         string[] SuggestedNextActions,
         DiagnosticClusterExample[] Examples);
 
     private sealed record DiagnosticClusterLocation(string File, int Line, int Column);
+
+    private sealed record DiagnosticClusterRelatedDiagnostic(
+        string Code,
+        string Severity,
+        string File,
+        int Line,
+        int Column,
+        string Message);
 
     private sealed record DiagnosticClusterExample(
         string File,
@@ -658,9 +683,10 @@ public static class OutputFormatter
         string? Suggestion);
 
     private sealed record DiagnosticClusterTraits(
-        string SyntaxShape,
+        string Category,
         string SourceConstruct,
-        string LikelyRecipe,
+        string Recipe,
+        string Risk,
         string MessagePattern,
         string[] SuggestedNextActions);
 
@@ -670,11 +696,12 @@ public static class OutputFormatter
             .Select(diagnostic => new { Diagnostic = Normalize(diagnostic), Traits = ClassifyDiagnostic(diagnostic) })
             .GroupBy(item => new
             {
-                item.Diagnostic.Code,
                 item.Diagnostic.Severity,
-                item.Traits.SyntaxShape,
+                item.Diagnostic.Code,
+                item.Traits.Category,
                 item.Traits.SourceConstruct,
-                item.Traits.LikelyRecipe,
+                item.Traits.Recipe,
+                item.Traits.Risk,
                 item.Traits.MessagePattern
             })
             .Select(group =>
@@ -689,15 +716,24 @@ public static class OutputFormatter
                 var traits = group.First().Traits;
 
                 return new DiagnosticCluster(
-                    Id: CreateClusterId(root.Code, traits.SyntaxShape, traits.SourceConstruct, traits.LikelyRecipe),
-                    Code: root.Code,
-                    Severity: root.Severity,
+                    Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
+                    Category: traits.Category,
+                    Recipe: traits.Recipe,
+                    Risk: traits.Risk,
                     Count: ordered.Count,
-                    SyntaxShape: traits.SyntaxShape,
-                    SourceConstruct: traits.SourceConstruct,
-                    LikelyRecipe: traits.LikelyRecipe,
+                    Severity: root.Severity,
+                    Files: ordered.Select(d => d.File).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray(),
+                    RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
+                        d.Code,
+                        d.Severity,
+                        d.File,
+                        d.Line,
+                        d.Column,
+                        d.Message)).ToArray(),
+                    NextCommand: BuildDiagnosticClusterNextCommand(root),
                     RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
                     MessagePattern: traits.MessagePattern,
+                    SourceConstruct: traits.SourceConstruct,
                     SuggestedNextActions: traits.SuggestedNextActions,
                     Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
                         d.File,
@@ -723,9 +759,10 @@ public static class OutputFormatter
         sb.AppendLine($"Diagnostic clusters ({clusters.Count} group{(clusters.Count == 1 ? "" : "s")}, {diagnosticCount} diagnostic{(diagnosticCount == 1 ? "" : "s")})");
         foreach (var cluster in clusters.Take(10))
         {
-            sb.AppendLine($"  [{cluster.Count}x] {cluster.Code} / {cluster.SyntaxShape} / {cluster.SourceConstruct}");
-            sb.AppendLine($"       recipe: {cluster.LikelyRecipe}");
+            sb.AppendLine($"  [{cluster.Count}x] {cluster.Category} / {cluster.SourceConstruct} / risk: {cluster.Risk}");
+            sb.AppendLine($"       recipe: {cluster.Recipe}");
             sb.AppendLine($"       root: {cluster.RootLocation.File}:{cluster.RootLocation.Line}:{cluster.RootLocation.Column}");
+            sb.AppendLine($"       next command: {cluster.NextCommand}");
             sb.AppendLine($"       example: {cluster.Examples[0].Message}");
             foreach (var action in cluster.SuggestedNextActions.Take(2))
             {
@@ -753,6 +790,7 @@ public static class OutputFormatter
                 "csharp-migration-artifact",
                 "property-declaration",
                 "migration:rewrite-auto-property-as-record-or-explicit-nsharp-property",
+                "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
@@ -774,11 +812,27 @@ public static class OutputFormatter
                 shape,
                 construct,
                 recipe,
+                "high",
                 NormalizeMessagePattern(message),
                 new[]
                 {
                     "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
                     "Inspect the migration/refactor recipe that emitted this construct and add a delimiter/terminator regression test."
+                });
+        }
+
+        if (code == "NL703" || messageLower.Contains("circular import"))
+        {
+            return new DiagnosticClusterTraits(
+                "import-cycle",
+                "import",
+                "architecture:extract-shared-module-or-invert-dependency",
+                "high",
+                NormalizeMessagePattern(message),
+                new[]
+                {
+                    "Break the cycle at the reported import path by moving shared declarations into a third file/package or inverting one dependency.",
+                    "Rerun `nlc check` after removing the cycle; unused-import warnings in the same files may be cascades."
                 });
         }
 
@@ -788,6 +842,7 @@ public static class OutputFormatter
                 "identifier-resolution",
                 InferSourceConstruct(snippetLower),
                 "migration:missing-import-qualification-or-rename",
+                "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
@@ -802,6 +857,7 @@ public static class OutputFormatter
                 "type-resolution",
                 InferSourceConstruct(snippetLower),
                 "migration:type-map-or-import-resolution",
+                "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
@@ -816,6 +872,7 @@ public static class OutputFormatter
                 "type-mismatch",
                 InferSourceConstruct(snippetLower),
                 "refactor:signature-or-expression-shape",
+                "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
@@ -830,6 +887,7 @@ public static class OutputFormatter
                 "member-resolution",
                 InferSourceConstruct(snippetLower),
                 "migration:api-rename-or-extension-import",
+                "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
@@ -842,6 +900,7 @@ public static class OutputFormatter
             "diagnostic-message-shape",
             InferSourceConstruct(snippetLower),
             "manual-triage:inspect-root-diagnostic",
+            "low",
             NormalizeMessagePattern(message),
             new[]
             {
@@ -950,15 +1009,32 @@ public static class OutputFormatter
         return builder.ToString().Trim();
     }
 
-    private static string CreateClusterId(string code, string syntaxShape, string sourceConstruct, string likelyRecipe)
+    private static string CreateClusterId(string code, string severity, string category, string sourceConstruct, string recipe, string messagePattern)
     {
-        var key = $"{code}|{syntaxShape}|{sourceConstruct}|{likelyRecipe}";
+        var key = $"{code}|{severity}|{category}|{sourceConstruct}|{recipe}|{messagePattern}";
         var hash = 17;
         foreach (var c in key)
         {
             hash = (hash * 31) + c;
         }
         return $"diag-{Math.Abs(hash):x}";
+    }
+
+    private static string BuildDiagnosticClusterNextCommand(DiagnosticResult root)
+    {
+        var file = EscapeCommandArgument(root.File);
+        return $"nlc query inspect --file {file} --pos {root.Line}:{root.Column}";
+    }
+
+    private static string EscapeCommandArgument(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "\"\"";
+
+        if (value.All(c => char.IsLetterOrDigit(c) || c is '/' or '.' or '_' or '-'))
+            return value;
+
+        return $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     }
 
     // ── Elm-Style Text Output ──────────────────────────────────────────

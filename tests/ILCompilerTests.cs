@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Runtime.Loader;
@@ -194,6 +195,68 @@ public partial class ILCompilerTests
         return argument.Value;
     }
 
+    private static IReadOnlyList<OpCode> GetMethodOpCodes(MethodInfo method)
+    {
+        var il = method.GetMethodBody()?.GetILAsByteArray() ?? Array.Empty<byte>();
+        var opCodes = new List<OpCode>();
+
+        for (var offset = 0; offset < il.Length;)
+        {
+            var opCodeValue = il[offset++];
+            OpCode opCode;
+            if (opCodeValue == 0xfe)
+            {
+                opCode = MultiByteOpCodes[il[offset++]];
+            }
+            else
+            {
+                opCode = SingleByteOpCodes[opCodeValue];
+            }
+
+            opCodes.Add(opCode);
+            offset += GetOperandSize(opCode.OperandType, il, offset);
+        }
+
+        return opCodes;
+    }
+
+    private static readonly OpCode[] SingleByteOpCodes = new OpCode[0x100];
+    private static readonly OpCode[] MultiByteOpCodes = new OpCode[0x100];
+
+    static ILCompilerTests()
+    {
+        foreach (var field in typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (field.GetValue(null) is not OpCode opCode)
+            {
+                continue;
+            }
+
+            var value = unchecked((ushort)opCode.Value);
+            if (value < 0x100)
+            {
+                SingleByteOpCodes[value] = opCode;
+            }
+            else if ((value & 0xff00) == 0xfe00)
+            {
+                MultiByteOpCodes[value & 0xff] = opCode;
+            }
+        }
+    }
+
+    private static int GetOperandSize(OperandType operandType, byte[] il, int offset) => operandType switch
+    {
+        OperandType.InlineNone => 0,
+        OperandType.ShortInlineBrTarget or OperandType.ShortInlineI or OperandType.ShortInlineVar => 1,
+        OperandType.InlineVar => 2,
+        OperandType.InlineBrTarget or OperandType.InlineField or OperandType.InlineI or OperandType.InlineMethod
+            or OperandType.InlineSig or OperandType.InlineString or OperandType.InlineTok or OperandType.InlineType
+            or OperandType.ShortInlineR => 4,
+        OperandType.InlineSwitch => 4 + (BitConverter.ToInt32(il, offset) * 4),
+        OperandType.InlineI8 or OperandType.InlineR => 8,
+        _ => throw new NotSupportedException($"Unsupported IL operand type {operandType}")
+    };
+
     [Fact]
     public void ILCompiler_CanBeConstructed()
     {
@@ -213,6 +276,47 @@ public partial class ILCompilerTests
 
         // Should not throw
         compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_InterpolatedStringHole_EmitsExpressionValue()
+    {
+        var result = CompileAndInvoke("""
+func main(): string {
+    name := "Spencer"
+    return $"Hello, {name}!"
+}
+""");
+
+        Assert.Equal("Hello, Spencer!", result);
+    }
+
+    [Fact]
+    public void ILCompiler_InterpolatedStringEscapedBraces_EmitLiteralBracesAroundHole()
+    {
+        var result = CompileAndInvoke("""
+func main(): string {
+    name := "Spencer"
+    return $"{{ {name} }}"
+}
+""");
+
+        Assert.Equal("{ Spencer }", result);
+    }
+
+    [Fact]
+    public void ILCompiler_InterpolatedRawStringHole_EmitsExpressionValue()
+    {
+        var result = CompileAndInvoke(""""
+func main(): string {
+    name := "Spencer"
+    return $"""
+Hello, {name}!
+"""
+}
+"""");
+
+        Assert.Contains("Hello, Spencer!", Assert.IsType<string>(result), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3834,6 +3938,39 @@ test ""should add"" with (a: int, b: int, expected: int) [
 
             testMethod.Invoke(instance, new object[] { 1, 2, 3 });
             testMethod.Invoke(instance, new object[] { 0, 0, 0 });
+            return true;
+        });
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsTheoryParameterAttributesForTableDrivenTests()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func add(a: int, b: int): int {
+    return a + b
+}
+
+test ""should add annotated values"" with ([RuntimeCoverage(7, [""xunit""], Enabled: true)] a: int, b: int, expected: int) [
+    (1, 2, 3)
+] {
+    assert add(a, b) == expected
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var testType = assembly.GetType("NSharpTests");
+            Assert.NotNull(testType);
+
+            var testMethod = testType!.GetMethod("ShouldAddAnnotatedValues", BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(testMethod);
+            GetCustomAttribute(testMethod!, "Xunit.TheoryAttribute");
+
+            var attribute = Assert.Single(testMethod!.GetParameters()[0].CustomAttributes
+                .Where(customAttribute => customAttribute.AttributeType.FullName == "NSharpLang.Tests.RuntimeCoverageAttribute"));
+            Assert.Equal(new object?[] { 7, new object?[] { "xunit" } }, GetAttributeArguments(attribute));
+            Assert.True(Assert.IsType<bool>(GetNamedAttributeValue(attribute, "Enabled")));
             return true;
         });
     }

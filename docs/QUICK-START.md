@@ -1,6 +1,6 @@
 # N# Quick Start
 
-**NO XML. NO BULLSHIT. JUST CODE.**
+**Project.yml-first N# projects with a minimal SDK `.csproj`.**
 
 ## Install (Local Development)
 
@@ -20,7 +20,6 @@ cd MyApp
 **Your project has:**
 ```
 MyApp/
-├── MyApp.csproj
 ├── NuGet.config
 ├── global.json
 ├── project.yml
@@ -29,9 +28,18 @@ MyApp/
 
 ## Build and Run
 
+If `nlc` is installed on your PATH:
+
 ```bash
-dotnet build
-dotnet run
+nlc build
+nlc run
+```
+
+From a source checkout, use the repo-local CLI:
+
+```bash
+dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- build
+dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- run
 ```
 
 Output:
@@ -41,10 +49,10 @@ Hello, N#!
 
 ## How It Works
 
-1. `dotnet build` loads the minimal `.csproj`
-2. `NSharpLang.Sdk` reads `project.yml`
-3. The SDK discovers `.nl` files and the compiler emits IL directly into the build output assembly
-4. The normal .NET toolchain runs the emitted assembly and runtime assets
+1. `nlc build` reads `project.yml`
+2. The compiler discovers `.nl` files and emits IL directly into the build output assembly
+3. `nlc run` launches the emitted assembly and runtime assets
+4. VS Code tasks use `nlc build`, `nlc run`, and `nlc test`; verify the extension against the current checkout before treating IDE workflows as launch proof
 
 ## What You Can Do
 
@@ -128,4 +136,4 @@ If you want to compile a loose `.nl` file directly:
 dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- run Program.nl
 ```
 
-That path is useful for experiments, but the recommended workflow is template-generated projects plus `dotnet build` and `dotnet run`.
+That path is useful for experiments, but the recommended workflow is template-generated projects plus `nlc build`, `nlc run`, and the VS Code N# tasks after local verification. The extension respects `nsharp.cli.path` when invoking `nlc`. F5/debugging is intentionally hidden until it is backed by a real N# debugger workflow.

@@ -1375,7 +1375,7 @@ public class Analyzer : IDisposable
             finalType = BuiltInTypes.Unknown;
         }
 
-        DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column);
+        DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column, "local");
 
         // Record in semantic model for IDE features (scoped)
         RecordVariableInCurrentScope(varDecl.Name, finalType);
@@ -1882,14 +1882,7 @@ public class Analyzer : IDisposable
                 // Check if this is a qualified union case name (e.g., "Result.Success")
                 if (valueType is UnionTypeInfo ut && identPattern.Name.Contains('.'))
                 {
-                    var caseName = identPattern.Name.Contains('.')
-                        ? identPattern.Name.Substring(identPattern.Name.LastIndexOf('.') + 1)
-                        : identPattern.Name;
-
-                    var matchingCase = ut.Declaration.Cases
-                        .FirstOrDefault(c => c.Name == caseName);
-
-                    if (matchingCase == null)
+                    if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
                         Error($"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
                             pattern.Line, pattern.Column);
@@ -1912,15 +1905,9 @@ public class Analyzer : IDisposable
                 // Verify the union case exists if matching against a union type
                 if (valueType is UnionTypeInfo unionType)
                 {
-                    // Extract just the case name (after the last dot if qualified)
-                    var caseName = unionPattern.CaseName.Contains('.')
-                        ? unionPattern.CaseName.Substring(unionPattern.CaseName.LastIndexOf('.') + 1)
-                        : unionPattern.CaseName;
+                    var caseName = GetUnionCaseName(unionPattern.CaseName);
 
-                    var matchingCase = unionType.Declaration.Cases
-                        .FirstOrDefault(c => c.Name == caseName);
-
-                    if (matchingCase == null)
+                    if (!TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchingCase))
                     {
                         Error($"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
                             pattern.Line, pattern.Column);
@@ -2704,21 +2691,43 @@ public class Analyzer : IDisposable
 
     private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
     {
-        ClassTypeInfo classType => GetDeclarationFilePath(classType.Declaration.Name),
-        StructTypeInfo structType => GetDeclarationFilePath(structType.Declaration.Name),
-        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name),
-        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name),
-        EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name),
-        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name),
+        ClassTypeInfo classType => GetDeclarationFilePath(classType.Declaration.Name, classType.Declaration),
+        StructTypeInfo structType => GetDeclarationFilePath(structType.Declaration.Name, structType.Declaration),
+        RecordTypeInfo recordType => GetDeclarationFilePath(recordType.Declaration.Name, recordType.Declaration),
+        InterfaceTypeInfo interfaceType => GetDeclarationFilePath(interfaceType.Declaration.Name, interfaceType.Declaration),
+        EnumTypeInfo enumType => GetDeclarationFilePath(enumType.Declaration.Name, enumType.Declaration),
+        UnionTypeInfo unionType => GetDeclarationFilePath(unionType.Declaration.Name, unionType.Declaration),
         _ => _currentFilePath
     };
 
-    private string? GetDeclarationFilePath(string typeName)
+    private string? GetDeclarationFilePath(string typeName, Declaration? declaration = null)
     {
+        if (declaration != null
+            && _projectSymbols.TryGetValue(typeName, out var symbols))
+        {
+            foreach (var symbol in symbols)
+            {
+                if (TypeInfoContainsDeclaration(symbol.Type, declaration))
+                    return symbol.SourceFile;
+            }
+        }
+
         return _typeDeclarationFiles.TryGetValue(typeName, out var filePath)
             ? filePath
             : _currentFilePath;
     }
+
+    private static bool TypeInfoContainsDeclaration(TypeInfo typeInfo, Declaration declaration) => typeInfo switch
+    {
+        ClassTypeInfo classType => ReferenceEquals(classType.Declaration, declaration),
+        StructTypeInfo structType => ReferenceEquals(structType.Declaration, declaration),
+        RecordTypeInfo recordType => ReferenceEquals(recordType.Declaration, declaration),
+        InterfaceTypeInfo interfaceType => ReferenceEquals(interfaceType.Declaration, declaration),
+        EnumTypeInfo enumType => ReferenceEquals(enumType.Declaration, declaration),
+        UnionTypeInfo unionType => ReferenceEquals(unionType.Declaration, declaration),
+        NullableTypeInfo nullableType => TypeInfoContainsDeclaration(nullableType.InnerType, declaration),
+        _ => false
+    };
 
     private bool TryFindDeclarationMember(IEnumerable<Declaration> members, string memberName, string? filePath, out SymbolDeclaration declaration)
     {
@@ -5424,6 +5433,9 @@ public class Analyzer : IDisposable
         // Guarded arms only partially cover their pattern (the guard may be false at runtime),
         // so they don't count toward exhaustiveness.
         var coveredCases = new HashSet<string>();
+        var partiallyCoveredCases = new HashSet<string>();
+        var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
+        var partialCoverageHints = new Dictionary<string, List<string>>();
 
         foreach (var matchCase in match.Cases)
         {
@@ -5433,11 +5445,16 @@ public class Analyzer : IDisposable
 
             if (matchCase.Pattern is UnionCasePattern unionPattern)
             {
-                // Extract just the case name (after the last dot if qualified)
-                var caseName = unionPattern.CaseName.Contains('.')
-                    ? unionPattern.CaseName.Substring(unionPattern.CaseName.LastIndexOf('.') + 1)
-                    : unionPattern.CaseName;
-                coveredCases.Add(caseName);
+                if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
+                {
+                    if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
+                    {
+                        patterns = new List<UnionCasePattern>();
+                        unionCasePatterns[matchedCase.Name] = patterns;
+                    }
+
+                    patterns.Add(unionPattern);
+                }
             }
             else if (matchCase.Pattern is IdentifierPattern identPattern)
             {
@@ -5450,8 +5467,10 @@ public class Analyzer : IDisposable
                 else if (identPattern.Name.Contains('.'))
                 {
                     // Qualified union case name without properties
-                    var caseName = identPattern.Name.Substring(identPattern.Name.LastIndexOf('.') + 1);
-                    coveredCases.Add(caseName);
+                    if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase))
+                    {
+                        coveredCases.Add(matchedCase.Name);
+                    }
                 }
                 else
                 {
@@ -5464,32 +5483,81 @@ public class Analyzer : IDisposable
         }
 
         // Check if all union cases are covered
-        var allCases = unionType.Declaration.Cases.Select(c => c.Name).ToHashSet();
-        var missingCases = allCases.Except(coveredCases).ToList();
-
-        if (missingCases.Any())
+        foreach (var unionCase in unionType.Declaration.Cases)
         {
-            var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
-                ? _sourceLines[match.Line - 1]
-                : null;
+            if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
+                continue;
 
-            if (sourceSnippet != null && _currentFilePath != null)
+            if (IsUnionCaseCoveredByPatterns(unionType.Declaration.Name, unionCase, patterns, out var hints))
             {
-                var error = ErrorMessageBuilder.NonExhaustiveMatch(
-                    _currentFilePath,
-                    match.Line,
-                    match.Column,
-                    sourceSnippet,
-                    5, // "match" keyword length
-                    missingCases
-                );
-                _errors.Add(error);
+                coveredCases.Add(unionCase.Name);
             }
             else
             {
-                var missingCasesStr = string.Join(", ", missingCases);
-                Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+                partiallyCoveredCases.Add(unionCase.Name);
+                if (hints.Count > 0)
+                {
+                    partialCoverageHints[unionCase.Name] = hints;
+                }
+            }
+        }
+
+        var allCases = unionType.Declaration.Cases.Select(c => c.Name).ToHashSet();
+        var missingCases = allCases.Except(coveredCases).ToList();
+        var partialMissingCases = missingCases.Where(partiallyCoveredCases.Contains).ToList();
+        var neverCoveredCases = missingCases.Except(partialMissingCases).ToList();
+
+        if (missingCases.Any())
+        {
+            if (partialMissingCases.Any())
+            {
+                var messageParts = new List<string>();
+                if (neverCoveredCases.Any())
+                {
+                    messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
+                }
+
+                messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
+
+                var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
+                {
+                    if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+                    {
+                        return $"add '{hints[0]}', an unconstrained '{unionType.Declaration.Name}.{caseName}' arm, or a wildcard '_' arm";
+                    }
+
+                    return $"add an unconstrained '{unionType.Declaration.Name}.{caseName}' arm or a wildcard '_' arm";
+                }));
+                Error(ErrorCode.NonExhaustiveMatch,
+                    $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
+                    match.Line,
+                    match.Column,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)));
+            }
+            else
+            {
+                var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
+                    ? _sourceLines[match.Line - 1]
+                    : null;
+
+                if (sourceSnippet != null && _currentFilePath != null)
+                {
+                    var error = ErrorMessageBuilder.NonExhaustiveMatch(
+                        _currentFilePath,
+                        match.Line,
+                        match.Column,
+                        sourceSnippet,
+                        5, // "match" keyword length
+                        missingCases
+                    );
+                    _errors.Add(error);
+                }
+                else
+                {
+                    var missingCasesStr = string.Join(", ", missingCases);
+                    Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
+                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+                }
             }
         }
         else
@@ -5498,6 +5566,180 @@ public class Analyzer : IDisposable
             // emits a discard arm instead of relying on C# exhaustiveness analysis
             match.IsExhaustive = true;
         }
+    }
+
+    private static string FormatPartialCoverageCases(
+        List<string> partialMissingCases,
+        Dictionary<string, List<string>> partialCoverageHints)
+    {
+        return string.Join(", ", partialMissingCases.Select(caseName =>
+        {
+            if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+            {
+                return $"{caseName} (missing nested arm: {hints[0]})";
+            }
+
+            return caseName;
+        }));
+    }
+
+    private bool IsUnionCaseCoveredByPatterns(
+        string unionName,
+        UnionCase unionCase,
+        List<UnionCasePattern> patterns,
+        out List<string> partialCoverageHints)
+    {
+        partialCoverageHints = new List<string>();
+
+        if (patterns.Any(IsTotalUnionCasePattern))
+        {
+            return true;
+        }
+
+        var nestedCoverage = new Dictionary<string, (string UnionName, HashSet<string> AllCases, HashSet<string> CoveredCases, HashSet<string> ConstrainedCases)>();
+        foreach (var pattern in patterns)
+        {
+            if (pattern.Properties == null)
+                continue;
+
+            var constrainedProperties = pattern.Properties
+                .Where(property => property.Pattern != null && !IsCatchAllPattern(property.Pattern))
+                .ToList();
+            if (constrainedProperties.Count != 1)
+                continue;
+
+            var constrainedProperty = constrainedProperties[0];
+            if (!pattern.Properties.Except(constrainedProperties).All(IsTotalPropertyPattern))
+                continue;
+
+            var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == constrainedProperty.Name);
+            if (caseProperty == null)
+                continue;
+
+            var propertyType = ResolveType(caseProperty.Type);
+            if (propertyType is not UnionTypeInfo nestedUnionType)
+                continue;
+
+            var nestedCaseName = GetMatchedUnionCaseName(nestedUnionType, constrainedProperty.Pattern!);
+
+            if (nestedCaseName == null)
+                continue;
+
+            if (!nestedCoverage.TryGetValue(constrainedProperty.Name, out var coverage))
+            {
+                coverage = (
+                    nestedUnionType.Declaration.Name,
+                    nestedUnionType.Declaration.Cases.Select(c => c.Name).ToHashSet(),
+                    new HashSet<string>(),
+                    new HashSet<string>());
+                nestedCoverage[constrainedProperty.Name] = coverage;
+            }
+
+            coverage.CoveredCases.Add(nestedCaseName);
+            if (!IsTotalNestedUnionPattern(constrainedProperty.Pattern!))
+            {
+                coverage.ConstrainedCases.Add(nestedCaseName);
+            }
+        }
+
+        foreach (var (propertyName, coverage) in nestedCoverage)
+        {
+            if (coverage.AllCases.IsSubsetOf(coverage.CoveredCases) && coverage.ConstrainedCases.Count == 0)
+            {
+                return true;
+            }
+
+            foreach (var missingNestedCase in coverage.AllCases.Except(coverage.CoveredCases).Concat(coverage.ConstrainedCases).Distinct())
+            {
+                partialCoverageHints.Add(
+                    $"{unionName}.{unionCase.Name} {{ {propertyName}: {coverage.UnionName}.{missingNestedCase} }}");
+            }
+        }
+
+        return false;
+    }
+
+    private static string? GetMatchedUnionCaseName(UnionTypeInfo unionType, Pattern pattern)
+    {
+        return pattern switch
+        {
+            UnionCasePattern nestedUnionPattern when TryGetUnionCaseForPattern(unionType, nestedUnionPattern.CaseName, out var unionCase)
+                => unionCase.Name,
+            IdentifierPattern nestedIdentifierPattern when nestedIdentifierPattern.Name.Contains('.')
+                && TryGetUnionCaseForPattern(unionType, nestedIdentifierPattern.Name, out var unionCase)
+                => unionCase.Name,
+            _ => null
+        };
+    }
+
+    private static bool IsTotalNestedUnionPattern(Pattern pattern)
+    {
+        return pattern switch
+        {
+            UnionCasePattern nestedUnionPattern => IsTotalUnionCasePattern(nestedUnionPattern),
+            IdentifierPattern nestedIdentifierPattern => nestedIdentifierPattern.Name.Contains('.'),
+            _ => false
+        };
+    }
+
+    private static bool TryGetUnionCaseForPattern(UnionTypeInfo unionType, string patternName, out UnionCase unionCase)
+    {
+        unionCase = null!;
+        if (!IsUnionCaseQualifierCompatible(unionType, patternName))
+            return false;
+
+        var caseName = GetUnionCaseName(patternName);
+        var matchedCase = unionType.Declaration.Cases.FirstOrDefault(c => c.Name == caseName);
+        if (matchedCase == null)
+            return false;
+
+        unionCase = matchedCase;
+        return true;
+    }
+
+    private static bool IsUnionCaseQualifierCompatible(UnionTypeInfo unionType, string patternName)
+    {
+        var lastDot = patternName.LastIndexOf('.');
+        if (lastDot < 0)
+            return true;
+
+        var qualifier = patternName[..lastDot];
+        var declaredName = unionType.Declaration.Name;
+        var simpleName = declaredName.Contains('.')
+            ? declaredName.Substring(declaredName.LastIndexOf('.') + 1)
+            : declaredName;
+
+        return qualifier == declaredName
+            || qualifier == simpleName
+            || declaredName.EndsWith($".{qualifier}", StringComparison.Ordinal);
+    }
+
+    private static string GetUnionCaseName(string patternName)
+    {
+        return patternName.Contains('.')
+            ? patternName.Substring(patternName.LastIndexOf('.') + 1)
+            : patternName;
+    }
+
+    private static bool IsTotalUnionCasePattern(UnionCasePattern pattern)
+    {
+        if (pattern.Properties == null || pattern.Properties.Count == 0)
+        {
+            return true;
+        }
+
+        return pattern.Properties.All(IsTotalPropertyPattern);
+    }
+
+    private static bool IsTotalPropertyPattern(PropertyPattern propertyPattern)
+    {
+        return propertyPattern.Pattern == null || IsCatchAllPattern(propertyPattern.Pattern);
+    }
+
+    private static bool IsCatchAllPattern(Pattern pattern)
+    {
+        return pattern is IdentifierPattern identifierPattern
+            && (identifierPattern.Name == "_" || !identifierPattern.Name.Contains('.'));
     }
 
     /// <summary>
@@ -6792,7 +7034,7 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void DeclareSymbol(string name, TypeInfo type, int line, int column)
+    private void DeclareSymbol(string name, TypeInfo type, int line, int column, string? declarationKind = null)
     {
         var currentScope = _scopes.Peek();
         if (currentScope.Symbols.TryGetValue(name, out var existing))
@@ -6808,7 +7050,7 @@ public class Analyzer : IDisposable
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = new NSharpMethodGroupInfo(
                             new List<FunctionDeclaration> { existingFunc.Declaration, newFunc.Declaration });
-                        var kind = TypeInfoToDeclarationKind(type);
+                        var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
                         var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
                         _bindingMap.RecordDeclaration(decl);
                         return;
@@ -6821,7 +7063,7 @@ public class Analyzer : IDisposable
                     {
                         // Add to existing method group
                         group.Declarations.Add(newFunc.Declaration);
-                        var kind = TypeInfoToDeclarationKind(type);
+                        var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
                         var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
                         _bindingMap.RecordDeclaration(decl);
                         return;
@@ -6836,7 +7078,7 @@ public class Analyzer : IDisposable
             currentScope.Symbols[name] = type;
 
             // Record declaration in binding map for semantic references
-            var kind = TypeInfoToDeclarationKind(type);
+            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
             var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
             _bindingMap.RecordDeclaration(decl);
             // Also record the declaration location in the scope for later lookup
@@ -7707,13 +7949,8 @@ public class Analyzer : IDisposable
 
         var namespaces = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var filePath in Directory.EnumerateFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
+        foreach (var filePath in ProjectConfig.EnumerateSourceFiles(projectRoot))
         {
-            if (IsBuildArtifactPath(filePath))
-            {
-                continue;
-            }
-
             try
             {
                 var source = File.ReadAllText(filePath);
@@ -7818,12 +8055,6 @@ public class Analyzer : IDisposable
             line,
             column);
         return true;
-    }
-
-    private static bool IsBuildArtifactPath(string filePath)
-    {
-        return filePath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
-               filePath.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private IEnumerable<Assembly> GetExternalSearchAssemblies()

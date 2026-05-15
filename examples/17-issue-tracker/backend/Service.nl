@@ -4,8 +4,8 @@
 namespace IssueTracker
 
 import System
-import System.Linq
 import System.Collections.Generic
+import System.Linq
 import "Models"
 import "Database"
 import "Notifier"
@@ -33,11 +33,12 @@ class IssueService {
             Id: nextId,
             Title: title,
             Description: description,
-            Status: new IssueStatus.Open {},
+            Status: new IssueStatus.Open {  },
             Priority: priority,
             CreatedAt: DateTime.UtcNow,
             Tags: tags
         }
+
         nextId = nextId + 1
         store.Add(issue)
 
@@ -51,10 +52,9 @@ class IssueService {
     func TransitionIssue(id: int, newStatus: IssueStatus): Issue {
         index := store.FindById(id)
         if index < 0 {
-            throw new Exception(
-                FormatError(new IssueError.NotFound(id))
-            )
+            throw new Exception(FormatError(new IssueError.NotFound(id)))
         }
+
         issue := store.GetAt(index)
         status := Workflow.Transition(issue, newStatus)
         updated := issue with { Status: status }
@@ -80,15 +80,13 @@ class IssueService {
     // camelCase → private. Validation logic that no caller needs to see.
     func validate(title: string): Exception {
         if title == null || title.Length == 0 {
-            return new Exception(
-                FormatError(new IssueError.ValidationFailed("title", "cannot be empty"))
-            )
+            return new Exception(FormatError(new IssueError.ValidationFailed("title", "cannot be empty")))
         }
+
         if title.Length > 200 {
-            return new Exception(
-                FormatError(new IssueError.ValidationFailed("title", "must be under 200 characters"))
-            )
+            return new Exception(FormatError(new IssueError.ValidationFailed("title", "must be under 200 characters")))
         }
+
         return null
     }
 }

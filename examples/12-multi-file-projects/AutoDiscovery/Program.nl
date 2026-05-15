@@ -10,8 +10,8 @@ func Main() {
 
     service := new ProductService()
 
-    service.AddProduct(new Product() { Id: 1, Name: "Laptop", Price: 999 })
-    service.AddProduct(new Product() { Id: 2, Name: "Book", Price: 29 })
+    service.AddProduct(new Product { Id: 1, Name: "Laptop", Price: 999 })
+    service.AddProduct(new Product { Id: 2, Name: "Book", Price: 29 })
 
     print ""
     print $"Total products: {service.Count}"

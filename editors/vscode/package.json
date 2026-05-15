@@ -1,7 +1,7 @@
 {
   "name": "nsharp",
   "displayName": "N# Language Support",
-  "description": "Full language support for N# — a Go-inspired language for .NET. IntelliSense, diagnostics, formatting, debugging, and more.",
+  "description": "Full language support for N# — a Go-inspired language for .NET. IntelliSense, diagnostics, formatting, tasks, and more.",
   "version": "0.6.0",
   "publisher": "nsharp",
   "repository": {
@@ -26,15 +26,12 @@
   ],
   "main": "./out/src/extension.js",
   "activationEvents": [
-    "onLanguage:nsharp"
+    "onLanguage:nsharp",
+    "onTaskType:nsharp",
+    "workspaceContains:project.yml"
   ],
   "contributes": {
-    "commands": [
-      {
-        "command": "nsharp.generateDebugConfig",
-        "title": "N#: Generate Debug Configuration"
-      }
-    ],
+    "commands": [],
     "languages": [
       {
         "id": "nsharp",
@@ -101,14 +98,15 @@
         "editor.formatOnSave": true
       }
     },
-    "breakpoints": [
-      {
-        "language": "nsharp"
-      }
-    ],
     "taskDefinitions": [
       {
-        "type": "nsharp"
+        "type": "nsharp",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The N# task name."
+          }
+        }
       }
     ]
   },

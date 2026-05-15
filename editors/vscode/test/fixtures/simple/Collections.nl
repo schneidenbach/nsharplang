@@ -2,6 +2,7 @@ namespace SimpleTest
 
 import System.Collections.Generic
 
+
 // List operations with type inference
 func TestListOperations() {
     numbers := [1, 2, 3, 4, 5]
@@ -21,6 +22,7 @@ func TestCollectionIteration() {
     for item in items {
         total = total + item
     }
+
     print $"Total: {total}"
 }
 

@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // Functions demonstrating various parameter patterns
 func DoubleValue(x: int): int {
     return x * 2
