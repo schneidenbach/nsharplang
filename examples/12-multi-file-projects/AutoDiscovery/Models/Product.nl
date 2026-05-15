@@ -13,7 +13,7 @@ record Product {
     }
 }
 
-enum Category {
+enum Category: string {
     Electronics = "electronics",
     Books = "books",
     Clothing = "clothing"

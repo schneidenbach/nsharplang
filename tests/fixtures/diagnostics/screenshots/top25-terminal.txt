@@ -1,0 +1,402 @@
+# N# top 25 diagnostic golden suite
+# Stable terminal rendering from OutputFormatter.DiagnosticsToText.
+# Docs URLs are category-qualified because some diagnostic codes overlap across parser/analyzer/migration domains.
+
+Diagnostic clusters (25 groups, 25 diagnostics)
+  [1x] diagnostic-message-shape / variable-declaration / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: analyzer/cannot-infer.nl:2:5
+       next command: nlc query inspect --file analyzer/cannot-infer.nl --pos 2:5
+       example: [analyzer] Cannot infer type
+       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] diagnostic-message-shape / function-declaration / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: analyzer/missing-return.nl:1:1
+       next command: nlc query inspect --file analyzer/missing-return.nl --pos 1:1
+       example: [analyzer] Not all code paths return a value of type 'int'
+       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] diagnostic-message-shape / control-flow / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: analyzer/non-exhaustive-match.nl:3:12
+       next command: nlc query inspect --file analyzer/non-exhaustive-match.nl --pos 3:12
+       example: [analyzer] Pattern matching is not exhaustive
+       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] type-mismatch / variable-declaration / risk: medium
+       recipe: refactor:signature-or-expression-shape
+       root: analyzer/type-mismatch.nl:3:19
+       next command: nlc query inspect --file analyzer/type-mismatch.nl --pos 3:19
+       example: [analyzer] Type mismatch
+       next: Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.
+       next: Prefer fixing the producer expression over adding casts to each cascaded consumer.
+  [1x] member-resolution / return-statement / risk: medium
+       recipe: converter:api-rename-or-extension-import
+       root: analyzer/undefined-member.nl:4:17
+       next command: nlc query inspect --file analyzer/undefined-member.nl --pos 4:17
+       example: [analyzer] Member 'Lenght' not found on type 'string'
+       next: Verify the API/member rename map for the root receiver before fixing repeated call sites.
+       next: Check whether an extension-method import or receiver type conversion was dropped.
+  [1x] type-resolution / variable-declaration / risk: medium
+       recipe: converter:type-map-or-import-resolution
+       root: analyzer/undefined-type.nl:1:12
+       next command: nlc query inspect --file analyzer/undefined-type.nl --pos 1:12
+       example: [analyzer] Type 'Usr' not found
+       next: Patch the type mapping/import recipe at the earliest root location before chasing downstream uses.
+       next: Check whether the source construct needs full qualification or a project reference.
+  [1x] identifier-resolution / return-statement / risk: medium
+       recipe: converter:missing-import-qualification-or-rename
+       root: analyzer/undefined-variable.nl:6:12
+       next command: nlc query inspect --file analyzer/undefined-variable.nl --pos 6:12
+       example: [analyzer] Variable 'totla' not found
+       next: Resolve the first missing identifier by adding the import/qualification or updating the rename map.
+       next: Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear.
+  [1x] diagnostic-message-shape / call-or-construction / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: analyzer/wrong-argument-count.nl:5:5
+       next command: nlc query inspect --file analyzer/wrong-argument-count.nl --pos 5:5
+       example: [analyzer] Function 'send' expects 2 arguments but got 1
+       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] syntax-missing-delimiter / call-or-construction / risk: high
+       recipe: converter:delimiter-balancing
+       root: parser/missing-argument.nl:3:18
+       next command: nlc query inspect --file parser/missing-argument.nl --pos 3:18
+       example: [parser] Unexpected token ')'
+       next: Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.
+       next: Inspect the converter/refactor recipe that emitted this construct and add a delimiter/terminator regression test.
+  [1x] syntax-missing-delimiter / variable-declaration / risk: high
+       recipe: converter:delimiter-balancing
+       root: parser/missing-call-paren.nl:4:22
+       next command: nlc query inspect --file parser/missing-call-paren.nl --pos 4:22
+       example: [parser] Missing closing parenthesis
+       next: Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.
+       next: Inspect the converter/refactor recipe that emitted this construct and add a delimiter/terminator regression test.
+  ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
+
+── [NL101] ERROR ──────────── parser/missing-argument.nl:3:18 ──
+
+    3 | print(, name)
+      |                  ^
+
+[parser] Unexpected token ')'
+
+The parser found `)` while it was still looking for an expression argument.
+
+Suggestion: Add the missing expression before `)` or remove the dangling comma.
+
+See: https://docs.n-sharp.dev/errors/parser/NL101
+
+── [NL102] ERROR ───── parser/missing-parameter-colon.nl:1:12 ──
+
+    1 | func greet(name string) {
+      |            ^
+
+[parser] Expected ':' after parameter name
+
+Function parameters use `name: Type`; without the colon, the type name is parsed in the wrong slot.
+
+Suggestion: Write `func greet(name: string) { ... }`.
+
+See: https://docs.n-sharp.dev/errors/parser/NL102
+
+── [NL103] ERROR ─── parser/object-initializer-equals.nl:2:28 ──
+
+    2 |     return new User { Name = "Ada" }
+      |                            ^
+
+[parser] Invalid syntax in object initializer
+
+N# object initializers use colon fields; `=` is a C# migration leftover here.
+
+Suggestion: Use `new User { Name: "Ada" }`.
+
+See: https://docs.n-sharp.dev/errors/parser/NL103
+
+── [NL104] ERROR ──────── parser/missing-closing-brace.nl:5:1 ──
+
+
+[parser] Unexpected end of file
+
+The file ended before the parser found the closing `}` for the current block.
+
+Suggestion: Add the missing closing brace and re-run `nlc check`.
+
+See: https://docs.n-sharp.dev/errors/parser/NL104
+
+── [NL106] ERROR ────────── parser/missing-match-brace.nl:7:1 ──
+
+    7 | match status {
+      | ^
+
+[parser] Missing closing brace
+
+A block started here but never closed, so later code may be attached to the wrong scope.
+
+Suggestion: Close the block with `}` at the indentation level where the construct began.
+
+See: https://docs.n-sharp.dev/errors/parser/NL106
+
+── [NL107] ERROR ────────── parser/missing-call-paren.nl:4:22 ──
+
+    4 |     total := add(first, second
+      |                      ^
+
+[parser] Missing closing parenthesis
+
+This call opened `(` but did not close it before the line ended.
+
+Suggestion: Add `)` after the final argument: `add(first, second)`.
+
+See: https://docs.n-sharp.dev/errors/parser/NL107
+
+── [NL202] ERROR ───────────── analyzer/type-mismatch.nl:3:19 ──
+
+    3 | let count: int = "five"
+      |                   ^^^^^
+
+[analyzer] Type mismatch
+
+This expression produces `string`, but the annotation says `int`.
+
+Suggestion: Parse the string intentionally or change the annotation to `string`.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL202
+
+── [NL203] ERROR ─────────────── analyzer/cannot-infer.nl:2:5 ──
+
+    2 | let value = null
+      |     ^^^^^
+
+[analyzer] Cannot infer type
+
+`null` by itself does not tell the analyzer which nullable type you want.
+
+Suggestion: Add an explicit type, for example `let value: string? = null`.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL203
+
+── [NL301] ERROR ──────── analyzer/undefined-variable.nl:6:12 ──
+
+    6 |     return totla
+      |            ^^^^^
+
+[analyzer] Variable 'totla' not found
+
+There is no local, parameter, or member named `totla` in scope.
+
+Suggestion: Did you mean `total`? Fix the spelling or declare the variable before use.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL301
+
+── [NL302] ERROR ──────────── analyzer/undefined-type.nl:1:12 ──
+
+    1 | let user: Usr
+      |            ^^^
+
+[analyzer] Type 'Usr' not found
+
+The analyzer cannot resolve `Usr` from this file's declarations or imports.
+
+Suggestion: Import the type, define it, or correct the spelling to `User`.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL302
+
+── [NL303] ERROR ────────── analyzer/undefined-member.nl:4:17 ──
+
+    4 |     return name.Lenght
+      |                 ^^^^^^
+
+[analyzer] Member 'Lenght' not found on type 'string'
+
+The receiver type is `string`, and `Lenght` is not one of its members.
+
+Suggestion: Did you mean `Length`? Use the exact member name exposed by the type.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL303
+
+── [NL305] ERROR ───────────── analyzer/missing-return.nl:1:1 ──
+
+    1 | func score(ok: bool): int {
+      | ^^^^
+
+[analyzer] Not all code paths return a value of type 'int'
+
+This function promises to return `int`, but at least one branch can fall off the end.
+
+Suggestion: Return an `int` on every path, or change the return type to `void` if no value is needed.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL305
+
+── [NL401] ERROR ─────── analyzer/wrong-argument-count.nl:5:5 ──
+
+    5 | send(email)
+      |     ^^^^^^^^^
+
+[analyzer] Function 'send' expects 2 arguments but got 1
+
+The call is missing one required argument from the function signature.
+
+Suggestion: Pass the missing value, or update the function signature if it should be optional.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL401
+
+── [NL501] ERROR ────── analyzer/non-exhaustive-match.nl:3:12 ──
+
+    3 |     match color {
+      |            ^^^^^
+
+[analyzer] Pattern matching is not exhaustive
+
+The match does not handle every possible value of `Color`.
+
+Suggestion: Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL501
+
+── [NL101] INFO ─────────────── Services/Users/UserDto.nl:6:1 ──
+
+    6 | public partial class UserDto {
+      | ^^^^^^
+
+[migration] C# modifier 'public' looks out of place in an N# file
+
+C# modifiers leak source-language visibility rules into N#; N# uses naming/export conventions instead.
+
+Suggestion: Remove the C# modifier and use N# naming/casing/export conventions instead
+
+See: https://docs.n-sharp.dev/errors/migration/NL101
+
+── [NL102] INFO ────────────── Services/Users/UserDto.nl:4:13 ──
+
+    4 |     Id: int { get; set; }
+      |             ^^^^^^^^^^^^^
+
+[migration] C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax
+
+Auto-property accessor blocks are C# syntax, not the N# property or record shape.
+
+Suggestion: For DTO-shaped data, prefer an N# record; otherwise write explicit N# property syntax
+
+See: https://docs.n-sharp.dev/errors/migration/NL102
+
+── [NL103] INFO ────────────── Services/Users/UserDto.nl:8:20 ──
+
+    8 |     Name: string = default!
+      |                    ^^^^^^^^
+
+[migration] Null-forgiving artifact 'default!' is a C# migration leftover
+
+Null-forgiving syntax hides a nullable design decision that must be made explicitly during migration.
+
+Suggestion: Replace the placeholder with a real initializer, explicit nullable/default value, or a reviewed construction path; do not carry C# default-forgiving syntax into N#
+
+See: https://docs.n-sharp.dev/errors/migration/NL103
+
+── [NL104] INFO ───────────── Services/Users/UserDto.nl:10:18 ──
+
+    10 |         if users.TryGetValue(id, out var user) {
+       |                  ^^^^^^^^^^^
+
+[migration] C# out parameter / TryGetValue pattern is a migration candidate
+
+`out` parameters and `TryGetValue` patterns are migration smells because N# prefers values, tuples, and result-style APIs.
+
+Suggestion: Prefer an N# tuple/result-returning helper or a pattern that avoids out parameters
+
+See: https://docs.n-sharp.dev/errors/migration/NL104
+
+── [NL105] INFO ─────────────── Services/Users/UserDto.nl:3:7 ──
+
+    3 | class OrderDto {
+      |       ^^^^^^^^
+
+[migration] DTO-shaped class 'OrderDto' looks like an N# record candidate
+
+This data-only DTO shape is probably a record in idiomatic N# unless identity or inheritance matters.
+
+Suggestion: Convert data-only DTO classes to records when identity/inheritance semantics are not required
+
+See: https://docs.n-sharp.dev/errors/migration/NL105
+
+── [NL106] INFO ───────────── Services/Users/UserDto.nl:19:11 ──
+
+    19 |         } catch (ex) {
+       |           ^^^^^
+
+[migration] try/catch returning HTTP 500 boilerplate is a migration candidate
+
+Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized error handling or result mapping.
+
+Suggestion: Prefer centralized error handling or an N# result/error abstraction instead of repeated catch-to-500 blocks
+
+See: https://docs.n-sharp.dev/errors/migration/NL106
+
+── [NL107] INFO ─────────────── Services/Users/UserDto.nl:1:1 ──
+
+    1 | using System;
+      | ^^^^^
+
+[migration] C# using directive is a migration blocker in an N# file
+
+C# `using` directives must become N# imports or project references before this file is considered migrated.
+
+Suggestion: Convert C# using directives to N# import declarations or project references
+
+See: https://docs.n-sharp.dev/errors/migration/NL107
+
+── [NL108] INFO ─────────────── Services/Users/UserDto.nl:2:1 ──
+
+    2 | namespace Legacy.Api;
+      | ^^^^^^^^^
+
+[migration] C# namespace declaration is a migration blocker in an N# file
+
+C# namespace declarations fight N# package layout and should be expressed with `package`.
+
+Suggestion: Use an N# package declaration such as `package My.Package` instead of `namespace My.Package;`
+
+See: https://docs.n-sharp.dev/errors/migration/NL108
+
+── [NL109] INFO ─────────────── Services/Users/UserDto.nl:1:1 ──
+
+    1 | using System;
+      | ^^^^^^^^
+
+[migration] N# file is missing package declaration `package Services.Users` for its package layout
+
+The file layout implies a package, but the source does not declare the matching N# package.
+
+Suggestion: Add `package Services.Users` as the first declaration in this .nl file
+
+See: https://docs.n-sharp.dev/errors/migration/NL109
+
+── [NL110] INFO ───────────── Services/Users/UserDto.nl:15:39 ──
+
+    15 |     func Create(): User => new User { Name = "Ada" }
+       |                                       ^^^^
+
+[migration] C# equals-style object initializer is a migration blocker in an N# file
+
+Equals-style object initializer members are valid C#, but canonical N# initializer members use `:`.
+
+Suggestion: Use canonical N# object initialization with colon fields: `new Type { Name: value }`
+
+See: https://docs.n-sharp.dev/errors/migration/NL110
+
+── [NL111] INFO ───────────── Services/Users/UserDto.nl:13:22 ──
+
+    13 |         return result.Value
+       |                      ^^^^^^
+
+[migration] Unsafe '.Value' access 'result.Value' is a migration leftover that can throw when the value is absent
+
+Direct `.Value` unwraps can throw; migration needs an explicit absence-handling path.
+
+Suggestion: Prefer `match`, `??`, or a direct `x != null` guard before unwrapping; only keep `.Value` when the wrapper type owns that API and the access is proven safe
+
+See: https://docs.n-sharp.dev/errors/migration/NL111
+
+
+Found 14 errors, 11 info.

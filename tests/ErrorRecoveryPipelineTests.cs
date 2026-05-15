@@ -168,6 +168,192 @@ func funcB() {
     }
 
     [Fact]
+    public void MultiFileCompiler_CircularFileImports_ReportOneBoundedCycleDiagnostic()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "A.nl"), """
+import "B"
+
+class A {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "B.nl"), """
+import "C"
+
+class B {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "C.nl"), """
+import "A"
+
+class C {
+}
+""");
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", cycle.Message);
+            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", cycle.HumanExplanation);
+            Assert.Contains("Import path: A.nl -> B.nl -> C.nl -> A.nl", cycle.ContextualHint);
+            Assert.Contains("Move shared types", cycle.Suggestion);
+            Assert.EndsWith("C.nl", cycle.FileName);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_TwoFileCircularImports_DeduplicatesAnalyzerCycleDiagnostics()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "A.nl"), """
+import "B"
+
+class A {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "B.nl"), """
+import "A"
+
+class B {
+}
+""");
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Contains("A.nl -> B.nl -> A.nl", cycle.Message);
+            Assert.Contains("Import path: A.nl -> B.nl -> A.nl", cycle.ContextualHint);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_LongCircularFileImports_BoundsDiagnosticCyclePath()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            const int fileCount = 12;
+            for (var i = 0; i < fileCount; i++)
+            {
+                var current = $"F{i:00}";
+                var next = $"F{(i + 1) % fileCount:00}";
+                File.WriteAllText(Path.Combine(tempDir, $"{current}.nl"), $$"""
+import "{{next}}"
+
+class {{current}} {
+}
+""");
+            }
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Contains("F00.nl -> F01.nl -> F02.nl -> F03.nl -> F04.nl -> F05.nl", cycle.Message);
+            Assert.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", cycle.Message);
+            Assert.DoesNotContain("F06.nl -> F07.nl -> F08.nl -> F09.nl", cycle.Message);
+            Assert.Contains("... (4 more imports)", cycle.ContextualHint);
+            Assert.Contains("Move shared types", cycle.Suggestion);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_DenseCircularFileImports_BoundsDiagnosticCount()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            const int fileCount = 8;
+            for (var i = 0; i < fileCount; i++)
+            {
+                var imports = Enumerable.Range(0, fileCount)
+                    .Where(next => next != i)
+                    .Select(next => $"import \"F{next:00}\"");
+                File.WriteAllText(Path.Combine(tempDir, $"F{i:00}.nl"), $$"""
+{{string.Join("\n", imports)}}
+
+class F{{i:00}} {
+}
+""");
+            }
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycles = compiler.AllErrors
+                .Where(error => error.Code == ErrorCode.CircularImport)
+                .ToList();
+            Assert.NotEmpty(cycles);
+            Assert.True(cycles.Count <= 20, $"Expected bounded cycle diagnostics, got {cycles.Count}.");
+            Assert.All(cycles, cycle => Assert.Contains(" -> ", cycle.Message));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_CircularFileImports_UsesSourceTextOverridesAndImportCasing()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var aPath = Path.Combine(tempDir, "A.nl");
+            var bPath = Path.Combine(tempDir, "B.nl");
+            var overrides = new Dictionary<string, string>
+            {
+                [aPath] = """
+import "b"
+
+class A {
+}
+""",
+                [bPath] = """
+import "A"
+
+class B {
+}
+"""
+            };
+
+            var compiler = new MultiFileCompiler(tempDir, ProjectFileParser.CreateDefault(), overrides);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Contains("A.nl -> B.nl -> A.nl", cycle.Message);
+            Assert.Equal("import \"A\"", cycle.SourceSnippet);
+            Assert.DoesNotContain(compiler.AllErrors, error => error.Code == ErrorCode.ImportNotFound);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void Compile_SyntaxErrorInOneFile_StillReportsSemanticErrors()
     {
         var tempDir = CreateTempDir();

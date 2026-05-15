@@ -48,7 +48,7 @@ class Product {
 // Example usage
 func Main() {
     // Record with init-only properties
-    p := new Person() { Name: "Alice", Age: 30, Email: "alice@example.com" }
+    p := new Person { Name: "Alice", Age: 30, Email: "alice@example.com" }
 
     print $"Person: {p.Name}, Age: {p.Age}, Adult: {p.IsAdult}"
 
@@ -56,7 +56,7 @@ func Main() {
     // p.Name = "Bob"  // ERROR!
 
     // Class with required properties
-    user := new User() { Id: "user123", UserName: "alice", Email: "alice@example.com" }
+    user := new User { Id: "user123", UserName: "alice", Email: "alice@example.com" }
 
     print $"User: {user.GetInfo()}"
 
@@ -64,7 +64,13 @@ func Main() {
     // badUser := new User { UserName: "bob" }  // ERROR! Id and Email required
 
     // Combining required and init
-    product := new Product() { Id: "prod-001", Name: "Widget", Price: 29.99, Description: "A useful widget", Stock: 100 }
+    product := new Product {
+        Id: "prod-001",
+        Name: "Widget",
+        Price: 29.99,
+        Description: "A useful widget",
+        Stock: 100
+    }
 
     print $"Product: {product.Name} - {product.GetDisplayPrice()}"
     print $"Description: {product.Description}"

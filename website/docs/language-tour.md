@@ -674,4 +674,4 @@ Enum cases are part of the containing enum's value set. Export is controlled by 
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
 - **[Pattern Matching Guide](pattern-matching.md)** — Deep dive into pattern matching
 - **[Types Guide](types.md)** — Advanced type system features
-- **[Examples](/examples)** — 15+ complete working projects
+- **[Examples](/examples)** — curated example projects

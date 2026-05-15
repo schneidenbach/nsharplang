@@ -4,6 +4,7 @@ import System
 import TaskCli.Models
 import TaskCli.Services
 
+
 // Handle the "delete" command
 class DeleteCommand {
     static func Run(service: TaskService, args: string[]) {
@@ -31,6 +32,7 @@ class DeleteCommand {
         } catch {
             result = -1
         }
+
         return result
     }
 }

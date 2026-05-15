@@ -5,7 +5,7 @@ title: C# Interop
 
 # Interop Guide: N# and C#
 
-N# is designed for perfect interoperability with C# and the entire .NET ecosystem. This guide covers how N# and C# code work together.
+N# is designed for practical C# and .NET interoperability. This guide covers the interop paths that are intended to work and should be verified with current tests/examples before being presented as complete.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ N# follows a **"C# first"** interop philosophy:
 This means:
 - N# types compile to idiomatic C# types
 - No special runtime support needed
-- C# IntelliSense works perfectly
+- C# consumers get ordinary CLR-visible types in covered scenarios
 - No leaky abstractions
 
 ### Comparison with F#
@@ -159,7 +159,7 @@ public class Calculator
 using MyLibrary;
 
 var calc = new Calculator();
-var result = calc.Add(5, 10);  // Works perfectly!
+var result = calc.Add(5, 10);  // Ordinary C# call shape
 ```
 
 ### Example 2: Discriminated Union
@@ -611,7 +611,7 @@ import FluentValidation
 import AutoMapper
 import Serilog
 
-// All work perfectly with N#!
+// Verify each package scenario with focused tests before release claims.
 ```
 
 ## Mixed Solution Example
@@ -728,4 +728,4 @@ var message = result switch
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
-- [ASP.NET Core Example](https://github.com/schneidenbach/nsharplang/tree/main/examples/13-aspnet-demo)
+- [Minimal API Example](https://github.com/schneidenbach/nsharplang/tree/main/examples/14-minimal-api)

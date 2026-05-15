@@ -4,8 +4,10 @@ import System.Collections.Generic
 import System.Text
 import TaskCli.Models
 
+
 // Pretty-print formatting for task output
 class Formatter {
+
     // Print a formatted task table
     static func PrintTaskTable(tasks: List<TaskItem>) {
         if tasks.Count == 0 {
@@ -54,6 +56,7 @@ class Formatter {
         if title.Length > 28 {
             title = title.Substring(0, 25) + "..."
         }
+
         sb.Append(title.PadRight(30))
 
         // Tags
@@ -75,13 +78,16 @@ class Formatter {
         if tags.Count == 0 {
             return "-"
         }
+
         sb := new StringBuilder()
         for i := 0; i < tags.Count; i++ {
             if i > 0 {
                 sb.Append(" ")
             }
+
             sb.Append($"#{tags[i]}")
         }
+
         return sb.ToString()
     }
 
@@ -92,6 +98,7 @@ class Formatter {
             CommandResult.Error { message } => $"Error: {message}",
             _ => "Unknown result"
         }
+
         print output
     }
 
@@ -105,6 +112,7 @@ class Formatter {
         if stats.Total > 0 {
             completion = (stats.DoneCount * 100) / stats.Total
         }
+
         print $"Completion: {completion}%"
 
         // Priority breakdown
@@ -115,8 +123,10 @@ class Formatter {
             if i > 0 {
                 sb.Append(", ")
             }
+
             sb.Append($"{p.Name}: {p.Done}/{p.Total}")
         }
+
         print sb.ToString()
 
         // Tag breakdown
@@ -128,12 +138,15 @@ class Formatter {
                 if i > 0 {
                     tagSb.Append(", ")
                 }
+
                 taskWord := "task"
                 if t.Count != 1 {
                     taskWord = "tasks"
                 }
+
                 tagSb.Append($"#{t.Name}: {t.Count} {taskWord}")
             }
+
             print tagSb.ToString()
         }
     }

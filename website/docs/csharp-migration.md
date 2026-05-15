@@ -491,7 +491,7 @@ class Calculator {
 using MyLibrary;
 
 var calc = new Calculator();
-var result = calc.Add(5, 10);  // Works perfectly!
+var result = calc.Add(5, 10);  // Ordinary C# call shape
 ```
 
 ## AI-Assisted C# Migration Contract
@@ -771,7 +771,7 @@ Migrate one module or feature at a time, not the entire codebase.
 
 ### 2. Use Interop
 
-N# and C# work together seamlessly. Don't feel pressure to migrate everything.
+N# and C# are designed to coexist. Don't feel pressure to migrate everything, and verify each interop seam with the current tests/examples.
 
 ### 3. Leverage Union Types
 

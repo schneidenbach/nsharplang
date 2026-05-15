@@ -4,7 +4,7 @@ import { NSharpTestRunner } from './testRunner';
 /**
  * Creates and manages the N# Test Controller for VS Code's Test Explorer.
  * Discovers tests from .tests.nl files via DocumentSymbol LSP requests
- * and provides run/debug profiles.
+ * and provides a run profile.
  */
 export function createTestController(
     context: vscode.ExtensionContext
@@ -24,13 +24,6 @@ export function createTestController(
         true
     );
 
-    // Debug profile
-    controller.createRunProfile(
-        'Debug',
-        vscode.TestRunProfileKind.Debug,
-        (request, token) => runner.runTests(request, token, true),
-        true
-    );
 
     // Resolve handler: called when a test item needs its children populated
     controller.resolveHandler = async (item) => {
@@ -86,13 +79,6 @@ export function createTestController(
             if (testItem) {
                 const request = new vscode.TestRunRequest([testItem]);
                 runner.runTests(request, new vscode.CancellationTokenSource().token);
-            }
-        }),
-        vscode.commands.registerCommand('nsharp.debugTest', (description: string, fileUri?: string) => {
-            const testItem = findTestByDescription(description, fileUri);
-            if (testItem) {
-                const request = new vscode.TestRunRequest([testItem]);
-                runner.runTests(request, new vscode.CancellationTokenSource().token, true);
             }
         })
     );

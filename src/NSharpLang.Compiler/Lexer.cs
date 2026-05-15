@@ -253,13 +253,11 @@ public class Lexer
 
         var ch = Peek();
 
-        // Newlines
-        if (ch == '\n')
+        // Newlines: logical source lines may be separated by LF, CRLF, or standalone CR.
+        if (IsAtLineBreak())
         {
-            Advance();
+            ConsumeLineBreak();
             var token = new Token(TokenType.Newline, "\n", startLine, startColumn, _fileName);
-            _line++;
-            _column = 1;
             return token;
         }
 
@@ -746,7 +744,7 @@ public class Lexer
         while (!IsAtEnd())
         {
             // Non-raw strings can't span lines; treat newline as an unterminated string and recover.
-            if (Peek() == '\n')
+            if (IsAtLineBreak())
             {
                 return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
             }
@@ -854,10 +852,10 @@ public class Lexer
                 return new Token(TokenType.TripleQuoteStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
             }
 
-            if (Peek() == '\n')
+            if (IsAtLineBreak())
             {
-                _line++;
-                _column = 0;
+                sb.Append(ConsumeLineBreak());
+                continue;
             }
 
             sb.Append(Peek());
@@ -887,10 +885,10 @@ public class Lexer
                 return new Token(TokenType.InterpolatedRawStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
             }
 
-            if (Peek() == '\n')
+            if (IsAtLineBreak())
             {
-                _line++;
-                _column = 0;
+                sb.Append(ConsumeLineBreak());
+                continue;
             }
 
             sb.Append(Peek());
@@ -904,7 +902,7 @@ public class Lexer
     {
         var sb = new StringBuilder();
 
-        while (!IsAtEnd() && Peek() != '\n')
+        while (!IsAtEnd() && !IsAtLineBreak())
         {
             sb.Append(Peek());
             Advance();
@@ -928,10 +926,10 @@ public class Lexer
                 return new Token(TokenType.MultiLineComment, sb.ToString(), startLine, startColumn, _fileName);
             }
 
-            if (Peek() == '\n')
+            if (IsAtLineBreak())
             {
-                _line++;
-                _column = 0;
+                sb.Append(ConsumeLineBreak());
+                continue;
             }
 
             sb.Append(Peek());
@@ -945,7 +943,7 @@ public class Lexer
     {
         var sb = new StringBuilder();
 
-        while (!IsAtEnd() && Peek() != '\n')
+        while (!IsAtEnd() && !IsAtLineBreak())
         {
             sb.Append(Peek());
             Advance();
@@ -958,7 +956,7 @@ public class Lexer
     {
         var sb = new StringBuilder();
 
-        while (!IsAtEnd() && Peek() != '\n')
+        while (!IsAtEnd() && !IsAtLineBreak())
         {
             sb.Append(Peek());
             Advance();
@@ -969,10 +967,39 @@ public class Lexer
 
     private void SkipWhitespaceExceptNewlines()
     {
-        while (!IsAtEnd() && char.IsWhiteSpace(Peek()) && Peek() != '\n')
+        while (!IsAtEnd() && char.IsWhiteSpace(Peek()) && !IsAtLineBreak())
         {
             Advance();
         }
+    }
+
+    private bool IsAtLineBreak()
+    {
+        return !IsAtEnd() && (Peek() == '\n' || Peek() == '\r');
+    }
+
+    private string ConsumeLineBreak()
+    {
+        if (Peek() == '\r')
+        {
+            Advance();
+            if (Peek() == '\n')
+            {
+                Advance();
+                _line++;
+                _column = 1;
+                return "\r\n";
+            }
+
+            _line++;
+            _column = 1;
+            return "\r";
+        }
+
+        Advance();
+        _line++;
+        _column = 1;
+        return "\n";
     }
 
     private char Peek()

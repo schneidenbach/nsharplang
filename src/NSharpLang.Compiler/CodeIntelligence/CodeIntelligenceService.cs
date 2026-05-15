@@ -7,12 +7,14 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler.CodeIntelligence;
 
 /// <summary>
-/// Core code intelligence service. Operates on project-on-disk snapshots — NOT editor state.
-/// Both the CLI (nlc query) and eventually the LSP can consume this.
+/// Core code intelligence service. Operates on project snapshots.
+/// Both the CLI (nlc query) and the LSP consume this: CLI callers load disk text,
+/// while the LSP can supply in-memory open-buffer overrides for unsaved edits.
 ///
 /// This is built BELOW the Language Server's DocumentManager. It knows nothing about
-/// open documents, editor buffers, or LSP protocols. It reads files from disk,
-/// parses and analyzes them, and answers semantic queries.
+/// open documents, editor buffers, or LSP protocols. It receives optional source text
+/// overrides from callers, parses/analyzes the resulting project snapshot, and answers
+/// semantic queries.
 /// </summary>
 public class CodeIntelligenceService
 {
@@ -21,9 +23,17 @@ public class CodeIntelligenceService
     /// Returns an immutable snapshot that can be queried.
     /// </summary>
     public ProjectSnapshot LoadProject(string projectRoot)
+        => LoadProject(projectRoot, sourceTextOverrides: null);
+
+    /// <summary>
+    /// Load and fully analyze a project with optional in-memory source text overrides.
+    /// Used by the LSP to answer semantic queries against unsaved editor buffers
+    /// while still reading unchanged project files from disk.
+    /// </summary>
+    public ProjectSnapshot LoadProject(string projectRoot, IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
         var config = ProjectFileParser.ParseFromDirectory(projectRoot);
-        var compiler = new MultiFileCompiler(projectRoot, config);
+        var compiler = new MultiFileCompiler(projectRoot, config, sourceTextOverrides);
         compiler.CompileForAnalysis();
 
         return new ProjectSnapshot(
@@ -33,7 +43,8 @@ public class CodeIntelligenceService
             compiler.AllErrors,
             compiler.SharedAnalyzer,
             compiler.SourceFiles,
-            compiler.ProjectIndex
+            compiler.ProjectIndex,
+            compiler.SourceTexts
         );
     }
 
@@ -162,12 +173,7 @@ public class CodeIntelligenceService
     /// </summary>
     public List<DiagnosticResult> GetDiagnostics(ProjectSnapshot snapshot, string? file = null)
     {
-        var sourceTexts = new Dictionary<string, string>();
-        foreach (var filePath in snapshot.SourceFiles)
-        {
-            try { sourceTexts[filePath] = File.ReadAllText(filePath); }
-            catch { /* file may have been deleted since analysis */ }
-        }
+        var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         var results = new List<DiagnosticResult>();
 
@@ -267,9 +273,6 @@ public class CodeIntelligenceService
     /// <summary>
     /// Find all semantic references to the symbol at a position.
     /// Position-based ONLY — this is a semantic operation.
-    ///
-    /// Uses the BindingMap when available (semantic resolution).
-    /// Falls back to text-based search when BindingMap has no data for the position.
     /// </summary>
     public List<ReferenceResult> FindReferences(ProjectSnapshot snapshot, string file, int line, int col)
     {
@@ -277,16 +280,7 @@ public class CodeIntelligenceService
         if (declaration == null)
             return new List<ReferenceResult>();
 
-        var results = new List<ReferenceResult>
-        {
-            new(
-                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
-                declaration.Line,
-                declaration.Column,
-                declaration.Name.Length,
-                GetSourceContext(declaration.File, declaration.Line),
-                IsDefinition: true)
-        };
+        var results = BuildReferenceResultsFromDeclaration(snapshot, declaration);
 
         foreach (var (filePath, cu) in snapshot.CompilationUnits)
         {
@@ -313,11 +307,11 @@ public class CodeIntelligenceService
                     candidate.Line,
                     candidate.Column,
                     candidate.Length,
-                    GetSourceContext(filePath, candidate.Line),
+                    GetSourceContext(snapshot, filePath, candidate.Line),
                     IsDefinition: false));
             }
 
-            foreach (var occurrence in EnumerateSourceOccurrences(filePath, declaration.Name))
+            foreach (var occurrence in EnumerateSourceOccurrences(snapshot, filePath, declaration.Name))
             {
                 var resolved = ResolveDefinitionSymbolAtPosition(snapshot, filePath, occurrence.Line, occurrence.Column);
                 if (!MatchesDeclaration(resolved, declaration))
@@ -334,7 +328,120 @@ public class CodeIntelligenceService
                     occurrence.Line,
                     occurrence.Column,
                     declaration.Name.Length,
-                    GetSourceContext(filePath, occurrence.Line),
+                    GetSourceContext(snapshot, filePath, occurrence.Line),
+                    IsDefinition: false));
+            }
+        }
+
+        return results
+            .GroupBy(r => (r.File, r.Line, r.Column))
+            .Select(g => g.First())
+            .OrderBy(r => r.File)
+            .ThenBy(r => r.Line)
+            .ThenBy(r => r.Column)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Find references only when the selected position has a strict BindingMap declaration/binding.
+    /// Rename uses this path because name/source-context fallbacks can bind comments or ambiguous
+    /// text to the wrong declaration.
+    /// </summary>
+    public List<ReferenceResult> FindStrictReferences(ProjectSnapshot snapshot, string file, int line, int col)
+    {
+        var (filePath, cu) = FindCompilationUnit(snapshot, file);
+        if (cu == null || snapshot.Bindings == null)
+            return new List<ReferenceResult>();
+
+        var declaration = ResolveStrictRenameDeclaration(snapshot, filePath, line, col);
+        if (declaration == null)
+            return new List<ReferenceResult>();
+
+        return BuildReferenceResultsFromDeclaration(snapshot, declaration);
+    }
+
+    private SymbolDeclaration? ResolveStrictRenameDeclaration(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        var declaration = TryResolveDefinitionViaBindings(snapshot, filePath, line, col);
+        if (declaration != null)
+            return declaration;
+
+        if (snapshot.Bindings == null)
+            return null;
+
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (span == null)
+            return null;
+
+        var name = ExtractWordAtPosition(snapshot, filePath, line, col);
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        return snapshot.Bindings.AllDeclarations.FirstOrDefault(candidate =>
+            string.Equals(candidate.File, filePath, StringComparison.Ordinal)
+            && candidate.Line == line
+            && string.Equals(candidate.Name, name, StringComparison.Ordinal)
+            && SelectedSpanMatchesDeclarationName(snapshot, filePath, line, span.Value, candidate));
+    }
+
+    private static bool SelectedSpanMatchesDeclarationName(ProjectSnapshot snapshot, string filePath, int line,
+        (int StartColumn, int EndColumn) selectedSpan, SymbolDeclaration declaration)
+    {
+        var source = GetSourceText(snapshot, filePath);
+        if (source == null)
+            return false;
+
+        var lines = source.Split('\n');
+        if (line <= 0 || line > lines.Length)
+            return false;
+
+        var lineText = lines[line - 1];
+        var searchStart = Math.Max(0, Math.Min(declaration.Column - 1, lineText.Length));
+        var nameIndex = lineText.IndexOf(declaration.Name, searchStart, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return false;
+
+        var nameStartColumn = nameIndex + 1;
+        var nameEndColumn = nameStartColumn + declaration.Name.Length - 1;
+        return selectedSpan.StartColumn == nameStartColumn && selectedSpan.EndColumn == nameEndColumn;
+    }
+
+    private List<ReferenceResult> BuildReferenceResultsFromDeclaration(ProjectSnapshot snapshot, SymbolDeclaration declaration)
+    {
+        var results = new List<ReferenceResult>
+        {
+            new(
+                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+                declaration.Line,
+                declaration.Column,
+                declaration.Name.Length,
+                GetSourceContext(snapshot, declaration.File, declaration.Line),
+                IsDefinition: true)
+        };
+
+        if (snapshot.Bindings != null)
+        {
+            foreach (var usage in snapshot.Bindings.GetReferences(declaration))
+            {
+                var isDefinition = usage.File == declaration.File
+                    && usage.Line == declaration.Line
+                    && usage.Column == declaration.Column;
+                var overlapsDefinitionName = usage.File == declaration.File
+                    && usage.Line == declaration.Line
+                    && usage.Column >= declaration.Column
+                    && usage.Column < declaration.Column + declaration.Name.Length;
+
+                if (isDefinition || overlapsDefinitionName)
+                {
+                    continue;
+                }
+
+                results.Add(new ReferenceResult(
+                    GetRelativePath(snapshot.ProjectRoot, usage.File ?? string.Empty),
+                    usage.Line,
+                    usage.Column,
+                    usage.Length,
+                    GetSourceContext(snapshot, usage.File, usage.Line),
                     IsDefinition: false));
             }
         }
@@ -832,7 +939,7 @@ public class CodeIntelligenceService
         {
             // Return just the declaration itself
             var relFile = GetRelativePath(snapshot.ProjectRoot, declaration.File ?? "");
-            var context = GetSourceContext(declaration.File, declaration.Line);
+            var context = GetSourceContext(snapshot, declaration.File, declaration.Line);
             return new List<ReferenceResult>
             {
                 new(relFile, declaration.Line, declaration.Column, declaration.Name.Length, context, IsDefinition: true)
@@ -848,7 +955,7 @@ public class CodeIntelligenceService
         if (declaration != null)
         {
             var relFile = GetRelativePath(snapshot.ProjectRoot, declaration.File ?? "");
-            var context = GetSourceContext(declaration.File, declaration.Line);
+            var context = GetSourceContext(snapshot, declaration.File, declaration.Line);
             results.Add(new ReferenceResult(relFile, declaration.Line, declaration.Column,
                 declaration.Name.Length, context, IsDefinition: true));
         }
@@ -857,7 +964,7 @@ public class CodeIntelligenceService
         foreach (var usage in usages)
         {
             var relFile = GetRelativePath(snapshot.ProjectRoot, usage.File ?? "");
-            var context = GetSourceContext(usage.File, usage.Line);
+            var context = GetSourceContext(snapshot, usage.File, usage.Line);
 
             // Don't add if it's the same location as the declaration
             var isDefinition = declaration != null &&
@@ -911,9 +1018,8 @@ public class CodeIntelligenceService
         foreach (var (refFile, refCu) in snapshot.CompilationUnits)
         {
             var relativeFile = GetRelativePath(snapshot.ProjectRoot, refFile);
-            string? sourceText = null;
-            try { sourceText = File.ReadAllText(refFile); }
-            catch { continue; }
+            var sourceText = GetSourceText(snapshot, refFile);
+            if (sourceText == null) continue;
 
             var lines = sourceText.Split('\n');
 
@@ -964,18 +1070,15 @@ public class CodeIntelligenceService
         return results;
     }
 
-    private string? GetSourceContext(string? filePath, int line)
+    private string? GetSourceContext(ProjectSnapshot snapshot, string? filePath, int line)
     {
         if (filePath == null || line <= 0) return null;
-        try
-        {
-            var source = File.ReadAllText(filePath);
-            var lines = source.Split('\n');
-            if (line <= lines.Length)
-                return lines[line - 1].Trim();
-        }
-        catch { }
-        return null;
+
+        var source = GetSourceText(snapshot, filePath);
+        if (source == null) return null;
+
+        var lines = source.Split('\n');
+        return line <= lines.Length ? lines[line - 1].Trim() : null;
     }
 
     private DefinitionResult ToDefinitionResult(ProjectSnapshot snapshot, SymbolDeclaration declaration)
@@ -1007,13 +1110,6 @@ public class CodeIntelligenceService
         if (fromSourceContext != null)
             return fromSourceContext;
 
-        foreach (var candidateName in GetCandidateQueryNames(expr, snapshot, filePath, line, col))
-        {
-            var byName = FindBestDeclarationSymbolByName(snapshot, filePath, candidateName, line);
-            if (byName != null)
-                return byName;
-        }
-
         return null;
     }
 
@@ -1025,8 +1121,7 @@ public class CodeIntelligenceService
 
         return expr switch
         {
-            IdentifierExpression id => TryResolveDefinitionViaBindings(snapshot, filePath, id.Line, id.Column)
-                ?? FindDeclarationSymbol(snapshot, id.Name),
+            IdentifierExpression id => TryResolveDefinitionViaBindings(snapshot, filePath, id.Line, id.Column),
             MemberAccessExpression memberAccess => ResolveMemberDefinitionSymbol(snapshot, currentUnit, semanticModel, memberAccess),
             CallExpression call => ResolveDefinitionSymbolFromExpression(snapshot, filePath, currentUnit, semanticModel, call.Callee),
             NewExpression newExpr when newExpr.Type != null => FindDeclarationSymbol(snapshot, GetTypeReferenceName(newExpr.Type)),
@@ -1075,7 +1170,7 @@ public class CodeIntelligenceService
         if (string.IsNullOrWhiteSpace(name))
             return null;
 
-        var receiverName = ExtractMemberReceiverName(filePath, line, span.Value.StartColumn);
+        var receiverName = ExtractMemberReceiverName(snapshot, filePath, line, span.Value.StartColumn);
         if (!string.IsNullOrWhiteSpace(receiverName))
         {
             var receiverType = ResolveTypeInfoByName(receiverName, semanticModel, snapshot, currentUnit);
@@ -1210,19 +1305,55 @@ public class CodeIntelligenceService
     {
         return receiverType switch
         {
-            ClassTypeInfo classType => FindMemberDeclarationSymbol(snapshot, classType.Declaration.Name, memberName)
+            ClassTypeInfo classType => FindMemberDeclarationSymbol(snapshot, classType.Declaration, memberName)
                 ?? (classType.Declaration.BaseClass != null
                     ? FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(classType.Declaration.BaseClass, snapshot), memberName)
                     : null),
-            StructTypeInfo structType => FindMemberDeclarationSymbol(snapshot, structType.Declaration.Name, memberName),
-            RecordTypeInfo recordType => FindMemberDeclarationSymbol(snapshot, recordType.Declaration.Name, memberName),
-            InterfaceTypeInfo interfaceType => FindMemberDeclarationSymbol(snapshot, interfaceType.Declaration.Name, memberName),
-            EnumTypeInfo enumType => FindMemberDeclarationSymbol(snapshot, enumType.Declaration.Name, memberName),
-            UnionTypeInfo unionType => FindMemberDeclarationSymbol(snapshot, unionType.Declaration.Name, memberName),
+            StructTypeInfo structType => FindMemberDeclarationSymbol(snapshot, structType.Declaration, memberName),
+            RecordTypeInfo recordType => FindMemberDeclarationSymbol(snapshot, recordType.Declaration, memberName),
+            InterfaceTypeInfo interfaceType => FindMemberDeclarationSymbol(snapshot, interfaceType.Declaration, memberName),
+            EnumTypeInfo enumType => FindMemberDeclarationSymbol(snapshot, enumType.Declaration, memberName),
+            UnionTypeInfo unionType => FindMemberDeclarationSymbol(snapshot, unionType.Declaration, memberName),
             AliasTypeInfo aliasType => FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
             NullableTypeInfo nullableType => FindMemberDeclarationSymbol(snapshot, nullableType.InnerType, memberName),
             _ => null
         };
+    }
+
+    private SymbolDeclaration? FindMemberDeclarationSymbol(ProjectSnapshot snapshot, Declaration typeDeclaration, string memberName)
+    {
+        var filePath = FindDeclarationFile(snapshot, typeDeclaration);
+        return filePath != null
+            ? FindMemberDeclarationSymbolInDeclaration(typeDeclaration, memberName, filePath)
+            : null;
+    }
+
+    private static string? FindDeclarationFile(ProjectSnapshot snapshot, Declaration target)
+    {
+        foreach (var (filePath, cu) in snapshot.CompilationUnits)
+        {
+            foreach (var decl in cu.Declarations)
+            {
+                if (ContainsDeclaration(decl, target))
+                    return filePath;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsDeclaration(Declaration declaration, Declaration target)
+    {
+        if (ReferenceEquals(declaration, target))
+            return true;
+
+        foreach (var member in GetDeclarationMembers(declaration) ?? Enumerable.Empty<Declaration>())
+        {
+            if (ContainsDeclaration(member, target))
+                return true;
+        }
+
+        return false;
     }
 
     private SymbolDeclaration? FindMemberDeclarationSymbol(ProjectSnapshot snapshot, string typeName, string memberName)
@@ -1280,17 +1411,11 @@ public class CodeIntelligenceService
             && left.Line == right.Line
             && left.Column == right.Column;
 
-    private IEnumerable<(int Line, int Column)> EnumerateSourceOccurrences(string filePath, string name)
+    private IEnumerable<(int Line, int Column)> EnumerateSourceOccurrences(ProjectSnapshot snapshot, string filePath, string name)
     {
-        string source;
-        try
-        {
-            source = File.ReadAllText(filePath);
-        }
-        catch
-        {
+        var source = GetSourceText(snapshot, filePath);
+        if (source == null)
             yield break;
-        }
 
         var lines = source.Split('\n');
         for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
@@ -2246,7 +2371,7 @@ public class CodeIntelligenceService
         if (localType != null)
             return localType;
 
-        return FindTypeInfoByName(snapshot, name);
+        return FindTypeInfoByName(snapshot, currentUnit, name);
     }
 
     private TypeInfo? FindLocalVariableTypeInfo(CompilationUnit cu, string name, ProjectSnapshot snapshot)
@@ -2326,7 +2451,7 @@ public class CodeIntelligenceService
             case ForeachStatement foreachStmt when foreachStmt.VariableName == name:
                 if (foreachStmt.Collection is IdentifierExpression id)
                 {
-                    var collectionType = FindTypeInfoByName(snapshot, id.Name);
+                    var collectionType = FindTypeInfoByName(snapshot, currentUnit, id.Name);
                     if (collectionType is ArrayTypeInfo arrayType)
                         return arrayType.ElementType;
                     if (collectionType is GenericTypeInfo genericType && genericType.TypeArguments.Count > 0)
@@ -2352,8 +2477,30 @@ public class CodeIntelligenceService
         return null;
     }
 
-    private TypeInfo? FindTypeInfoByName(ProjectSnapshot snapshot, string name)
+    private TypeInfo? FindTypeInfoByName(ProjectSnapshot snapshot, CompilationUnit currentUnit, string name)
     {
+        // Prefer declarations visible from the current unit before global name fallback.
+        // This matters when different namespaces contain the same simple type name.
+        var currentNamespace = currentUnit.Namespace?.Name;
+        var importedNamespaces = currentUnit.Imports.Select(i => i.Namespace).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var (_, cu) in snapshot.CompilationUnits)
+        {
+            var namespaceName = cu.Namespace?.Name;
+            if (!string.Equals(namespaceName, currentNamespace, StringComparison.Ordinal) &&
+                (namespaceName == null || !importedNamespaces.Contains(namespaceName)))
+            {
+                continue;
+            }
+
+            foreach (var decl in cu.Declarations)
+            {
+                var typeInfo = FindTypeInfoInDeclaration(decl, name, snapshot);
+                if (typeInfo != null)
+                    return typeInfo;
+            }
+        }
+
         foreach (var (_, cu) in snapshot.CompilationUnits)
         {
             foreach (var decl in cu.Declarations)
@@ -2613,6 +2760,22 @@ public class CodeIntelligenceService
         return null;
     }
 
+    private static string? GetSourceText(ProjectSnapshot snapshot, string filePath)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        if (snapshot.SourceTexts.TryGetValue(fullPath, out var text))
+            return text;
+
+        try
+        {
+            return File.ReadAllText(fullPath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
         var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
@@ -2621,7 +2784,9 @@ public class CodeIntelligenceService
 
         try
         {
-            var source = File.ReadAllText(filePath);
+            var source = GetSourceText(snapshot, filePath);
+            if (source == null)
+                return null;
             var lines = source.Split('\n');
             var lineText = lines[line - 1];
             var startIndex = span.Value.StartColumn - 1;
@@ -2634,11 +2799,13 @@ public class CodeIntelligenceService
         }
     }
 
-    private static string? ExtractMemberReceiverName(string filePath, int line, int memberStartColumn)
+    private static string? ExtractMemberReceiverName(ProjectSnapshot snapshot, string filePath, int line, int memberStartColumn)
     {
         try
         {
-            var source = File.ReadAllText(filePath);
+            var source = GetSourceText(snapshot, filePath);
+            if (source == null)
+                return null;
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;
@@ -2697,7 +2864,9 @@ public class CodeIntelligenceService
     {
         try
         {
-            var source = File.ReadAllText(filePath);
+            var source = GetSourceText(snapshot, filePath);
+            if (source == null)
+                return null;
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;
@@ -2792,7 +2961,9 @@ public class CodeIntelligenceService
     {
         try
         {
-            var source = File.ReadAllText(filePath);
+            var source = GetSourceText(snapshot, filePath);
+            if (source == null)
+                return null;
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length) return null;
 
@@ -2883,6 +3054,7 @@ public class ProjectSnapshot
     public IReadOnlyList<CompilerError> AllErrors { get; }
     public Analyzer SharedAnalyzer { get; }
     public IReadOnlyList<string> SourceFiles { get; }
+    public IReadOnlyDictionary<string, string> SourceTexts { get; }
 
     /// <summary>
     /// The project-level semantic index: merged BindingMap plus type-declaration-to-file mapping.
@@ -2902,7 +3074,8 @@ public class ProjectSnapshot
         IReadOnlyList<CompilerError> allErrors,
         Analyzer sharedAnalyzer,
         IReadOnlyList<string> sourceFiles,
-        ProjectIndex? index = null)
+        ProjectIndex? index = null,
+        IReadOnlyDictionary<string, string>? sourceTexts = null)
     {
         ProjectRoot = projectRoot;
         CompilationUnits = compilationUnits;
@@ -2911,6 +3084,7 @@ public class ProjectSnapshot
         SharedAnalyzer = sharedAnalyzer;
         SourceFiles = sourceFiles;
         Index = index;
+        SourceTexts = sourceTexts ?? new Dictionary<string, string>();
     }
 }
 

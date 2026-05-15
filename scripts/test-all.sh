@@ -116,12 +116,14 @@ section "Step 3b: VS Code Integration Tests"
 VSCODE_TEST_MODE="${VSCODE_TESTS:-auto}"
 
 if [ "$VSCODE_TEST_MODE" = "auto" ]; then
-    # Check what changed relative to main. Default to full if diff can't be computed
-    # (on main itself, shallow clones, detached HEAD, etc.) — fail-safe, not fail-open.
-    CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null) || CHANGED_FILES=""
-    if [ -z "$CHANGED_FILES" ]; then
-        VSCODE_TEST_MODE="full"
-        echo "On main or cannot determine changed files — running full VS Code test suite"
+    # Check what changed relative to main plus uncommitted work. In worker/local
+    # main checkouts, relying only on main...HEAD hides the current diff and
+    # forces the slow full suite. Use full only when diff discovery itself fails.
+    COMMITTED_CHANGED_FILES=$(git diff --name-only main...HEAD 2>/dev/null) || VSCODE_TEST_MODE="full"
+    UNCOMMITTED_CHANGED_FILES=$(git diff --name-only 2>/dev/null; git diff --cached --name-only 2>/dev/null) || VSCODE_TEST_MODE="full"
+    CHANGED_FILES=$(printf '%s\n%s\n' "$COMMITTED_CHANGED_FILES" "$UNCOMMITTED_CHANGED_FILES" | sed '/^$/d' | sort -u)
+    if [ "$VSCODE_TEST_MODE" = "full" ]; then
+        echo "Cannot determine changed files — running full VS Code test suite"
     elif echo "$CHANGED_FILES" | grep -qE '^(editors/vscode/|src/NSharpLang\.LanguageServer/)'; then
         VSCODE_TEST_MODE="full"
         echo "LSP or extension changes detected — running full VS Code test suite"
@@ -371,14 +373,9 @@ fi
 
 section "Step 9: Build Single-File Examples (CLI-based)"
 
-# Known failures that are NOT example bugs:
-#   PrintNameofTypeof.nl       - compiler bug: nameof(instance.Property) transpiles incorrectly
-#   ConstructorChaining.nl     - compiler bug: interface accessibility in transpiled C#
-# Multi-file examples that cannot be built as single files:
-#   12-multi-file-projects/imports/  - requires multi-file compilation
-KNOWN_FAILURES="PrintNameofTypeof.nl|ConstructorChaining.nl|12-multi-file-projects/imports/"
-
 # Find single .nl files outside of project.yml directories.
+# Do not allowlist failures here: examples are product surface, and unexpected
+# failures must fail this gate instead of being hidden in release evidence.
 # Skip files inside project-based directories (they're tested in Step 8).
 LEGACY_EXAMPLES=""
 while IFS= read -r nl_file; do
@@ -438,8 +435,6 @@ else
 
             if [ "$status" = "OK" ]; then
                 handle_success "Single-file example: $example_name"
-            elif echo "$example_path" | grep -qE "$KNOWN_FAILURES"; then
-                echo -e "${YELLOW}  Known failure (compiler bug or intentional): $example_name${NC}"
             else
                 handle_error "Single-file example: $example_name"
                 echo "  Run manually: dotnet \"$CLI_DLL\" build \"$example_path\""
@@ -454,7 +449,10 @@ section "Step 10: Check Examples (nlc check)"
 echo "Running nlc check on all example directories..."
 echo "This verifies the Language Server won't report false errors."
 
-# Directories to check individually (each is a self-contained project scope)
+# Directories to check individually (each is a self-contained project scope).
+# Skip umbrella folders with no direct .nl files and no project.yml; their child
+# projects are checked separately. This keeps the output trustworthy without
+# parent-directory allowlists that mask bad import roots.
 CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
 # Sub-projects in 12-multi-file-projects need individual checking
 CHECK_DIRS="$CHECK_DIRS
@@ -466,17 +464,19 @@ $(find examples/17-issue-tracker -mindepth 1 -maxdepth 1 -type d 2>/dev/null | s
 CHECK_DIRS="$CHECK_DIRS
 $(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
 
-# Known check failures:
-#   12-multi-file-projects  - parent dir has cross-project symbol conflicts (sub-dirs pass individually)
-#   17-issue-tracker        - parent dir has no project.yml (backend/ is the actual project)
-CHECK_KNOWN_FAILURES="12-multi-file-projects$|17-issue-tracker$"
+filter_check_dir() {
+    local check_dir="$1"
+    [ -z "$check_dir" ] && return 1
+    [ -f "$check_dir/project.yml" ] && return 0
+    find "$check_dir" -maxdepth 1 -name "*.nl" -type f 2>/dev/null | grep -q .
+}
 
 echo "Using up to $MAX_JOBS parallel workers for nlc check..."
 CHECK_RESULTS_DIR=$(mktemp -d)
 CHECK_LIST="$CHECK_RESULTS_DIR/items.txt"
 i=0
 while IFS= read -r check_dir; do
-    [ -z "$check_dir" ] && continue
+    filter_check_dir "$check_dir" || continue
     i=$((i + 1))
     printf '%04d|%s\n' "$i" "$check_dir"
 done <<< "$CHECK_DIRS" > "$CHECK_LIST"
@@ -505,8 +505,6 @@ while IFS='|' read -r idx check_dir_unused; do
 
     if [ "$errors" = "0" ]; then
         echo -e "  ${GREEN}✓${NC} $dir_name"
-    elif echo "$dir_name" | grep -qE "$CHECK_KNOWN_FAILURES"; then
-        echo -e "  ${YELLOW}⚠${NC} $dir_name (known: $errors errors)"
     else
         echo -e "  ${RED}✗${NC} $dir_name ($errors errors)"
         CHECK_FAIL=1

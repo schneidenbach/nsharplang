@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -61,6 +62,25 @@ public class QueryIntegrationTests : IDisposable
         return index + 1;
     }
 
+    private static int FindLineInFile(string filePath, string needle, int occurrence = 1)
+    {
+        var matchesSeen = 0;
+        var lineNumber = 0;
+
+        foreach (var line in File.ReadLines(filePath))
+        {
+            lineNumber++;
+            if (!line.Contains(needle, StringComparison.Ordinal))
+                continue;
+
+            matchesSeen++;
+            if (matchesSeen == occurrence)
+                return lineNumber;
+        }
+
+        throw new Xunit.Sdk.XunitException($"Could not find '{needle}' in {filePath}");
+    }
+
     private ProjectSnapshot HelloWorld => _helloWorldSnapshot ??=
         _service.LoadProject(Path.Combine(_examplesDir, "01-hello-world"));
 
@@ -75,6 +95,27 @@ public class QueryIntegrationTests : IDisposable
 
     private ProjectSnapshot IssueTracker => _issueTrackerSnapshot ??=
         _service.LoadProject(Path.Combine(_fixturesDir, "issue-tracker"));
+
+    private ProjectSnapshot LoadTemporaryProject(params (string RelativePath, string Source)[] files)
+    {
+        var projectRoot = Directory.CreateTempSubdirectory("nsharp-query-").FullName;
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), """
+name: QueryTemp
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+""");
+
+        foreach (var (relativePath, source) in files)
+        {
+            var fullPath = Path.Combine(projectRoot, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, source);
+        }
+
+        return _service.LoadProject(projectRoot);
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     //  SYMBOLS — does it actually find the right stuff?
@@ -308,6 +349,66 @@ func helper(): int {
         Assert.All(all, d => Assert.StartsWith("NL", d.Code));
     }
 
+    [Fact]
+    public void DiagnosticClustersToJson_EmitsStableMigrationClusterGoldenShape()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new(
+                Code: "NL301",
+                Severity: "error",
+                Message: "Undefined variable 'UserManager'",
+                File: "cotm-backend-api/AuthController.nl",
+                Line: 42,
+                Column: 17,
+                Length: 11,
+                SourceSnippet: "let manager := UserManager.Create()",
+                Explanation: "The symbol UserManager is not in scope.",
+                Suggestion: "Add the import or update the converter rename map.",
+                Hint: null,
+                ExpectedType: null,
+                ActualType: null,
+                DocsUrl: null),
+            new(
+                Code: "NL301",
+                Severity: "error",
+                Message: "Undefined variable 'RoleManager'",
+                File: "cotm-backend-api/AuthController.nl",
+                Line: 43,
+                Column: 17,
+                Length: 11,
+                SourceSnippet: "let roles := RoleManager.Create()",
+                Explanation: "The symbol RoleManager is not in scope.",
+                Suggestion: "Add the import or update the converter rename map.",
+                Hint: null,
+                ExpectedType: null,
+                ActualType: null,
+                DocsUrl: null)
+        };
+
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/redacted/cotm2-nsharp");
+        var goldenPath = Path.GetFullPath(Path.Combine(_examplesDir, "..", "docs", "examples", "cotm-diagnostic-clusters.sample.json"));
+        var expected = File.ReadAllText(goldenPath).Replace("\r\n", "\n");
+        Assert.Equal(expected, json.Replace("\r\n", "\n"));
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var cluster = Assert.Single(root.GetProperty("clusters").EnumerateArray());
+
+        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("diagnostics.clusters", root.GetProperty("command").GetString());
+        Assert.False(root.GetProperty("ok").GetBoolean());
+        Assert.Equal("/redacted/cotm2-nsharp", root.GetProperty("projectRoot").GetString());
+        Assert.Equal("identifier-resolution", cluster.GetProperty("category").GetString());
+        Assert.Equal("converter:missing-import-qualification-or-rename", cluster.GetProperty("recipe").GetString());
+        Assert.Equal("medium", cluster.GetProperty("risk").GetString());
+        Assert.Equal("nlc query inspect --file cotm-backend-api/AuthController.nl --pos 42:17", cluster.GetProperty("nextCommand").GetString());
+        Assert.Equal("cotm-backend-api/AuthController.nl", Assert.Single(cluster.GetProperty("files").EnumerateArray()).GetString());
+        Assert.Equal(2, cluster.GetProperty("relatedDiagnostics").GetArrayLength());
+        Assert.Equal("NL301", cluster.GetProperty("relatedDiagnostics")[0].GetProperty("code").GetString());
+        Assert.Equal("NL301", cluster.GetProperty("relatedDiagnostics")[1].GetProperty("code").GetString());
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  DEFINITION — can we find where stuff is defined?
     // ═══════════════════════════════════════════════════════════════════
@@ -516,7 +617,8 @@ func helper(): int {
         Assert.NotEmpty(results);
         var main = results.First(d => d.Name == "Main");
         Assert.Equal("function", main.Kind);
-        Assert.Equal(11, main.Line); // func Main() is on line 11 of Program.nl
+        var expectedLine = FindLineInFile(Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), "func Main()");
+        Assert.Equal(expectedLine, main.Line);
     }
 
     // MultiFile Person.nl layout:
@@ -531,7 +633,8 @@ func helper(): int {
         var results = _service.FindDefinitionByName(MultiFile, "Person");
         Assert.NotEmpty(results);
         var person = results.First(d => d.Kind == "record");
-        Assert.Equal(4, person.Line); // record Person is on line 4 of Person.nl
+        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
+        Assert.Equal(FindLineInFile(personFile, "record Person"), person.Line);
         Assert.Contains("Person.nl", person.File);
     }
 
@@ -541,7 +644,8 @@ func helper(): int {
         var results = _service.FindDefinitionByName(MultiFile, "GetInfo");
         Assert.NotEmpty(results);
         var getInfo = results.First(d => d.Kind == "function");
-        Assert.Equal(9, getInfo.Line); // func GetInfo on line 9
+        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
+        Assert.Equal(FindLineInFile(personFile, "func GetInfo"), getInfo.Line);
     }
 
     [Fact]
@@ -550,7 +654,8 @@ func helper(): int {
         var results = _service.FindDefinitionByName(MultiFile, "Status");
         Assert.NotEmpty(results);
         var status = results.First(d => d.Kind == "enum");
-        Assert.Equal(15, status.Line); // enum Status on line 15
+        var personFile = Path.Combine(_examplesDir, "12-multi-file-projects", "MultiFileProject", "Models", "Person.nl");
+        Assert.Equal(FindLineInFile(personFile, "enum Status"), status.Line);
         Assert.Contains("Person.nl", status.File);
     }
 
@@ -578,6 +683,93 @@ func helper(): int {
         // Should find cross-file usages (in Program.nl or PersonService.nl)
         Assert.True(refs.Any(r => r.File.Contains("Program.nl") || r.File.Contains("PersonService.nl")),
             $"Expected cross-file references. Only found: [{string.Join(", ", refs.Select(r => r.File))}]");
+    }
+
+    [Fact]
+    public void References_DuplicateCrossFileMemberNames_StayBoundToImportedType()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Foo/Widget.nl", """
+namespace QueryTemp.Foo
+
+record Widget {
+    Value: string
+}
+"""),
+            ("Bar/Widget.nl", """
+namespace QueryTemp.Bar
+
+record Widget {
+    Value: int
+}
+"""),
+            ("Foo/UseWidget.nl", """
+namespace QueryTemp.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+"""),
+            ("Bar/UseWidget.nl", """
+namespace QueryTemp.Bar
+
+func Read(widget: Widget): int {
+    return widget.Value
+}
+"""),
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main() {
+}
+"""));
+
+        var refs = _service.FindReferences(snapshot, "Foo/Widget.nl", 4, 5);
+
+        Assert.Contains(refs, r => r.IsDefinition && r.File.EndsWith("Foo/Widget.nl", StringComparison.Ordinal) && r.Line == 4);
+        Assert.Contains(refs, r => !r.IsDefinition && r.File.EndsWith("Foo/UseWidget.nl", StringComparison.Ordinal) && r.Line == 4);
+        Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/Widget.nl", StringComparison.Ordinal));
+        Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/UseWidget.nl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Completions_DuplicateCrossFileTypeNames_UseReceiverDeclarationNotNameFallback()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Foo/Widget.nl", """
+namespace QueryTemp.Foo
+
+record Widget {
+    FooOnly: string
+}
+"""),
+            ("Bar/Widget.nl", """
+namespace QueryTemp.Bar
+
+record Widget {
+    BarOnly: int
+}
+"""),
+            ("Foo/UseWidget.nl", """
+namespace QueryTemp.Foo
+
+func Read(widget: Widget): string {
+    return widget.
+}
+"""),
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main() {
+}
+"""));
+
+        var engine = new CompletionEngine();
+        var result = engine.GetCompletions(snapshot, "Foo/UseWidget.nl", 4, 18);
+
+        var properties = Assert.Contains("properties", result.Completions);
+        Assert.Contains(properties, item => item.Name == "FooOnly");
+        Assert.DoesNotContain(properties, item => item.Name == "BarOnly");
     }
 
     [Fact]
@@ -854,9 +1046,10 @@ func helper(): int {
     [Fact]
     public void HoverCommand_ReturnsSignatureAndDoc()
     {
-        // `Hi` is defined at line 3, col 6 in hello-world/Program.nl
-        // Above it is a comment: "// A simple hello-world program..."
-        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 3, 6);
+        var programFile = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
+        var hiLine = FindLineInFile(programFile, "func Hi()");
+        var hiColumn = FindColumnInFile(programFile, hiLine, "Hi");
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", hiLine, hiColumn);
 
         Assert.NotNull(result);
         Assert.Equal("function", result!.Kind);
@@ -868,10 +1061,10 @@ func helper(): int {
     [Fact]
     public void HoverCommand_AtCallSite_ReturnsHoverInfo()
     {
-        // Line 17: `i := Hi()` — hover over `Hi` at col 6
-        var hiCol = FindColumnInFile(
-            Path.Combine(_examplesDir, "01-hello-world", "Program.nl"), 17, "Hi");
-        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 17, hiCol);
+        var programFile = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
+        var hiLine = FindLineInFile(programFile, "Hi()", occurrence: 2);
+        var hiCol = FindColumnInFile(programFile, hiLine, "Hi");
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", hiLine, hiCol);
 
         Assert.NotNull(result);
         Assert.Equal("function", result!.Kind);
@@ -881,8 +1074,12 @@ func helper(): int {
     [Fact]
     public void HoverCommand_NoSymbol_ReturnsNull()
     {
-        // Line 2 is blank — hover over blank will return null
-        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", 2, 1);
+        var programFile = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
+        var blankLine = File.ReadLines(programFile)
+            .Select((line, index) => (line, lineNumber: index + 1))
+            .First(item => string.IsNullOrWhiteSpace(item.line))
+            .lineNumber;
+        var result = _service.GetHoverInfo(HelloWorld, "Program.nl", blankLine, 1);
         Assert.Null(result);
     }
 

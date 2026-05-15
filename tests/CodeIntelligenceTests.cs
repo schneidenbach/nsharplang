@@ -311,16 +311,20 @@ public class CodeIntelligenceOutputTests
                 })),
             expected);
 
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
+                null, null, null, null, "int", "string", null),
+            new("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1,
+                null, null, null, null, null, null, null)
+        };
+
         AssertJsonContract("diagnostics",
-            OutputFormatter.DiagnosticsToJson(
-                new List<DiagnosticResult>
-                {
-                    new("NL202", "error", "Type mismatch", "Program.nl", 5, 4, 3,
-                        null, null, null, null, "int", "string", null),
-                    new("NL901", "warning", "Unused variable", "Program.nl", 10, 4, 1,
-                        null, null, null, null, null, null, null)
-                },
-                "/project"),
+            OutputFormatter.DiagnosticsToJson(diagnostics, "/project"),
+            expected);
+
+        AssertJsonContract("diagnosticsClusters",
+            OutputFormatter.DiagnosticClustersToJson(diagnostics, "/project"),
             expected);
 
         AssertJsonContract("doc",

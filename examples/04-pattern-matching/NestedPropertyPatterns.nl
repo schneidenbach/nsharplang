@@ -1,6 +1,5 @@
 // Nested Property Patterns Example
 // Demonstrates deep object destructuring in match expressions
-
 class Address {
     Street: string
     City: string
@@ -76,40 +75,45 @@ func Main() {
     print ""
 
     // Test person in NYC
-    addr1 := new Address() { Street: "123 Broadway", City: "New York", State: "NY", ZipCode: "10001" }
+    addr1 := new Address { Street: "123 Broadway", City: "New York", State: "NY", ZipCode: "10001" }
 
-    person1 := new Person() { Name: "Alice", Age: 25, Address: addr1, HasAddress: true }
+    person1 := new Person { Name: "Alice", Age: 25, Address: addr1, HasAddress: true }
 
     print $"Person 1: {ClassifyPerson(person1)}"
     print $"Analysis: {AnalyzePerson(person1)}"
     print ""
 
     // Test person in California
-    addr2 := new Address() { Street: "456 Main St", City: "San Francisco", State: "CA", ZipCode: "94102" }
+    addr2 := new Address {
+        Street: "456 Main St",
+        City: "San Francisco",
+        State: "CA",
+        ZipCode: "94102"
+    }
 
-    person2 := new Person() { Name: "Bob", Age: 70, Address: addr2, HasAddress: true }
+    person2 := new Person { Name: "Bob", Age: 70, Address: addr2, HasAddress: true }
 
     print $"Person 2: {ClassifyPerson(person2)}"
     print $"Analysis: {AnalyzePerson(person2)}"
     print ""
 
     // Test person with no address
-    dummyAddr := new Address() { Street: "", City: "", State: "", ZipCode: "" }
+    dummyAddr := new Address { Street: "", City: "", State: "", ZipCode: "" }
 
-    person3 := new Person() { Name: "Charlie", Age: 15, Address: dummyAddr, HasAddress: false }
+    person3 := new Person { Name: "Charlie", Age: 15, Address: dummyAddr, HasAddress: false }
 
     print $"Person 3: {ClassifyPerson(person3)}"
     print $"Analysis: {AnalyzePerson(person3)}"
     print ""
 
     // Test company
-    company := new Company() { Name: "TechCorp", Headquarters: addr1, HasHQ: true }
+    company := new Company { Name: "TechCorp", Headquarters: addr1, HasHQ: true }
 
     print $"Company: {DescribeCompany(company)}"
     print ""
 
     // Test API response
-    responseData := new ResponseData() { UserId: 42, UserName: "Alice", IsActive: true }
+    responseData := new ResponseData { UserId: 42, UserName: "Alice", IsActive: true }
 
     response := new ApiResponse.Success(responseData)
     print $"API Response: {HandleResponse(response)}"

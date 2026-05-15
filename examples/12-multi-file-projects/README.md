@@ -98,4 +98,4 @@ dotnet test
 
 ## Next Steps
 
-Check out the [13. ASP.NET Core Demo](../13-aspnet-demo/) for a larger project built on the same `dotnet build` workflow.
+Check out the [14. Minimal API](../14-minimal-api/) for an ASP.NET Core-shaped project built on the same `dotnet build` workflow.

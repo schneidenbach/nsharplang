@@ -3,8 +3,10 @@ namespace TaskCli.Commands
 import TaskCli.Models
 import TaskCli.Services
 
+
 // Handle the "list" and "search" commands
 class ListCommand {
+
     // List tasks with optional filters
     static func Run(service: TaskService, args: string[]) {
         filter := new Filter {
@@ -38,6 +40,7 @@ class ListCommand {
                 return args[i + 1]
             }
         }
+
         return ""
     }
 }

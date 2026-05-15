@@ -314,7 +314,7 @@ number: int = 42
 
 ## Attributes
 
-N# supports .NET attributes:
+N# supports .NET attributes on declarations and parameters:
 
 ```n#
 [Required]
@@ -322,10 +322,17 @@ N# supports .NET attributes:
 FirstName: string
 
 [HttpGet]
-async func GetAll(): IActionResult {
+async func GetAll([FromRoute] id: int): IActionResult {
+    // ...
+}
+
+[HttpPost]
+func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
     // ...
 }
 ```
+
+Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced packages, are visible to the framework at runtime.
 
 ## Example: Complete Program
 
@@ -388,4 +395,3 @@ func main() {
 
 - [Project README](../../README.md)
 - [Examples](../../examples/)
-- [Website](https://nsharp.dev)

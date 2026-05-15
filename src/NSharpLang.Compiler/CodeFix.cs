@@ -6,7 +6,10 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// Represents a text edit to be applied to a document
+/// Represents a text edit to be applied to a document.
+/// Lines are 1-based. Columns are 0-based, end-exclusive UTF-16/code-unit offsets within the line.
+/// A whole-line deletion may use an end position of the next line at column 0, including one line
+/// past the final document line for deleting the last line.
 /// </summary>
 public record TextEdit(
     int StartLine,
@@ -220,7 +223,7 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
             var variableName = message[(startIndex + 1)..endIndex];
 
             // Find the variable declaration in the AST
-            var sourceLines = sourceCode.Split('\n');
+            var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
             var line = diagnostic.Location.Line;
 
             if (line > 0 && line <= sourceLines.Length)
@@ -257,7 +260,7 @@ public class RemoveUnusedVariableCodeFixProvider : CodeFixProvider
 
 /// <summary>
 /// Code fix provider for NL003: Unnecessary Null Check.
-/// Removes the entire condition expression so the user can decide what to replace it with.
+/// Replaces value-type null comparisons with the literal boolean they evaluate to.
 /// </summary>
 public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
 {
@@ -269,7 +272,7 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
         if (line <= 0 || line > sourceLines.Length)
@@ -277,11 +280,9 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
 
         var sourceLine = sourceLines[line - 1];
 
-        // Replace "== null" or "!= null" patterns with the literal boolean they evaluate to:
+        // Replace "== null" or "!= null" comparisons with the literal boolean they evaluate to:
         // x != null (where x is a value type) is always true  → replace with "true"
         // x == null (where x is a value type) is always false → replace with "false"
-        //
-        // We detect which variant we have by looking at the source line.
         string? newCondition = null;
         string? oldPattern = null;
 
@@ -298,13 +299,10 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
 
         if (oldPattern != null && newCondition != null)
         {
-            var col = sourceLine.IndexOf(oldPattern, StringComparison.Ordinal);
-            if (col >= 0)
+            var patternStart = sourceLine.IndexOf(oldPattern, StringComparison.Ordinal);
+            if (patternStart >= 0 && TryFindStatementConditionRange(sourceLine, patternStart, out var conditionStart, out var conditionEnd))
             {
-                // Remove the "!= null" or "== null" part (including leading space)
-                var removeStart = col > 0 && sourceLine[col - 1] == ' ' ? col - 1 : col;
-                var removeEnd = col + oldPattern.Length;
-                var edit = new TextEdit(line, removeStart + 1, line, removeEnd + 1, "");
+                var edit = new TextEdit(line, conditionStart, line, conditionEnd, newCondition);
 
                 actions.Add(new CodeAction(
                     $"Remove unnecessary null check (always {newCondition})",
@@ -316,6 +314,38 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
         }
 
         return actions;
+    }
+
+    private static bool TryFindStatementConditionRange(string sourceLine, int patternStart, out int conditionStart, out int conditionEnd)
+    {
+        conditionStart = 0;
+        conditionEnd = 0;
+
+        var ifIndex = sourceLine.IndexOf("if ", StringComparison.Ordinal);
+        var whileIndex = sourceLine.IndexOf("while ", StringComparison.Ordinal);
+
+        var keywordIndex = ifIndex >= 0 && ifIndex < patternStart ? ifIndex : -1;
+        var keywordLength = 2;
+
+        if (whileIndex >= 0 && whileIndex < patternStart && (keywordIndex < 0 || whileIndex > keywordIndex))
+        {
+            keywordIndex = whileIndex;
+            keywordLength = 5;
+        }
+
+        if (keywordIndex < 0)
+            return false;
+
+        conditionStart = keywordIndex + keywordLength;
+        while (conditionStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[conditionStart]))
+            conditionStart++;
+
+        var braceIndex = sourceLine.IndexOf('{', patternStart);
+        conditionEnd = braceIndex >= 0 ? braceIndex : sourceLine.Length;
+        while (conditionEnd > conditionStart && char.IsWhiteSpace(sourceLine[conditionEnd - 1]))
+            conditionEnd--;
+
+        return conditionStart < conditionEnd;
     }
 }
 
@@ -333,7 +363,7 @@ public class AddCommentToEmptyCatchCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
         if (line <= 0 || line > sourceLines.Length)
@@ -346,9 +376,9 @@ public class AddCommentToEmptyCatchCodeFixProvider : CodeFixProvider
 
         var edit = new TextEdit(
             line,
-            catchLine.Length + 1, // end of the `{` line (1-indexed col after last char)
+            catchLine.Length, // end of the `{` line (0-based end-exclusive column)
             line,
-            catchLine.Length + 1,
+            catchLine.Length,
             $"\n{indent}// TODO: handle exception");
 
         actions.Add(new CodeAction(
@@ -376,7 +406,7 @@ public class ConvertToInterpolationCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
         if (line <= 0 || line > sourceLines.Length)
@@ -444,7 +474,7 @@ public class ChangeLetToConstCodeFixProvider : CodeFixProvider
         string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
 
         if (line <= 0 || line > sourceLines.Length)
@@ -458,7 +488,7 @@ public class ChangeLetToConstCodeFixProvider : CodeFixProvider
             return actions;
 
         // Replace `let ` (4 chars) with `const ` (6 chars)
-        var edit = new TextEdit(line, letIndex + 1, line, letIndex + 4 + 1, "const ");
+        var edit = new TextEdit(line, letIndex, line, letIndex + 4, "const ");
 
         actions.Add(new CodeAction(
             "Change 'let' to 'const'",
@@ -477,7 +507,7 @@ public class ChangeLetToConstCodeFixProvider : CodeFixProvider
 /// </summary>
 public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 {
-    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL101", "NL102", "NL103", "NL104", "NL105", "NL106" };
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL101", "NL102", "NL103", "NL104", "NL105", "NL106", "NL110", "NL111" };
 
     public override List<CodeAction> GetCodeActions(
         Diagnostic diagnostic,
@@ -488,10 +518,12 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
         {
             "NL101" => GetModifierActions(diagnostic, sourceCode),
             "NL103" => GetNullForgivingActions(diagnostic, sourceCode),
+            "NL110" => GetObjectInitializerAssignmentActions(diagnostic, sourceCode),
             "NL102" => Suggest(diagnostic, "Convert C# auto-property syntax to N# property/record syntax"),
             "NL104" => Suggest(diagnostic, "Rewrite out var / TryGetValue pattern for N#"),
             "NL105" => Suggest(diagnostic, "Convert DTO-shaped class to an N# record"),
             "NL106" => Suggest(diagnostic, "Replace catch-to-500 boilerplate with centralized error handling"),
+            "NL111" => Suggest(diagnostic, "Replace unsafe .Value access with match, ??, or an explicit null/HasValue guard"),
             _ => new List<CodeAction>()
         };
     }
@@ -503,7 +535,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
         if (modifier == null)
             return actions;
 
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
         if (line <= 0 || line > sourceLines.Length)
             return actions;
@@ -523,7 +555,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
         actions.Add(new CodeAction(
             $"Remove '{modifier}' C# modifier",
             "NL101",
-            new List<TextEdit> { new(line, tokenIndex + 1, line, endIndex + 1, "") },
+            new List<TextEdit> { new(line, tokenIndex, line, endIndex, "") },
             CodeActionKind.QuickFix,
             FixSafety.ReviewNeeded));
 
@@ -533,7 +565,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
     private static List<CodeAction> GetNullForgivingActions(Diagnostic diagnostic, string sourceCode)
     {
         var actions = new List<CodeAction>();
-        var sourceLines = sourceCode.Split('\n');
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
         var line = diagnostic.Location.Line;
         if (line <= 0 || line > sourceLines.Length)
             return actions;
@@ -547,9 +579,44 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
         actions.Add(new CodeAction(
             "Remove null-forgiving '!' artifact",
             "NL103",
-            new List<TextEdit> { new(line, bangIndex + 1, line, bangIndex + 2, "") },
+            new List<TextEdit> { new(line, bangIndex, line, bangIndex + 1, "") },
             CodeActionKind.QuickFix,
             FixSafety.ReviewNeeded));
+
+        return actions;
+    }
+
+    private static List<CodeAction> GetObjectInitializerAssignmentActions(Diagnostic diagnostic, string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
+        var line = diagnostic.Location.Line;
+        if (line <= 0 || line > sourceLines.Length)
+            return actions;
+
+        var sourceLine = sourceLines[line - 1];
+        var startIndex = Math.Max(0, diagnostic.Location.Column - 1);
+        var equalsIndex = sourceLine.IndexOf('=', startIndex);
+        if (equalsIndex < 0)
+            return actions;
+
+        if (equalsIndex + 1 < sourceLine.Length && sourceLine[equalsIndex + 1] == '=')
+            return actions;
+
+        var propertyEnd = startIndex;
+        while (propertyEnd < sourceLine.Length && (char.IsLetterOrDigit(sourceLine[propertyEnd]) || sourceLine[propertyEnd] == '_'))
+            propertyEnd++;
+
+        var replacementEnd = equalsIndex + 1;
+        while (replacementEnd < sourceLine.Length && char.IsWhiteSpace(sourceLine[replacementEnd]))
+            replacementEnd++;
+
+        actions.Add(new CodeAction(
+            "Replace object initializer '=' with ':'",
+            "NL110",
+            new List<TextEdit> { new(line, propertyEnd, line, replacementEnd, ": ") },
+            CodeActionKind.QuickFix,
+            FixSafety.Safe));
 
         return actions;
     }

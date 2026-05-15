@@ -1,5 +1,7 @@
 namespace NSharpInteropLib.Geometry
+
 import System
+
 
 // Class-based point for reliable interop (struct primary constructors
 // have limitations with member access on other instances)
@@ -26,7 +28,7 @@ interface IShape {
 }
 
 // Class implementing an interface
-class Circle : IShape {
+class Circle: IShape {
     Radius: double
 
     constructor(radius: double) {
@@ -43,7 +45,7 @@ class Circle : IShape {
 }
 
 // Class with inheritance potential
-class Rectangle : IShape {
+class Rectangle: IShape {
     Width: double
     Height: double
 

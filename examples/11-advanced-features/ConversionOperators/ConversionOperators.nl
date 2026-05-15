@@ -91,29 +91,34 @@ func Main() {
 
     // Implicit conversion (no cast needed)
     celsius := new Celsius { Value: 20.0 }
-    let fahrenheit: Fahrenheit = celsius  // Implicit conversion
+    fahrenheit: Fahrenheit = celsius
+    // Implicit conversion
     print $"20°C = {fahrenheit.Value:F1}°F"
 
     // Conversion chain
-    let c2: Celsius = fahrenheit  // Implicit conversion back
+    c2: Celsius = fahrenheit
+    // Implicit conversion back
     print $"{fahrenheit.Value:F1}°F = {c2.Value:F1}°C"
 
     // Explicit conversion (requires cast)
-    kelvin := (Kelvin)celsius  // Explicit cast required
+    kelvin := (Kelvin)celsius
+    // Explicit cast required
     print $"20°C = {kelvin.Value:F2}K"
 
     print ""
     print "=== Fraction Conversions ==="
 
     frac := new Fraction { Numerator: 3, Denominator: 4 }
-    value := (double)frac  // Explicit cast required
+    value := (double)frac
+    // Explicit cast required
     print $"3/4 = {value}"
 
     print ""
     print "=== Money Conversions ==="
 
     usd := new Money { Amount: 100.50, Currency: "USD" }
-    let amount: double = usd  // Implicit conversion to double
+    amount: double = usd
+    // Implicit conversion to double
     print $"Money: {usd.ToString()}"
     print $"Amount only: {amount}"
 
@@ -121,26 +126,24 @@ func Main() {
     print "=== Distance Conversions ==="
 
     meters := new Meters { Value: 5.0 }
-    let cm: Centimeters = meters  // Implicit conversion
+    cm: Centimeters = meters
+    // Implicit conversion
     print $"5 meters = {cm.Value} centimeters"
 
     cm2 := new Centimeters { Value: 250.0 }
-    m2 := (Meters)cm2  // Explicit cast required
+    m2 := (Meters)cm2
+    // Explicit cast required
     print $"250 cm = {m2.Value} meters"
 
     print ""
     print "=== Practical Use Case ==="
 
     // Temperature calculation using implicit conversions
-    let temps: Celsius[] = [
-        new Celsius { Value: 0.0 },
-        new Celsius { Value: 20.0 },
-        new Celsius { Value: 30.0 },
-        new Celsius { Value: 100.0 }
-    ]
+    temps: Celsius[] = [new Celsius { Value: 0.0 }, new Celsius { Value: 20.0 }, new Celsius { Value: 30.0 }, new Celsius { Value: 100.0 }]
 
     for temp in temps {
-        let f: Fahrenheit = temp  // Implicit conversion
+        f: Fahrenheit = temp
+        // Implicit conversion
         print $"{temp.Value}°C = {f.Value:F1}°F"
     }
 }

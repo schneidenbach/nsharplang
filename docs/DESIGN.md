@@ -9,7 +9,7 @@
 N# is a pragmatic language targeting .NET/CLI that prioritizes:
 - **Expressive types**: Discriminated unions and structural typing that C# lacks
 - **Pragmatism**: Embraces .NET realities (including null)
-- **Perfect C# interop**: Generated code is idiomatic C# that C# consumers can't distinguish
+- **Pragmatic C# interop**: Generated assemblies and source are designed to fit normal .NET consumption paths
 - **Clean syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
 - **Multi-paradigm**: Use the right tool for the job (OOP, functional, procedural)
 
@@ -44,7 +44,7 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
 ### What We ARE
 - C-esque syntax
 - Pragmatic multi-paradigm (functional support, not functional-first)
-- .NET/CLI native with **perfect** C# interop
+- .NET/CLI native with practical C# interop as a design constraint
 - Null-aware by design (embraces C# nullable reference types)
 - Type system improvements that C# can actually use
 
@@ -140,7 +140,7 @@ union Result {
 #### Pattern Matching
 - `match` expression for exhaustive pattern matching (compiler enforced)
 - `switch` statement as separate construct (non-exhaustive)
-- **F#-level pattern matching** with multiple pattern types:
+- **Rich pattern matching** with multiple pattern types and targeted exhaustiveness checks:
 
 **Union Case Patterns**:
 ```
@@ -178,6 +178,13 @@ result := match person {
     _ => "Other"
 }
 ```
+
+For union exhaustiveness, an arm with constrained properties (for example
+`Result.Success { value: 0 }`) is only partial coverage for that union case.
+Use an unconstrained case arm (`Result.Success { value }`), a wildcard, or cover
+all cases of one nested union property (`Response.Ok { data: Option.Some { ... } }`
+plus `Response.Ok { data: Option.None }`) before the compiler marks the outer
+case exhaustive.
 
 **Positional Patterns** (tuples/deconstructable types):
 ```
@@ -715,6 +722,7 @@ print person.ToString()                  // any expression
 - Always outputs with newline (like println)
 - Transpiles to `Console.WriteLine()`
 - Use string interpolation for formatting instead of printf
+- Interpolation holes are parsed and analyzed as normal expressions, so symbols inside `{...}` participate in diagnostics, IL generation, definition/references, and rename tooling.
 
 #### Control Flow
 - No parentheses required (Go-style)
@@ -1594,7 +1602,7 @@ N# is a **focused subset of C#** with **type system improvements**:
 - NOT based on OCaml syntax
 
 ### The Key Differentiator
-**N# improves .NET's type system while maintaining perfect C# interop.**
+**N# aims to improve .NET ergonomics while preserving practical C# interop.**
 
 When you compile N# code to a library, C# consumers should:
 - Use your types naturally (no weird wrappers)

@@ -1,10 +1,11 @@
 namespace TaskCli.Services
 
 import System
-import System.IO
 import System.Collections.Generic
+import System.IO
 import System.Threading.Tasks
 import TaskCli.Models
+
 
 // Persists tasks to a pipe-delimited file with async I/O
 class TaskStore {
@@ -15,6 +16,7 @@ class TaskStore {
         if !Directory.Exists(dir) {
             Directory.CreateDirectory(dir)
         }
+
         filePath = Path.Combine(dir, "tasks.dat")
     }
 
@@ -48,6 +50,7 @@ class TaskStore {
         for task in tasks {
             lines.Add(FormatLine(task))
         }
+
         await File.WriteAllLinesAsync(filePath, lines)
         return true
     }
@@ -98,11 +101,13 @@ class TaskStore {
     // Parse string back to Status union
     static func ParseStatus(s: string): Status {
         if s == "InProgress" {
-            return new Status.InProgress {}
+            return new Status.InProgress {  }
         }
+
         if s == "Done" {
-            return new Status.Done {}
+            return new Status.Done {  }
         }
-        return new Status.Todo {}
+
+        return new Status.Todo {  }
     }
 }

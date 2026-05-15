@@ -15,25 +15,30 @@ func Main() {
 
     // Example 1: Default behavior (unchecked in .NET)
     print "1. Default Behavior (unchecked):"
-    max := 2147483647  // int.MaxValue
+    max := 2147483647
+    // int.MaxValue
     print $"int.MaxValue = {max}"
 
     // This wraps around in default unchecked context
     defaultOverflow := max + 1
-    print $"MaxValue + 1 (default) = {defaultOverflow}"  // Wraps to MinValue (-2147483648)
+    print $"MaxValue + 1 (default) = {defaultOverflow}"
+    // Wraps to MinValue (-2147483648)
     print ""
 
     // Example 2: Explicit unchecked - wraps around
     print "2. Unchecked Context (wraps on overflow):"
     wrapped := unchecked(max + 1)
-    print $"unchecked(MaxValue + 1) = {wrapped}"  // -2147483648
+    print $"unchecked(MaxValue + 1) = {wrapped}"
+    // -2147483648
     print ""
 
     // Example 3: Unchecked subtraction
     print "3. Unchecked Subtraction (wraps):"
-    min := -2147483648  // int.MinValue
+    min := -2147483648
+    // int.MinValue
     wrappedSub := unchecked(min - 1)
-    print $"unchecked(MinValue - 1) = {wrappedSub}"  // Wraps to MaxValue (2147483647)
+    print $"unchecked(MinValue - 1) = {wrappedSub}"
+    // Wraps to MaxValue (2147483647)
     print ""
 
     // Example 4: Unchecked multiplication

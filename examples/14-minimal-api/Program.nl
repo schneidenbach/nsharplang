@@ -14,7 +14,11 @@ func main(args: string[]) {
     app.MapGet("/time", () => DateTime.Now.ToString())
 
     // JSON endpoint
-    app.MapGet("/json", () => new() { Message: "Hello from N#", Timestamp: DateTime.Now, Language: "N#" })
+    app.MapGet("/json", () => new {
+        Message: "Hello from N#",
+        Timestamp: DateTime.Now,
+        Language: "N#"
+    })
 
     // Environment check
     if app.Environment.IsDevelopment() {

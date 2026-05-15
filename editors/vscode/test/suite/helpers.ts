@@ -123,6 +123,8 @@ export async function createTempNlFile(
 
     const name = filename || `_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.nl`;
     const filePath = path.join(workspaceRoot, name);
+    const hadExistingFile = fs.existsSync(filePath);
+    const existingContent = hadExistingFile ? fs.readFileSync(filePath, 'utf-8') : undefined;
     fs.writeFileSync(filePath, content, 'utf-8');
 
     const doc = await openDocument(name);
@@ -134,7 +136,11 @@ export async function createTempNlFile(
 
     const cleanup = () => {
         try {
-            fs.unlinkSync(filePath);
+            if (hadExistingFile) {
+                fs.writeFileSync(filePath, existingContent!, 'utf-8');
+            } else {
+                fs.unlinkSync(filePath);
+            }
         } catch {
             // Best-effort cleanup
         }

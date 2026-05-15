@@ -314,6 +314,24 @@ IdNumber: string = null
     }
 
     [Fact]
+    public void Format_PreservesParameterAttributes()
+    {
+        var input = @"class UsersController {
+func Create([FromBody] [FromRoute(""id"")] id: int, [Required] user: CreateUserRequest): IActionResult {
+return null
+}
+}";
+        var expected = @"class UsersController {
+    func Create([FromBody] [FromRoute(""id"")] id: int, [Required] user: CreateUserRequest): IActionResult {
+        return null
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_MatchExpression()
     {
         var input = @"func Test(x: int): string {
@@ -867,6 +885,72 @@ Y: int
     }
 
     [Fact]
+    public void Format_ConversionOperator_UsesNativeSyntax()
+    {
+        var input = @"class Celsius {
+implicit operator Fahrenheit(c:Celsius){
+return new Fahrenheit()
+}
+}";
+        var expected = @"class Celsius {
+    implicit operator Fahrenheit(c: Celsius) {
+        return new Fahrenheit()
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_FunctionType_UsesParserSupportedFuncSyntax()
+    {
+        var input = @"func Times(action: Func<int, void>) {
+action(1)
+}";
+        var expected = @"func Times(action: Func<int, void>) {
+    action(1)
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_OutVariableDeclaration_DoesNotDuplicateOutModifier()
+    {
+        var input = @"func Main() {
+if TryParseInt(""123"", out var number) {
+print number
+}
+}";
+        var expected = @"func Main() {
+    if TryParseInt(""123"", out var number) {
+        print number
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_LockStatementWithLeadingComment_IsIdempotent()
+    {
+        var input = @"func Decrement() {
+lock _lock {
+// parentheses optional
+_value--
+}
+}";
+
+        var once = FormatWithComments(input).Trim();
+        var twice = FormatWithComments(once).Trim();
+
+        Assert.Equal(once, twice);
+    }
+
+    [Fact]
     public void Format_WithCustomIndent()
     {
         var input = "func main(){print 5}";
@@ -1179,6 +1263,17 @@ func Main() {
 
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_InterpolatedRawString_PreservesRawDelimitersAndIsIdempotent()
+    {
+        var input = "func Test(name: string) {\n    html := $\"\"\"\n    <h1>{name}</h1>\n    \"\"\"\n}";
+        var formatted = Format(input).Trim();
+
+        Assert.Contains("$\"\"\"", formatted);
+        Assert.Contains("<h1>{name}</h1>", formatted);
+        Assert.Equal(formatted, Format(formatted).Trim());
     }
 
     // ── Match expression formatting ─────────────────────────────────────
@@ -1530,6 +1625,22 @@ Done = ""done""
         Assert.Equal(expected, result);
     }
 
+    [Fact]
+    public void Format_StructPrimaryConstructor_PreservesParameters()
+    {
+        var input = @"struct Point(x: double, y: double) {
+X: double = x
+Y: double = y
+}";
+        var expected = @"struct Point(x: double, y: double) {
+    X: double = x
+    Y: double = y
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
     // ── Safety gate tests ───────────────────────────────────────────
 
     [Fact]
@@ -1640,7 +1751,20 @@ Done = ""done""
     x := new Foo() { A: 1, B: 2 }
 }";
         var expected = @"func Test() {
-    x := new Foo() { A: 1, B: 2 }
+    x := new Foo { A: 1, B: 2 }
+}";
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_ObjectInitializer_KeepsConstructorParensWhenArgumentsExist()
+    {
+        var input = @"func Test() {
+    x := new Foo(1) { A: 1 }
+}";
+        var expected = @"func Test() {
+    x := new Foo(1) { A: 1 }
 }";
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
@@ -1653,7 +1777,7 @@ Done = ""done""
     options := new JsonSerializerOptions() { PropertyNameCaseInsensitive: true, PropertyNamingPolicy: someLongValue }
 }";
         var expected = @"func Test() {
-    options := new JsonSerializerOptions() {
+    options := new JsonSerializerOptions {
         PropertyNameCaseInsensitive: true,
         PropertyNamingPolicy: someLongValue
     }
@@ -1670,7 +1794,7 @@ Done = ""done""
     x := new SomeVeryLongTypeName() { SomeVeryLongPropertyNameThatExceedsLimit: true }
 }";
         var expected = @"func Test() {
-    x := new SomeVeryLongTypeName() { SomeVeryLongPropertyNameThatExceedsLimit: true }
+    x := new SomeVeryLongTypeName { SomeVeryLongPropertyNameThatExceedsLimit: true }
 }";
         var result = Format(input).Trim();
         Assert.Equal(expected, result);
@@ -1698,7 +1822,7 @@ Done = ""done""
     }
 }";
         var expected = @"func Test() {
-    options := new JsonSerializerOptions() {
+    options := new JsonSerializerOptions {
         PropertyNameCaseInsensitive: true,
         PropertyNamingPolicy: someLongValue
     }

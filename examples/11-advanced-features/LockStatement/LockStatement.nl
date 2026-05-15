@@ -1,6 +1,7 @@
 import System
 import System.Threading.Tasks
 
+
 // Thread-safe counter using lock statement
 class Counter {
     _value: int = 0
@@ -13,7 +14,8 @@ class Counter {
     }
 
     func Decrement() {
-        lock (_lock) {  // parentheses optional
+        lock _lock {
+            // parentheses optional
             _value--
         }
     }
@@ -61,6 +63,7 @@ class BankAccount {
                 print $"Withdrew ${amount:F2}. New balance: ${balance:F2}"
                 return true
             }
+
             return false
         }
     }
@@ -87,11 +90,13 @@ func Main() {
             counter.Increment()
         }
     })
+
     t2 := Task.Run(() => {
         for i := 0; i < 1000; i++ {
             counter.Increment()
         }
     })
+
     t3 := Task.Run(() => {
         for i := 0; i < 500; i++ {
             counter.Decrement()

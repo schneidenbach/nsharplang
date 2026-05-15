@@ -99,6 +99,33 @@ public class CliParityAuditTests
     }
 
     [Fact]
+    public void FormatCommand_ProjectDiscovery_SkipsGeneratedAndInvalidFixtureTrees()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
+            Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
+            File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
+            Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models"));
+            File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models", "Customer.nl"), "record Order(id: string)\n");
+            Directory.CreateDirectory(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors"));
+            File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.nl"), "func Broken(x y) {");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("format", "--project", tempDir, "--check"));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("All files are properly formatted", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void FormatCommand_Stdin_FormatsToStdout()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(
@@ -470,6 +497,11 @@ func Main() {
         Assert.Equal(1, exitCode);
         Assert.True(string.IsNullOrWhiteSpace(stdout));
         Assert.Contains("Unknown command: convert", stderr);
+
+        var exportedCliTypes = typeof(NSharpLang.Cli.CommandRegistry).Assembly.GetExportedTypes();
+        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("ConvertCommand") == true);
+        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("CSharpToNSharpConverter") == true);
+        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("CSharpConversionResult") == true);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────

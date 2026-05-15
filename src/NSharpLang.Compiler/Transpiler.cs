@@ -1610,10 +1610,7 @@ public class Transpiler
         {
             foreach (var attr in param.Attributes)
             {
-                var args = attr.Arguments.Count > 0
-                    ? $"({string.Join(", ", attr.Arguments.Select(a => TranspileExpression(a.Value)))})"
-                    : "";
-                result += $"[{attr.Name}{args}] ";
+                result += $"{TranspileAttributeInline(attr)} ";
             }
         }
 
@@ -2465,13 +2462,18 @@ public class Transpiler
 
     private string TranspileInterpolatedString(InterpolatedStringExpression expr)
     {
+        if (expr.IsRaw)
+        {
+            return TranspileRawInterpolatedString(expr);
+        }
+
         var sb = new System.Text.StringBuilder("$\"");
         foreach (var part in expr.Parts)
         {
             switch (part)
             {
                 case InterpolatedStringText text:
-                    sb.Append(text.Text);
+                    sb.Append(EscapeInterpolatedStringText(text.Text));
                     break;
                 case InterpolatedStringHole hole:
                     sb.Append('{');
@@ -2487,6 +2489,43 @@ public class Transpiler
         }
         sb.Append('"');
         return sb.ToString();
+    }
+
+    private string TranspileRawInterpolatedString(InterpolatedStringExpression expr)
+    {
+        var sb = new System.Text.StringBuilder("$\"\"\"");
+        foreach (var part in expr.Parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    sb.Append(text.Text.Replace("{", "{{", StringComparison.Ordinal).Replace("}", "}}", StringComparison.Ordinal));
+                    break;
+                case InterpolatedStringHole hole:
+                    sb.Append('{');
+                    sb.Append(TranspileExpression(hole.Expression));
+                    if (hole.FormatClause != null)
+                    {
+                        sb.Append(':');
+                        sb.Append(hole.FormatClause);
+                    }
+                    sb.Append('}');
+                    break;
+            }
+        }
+        sb.Append("\"\"\"");
+        return sb.ToString();
+    }
+
+    private static string EscapeInterpolatedStringText(string text)
+    {
+        return text
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal)
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("{", "{{", StringComparison.Ordinal)
+            .Replace("}", "}}", StringComparison.Ordinal);
     }
 
     private string TranspileBinaryExpression(BinaryExpression binary)
@@ -3126,11 +3165,28 @@ public class Transpiler
     {
         foreach (var attr in attributes)
         {
-            var args = attr.Arguments.Count > 0
-                ? $"({string.Join(", ", attr.Arguments.Select(a => TranspileExpression(a.Value)))})"
-                : "";
-            WriteLine($"[{attr.Name}{args}]");
+            WriteLine(TranspileAttributeInline(attr));
         }
+    }
+
+    private string TranspileAttributeInline(AttributeNode attr)
+    {
+        var args = attr.Arguments.Count > 0
+            ? $"({string.Join(", ", attr.Arguments.Select(TranspileAttributeArgument))})"
+            : "";
+        return $"[{attr.Name}{args}]";
+    }
+
+    private string TranspileAttributeArgument(Argument argument)
+    {
+        if (argument.Name != null)
+        {
+            return $"{argument.Name} = {TranspileExpression(argument.Value)}";
+        }
+
+        return argument.Value is AssignmentExpression { Target: IdentifierExpression identifier } assignment
+            ? $"{identifier.Name} = {TranspileExpression(assignment.Value)}"
+            : TranspileExpression(argument.Value);
     }
 
     /// <summary>

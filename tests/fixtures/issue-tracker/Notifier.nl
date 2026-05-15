@@ -7,6 +7,7 @@ namespace IssueTracker
 import System
 import System.Collections.Generic
 
+
 // Duck interface — any type with a matching Notify method qualifies.
 // No explicit implementation required. This is how Go interfaces work.
 duck interface INotifier {
@@ -39,6 +40,7 @@ class SlackNotifier {
 // The duck interface INotifier is internal — it only appears in private fields,
 // never in public signatures. Concrete types go in, duck matching happens at assignment.
 class NotifierHub {
+
     // camelCase → private. The duck interface type stays hidden.
     notifiers: List<INotifier>
 

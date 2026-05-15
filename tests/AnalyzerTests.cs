@@ -1112,6 +1112,223 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void MatchExpression_ConstrainedUnionCaseProperty_DoesNotCoverWholeCase()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value: 0 } => 0,
+                    Result.Failure { error } => 1
+                }
+            }
+        ", "partially covered: Success");
+    }
+
+    [Fact]
+    public void MatchExpression_ConstrainedUnionCaseProperty_ReportsMissingAndPartialCases()
+    {
+        AssertHasError(@"
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+                Pending
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value: 0 } => 0
+                }
+            }
+        ", "missing: Failure, Pending; partially covered: Success");
+    }
+
+    [Fact]
+    public void MatchExpression_NestedConstrainedUnionProperty_DoesNotCoverOuterCase()
+    {
+        AssertHasError(@"
+            union Option {
+                Some { value: int }
+                None
+            }
+
+            union Response {
+                Ok { data: Option }
+                Error { message: string }
+            }
+
+            func Main() {
+                r := new Response.Ok { data: new Option.Some { value: 1 } }
+                x := match r {
+                    Response.Ok { data: Option.Some { value: 0 } } => 0,
+                    Response.Error { message } => 1
+                }
+            }
+        ", "Response.Ok { data: Option.None }");
+    }
+
+    [Fact]
+    public void MatchExpression_NestedUnionPropertyPattern_BindsInnerValue()
+    {
+        AssertNoErrors(@"
+            union Option {
+                Some { value: int }
+                None
+            }
+
+            union Response {
+                Ok { data: Option }
+                Error { message: string }
+            }
+
+            func Main() {
+                r := new Response.Ok { data: new Option.Some { value: 1 } }
+                x := match r {
+                    Response.Ok { data: Option.Some { value } } => value,
+                    Response.Ok { data: Option.None } => 0,
+                    Response.Error { message } => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_ResultErrorExamplePatterns_AreExhaustive()
+    {
+        AssertNoErrors(@"
+            union Option {
+                Some { value: int }
+                None
+            }
+
+            union Result {
+                Success { value: int }
+                Failure { error: string, code: int }
+            }
+
+            union Response {
+                Ok { data: Option }
+                Error { message: string }
+            }
+
+            func DescribeResult(result: Result): string {
+                return match result {
+                    Result.Success { value } => $""Success: {value}"",
+                    Result.Failure { error, code } => $""Error {code}: {error}""
+                }
+            }
+
+            func ExtractResponse(response: Response): int {
+                return match response {
+                    Response.Ok { data: Option.Some { value } } => value,
+                    Response.Ok { data: Option.None } => 0,
+                    Response.Error { message } => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void MatchExpression_NestedUnionPropertyPattern_WrongQualifierDoesNotCoverCase()
+    {
+        AssertHasError(@"
+            union Option {
+                Some { value: int }
+                None
+            }
+
+            union Other {
+                Some { value: int }
+                None
+            }
+
+            union Response {
+                Ok { data: Option }
+                Error { message: string }
+            }
+
+            func Main() {
+                r := new Response.Ok { data: new Option.Some { value: 1 } }
+                x := match r {
+                    Response.Ok { data: Other.Some { value } } => value,
+                    Response.Ok { data: Option.None } => 0,
+                    Response.Error { message } => 0
+                }
+            }
+        ", "'Other.Some' is not a case of union 'Option'");
+    }
+
+    [Fact]
+    public void MatchExpression_TopLevelUnionCasePattern_WrongQualifierDoesNotCoverCase()
+    {
+        AssertHasError(@"
+            union Expected {
+                Case { value: int }
+                Empty
+            }
+
+            union Other {
+                Case { value: int }
+                Empty
+            }
+
+            func Main() {
+                r := new Expected.Case { value: 1 }
+                x := match r {
+                    Other.Case { value } => value,
+                    Expected.Empty => 0
+                }
+            }
+        ", "'Other.Case' is not a case of union 'Expected'");
+    }
+
+    [Fact]
+    public void MatchExpression_TopLevelUnionCasePattern_NamespaceLikeWrongQualifierDoesNotCoverCase()
+    {
+        AssertHasError(@"
+            union Expected {
+                Case { value: int }
+                Empty
+            }
+
+            func Main() {
+                r := new Expected.Case { value: 1 }
+                x := match r {
+                    Other.Expected.Case { value } => value,
+                    Expected.Empty => 0
+                }
+            }
+        ", "'Other.Expected.Case' is not a case of union 'Expected'");
+    }
+
+    [Fact]
+    public void MatchExpression_NamespacedUnion_AllowsShortQualifier()
+    {
+        AssertNoErrors(@"
+            namespace Demo.Patterns
+
+            union Result {
+                Success { value: int }
+                Failure { error: string }
+            }
+
+            func Main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Success { value } => value,
+                    Result.Failure { error } => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
     public void MatchExpression_WithWildcard_IsExhaustive()
     {
         AssertNoErrors(@"
@@ -6691,6 +6908,20 @@ func Main() {
     Helper(1)
     Helper(1, 2)
     Helper(1, 2, 3)
+}
+        ");
+    }
+
+    [Fact]
+    public void ParameterAttributes_DoNotAffectSemanticAnalysis()
+    {
+        AssertNoErrors(@"
+func Identity([CLSCompliant(true)] value: int): int {
+    return value
+}
+
+func Main() {
+    result := Identity(42)
 }
         ");
     }

@@ -26,11 +26,11 @@ file struct ValidationResult {
     ErrorMessage: string
 
     static func Success(): ValidationResult {
-        return new ValidationResult() { IsValid: true, ErrorMessage: "" }
+        return new ValidationResult { IsValid: true, ErrorMessage: "" }
     }
 
     static func Failure(message: string): ValidationResult {
-        return new ValidationResult() { IsValid: false, ErrorMessage: message }
+        return new ValidationResult { IsValid: false, ErrorMessage: message }
     }
 }
 

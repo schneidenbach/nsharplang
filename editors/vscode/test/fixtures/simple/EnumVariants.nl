@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // String-backed enum (regression: parser error on `: string`)
 enum Direction: string {
     North = "north",
@@ -9,7 +10,7 @@ enum Direction: string {
 }
 
 // Int-backed enum
-enum Priority: int {
+enum Priority {
     Low = 1,
     Medium = 2,
     High = 3,
@@ -33,7 +34,7 @@ enum SingleValueEnum: string {
 }
 
 // Int-backed enum with explicit zero
-enum ErrorCode: int {
+enum ErrorCode {
     None = 0,
     NotFound = 404,
     ServerError = 500

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using Xunit;
 
@@ -92,6 +93,54 @@ public class CliCommandTests
     }
 
     [Fact]
+    public void QueryCommand_DiagnosticsClusters_EmitsClusterEnvelope()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-diagnostic-clusters-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: DiagnosticClusters
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    Console.WriteLine(undefinedVar1)
+    Console.WriteLine(undefinedVar2)
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--clusters",
+                "--project", tempDir
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("diagnostics.clusters", doc.RootElement.GetProperty("command").GetString());
+            AssertJsonContract("diagnosticsClusters", stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray(),
+                item => item.GetProperty("category").GetString() == "identifier-resolution");
+            Assert.Equal("converter:missing-import-qualification-or-rename", cluster.GetProperty("recipe").GetString());
+            Assert.Equal("medium", cluster.GetProperty("risk").GetString());
+            Assert.Equal("Program.nl", Assert.Single(cluster.GetProperty("files").EnumerateArray()).GetString());
+            Assert.True(cluster.GetProperty("relatedDiagnostics").GetArrayLength() >= 2);
+            Assert.StartsWith("nlc query inspect --file Program.nl --pos ", cluster.GetProperty("nextCommand").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
@@ -169,7 +218,11 @@ public class CliCommandTests
     "command": "inspect",
     "file": "Service.nl",
     "pos": "11:5",
-    "summary": true
+    "compact": true
+  },
+  {
+    "command": "diagnostics",
+    "clusters": true
   },
   {
     "command": "doc",
@@ -197,22 +250,28 @@ public class CliCommandTests
             using var doc = JsonDocument.Parse(stdout);
             Assert.Equal("batch", doc.RootElement.GetProperty("command").GetString());
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(3, doc.RootElement.GetProperty("requestCount").GetInt32());
-            Assert.Equal(2, doc.RootElement.GetProperty("successCount").GetInt32());
+            Assert.Equal(4, doc.RootElement.GetProperty("requestCount").GetInt32());
+            Assert.Equal(3, doc.RootElement.GetProperty("successCount").GetInt32());
             Assert.Equal(1, doc.RootElement.GetProperty("failureCount").GetInt32());
 
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
             Assert.Equal("inspect", results[0].GetProperty("request").GetProperty("command").GetString());
+            Assert.True(results[0].GetProperty("request").GetProperty("compact").GetBoolean());
             Assert.True(results[0].GetProperty("ok").GetBoolean());
             Assert.True(results[0].GetProperty("response").TryGetProperty("summary", out _));
 
-            Assert.Equal("doc", results[1].GetProperty("request").GetProperty("command").GetString());
+            Assert.Equal("diagnostics", results[1].GetProperty("request").GetProperty("command").GetString());
+            Assert.True(results[1].GetProperty("request").GetProperty("clusters").GetBoolean());
             Assert.True(results[1].GetProperty("ok").GetBoolean());
-            Assert.Equal("doc", results[1].GetProperty("response").GetProperty("command").GetString());
+            Assert.Equal("diagnostics.clusters", results[1].GetProperty("response").GetProperty("command").GetString());
 
-            Assert.Equal("type", results[2].GetProperty("request").GetProperty("command").GetString());
-            Assert.False(results[2].GetProperty("ok").GetBoolean());
-            Assert.Equal("noSymbol", results[2].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("doc", results[2].GetProperty("request").GetProperty("command").GetString());
+            Assert.True(results[2].GetProperty("ok").GetBoolean());
+            Assert.Equal("doc", results[2].GetProperty("response").GetProperty("command").GetString());
+
+            Assert.Equal("type", results[3].GetProperty("request").GetProperty("command").GetString());
+            Assert.False(results[3].GetProperty("ok").GetBoolean());
+            Assert.Equal("noSymbol", results[3].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
         }
         finally
         {
@@ -272,6 +331,123 @@ func Main() {
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Contains(doc.RootElement.GetProperty("results").EnumerateArray(),
                 result => result.GetProperty("code").GetString() == "NL002");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_CircularFileImports_ReportCyclePathInJsonAndText()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-circular-import-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CircularImports
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "A.nl"), """
+import "B"
+
+class A {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "B.nl"), """
+import "C"
+
+class B {
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "C.nl"), """
+import "A"
+
+class C {
+}
+""");
+
+            var (jsonExitCode, jsonStdout, jsonStderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+            var (textExitCode, textStdout, textStderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--text" }));
+
+            Assert.Equal(1, jsonExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
+            using var doc = JsonDocument.Parse(jsonStdout);
+            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL703");
+            var jsonMessage = diagnostic.GetProperty("message").GetString();
+            var jsonExplanation = diagnostic.GetProperty("explanation").GetString();
+            var jsonHint = diagnostic.GetProperty("hint").GetString();
+            var jsonSuggestion = diagnostic.GetProperty("suggestion").GetString();
+            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", jsonMessage);
+            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", jsonExplanation);
+            Assert.Contains("Import path: A.nl -> B.nl -> C.nl -> A.nl", jsonHint);
+            Assert.Contains("Move shared types", jsonSuggestion);
+
+            Assert.Equal(1, textExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(textStdout));
+            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", textStderr);
+            Assert.Contains("Move shared types", textStderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_LongCircularFileImports_BoundsCyclePathInJsonAndText()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-circular-import-long-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LongCircularImports
+outputType: exe
+targetFramework: net10.0
+""");
+
+            const int fileCount = 12;
+            for (var i = 0; i < fileCount; i++)
+            {
+                var current = $"F{i:00}";
+                var next = $"F{(i + 1) % fileCount:00}";
+                File.WriteAllText(Path.Combine(tempDir, $"{current}.nl"), $$"""
+import "{{next}}"
+
+class {{current}} {
+}
+""");
+            }
+
+            var (jsonExitCode, jsonStdout, jsonStderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+            var (textExitCode, textStdout, textStderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir, "--text" }));
+
+            Assert.Equal(1, jsonExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
+            using var doc = JsonDocument.Parse(jsonStdout);
+            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL703");
+            var jsonMessage = diagnostic.GetProperty("message").GetString();
+            var jsonHint = diagnostic.GetProperty("hint").GetString();
+            Assert.Contains("F00.nl -> F01.nl -> F02.nl -> F03.nl -> F04.nl -> F05.nl", jsonMessage);
+            Assert.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", jsonMessage);
+            Assert.DoesNotContain("F06.nl -> F07.nl -> F08.nl -> F09.nl", jsonMessage);
+            Assert.Contains("... (4 more imports)", jsonHint);
+
+            Assert.Equal(1, textExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(textStdout));
+            Assert.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", textStderr);
+            Assert.DoesNotContain("F06.nl -> F07.nl -> F08.nl -> F09.nl", textStderr);
         }
         finally
         {
@@ -664,13 +840,13 @@ func Main() {
     [Fact]
     public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
     {
-        // hello-world Program.nl line 3: func Hi(): int {
+        // hello-world Program.nl line 2: func Hi(): int {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "3:6"
+            "--pos", "2:6"
         }));
 
         Assert.Equal(0, exitCode);
@@ -694,7 +870,7 @@ func Main() {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "2:1"    // blank line
+            "--pos", "6:1"    // blank line
         }));
 
         Assert.Equal(1, exitCode);
@@ -906,6 +1082,7 @@ public class LegacyDto
 
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
+            Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
             Assert.Equal("idiom", root.GetProperty("command").GetString());
             Assert.True(root.GetProperty("ok").GetBoolean());
             Assert.Equal(3, root.GetProperty("scannedFiles").GetInt32());
@@ -949,11 +1126,55 @@ public class LegacyDto
             Assert.True(modifierExample.TryGetProperty("column", out _));
             Assert.True(modifierExample.TryGetProperty("text", out _));
             Assert.False(modifierExample.TryGetProperty("File", out _));
+
+            AssertIdiomFindingsContract(root);
+            Assert.Contains(root.GetProperty("findings").EnumerateArray(), finding =>
+                finding.GetProperty("category").GetString() == "initializer.objectColon"
+                && finding.GetProperty("fixSafety").GetString() == "safe");
         }
         finally
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void IdiomCommand_V2Fixture_MatchesGoldenContract()
+    {
+        var fixtureDir = Path.Combine(FindFixturesDir(), "idiom-v2");
+        var goldenPath = Path.Combine(FindFixturesDir(), "idiom-v2.golden.json");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            IdiomCommand.Execute(new[] { "--project", fixtureDir }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        AssertJsonContract("idiom", stdout);
+
+        var normalized = stdout
+            .Replace(NormalizePath(Path.GetFullPath(fixtureDir)), "<PROJECT_ROOT>")
+            .Replace("\r\n", "\n");
+        var expected = File.ReadAllText(goldenPath).Replace("\r\n", "\n");
+        Assert.Equal(expected.TrimEnd(), normalized.TrimEnd());
+    }
+
+    [Fact]
+    public void IdiomCommand_CotmV2Sample_IsArchivedAndMachineCheckable()
+    {
+        var samplePath = Path.Combine(FindRepoRoot(), "docs", "examples", "cotm-idiom-v2.sample.json");
+        using var doc = JsonDocument.Parse(File.ReadAllText(samplePath));
+        var root = doc.RootElement;
+
+        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("idiom", root.GetProperty("command").GetString());
+        Assert.Equal("/redacted/cotm2-nsharp", root.GetProperty("projectRoot").GetString());
+        var finding = root.GetProperty("findings").EnumerateArray().First();
+        foreach (var field in new[] { "id", "category", "severity", "file", "snippet", "suggestion", "fixSafety", "docsUrl", "clusterKey", "confidence" })
+        {
+            Assert.True(finding.TryGetProperty(field, out _), $"COTM idiom v2 sample missing finding field: {field}");
+        }
+
+        AssertIdiomFindingsContract(root);
     }
 
     [Fact]
@@ -974,6 +1195,78 @@ public class LegacyDto
         Assert.Equal(NormalizePath(Path.GetFullPath(missingDir)), root.GetProperty("projectRoot").GetString());
         Assert.Equal("directoryNotFound", root.GetProperty("error").GetProperty("code").GetString());
         Assert.Contains("Directory not found", root.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs()
+    {
+        var publicTopLevelCommands = CommandRegistry.TopLevelCommands.Select(command => command.Name).ToArray();
+        var publicQueryCommands = CommandRegistry.QueryCommands.Select(command => command.Name).ToArray();
+
+        var (_, help, _) = CaptureConsole(() => ExecuteProgram("help"));
+        var (_, queryHelp, _) = CaptureConsole(() => QueryCommand.Execute(new[] { "help" }));
+        var (_, zshCompletion, _) = CaptureConsole(() => CompletionCommand.Execute(new[] { "zsh" }));
+        var docs = File.ReadAllText(Path.Combine(FindRepoRoot(), "docs", "guide", "cli-reference.md"));
+
+        foreach (var command in publicTopLevelCommands)
+        {
+            Assert.Contains(command, help);
+            Assert.Contains(command, zshCompletion);
+            Assert.Contains($"nlc {command}", docs);
+        }
+
+        foreach (var command in publicQueryCommands)
+        {
+            Assert.Contains(command, queryHelp);
+            Assert.Contains(command, zshCompletion);
+            Assert.Contains($"nlc query {command}", docs);
+        }
+
+        Assert.DoesNotContain("convert", publicTopLevelCommands);
+        Assert.DoesNotContain("nlc convert", help);
+        Assert.DoesNotContain("nlc convert", zshCompletion);
+        Assert.Contains("There is intentionally no `nlc convert` command", docs);
+    }
+
+    private static int ExecuteProgram(params string[] args)
+    {
+        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
+        Assert.NotNull(programType);
+
+        var method = programType!.GetMethod("Execute", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        return (int)(method!.Invoke(null, new object[] { args }) ?? -1);
+    }
+
+    private static void AssertIdiomFindingsContract(JsonElement root)
+    {
+        var validSeverities = new HashSet<string>(StringComparer.Ordinal) { "low", "medium", "high" };
+        var validFixSafety = new HashSet<string>(StringComparer.Ordinal) { "safe", "reviewNeeded", "suggestionOnly", "none" };
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var findings = root.GetProperty("findings").EnumerateArray().ToArray();
+        var csharpDebt = root.GetProperty("summary").GetProperty("csharpDebt").GetInt32();
+
+        Assert.Equal(csharpDebt, findings.Length);
+        foreach (var finding in findings)
+        {
+            foreach (var field in new[] { "id", "category", "severity", "file", "line", "column", "snippet", "suggestion", "fixSafety", "docsUrl", "clusterKey", "confidence" })
+            {
+                Assert.True(finding.TryGetProperty(field, out _), $"idiom v2 finding missing field: {field}");
+            }
+
+            Assert.True(ids.Add(finding.GetProperty("id").GetString() ?? string.Empty), "idiom v2 finding IDs must be unique");
+            Assert.Contains(finding.GetProperty("severity").GetString() ?? string.Empty, validSeverities);
+            Assert.Contains(finding.GetProperty("fixSafety").GetString() ?? string.Empty, validFixSafety);
+            Assert.True(finding.GetProperty("line").GetInt32() >= 1);
+            Assert.True(finding.GetProperty("column").GetInt32() >= 1);
+            Assert.InRange(finding.GetProperty("confidence").GetDouble(), 0.0, 1.0);
+            Assert.StartsWith(finding.GetProperty("category").GetString() + ":", finding.GetProperty("clusterKey").GetString(), StringComparison.Ordinal);
+            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("file").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("snippet").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("suggestion").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("docsUrl").GetString()));
+        }
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)
@@ -1107,7 +1400,7 @@ public class LegacyDto
             new[]
             {
                 "inspect",
-                "--summary",
+                "--compact",
                 "--project", IssueTrackerFixture,
                 "--file", "Service.nl",
                 "--pos", "11:5"
@@ -1122,7 +1415,7 @@ public class LegacyDto
                 "hover",
                 "--project", Path.Combine(examplesDir, "01-hello-world"),
                 "--file", "Program.nl",
-                "--pos", "3:6"
+                "--pos", "16:10"
             }
         };
 
@@ -1173,12 +1466,21 @@ public class LegacyDto
 
     private static string FindFixturesDir()
     {
+        var repoRoot = FindRepoRoot();
+        var candidate = Path.Combine(repoRoot, "tests", "fixtures");
+        if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "issue-tracker")))
+            return candidate;
+
+        throw new DirectoryNotFoundException("Could not find tests/fixtures directory.");
+    }
+
+    private static string FindRepoRoot()
+    {
         var dir = Directory.GetCurrentDirectory();
         for (int i = 0; i < 10; i++)
         {
-            var candidate = Path.Combine(dir, "tests", "fixtures");
-            if (Directory.Exists(candidate) && Directory.Exists(Path.Combine(candidate, "issue-tracker")))
-                return candidate;
+            if (File.Exists(Path.Combine(dir, "NSharpLang.sln")) && Directory.Exists(Path.Combine(dir, "docs")))
+                return dir;
 
             var parent = Directory.GetParent(dir);
             if (parent == null)
@@ -1186,11 +1488,11 @@ public class LegacyDto
             dir = parent.FullName;
         }
 
-        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures";
-        if (Directory.Exists(fallback))
+        var fallback = "/Users/spencer/code/nsharplang";
+        if (File.Exists(Path.Combine(fallback, "NSharpLang.sln")))
             return fallback;
 
-        throw new DirectoryNotFoundException("Could not find tests/fixtures directory.");
+        throw new DirectoryNotFoundException("Could not find repository root.");
     }
 
     private static void AssertJsonContract(string contractName, string json)
@@ -1200,8 +1502,8 @@ public class LegacyDto
 
         Assert.True(expected.TryGetValue(contractName, out var expectedKeys),
             $"Missing JSON contract snapshot: {contractName}");
-        Assert.True(expectedKeys!.All(actual.Contains),
-            $"{contractName} JSON envelope lost expected keys.\nExpected subset: [{string.Join(", ", expectedKeys)}]\nActual:        [{string.Join(", ", actual)}]");
+        Assert.True(expectedKeys!.SequenceEqual(actual),
+            $"{contractName} JSON envelope changed.\nExpected: [{string.Join(", ", expectedKeys)}]\nActual:   [{string.Join(", ", actual)}]");
     }
 
     private static IReadOnlyDictionary<string, string[]> LoadJsonContractRootKeys()

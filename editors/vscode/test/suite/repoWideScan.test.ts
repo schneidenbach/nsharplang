@@ -35,7 +35,7 @@ import {
  */
 const SKIP_DIRS = new Set([
     'node_modules', 'bin', 'obj', 'nsharp', '.git', '.vscode-test',
-    'out', 'server', '.context',
+    'out', 'server', '.context', '.worktrees', '.hermes',
     // C# source directories — no .nl files
     'src', 'tests',
     // Build/config directories

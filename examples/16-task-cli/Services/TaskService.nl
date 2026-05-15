@@ -6,6 +6,7 @@ import System.Linq
 import System.Threading.Tasks
 import TaskCli.Models
 
+
 // Business logic for task management
 class TaskService {
     store: TaskStore
@@ -28,6 +29,7 @@ class TaskService {
                 maxId = task.Id
             }
         }
+
         nextId = maxId + 1
         return true
     }
@@ -47,7 +49,7 @@ class TaskService {
         task := new TaskItem {
             Id: nextId,
             Title: title,
-            Status: new Status.Todo {},
+            Status: new Status.Todo {  },
             Priority: priority,
             Tags: tags,
             DueDate: dueDate,
@@ -64,8 +66,10 @@ class TaskService {
             for t in tags {
                 tagParts.Add($"#{t}")
             }
+
             tagText = " " + String.Join(" ", tagParts)
         }
+
         return new CommandResult.Success($"Created task #{task.Id}: {task.Title} [{priorityText}]{tagText}")
     }
 
@@ -76,7 +80,7 @@ class TaskService {
             return new CommandResult.Error($"Task #{id} not found")
         }
 
-        updated := tasks[index] with { Status: new Status.Done {} }
+        updated := tasks[index] with { Status: new Status.Done {  } }
         tasks[index] = updated
         return new CommandResult.Success($"Completed task #{id}: {updated.Title}")
     }
@@ -88,7 +92,7 @@ class TaskService {
             return new CommandResult.Error($"Task #{id} not found")
         }
 
-        updated := tasks[index] with { Status: new Status.InProgress {} }
+        updated := tasks[index] with { Status: new Status.InProgress {  } }
         tasks[index] = updated
         return new CommandResult.Success($"Started task #{id}: {updated.Title}")
     }
@@ -121,6 +125,7 @@ class TaskService {
                     filtered.Add(task)
                 }
             }
+
             result = filtered
         }
 
@@ -132,6 +137,7 @@ class TaskService {
                     filtered.Add(task)
                 }
             }
+
             result = filtered
         }
 
@@ -143,6 +149,7 @@ class TaskService {
                     filtered.Add(task)
                 }
             }
+
             result = filtered
         }
 
@@ -154,6 +161,7 @@ class TaskService {
                     filtered.Add(task)
                 }
             }
+
             result = filtered
         }
 
@@ -168,6 +176,7 @@ class TaskService {
                 results.Add(task)
             }
         }
+
         return results
     }
 
@@ -211,6 +220,7 @@ class TaskService {
                 }
             }
         }
+
         result.Add(new PriorityStats { Name: "HIGH", Total: highTotal, Done: highDone })
 
         // Medium priority
@@ -224,6 +234,7 @@ class TaskService {
                 }
             }
         }
+
         result.Add(new PriorityStats { Name: "MEDIUM", Total: medTotal, Done: medDone })
 
         // Low priority
@@ -237,6 +248,7 @@ class TaskService {
                 }
             }
         }
+
         result.Add(new PriorityStats { Name: "LOW", Total: lowTotal, Done: lowDone })
 
         return result
@@ -259,6 +271,7 @@ class TaskService {
         for kvp in tagCounts {
             result.Add(new TagStats { Name: kvp.Key, Count: kvp.Value })
         }
+
         return result
     }
 
@@ -269,6 +282,7 @@ class TaskService {
                 return i
             }
         }
+
         return -1
     }
 }

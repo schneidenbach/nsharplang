@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // Basic string interpolation
 func TestBasicInterpolation() {
     name := "World"

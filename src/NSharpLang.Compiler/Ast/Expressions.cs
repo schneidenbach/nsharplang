@@ -18,7 +18,8 @@ public record StringLiteralExpression(string Value, int Line, int Column) : Expr
 public record InterpolatedStringExpression(
     List<InterpolatedStringPart> Parts,
     int Line,
-    int Column) : Expression(Line, Column);
+    int Column,
+    bool IsRaw = false) : Expression(Line, Column);
 
 public abstract record InterpolatedStringPart(int Line, int Column) : AstNode(Line, Column);
 

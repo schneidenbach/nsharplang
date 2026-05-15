@@ -58,6 +58,56 @@ func test() {
     }
 
     [Fact]
+    public void AnalyzerBindingMap_InterpolatedMemberAccess_ResolvesToFieldDeclaration()
+    {
+        var source = @"
+record Person {
+    Name: string
+}
+
+func test() {
+    person := new Person { Name: ""Spencer"" }
+    print $""Hello, {person.Name}!""
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        var memberUsageColumn = FindColumn(source, 8, "Name");
+        var declaration = bindings.GetBindingAt("test.nl", 8, memberUsageColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("Name", declaration!.Name);
+        Assert.Equal("field", declaration.Kind);
+        Assert.Equal(3, declaration.Line);
+        Assert.Equal(5, declaration.Column);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_InterpolatedRawStringIdentifier_ResolvesToDeclaration()
+    {
+        var source = @"
+func test() {
+    name := ""Spencer""
+    print $""""""
+Hello, {name}!
+""""""
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        var usageColumn = FindColumn(source, 5, "name");
+        var declaration = bindings.GetBindingAt("test.nl", 5, usageColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("name", declaration!.Name);
+        Assert.Equal("local", declaration.Kind);
+        Assert.Equal(3, declaration.Line);
+        Assert.Equal(5, declaration.Column);
+    }
+
+    [Fact]
     public void AnalyzerBindingMap_MemberAccess_ResolvesToPropertyDeclaration()
     {
         var source = @"

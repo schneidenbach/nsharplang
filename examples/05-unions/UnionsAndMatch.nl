@@ -1,7 +1,6 @@
 namespace UnionsDemo
 
 
-
 // Discriminated union example
 union Result {
     Success { value: int }

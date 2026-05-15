@@ -6,9 +6,9 @@ using NSharpLang.Cli;
 
 namespace NSharpLang.Cli.Commands;
 
-public static class ConvertCommand
+internal static class InternalCSharpMigrationPrototype
 {
-    public static int Execute(string[] args)
+    internal static int Execute(string[] args)
     {
         if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
         {
@@ -194,16 +194,16 @@ public static class ConvertCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Convert
+        Console.WriteLine(@"N# Internal C# Migration Prototype
 
 Usage:
-  nlc convert --file <file.cs> [--output file.nl]
-  nlc convert --dir <src-dir> --output <out-dir>
-  nlc convert --stdin
+  internal-csharp-migration-prototype --file <file.cs> [--output file.nl]
+  internal-csharp-migration-prototype --dir <src-dir> --output <out-dir>
+  internal-csharp-migration-prototype --stdin
 
-Converts C# source syntax to N# using Roslyn. The command is deterministic and
-keeps unsupported C# constructs visible as TODO comments plus stderr diagnostics
-instead of silently dropping code.
+Internal prototype only: produces scratch C# syntax-to-N# output using Roslyn.
+It is not a public CLI command and is not the migration contract. Review-ready
+migrations must use the AI-authored .nl + nlc check/idiom/fix/format/test loop.
 
 Options:
   --file <path>       Convert one C# file

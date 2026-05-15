@@ -1,18 +1,18 @@
 # N# Documentation
 
-Welcome to the N# programming language documentation!
+Welcome to the N# programming language documentation. N# is an active pre-release CLR language/toolchain; use command output and audit docs for current launch evidence.
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's designed as "Go for .NET" - combining Go's simplicity and clean syntax with the full power of the .NET ecosystem.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's designed as "Go for .NET" - combining Go's simplicity and clean syntax with normal .NET ecosystem interop as a design constraint.
 
 ### Key Features
 
 - **Clean Syntax**: No semicolons, short variable declarations with `:=`, convention-based visibility
-- **Full .NET Interop**: Perfect interoperability with C# and all .NET libraries
+- **.NET Interop**: C#-consumable assemblies and common .NET interop paths where covered by tests/examples
 - **Modern Type System**: String enums, type inference, and pragmatic nullability
 - **Pattern Matching**: Powerful match expressions for cleaner code
-- **Great Tooling**: VS Code extension with IntelliSense and syntax highlighting
+- **Tooling**: `nlc` CLI, query/diagnostic JSON, formatting/testing commands, and VS Code support in active development
 
 ## Getting Started
 
@@ -56,7 +56,7 @@ dotnet run
 ### Start Here
 
 - **[Getting Started](guide/getting-started.md)** - Install, create a project, build and run in under 5 minutes
-- **[Language Tour](guide/language-tour.md)** - Every major feature with runnable examples
+- **[Language Tour](guide/language-tour.md)** - Main implemented language surfaces with runnable examples
 
 ### Coming From Another Language
 
@@ -82,13 +82,13 @@ dotnet run
 
 ### Examples
 
-Browse the [examples directory](../examples/) for complete working examples:
+Browse the [examples directory](../examples/) for curated examples; run the repo gates before using an example as release evidence:
 
 - **[01-hello-world](../examples/01-hello-world/)** - Simple hello world programs
 - **[02-variables-and-types](../examples/02-variables-and-types/)** - Variable declarations and type inference
 - **[03-functions](../examples/03-functions/)** - Function examples including generics and lambdas
 - **[04-pattern-matching](../examples/04-pattern-matching/)** - Pattern matching examples
-- **[13-aspnet-demo](../examples/13-aspnet-demo/)** - Complete ASP.NET Core REST API
+- **[14-minimal-api](../examples/14-minimal-api/)** - Minimal API sample
 
 ## Quick Reference
 
@@ -164,18 +164,16 @@ result := match value {
 
 ### VS Code Extension
 
-Install the N# extension for VS Code:
-
-1. Open VS Code
-2. Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
-3. Search for "nsharp"
-4. Click Install
+Use the N# VS Code extension from the repo/local package while the public distribution story is still being verified.
 
 Features:
 - Syntax highlighting
-- IntelliSense (autocomplete)
+- Completions/hover/diagnostics where covered by the current extension and language-server tests
 - Error diagnostics
 - Format on save
+- N# build/run/test tasks backed by `nlc build`, `nlc run`, and `nlc test`
+
+Set `nsharp.cli.path` if VS Code should use a specific `nlc` executable instead of `nlc` from `PATH`. F5/debugging is not exposed until there is a real N# debugger workflow.
 
 ### MSBuild Integration
 
@@ -197,7 +195,6 @@ targetFramework: net10.0
 ## Resources
 
 - **[Project README](../README.md)** - Repository overview and setup
-- **[Website](https://nsharp.dev)** - Official website
 - **[Examples](../examples/)** - Working code examples
 
 ## Philosophy
@@ -206,13 +203,13 @@ N# follows these principles:
 
 1. **Simplicity First**: Minimal constructs, clear syntax
 2. **Pragmatic**: Embrace .NET realities (including null)
-3. **Interop Excellence**: First-class C# interoperability
+3. **Practical interop**: C# interoperability in covered scenarios, with limitations called out
 4. **Concrete over Abstract**: Encourage concrete implementations
-5. **Better Type System**: Improve .NET's type system while maintaining seamless C# interop
+5. **Better Type System**: Improve .NET ergonomics while preserving practical C# interop
 
 ## Contributing
 
-N# is an open-source project. Contributions are welcome!
+N# is an active project. Contributions should preserve truthful docs, current CLI parity, and the no-public-`nlc convert` migration direction.
 
 - Report bugs in the project repository
 - Submit pull requests
