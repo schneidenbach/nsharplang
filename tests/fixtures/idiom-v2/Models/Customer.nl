@@ -3,4 +3,5 @@ class CustomerDto {
     private _legacyId: string
 }
 
-record Order(id: string)
+record Order(id: string) {
+}
