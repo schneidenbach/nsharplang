@@ -25,6 +25,12 @@ namespace NSharpLang.Cli.Daemon;
 /// </summary>
 public class DaemonServer
 {
+    private static readonly JsonSerializerOptions DaemonJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly string _projectRoot;
     private readonly string _socketPath;
     private readonly CodeIntelligenceService _service = new();
@@ -32,14 +38,23 @@ public class DaemonServer
     private ProjectSnapshot? _snapshot;
     private DateTime _lastActivity;
     private FileSystemWatcher? _fileWatcher;
-    private bool _cacheInvalid = true;
-    private bool _running;
+    private volatile bool _cacheInvalid = true;
+    private volatile bool _running;
+    private readonly TimeSpan _idleTimeout;
+    private readonly TimeSpan _idleCheckInterval;
 
     public DaemonServer(string projectRoot)
+        : this(projectRoot, TimeSpan.FromMinutes(DaemonConstants.IdleTimeoutMinutes), TimeSpan.FromMinutes(1))
+    {
+    }
+
+    public DaemonServer(string projectRoot, TimeSpan idleTimeout, TimeSpan idleCheckInterval)
     {
         _projectRoot = projectRoot;
         _socketPath = DaemonConstants.GetSocketPath(projectRoot);
         _lastActivity = DateTime.UtcNow;
+        _idleTimeout = idleTimeout;
+        _idleCheckInterval = idleCheckInterval;
     }
 
     /// <summary>
@@ -47,99 +62,150 @@ public class DaemonServer
     /// </summary>
     public void Run()
     {
-        // Clean up stale socket
+        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, "daemon.pid");
+        var ownsSocket = false;
+
         if (File.Exists(_socketPath))
         {
+            if (DaemonClient.IsRunning(_projectRoot))
+            {
+                throw new InvalidOperationException($"A daemon is already running for {_projectRoot}.");
+            }
+
             File.Delete(_socketPath);
         }
 
-        _running = true;
-
-        // Start file watcher
-        StartFileWatcher();
-
-        // Write PID file
-        var pidPath = Path.Combine(Path.GetDirectoryName(_socketPath)!, "daemon.pid");
-        File.WriteAllText(pidPath, Environment.ProcessId.ToString());
-
         using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        listener.Bind(new UnixDomainSocketEndPoint(_socketPath));
-        listener.Listen(5);
 
-        Console.Error.WriteLine($"[daemon] Listening on {_socketPath} (PID {Environment.ProcessId})");
-        Console.Error.WriteLine($"[daemon] Project: {_projectRoot}");
-        Console.Error.WriteLine($"[daemon] Idle timeout: {DaemonConstants.IdleTimeoutMinutes} minutes");
-
-        // Idle timeout thread
-        var idleThread = new Thread(() =>
+        try
         {
+            listener.Bind(new UnixDomainSocketEndPoint(_socketPath));
+            ownsSocket = true;
+            listener.Listen(5);
+
+            _running = true;
+
+            // Start file watcher only after this process owns the socket.
+            StartFileWatcher();
+
+            // Write PID file only after bind/listen succeeds.
+            File.WriteAllText(pidPath, Environment.ProcessId.ToString());
+
+            Console.Error.WriteLine($"[daemon] Listening on {_socketPath} (PID {Environment.ProcessId})");
+            Console.Error.WriteLine($"[daemon] Project: {_projectRoot}");
+            Console.Error.WriteLine($"[daemon] Idle timeout: {FormatDuration(_idleTimeout)}");
+
+            // Idle timeout thread
+            var idleThread = new Thread(() =>
+            {
+                while (_running)
+                {
+                    Thread.Sleep(_idleCheckInterval);
+                    var idle = DateTime.UtcNow - _lastActivity;
+                    if (idle >= _idleTimeout)
+                    {
+                        Console.Error.WriteLine($"[daemon] Idle timeout ({FormatDuration(_idleTimeout)}). Shutting down.");
+                        _running = false;
+                        // Connect to self to unblock Accept()
+                        try
+                        {
+                            using var kick = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                            kick.Connect(new UnixDomainSocketEndPoint(_socketPath));
+                            kick.Close();
+                        }
+                        catch { }
+                    }
+                }
+            })
+            { IsBackground = true };
+            idleThread.Start();
+
             while (_running)
             {
-                Thread.Sleep(60_000); // Check every minute
-                var idle = DateTime.UtcNow - _lastActivity;
-                if (idle.TotalMinutes >= DaemonConstants.IdleTimeoutMinutes)
+                try
                 {
-                    Console.Error.WriteLine($"[daemon] Idle timeout ({DaemonConstants.IdleTimeoutMinutes}m). Shutting down.");
-                    _running = false;
-                    // Connect to self to unblock Accept()
-                    try
-                    {
-                        using var kick = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-                        kick.Connect(new UnixDomainSocketEndPoint(_socketPath));
-                        kick.Close();
-                    }
-                    catch { }
+                    using var client = listener.Accept();
+                    _lastActivity = DateTime.UtcNow;
+
+                    if (!_running) break;
+
+                    HandleClient(client);
+                }
+                catch (SocketException) when (!_running)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[daemon] Error: {ex.Message}");
                 }
             }
-        })
-        { IsBackground = true };
-        idleThread.Start();
-
-        while (_running)
+        }
+        finally
         {
-            try
+            _running = false;
+            if (ownsSocket)
             {
-                using var client = listener.Accept();
-                _lastActivity = DateTime.UtcNow;
-
-                if (!_running) break;
-
-                HandleClient(client);
+                Cleanup(pidPath);
             }
-            catch (SocketException) when (!_running)
+            else
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[daemon] Error: {ex.Message}");
+                _fileWatcher?.Dispose();
             }
         }
-
-        // Cleanup
-        Cleanup(pidPath);
     }
 
     private void HandleClient(Socket client)
     {
         try
         {
-            // Read request
-            var buffer = new byte[65536];
-            var received = client.Receive(buffer);
-            if (received == 0) return;
+            // Read request. CLI clients half-close after sending; direct clients may not,
+            // so also stop after a short quiet period once at least one chunk arrived.
+            using var requestStream = new MemoryStream();
+            var buffer = new byte[8192];
+            client.ReceiveTimeout = 500;
 
-            var requestJson = Encoding.UTF8.GetString(buffer, 0, received);
-            var request = JsonSerializer.Deserialize<DaemonRequest>(requestJson);
-            if (request == null) return;
+            while (true)
+            {
+                int received;
+                try
+                {
+                    received = client.Receive(buffer);
+                }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut && requestStream.Length > 0)
+                {
+                    break;
+                }
+
+                if (received == 0) break;
+                requestStream.Write(buffer, 0, received);
+            }
+
+            if (requestStream.Length == 0) return;
+
+            DaemonRequest? request;
+            try
+            {
+                var requestJson = Encoding.UTF8.GetString(requestStream.ToArray());
+                request = JsonSerializer.Deserialize<DaemonRequest>(requestJson, DaemonJsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                SendResponse(client, Error(0, DaemonConstants.ErrorParse, "Malformed daemon request JSON.", new { ex.Path, ex.LineNumber, ex.BytePositionInLine }));
+                return;
+            }
+
+            if (request == null || string.IsNullOrWhiteSpace(request.Method))
+            {
+                SendResponse(client, Error(request?.Id ?? 0, DaemonConstants.ErrorInvalidRequest, "Daemon request must include a method."));
+                return;
+            }
 
             // Process request
             var response = ProcessRequest(request);
 
             // Send response
-            var responseJson = JsonSerializer.Serialize(response);
-            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
-            client.Send(responseBytes);
+            SendResponse(client, response);
         }
         catch (Exception ex)
         {
@@ -174,12 +240,17 @@ public class DaemonServer
                     return Ok(request.Id, JsonSerializer.Serialize(status));
             }
 
+            if (!IsQueryMethod(request.Method))
+            {
+                return Error(request.Id, DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}");
+            }
+
             // Ensure snapshot is loaded
             EnsureSnapshot();
 
             if (_snapshot == null)
             {
-                return Error(request.Id, -1, "Failed to load project");
+                return Error(request.Id, DaemonConstants.ErrorInternal, "Failed to load project");
             }
 
             if (request.Method == DaemonConstants.MethodBatch)
@@ -212,6 +283,8 @@ public class DaemonServer
             var severity = GetParam<string>(request.Params, "severity");
             var includeKeywords = GetParam<bool>(request.Params, "includeKeywords");
             var summary = GetParam<bool>(request.Params, "summary");
+            var compact = GetParam<bool>(request.Params, "compact");
+            var clusters = GetParam<bool>(request.Params, "clusters");
 
             int line = 0, col = 0;
             if (posStr != null)
@@ -230,20 +303,24 @@ public class DaemonServer
                 DaemonConstants.MethodBatch => throw new InvalidOperationException("Batch queries should be handled before single-request dispatch."),
                 DaemonConstants.MethodSymbols => HandleSymbols(file, kind),
                 DaemonConstants.MethodOutline => HandleOutline(file),
-                DaemonConstants.MethodDiagnostics => HandleDiagnostics(file, severity),
+                DaemonConstants.MethodDiagnostics => HandleDiagnostics(file, severity, clusters),
                 DaemonConstants.MethodType => HandleType(file, line, col),
                 DaemonConstants.MethodDefinition => HandleDefinition(file, line, col, name),
                 DaemonConstants.MethodReferences => HandleReferences(file, line, col),
                 DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
-                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary),
-                _ => throw new Exception($"Unknown method: {request.Method}")
+                DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
+                _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}")
             };
 
             return Ok(request.Id, result);
         }
+        catch (DaemonProtocolException ex)
+        {
+            return Error(request.Id, ex.Code, ex.Message);
+        }
         catch (Exception ex)
         {
-            return Error(request.Id, -1, ex.Message);
+            return Error(request.Id, DaemonConstants.ErrorInternal, ex.Message);
         }
     }
 
@@ -266,12 +343,14 @@ public class DaemonServer
         return OutputFormatter.OutlineToJson(result);
     }
 
-    private string HandleDiagnostics(string? file, string? severity)
+    private string HandleDiagnostics(string? file, string? severity, bool clusters)
     {
         var results = _service.GetDiagnostics(_snapshot!, file);
         if (severity != null)
             results = results.Where(d => d.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase)).ToList();
-        return OutputFormatter.DiagnosticsToJson(results, _snapshot!.ProjectRoot);
+        return clusters
+            ? OutputFormatter.DiagnosticClustersToJson(results, _snapshot!.ProjectRoot)
+            : OutputFormatter.DiagnosticsToJson(results, _snapshot!.ProjectRoot);
     }
 
     private string HandleType(string? file, int line, int col)
@@ -494,20 +573,68 @@ public class DaemonServer
         Result = result
     };
 
-    private static DaemonResponse Error(int id, int code, string message) => new()
+    private static DaemonResponse Error(int id, int code, string message, object? data = null) => new()
     {
         Id = id,
-        Error = new DaemonError { Code = code, Message = message }
+        Error = new DaemonError { Code = code, Message = message, Data = data }
     };
+
+    private static void SendResponse(Socket socket, DaemonResponse response)
+    {
+        var responseJson = JsonSerializer.Serialize(response, DaemonJsonOptions);
+        var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+        SendAll(socket, responseBytes);
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalMinutes >= 1)
+            return $"{duration.TotalMinutes:0.#}m";
+        if (duration.TotalSeconds >= 1)
+            return $"{duration.TotalSeconds:0.#}s";
+        return $"{duration.TotalMilliseconds:0}ms";
+    }
+
+    private sealed class DaemonProtocolException : Exception
+    {
+        public DaemonProtocolException(int code, string message) : base(message)
+        {
+            Code = code;
+        }
+
+        public int Code { get; }
+    }
+
+    private static bool IsQueryMethod(string method)
+    {
+        return method is DaemonConstants.MethodBatch
+            or DaemonConstants.MethodSymbols
+            or DaemonConstants.MethodOutline
+            or DaemonConstants.MethodDiagnostics
+            or DaemonConstants.MethodType
+            or DaemonConstants.MethodDefinition
+            or DaemonConstants.MethodReferences
+            or DaemonConstants.MethodCompletions
+            or DaemonConstants.MethodInspect;
+    }
 
     private static T? GetParam<T>(JsonElement? paramsElement, string key)
     {
         if (paramsElement == null || paramsElement.Value.ValueKind != JsonValueKind.Object) return default;
         if (paramsElement.Value.TryGetProperty(key, out var prop))
         {
-            try { return JsonSerializer.Deserialize<T>(prop.GetRawText()); }
+            try { return JsonSerializer.Deserialize<T>(prop.GetRawText(), DaemonJsonOptions); }
             catch { return default; }
         }
         return default;
+    }
+
+    private static void SendAll(Socket socket, byte[] bytes)
+    {
+        var sent = 0;
+        while (sent < bytes.Length)
+        {
+            sent += socket.Send(bytes, sent, bytes.Length - sent, SocketFlags.None);
+        }
     }
 }

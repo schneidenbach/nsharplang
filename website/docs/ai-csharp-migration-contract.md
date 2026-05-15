@@ -62,7 +62,7 @@ The migration is incomplete if any of these appear without an explicit waiver:
 
 ## `nlc idiom` report contract
 
-`nlc idiom` exists so humans and agents can evaluate migration quality without scraping prose. Its stable top-level fields are:
+`nlc idiom` exists so humans and agents can evaluate migration quality without scraping prose. Its current contract is `schemaVersion: 2`; stable top-level fields are:
 
 - `schemaVersion`
 - `command`
@@ -74,7 +74,10 @@ The migration is incomplete if any of these appear without an explicit waiver:
 - `summary`
 - `signals`
 - `files`
+- `findings`
 - `recommendations`
 - `thresholds`
+
+`findings[]` is the agent-actionable v2 surface. Each entry includes `id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, and `confidence`.
 
 Debt/signal categories should include layout/package issues, visibility/casing issues, C# artifacts (`modifier`, `semicolon`, `propertyBlock`, `underscoreField`, null/default-forgiving), DTO-to-record opportunities, object-initializer cleanup, union/match adoption, ASP.NET typed result adoption, EF service-boundary cleanup, query-syntax cleanup, nullability flow, and manual-review TODOs.

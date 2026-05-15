@@ -2238,6 +2238,7 @@ public class Parser
             TokenType.IntLiteral or
             TokenType.FloatLiteral or
             TokenType.StringLiteral or
+            TokenType.InterpolatedRawStringLiteral or
             TokenType.True or
             TokenType.False or
             TokenType.Null or
@@ -3603,6 +3604,8 @@ public class Parser
             var token = Advance();
             if (token.Type == TokenType.StringLiteral && token.Value.StartsWith("$\""))
                 return ParseInterpolatedString(token, line, column);
+            if (token.Type == TokenType.InterpolatedRawStringLiteral)
+                return ParseInterpolatedString(token, line, column, isRaw: true);
             return new StringLiteralExpression(token.Value, line, column);
         }
 
@@ -3762,78 +3765,191 @@ public class Parser
         return new IdentifierExpression("<error>", line, column);
     }
 
-    private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column)
+    private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column, bool isRaw = false)
     {
         var parts = new List<InterpolatedStringPart>();
         var value = token.Value;
 
-        // Skip $" prefix (2 chars) and " suffix (1 char)
-        int start = 2;
-        int end = value.Length - 1;
-        // Handle unterminated strings gracefully
-        if (end < start || value[end] != '"')
+        int start = isRaw ? 4 : 2; // $"..." or $"""..."""
+        int end = isRaw ? value.Length - 3 : value.Length - 1;
+        if (end < start || !value.EndsWith(isRaw ? "\"\"\"" : "\"", StringComparison.Ordinal))
             end = value.Length;
 
         var textBuf = new System.Text.StringBuilder();
+        int textStartLine = line;
         int textStartCol = column + start;
+        int currentLine = line;
+        int currentCol = column + start;
         int i = start;
+
+        void AdvancePosition(char ch)
+        {
+            if (ch == '\n')
+            {
+                currentLine++;
+                currentCol = 1;
+            }
+            else
+            {
+                currentCol++;
+            }
+        }
+
+        void AppendText(char ch)
+        {
+            if (textBuf.Length == 0)
+            {
+                textStartLine = currentLine;
+                textStartCol = currentCol;
+            }
+            textBuf.Append(ch);
+        }
+
+        void EmitText()
+        {
+            if (textBuf.Length == 0)
+                return;
+
+            parts.Add(new InterpolatedStringText(textBuf.ToString(), textStartLine, textStartCol));
+            textBuf.Clear();
+        }
 
         while (i < end)
         {
-            if (value[i] == '\\' && i + 1 < end)
+            char ch = value[i];
+
+            if (!isRaw && ch == '\\' && i + 1 < end)
             {
-                textBuf.Append(value[i]);
-                textBuf.Append(value[i + 1]);
-                i += 2;
+                AppendText(ch);
+                AdvancePosition(ch);
+                i++;
+
+                AppendText(value[i]);
+                AdvancePosition(value[i]);
+                i++;
                 continue;
             }
 
-            if (value[i] == '{')
+            if (ch == '{' && i + 1 < end && value[i + 1] == '{')
             {
-                // Emit accumulated text
-                if (textBuf.Length > 0)
+                AppendText('{');
+                AdvancePosition(value[i]);
+                i++;
+                AdvancePosition(value[i]);
+                i++;
+                continue;
+            }
+
+            if (ch == '}' && i + 1 < end && value[i + 1] == '}')
+            {
+                AppendText('}');
+                AdvancePosition(value[i]);
+                i++;
+                AdvancePosition(value[i]);
+                i++;
+                continue;
+            }
+
+            if (ch == '{')
+            {
+                if (isRaw)
                 {
-                    parts.Add(new InterpolatedStringText(textBuf.ToString(), line, textStartCol));
-                    textBuf.Clear();
+                    var previous = i - 1;
+                    while (previous >= start && char.IsWhiteSpace(value[previous]))
+                        previous--;
+
+                    var nextClose = value.IndexOf('}', i + 1);
+                    if ((previous >= start && value[previous] == ':')
+                        || nextClose < 0
+                        || value.Substring(i + 1, nextClose - i - 1).IndexOfAny(new[] { '\r', '\n' }) >= 0)
+                    {
+                        AppendText(ch);
+                        AdvancePosition(ch);
+                        i++;
+                        continue;
+                    }
                 }
 
-                // Find matching }
-                int holeContentStart = i + 1;
+                EmitText();
+
+                int holeLine = currentLine;
+                int holeCol = currentCol;
+
+                AdvancePosition(ch);
+                i++;
+                int exprStartLine = currentLine;
+                int exprStartCol = currentCol;
+
+                var exprBuilder = new System.Text.StringBuilder();
                 int braceDepth = 1;
-                int j = holeContentStart;
                 bool inNestedString = false;
 
-                while (j < end && braceDepth > 0)
+                while (i < end && braceDepth > 0)
                 {
+                    ch = value[i];
+
                     if (inNestedString)
                     {
-                        if (value[j] == '\\' && j + 1 < end)
+                        exprBuilder.Append(ch);
+                        if (ch == '\\' && i + 1 < end)
                         {
-                            j += 2;
-                            continue;
+                            AdvancePosition(ch);
+                            i++;
+                            ch = value[i];
+                            exprBuilder.Append(ch);
                         }
-                        if (value[j] == '"')
+                        else if (ch == '"')
+                        {
                             inNestedString = false;
+                        }
                     }
                     else
                     {
-                        if (value[j] == '"')
+                        if (ch == '"')
+                        {
                             inNestedString = true;
-                        else if (value[j] == '{')
+                            exprBuilder.Append(ch);
+                        }
+                        else if (ch == '{')
+                        {
                             braceDepth++;
-                        else if (value[j] == '}')
+                            exprBuilder.Append(ch);
+                        }
+                        else if (ch == '}')
                         {
                             braceDepth--;
                             if (braceDepth == 0)
                                 break;
+                            exprBuilder.Append(ch);
+                        }
+                        else
+                        {
+                            exprBuilder.Append(ch);
                         }
                     }
-                    j++;
+
+                    AdvancePosition(ch);
+                    i++;
                 }
 
-                var exprContent = value.Substring(holeContentStart, j - holeContentStart);
+                var exprContent = exprBuilder.ToString();
 
-                // Check for format specifier (top-level : not inside parens/brackets/strings)
+                if (isRaw && exprContent.IndexOfAny(new[] { '\r', '\n' }) >= 0)
+                {
+                    var literalText = "{" + exprContent;
+                    if (i < end && value[i] == '}')
+                    {
+                        literalText += "}";
+                        AdvancePosition(value[i]);
+                        i++;
+                    }
+
+                    parts.Add(new InterpolatedStringText(literalText, holeLine, holeCol));
+                    textStartLine = currentLine;
+                    textStartCol = currentCol;
+                    continue;
+                }
+
                 string? formatClause = null;
                 int colonPos = FindFormatSpecifierColon(exprContent);
                 if (colonPos >= 0)
@@ -3842,54 +3958,64 @@ public class Parser
                     exprContent = exprContent.Substring(0, colonPos);
                 }
 
-                // Sub-parse the expression
-                int exprStartCol = column + holeContentStart;
                 Expression expr;
                 try
                 {
                     var subLexer = new Lexer(exprContent);
                     var subTokens = subLexer.Tokenize();
 
-                    // Adjust token positions to match source location
-                    int colOffset = exprStartCol - 1;
                     for (int t = 0; t < subTokens.Count; t++)
                     {
                         var tok = subTokens[t];
-                        subTokens[t] = new Token(tok.Type, tok.Value, line, tok.Column + colOffset, tok.FileName);
+                        int adjustedLine = tok.Line + exprStartLine - 1;
+                        int adjustedColumn = tok.Line == 1 ? tok.Column + exprStartCol - 1 : tok.Column;
+                        subTokens[t] = new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName);
                     }
 
                     var subParser = new Parser(subTokens, _fileName);
                     expr = subParser.ParseExpression();
-
-                    // Propagate errors from the sub-parser into this parser's error list
+                    if (!subParser.IsAtEnd())
+                    {
+                        subParser.ReportError(
+                            ErrorCode.UnexpectedToken,
+                            $"Unexpected token '{subParser.Current.Value}' after interpolated string expression",
+                            subParser.Current.Line,
+                            subParser.Current.Column,
+                            humanExplanation: "I parsed a valid expression at the start of this interpolation hole, but there was extra syntax after it.",
+                            hint: "Keep exactly one expression inside each interpolation hole, or split additional text outside the braces.",
+                            length: Math.Max(1, subParser.Current.Value.Length));
+                    }
                     _errors.AddRange(subParser._errors);
                 }
                 catch
                 {
-                    // Fallback: treat as identifier
                     var trimmed = exprContent.Trim();
                     expr = new IdentifierExpression(
                         string.IsNullOrEmpty(trimmed) ? "<error>" : trimmed,
-                        line, exprStartCol);
+                        exprStartLine, exprStartCol);
                 }
 
-                parts.Add(new InterpolatedStringHole(expr, formatClause, line, column + i));
+                parts.Add(new InterpolatedStringHole(expr, formatClause, holeLine, holeCol));
 
-                i = j + 1; // Skip past }
-                textStartCol = column + i;
+                if (i < end && value[i] == '}')
+                {
+                    AdvancePosition(value[i]);
+                    i++;
+                }
+
+                textStartLine = currentLine;
+                textStartCol = currentCol;
+                continue;
             }
-            else
-            {
-                textBuf.Append(value[i]);
-                i++;
-            }
+
+            AppendText(ch);
+            AdvancePosition(ch);
+            i++;
         }
 
-        // Emit remaining text
-        if (textBuf.Length > 0)
-            parts.Add(new InterpolatedStringText(textBuf.ToString(), line, textStartCol));
+        EmitText();
 
-        return new InterpolatedStringExpression(parts, line, column);
+        return new InterpolatedStringExpression(parts, line, column, isRaw);
     }
 
     /// <summary>
@@ -3902,6 +4028,7 @@ public class Parser
         int parenDepth = 0;
         int bracketDepth = 0;
         int braceDepth = 0;
+        int ternaryDepth = 0;
         bool inString = false;
 
         for (int i = 0; i < expr.Length; i++)
@@ -3940,6 +4067,23 @@ public class Parser
                     break;
                 case '}':
                     braceDepth--;
+                    break;
+                case '?':
+                    if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0)
+                    {
+                        var next = i + 1 < expr.Length ? expr[i + 1] : '\0';
+                        if (next == '?')
+                        {
+                            i++;
+                        }
+                        else if (next != '.' && next != '[')
+                        {
+                            ternaryDepth++;
+                        }
+                    }
+                    break;
+                case ':' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0 && ternaryDepth > 0:
+                    ternaryDepth--;
                     break;
                 case ':' when parenDepth == 0 && bracketDepth == 0 && braceDepth == 0:
                     return i;

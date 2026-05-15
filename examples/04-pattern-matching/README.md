@@ -20,6 +20,7 @@ Pattern matching is one of N#'s most powerful features, enabling concise and exp
 - **NestedPropertyPatternsSimple.nl** - Simple nested property matching
 - **NestedPropertyPatterns.nl** - Complex nested patterns
 - **MatchExhaustiveness.nl** - Exhaustiveness checking examples
+- **ResultErrorPatterns.nl** - Result/error and nested union-property patterns
 
 ## Running
 
@@ -33,7 +34,7 @@ dotnet run --project ../../src/NSharpLang.Cli/Cli.csproj -- run GuardsSimple.nl
 ### Basic Match Expression
 
 ```n#
-result := value match {
+result := match value {
     0 => "zero",
     1 => "one",
     _ => "many"
@@ -43,7 +44,7 @@ result := value match {
 ### Pattern Guards
 
 ```n#
-result := number match {
+result := match number {
     n when n < 0 => "negative",
     n when n == 0 => "zero",
     n when n > 0 => "positive"
@@ -53,7 +54,7 @@ result := number match {
 ### List Patterns
 
 ```n#
-result := list match {
+result := match list {
     [] => "empty",
     [x] => $"single: {x}",
     [x, y] => $"pair: {x}, {y}",
@@ -65,7 +66,7 @@ result := list match {
 ### Type Patterns
 
 ```n#
-result := obj match {
+result := match obj {
     int i => $"integer: {i}",
     string s => $"string: {s}",
     _ => "unknown type"
@@ -75,12 +76,26 @@ result := obj match {
 ### Nested Property Patterns
 
 ```n#
-result := person match {
+result := match person {
     { Name: "Alice", Address: { City: "Seattle" } } => "Alice from Seattle",
     { Age: age } when age < 18 => "Minor",
     _ => "Other"
 }
 ```
+
+### Nested Union Patterns
+
+```n#
+value := match response {
+    Response.Ok { data: Option.Some { value } } => value,
+    Response.Ok { data: Option.None } => 0,
+    Response.Error { message } => 0
+}
+```
+
+Constrained union properties such as `Result.Success { value: 0 }` only cover
+that subset of the case. Use an unconstrained arm, `_`, or all cases of one
+nested union property to make a union match exhaustive.
 
 ## Why Pattern Matching Matters
 

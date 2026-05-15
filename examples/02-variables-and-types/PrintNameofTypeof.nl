@@ -1,5 +1,4 @@
 // Demonstrating print, nameof, and typeof features
-
 class Person {
     Name: string
     Age: int
@@ -39,10 +38,9 @@ class Program {
         print $"Type of string: {stringType}"
         print $"Type of Person: {personType}"
 
-        // Using typeof for type checking
-        obj := person
-        if obj.GetType() == typeof(Person) {
-            print "obj is a Person!"
+        // Using typeof for type checks against a known type
+        if personType == typeof(Person) {
+            print "personType is Person!"
         }
 
         // Combining all three features

@@ -2,7 +2,7 @@
 
 > **"Go for .NET"** - A tight, pragmatic language for the CLR with Go-inspired syntax and powerful .NET features
 
-Complete language support for N# (`.nl` files) featuring IntelliSense, diagnostics, debugging, code actions, and more.
+N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completions/hover/code actions where covered, and `nlc`-backed build/run/test tasks. Verify the extension against the current checkout before launch claims.
 
 ## ✨ Features
 
@@ -14,8 +14,8 @@ Complete language support for N# (`.nl` files) featuring IntelliSense, diagnosti
 - Trigger characters: `.`, `:`, `space`
 
 ### 🎨 Syntax Highlighting
-- **Comprehensive keyword coverage** - All N# keywords including `package`, `union`, `match`, `test`
-- **Generic type parameters** - Full support for nested generics like `Dictionary<string, List<int>>`
+- **Keyword coverage** - Core N# keywords including `package`, `union`, `match`, `test`
+- **Generic type parameters** - Nested generic syntax highlighting for cases like `Dictionary<string, List<int>>`
 - **Enhanced string interpolation** - Distinct highlighting for `$"..."` expressions
 - **Property type annotations** - `name: type` patterns
 - **Number literals** - Hexadecimal (`0xFF`), binary (`0b1010`), with type suffixes
@@ -32,21 +32,16 @@ Complete language support for N# (`.nl` files) featuring IntelliSense, diagnosti
 - **Remove unnecessary null checks**
 - More quick fixes coming soon!
 
-### 🐛 Debugging Support
-- **Zero-config debugging** - Press F5 to start debugging -- no configuration needed
-- **C# extension auto-installed** as a dependency (provides the coreclr debugger)
-- **Breakpoints** work directly in `.nl` files
-- **Full stepping** - Step over (F10), step into (F11), step out (Shift+F11)
-- **Variable inspection** - Hover, Watch window, and Debug Console
-- **Call stack** shows `.nl` file references, not generated C# code
+### 🧭 Debugging Status
+N# debugging is intentionally not advertised by the extension yet. F5/debug/test-debug entry points are hidden until there is a real debugger-backed workflow for `.nl` sources.
 
 ### ⚡ Tasks & Build Integration
-Automatic task generation for:
-- `build` - Build your N# project (Ctrl+Shift+B)
-- `run` - Run your application
-- `test` - Run tests (Ctrl+Shift+T default)
-- `format` - Format code with `nlc format`
-- `lint` - Lint code with `nlc lint`
+Automatic `nlc`-backed tasks for fresh `project.yml` templates:
+- `build` - Build your N# project with `nlc build` (Ctrl+Shift+B)
+- `run` - Run your application with `nlc run`
+- `test` - Run tests with `nlc test`
+
+The task provider respects the `nsharp.cli.path` setting. Leave it empty to use `nlc` from `PATH`, or set it to an absolute path to a repo-local/compiler-built executable.
 
 ### 📝 Code Formatting
 - **Format on save** - Enabled by default
@@ -66,13 +61,10 @@ Automatic task generation for:
 
 ### Prerequisites
 - **.NET 9.0 SDK** or later
-- **N# Compiler** - Install via:
-  ```bash
-  dotnet tool install -g nlc
-  ```
+- **N# Compiler** from this repo or the configured private feed. Public `dotnet tool install -g nlc` availability is not a launch claim unless release evidence is current.
 
 ### From VS Code Marketplace
-Search for "N#" in the VS Code Extensions marketplace and click Install.
+Marketplace/public distribution should be verified for the target release before this is advertised. For contributor testing, install a locally built VSIX.
 
 ### From VSIX
 ```bash
@@ -81,11 +73,8 @@ code --install-extension nsharp-0.6.0.vsix
 
 ## 🚀 Quick Start
 
-1. **Install the extension** from the marketplace
-2. **Install the N# compiler**:
-   ```bash
-   dotnet tool install -g nlc
-   ```
+1. **Install the extension** from a locally built VSIX or a verified release package
+2. **Install the N# compiler** from this repo/private feed and ensure `nlc` is on `PATH` or set `nsharp.cli.path`
 3. **Create a new N# project**:
    ```bash
    dotnet new nsharp-console -n MyApp
@@ -96,7 +85,7 @@ code --install-extension nsharp-0.6.0.vsix
    code .
    ```
 5. **Start coding!** Open `Program.nl` and start writing N# code
-6. **Debug with F5** -- set a breakpoint and press F5 to start debugging (zero config needed)
+6. **Build/run/test from VS Code** -- use the N# `build`, `run`, and `test` tasks. F5/debugging is hidden until it is backed by a real N# debugger workflow.
 
 ## 📖 Example Code
 
@@ -171,13 +160,18 @@ Configure the extension via VS Code settings:
   "nsharp.format.enable": true,
 
   // LSP tracing for debugging
-  "nsharp.trace.server": "off"  // "off" | "messages" | "verbose"
+  "nsharp.trace.server": "off",  // "off" | "messages" | "verbose"
+
+  // Custom path to nlc (leave empty to use nlc from PATH)
+  "nsharp.cli.path": ""
 }
 ```
 
 ## 🎯 Commands
 
-- **Debug: F5** - Start debugging with zero configuration (launch.json generated automatically)
+- **Tasks: Run Build Task** - Runs `nlc build` for the active workspace.
+- **Tasks: Run Task → nsharp: run** - Runs `nlc run`.
+- **Testing: Run Tests** - Runs discovered N# tests with `nlc test --json`.
 
 ## 🔧 Troubleshooting
 
@@ -188,13 +182,13 @@ Configure the extension via VS Code settings:
 
 ### IntelliSense Not Working
 1. Ensure your project has a `project.yml` file
-2. Build the project: `dotnet build`
+2. Build the project: `nlc build`
 3. Reload VS Code window
 
-### Debugging Not Working
-1. Ensure the project builds successfully: `dotnet build`
-2. Verify the C# extension is installed (should be auto-installed as a dependency)
-3. Reload the VS Code window if breakpoints are not binding
+### Build/Run/Test Tasks Not Working
+1. Ensure the project has a `project.yml` file.
+2. Ensure `nlc` is on `PATH`, or set `nsharp.cli.path` to the `nlc` executable you want VS Code to use.
+3. Run `nlc build` in a terminal from the workspace root to verify the same project path.
 
 ## 🤝 Contributing
 

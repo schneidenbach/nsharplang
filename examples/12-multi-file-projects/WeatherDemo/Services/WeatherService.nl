@@ -5,13 +5,12 @@ import System.Collections.Generic
 import System.Linq
 import WeatherDemo.Models
 
+
 // Business logic service demonstrating N# features
 class WeatherService {
+
     // Private field (camelCase = private)
-    summaries: string[] = [
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild",
-        "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    ]
+    summaries: string[] = ["Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"]
 
     // Default parameter values
     func GetForecasts(days: int = 5): WeatherForecast[] {
@@ -24,6 +23,7 @@ class WeatherService {
                 Summary: summaries[Random.Shared.Next(summaries.Length)]
             })
         }
+
         return result.ToArray()
     }
 
@@ -63,10 +63,7 @@ class WeatherService {
         forecasts := GetForecasts(days)
 
         // LINQ filtering and transformation
-        hotDays := forecasts
-            .Where(f => f.TemperatureC >= 25)
-            .Select(f => $"{f.Date:yyyy-MM-dd}: {f.TemperatureC}°C")
-            .ToArray()
+        hotDays := forecasts.Where(f => f.TemperatureC >= 25).Select(f => $"{f.Date:yyyy-MM-dd}: {f.TemperatureC}°C").ToArray()
 
         return hotDays
     }

@@ -80,6 +80,7 @@ public static class FixCommand
             // Collect fixes per file, then filter by safety
             var allResults = new List<FixEntry>();    // every discovered fix
             var allApplied = new List<FixEntry>();     // only fixes that pass the safety gate
+            var pendingWrites = new List<(string File, string FixedSource)>();
             var filesModified = 0;
 
             foreach (var file in files)
@@ -106,22 +107,36 @@ public static class FixCommand
 
                 allApplied.AddRange(fileApplied);
 
-                if (fileApplied.Count > 0 && !dryRun)
+                if (fileApplied.Count > 0)
                 {
-                    // Collect only edits from fixes that passed the safety gate
+                    // Collect only edits from fixes that passed the safety gate. Validate in dry-run too so
+                    // the JSON never promises a write plan that would later fail or corrupt a file.
                     var safeActions = fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
                     var allEdits = safeActions.SelectMany(f => f.Edits).ToList();
-                    var fixedSource = FixApplicator.ApplyEdits(source, allEdits);
+                    FixApplicator.ValidateAndSortEdits(source, allEdits);
 
-                    if (fixedSource != source)
+                    if (!dryRun)
                     {
-                        File.WriteAllText(file, fixedSource);
-                        filesModified++;
+                        var fixedSource = FixApplicator.ApplyEdits(source, allEdits);
+
+                        if (fixedSource != source)
+                        {
+                            pendingWrites.Add((file, fixedSource));
+                            filesModified++;
+                        }
+                    }
+                    else
+                    {
+                        filesModified++; // Would modify
                     }
                 }
-                else if (fileApplied.Count > 0)
+            }
+
+            if (!dryRun)
+            {
+                foreach (var (file, fixedSource) in pendingWrites)
                 {
-                    filesModified++; // Would modify
+                    WriteAllTextAtomic(file, fixedSource);
                 }
             }
 
@@ -340,6 +355,27 @@ Examples:
         }
 
         return 1;
+    }
+
+    private static void WriteAllTextAtomic(string path, string contents)
+    {
+        var directory = Path.GetDirectoryName(path) ?? Directory.GetCurrentDirectory();
+        var tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+
+        try
+        {
+            File.WriteAllText(tempPath, contents);
+            if (!OperatingSystem.IsWindows() && File.Exists(path))
+            {
+                File.SetUnixFileMode(tempPath, File.GetUnixFileMode(path));
+            }
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');

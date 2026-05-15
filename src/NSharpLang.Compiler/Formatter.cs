@@ -321,25 +321,37 @@ public class Formatter
             sb.Append(" ");
         }
 
-        // Format function keyword
-        if (func.Modifiers.HasFlag(Modifiers.Generator))
+        if (func.IsConversionOperator)
         {
-            sb.Append("func*");
+            sb.Append(func.Name);
+            sb.Append(" ");
+            if (func.ReturnType != null)
+            {
+                sb.Append(FormatTypeReference(func.ReturnType));
+            }
         }
         else
         {
-            sb.Append("func");
-        }
+            // Format function keyword
+            if (func.Modifiers.HasFlag(Modifiers.Generator))
+            {
+                sb.Append("func*");
+            }
+            else
+            {
+                sb.Append("func");
+            }
 
-        sb.Append(" ");
-        sb.Append(func.Name);
+            sb.Append(" ");
+            sb.Append(func.Name);
 
-        // Format type parameters
-        if (func.TypeParameters != null && func.TypeParameters.Count > 0)
-        {
-            sb.Append("<");
-            sb.Append(string.Join(", ", func.TypeParameters.Select(tp => tp.Name)));
-            sb.Append(">");
+            // Format type parameters
+            if (func.TypeParameters != null && func.TypeParameters.Count > 0)
+            {
+                sb.Append("<");
+                sb.Append(string.Join(", ", func.TypeParameters.Select(tp => tp.Name)));
+                sb.Append(">");
+            }
         }
 
         // Format parameters
@@ -355,7 +367,7 @@ public class Formatter
         sb.Append(")");
 
         // Format return type
-        if (func.ReturnType != null)
+        if (!func.IsConversionOperator && func.ReturnType != null)
         {
             sb.Append(": ");
             sb.Append(FormatTypeReference(func.ReturnType));
@@ -461,6 +473,20 @@ public class Formatter
             sb.Append("<");
             sb.Append(string.Join(", ", str.TypeParameters.Select(tp => tp.Name)));
             sb.Append(">");
+        }
+
+        if (str.PrimaryConstructorParameters != null && str.PrimaryConstructorParameters.Count > 0)
+        {
+            sb.Append("(");
+            for (int i = 0; i < str.PrimaryConstructorParameters.Count; i++)
+            {
+                FormatParameter(str.PrimaryConstructorParameters[i], sb);
+                if (i < str.PrimaryConstructorParameters.Count - 1)
+                {
+                    sb.Append(", ");
+                }
+            }
+            sb.Append(")");
         }
 
         if (str.Interfaces.Count > 0)
@@ -1306,6 +1332,7 @@ public class Formatter
                 sb.Append("lock ");
                 FormatExpression(lockStmt.LockObject, sb);
                 sb.AppendLine(" {");
+                _lastEmittedSourceLine = lockStmt.Line;
                 _indent++;
                 FormatBlock(lockStmt.Body, sb);
                 _indent--;
@@ -1420,13 +1447,15 @@ public class Formatter
                 sb.Append(strLit.Value);
                 break;
             case InterpolatedStringExpression interpolated:
-                sb.Append("$\"");
+                sb.Append(interpolated.IsRaw ? "$\"\"\"" : "$\"");
                 foreach (var part in interpolated.Parts)
                 {
                     switch (part)
                     {
                         case InterpolatedStringText text:
-                            sb.Append(text.Text);
+                            sb.Append(interpolated.IsRaw
+                                ? text.Text.Replace("{", "{{", StringComparison.Ordinal).Replace("}", "}}", StringComparison.Ordinal)
+                                : text.Text);
                             break;
                         case InterpolatedStringHole hole:
                             sb.Append('{');
@@ -1440,7 +1469,7 @@ public class Formatter
                             break;
                     }
                 }
-                sb.Append('"');
+                sb.Append(interpolated.IsRaw ? "\"\"\"" : "\"");
                 break;
             case BoolLiteralExpression boolLit:
                 sb.Append(boolLit.Value ? "true" : "false");
@@ -1502,7 +1531,7 @@ public class Formatter
                     {
                         sb.Append("ref ");
                     }
-                    else if (arg.Modifier == ArgumentModifier.Out)
+                    else if (arg.Modifier == ArgumentModifier.Out && arg.Value is not OutVariableDeclarationExpression)
                     {
                         sb.Append("out ");
                     }
@@ -1608,22 +1637,25 @@ public class Formatter
                     sb.Append(" ");
                     sb.Append(FormatTypeReference(newExpr.Type));
                 }
-                sb.Append("(");
-                for (int i = 0; i < newExpr.ConstructorArguments.Count; i++)
+                if (newExpr.ConstructorArguments.Count > 0 || newExpr.Initializer == null)
                 {
-                    var arg = newExpr.ConstructorArguments[i];
-                    if (arg.Name != null)
+                    sb.Append("(");
+                    for (int i = 0; i < newExpr.ConstructorArguments.Count; i++)
                     {
-                        sb.Append(arg.Name);
-                        sb.Append(": ");
+                        var arg = newExpr.ConstructorArguments[i];
+                        if (arg.Name != null)
+                        {
+                            sb.Append(arg.Name);
+                            sb.Append(": ");
+                        }
+                        FormatExpression(arg.Value, sb);
+                        if (i < newExpr.ConstructorArguments.Count - 1)
+                        {
+                            sb.Append(", ");
+                        }
                     }
-                    FormatExpression(arg.Value, sb);
-                    if (i < newExpr.ConstructorArguments.Count - 1)
-                    {
-                        sb.Append(", ");
-                    }
+                    sb.Append(")");
                 }
-                sb.Append(")");
                 if (newExpr.Initializer != null)
                 {
                     FormatObjectInitializer(newExpr.Initializer, sb);
@@ -1983,7 +2015,7 @@ public class Formatter
             ArrayTypeReference array => $"{FormatTypeReference(array.ElementType)}[]",
             NullableTypeReference nullable => $"{FormatTypeReference(nullable.InnerType)}?",
             TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
-            FunctionTypeReference func => $"({string.Join(", ", func.ParameterTypes.Select(FormatTypeReference))}) => {FormatTypeReference(func.ReturnType)}",
+            FunctionTypeReference func => $"Func<{string.Join(", ", func.ParameterTypes.Concat(new[] { func.ReturnType }).Select(FormatTypeReference))}>",
             _ => throw new InvalidOperationException($"Formatter does not handle type reference: {type.GetType().Name}")
         };
     }

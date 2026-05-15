@@ -4,7 +4,7 @@
 
 **Goal:** Define the canonical N# idiom for DTO/data object creation so converted C# object-initializer code becomes native, consistent N# instead of C# with lighter punctuation.
 
-**Architecture:** N# keeps one named initializer expression for data construction: `new Type { Name: value }`. Records are the default data shape; classes remain for identity, lifecycle, framework integration, and behaviorful mutable state. Tooling owns migration pressure: formatter canonicalizes shape, analyzer/linter rejects C# leftovers, and the C# converter emits the idiom directly.
+**Architecture:** N# keeps one named initializer expression for data construction: `new Type { Name: value }`. Records are the default data shape; classes remain for identity, lifecycle, framework integration, and behaviorful mutable state. Tooling owns migration pressure: formatter canonicalizes shape, analyzer/linter rejects C# leftovers, and AI/prototype migration drafts must pass the diagnostic/idiom/fix/format/test loop before review.
 
 **Tech Stack:** N# parser/analyzer/transpiler/IL compiler, `nlc format`, `nlc lint`, ASP.NET Core model binding, System.Text.Json, Entity Framework Core, C# interop.
 
@@ -71,7 +71,7 @@ value: TypeName = new {
 Rejected or linted as C# leftovers:
 
 ```n#
-value := new TypeName() { FieldA: exprA }   // remove ()
+value := new TypeName { FieldA: exprA }   // remove ()
 value := new TypeName { FieldA = exprA }    // use : not =
 value := new TypeName { FieldA: exprA; }    // use commas/newlines, not semicolons
 ```
@@ -355,7 +355,7 @@ Canonical choices:
 
 Linter rules:
 
-- `NSHxxx`: `new Type() { ... }` can be `new Type { ... }`.
+- `NSHxxx`: `new Type { ... }` can be `new Type { ... }`.
 - `NSHxxx`: initializer entry uses `=`; use `:`.
 - `NSHxxx`: DTO-like class should be a record.
 - `NSHxxx`: record-like initializer is missing required fields.
@@ -378,7 +378,7 @@ public class CreateIssueRequest {
     public string[] Tags { get; set; }
 }
 
-request := new CreateIssueRequest() {
+request := new CreateIssueRequest {
     Title = title,
     Description = description,
     Priority = Priority.High,
@@ -409,7 +409,7 @@ request := new CreateIssueRequest {
 Before:
 
 ```n#
-jsonOptions = new JsonSerializerOptions() {
+jsonOptions = new JsonSerializerOptions {
     PropertyNameCaseInsensitive = true,
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase
 }
@@ -431,7 +431,7 @@ This remains a class because `JsonSerializerOptions` is framework mutable state,
 Before:
 
 ```n#
-return new TaskStats() {
+return new TaskStats {
     Total = tasks.Count,
     TodoCount = todoCount,
     InProgressCount = inProgressCount,
@@ -538,7 +538,7 @@ The EF class stays EF-shaped; the API returns a record DTO.
 
 ### Formatter
 
-- Rewrites `new Type() { ... }` to `new Type { ... }` when argument list is empty.
+- Rewrites `new Type { ... }` to `new Type { ... }` when argument list is empty.
 - Formats short initializer as one line when it fits the line width.
 - Formats long/multifield initializer as multiline with one entry per line.
 - Uses `:` entries in all docs/examples/tests.
@@ -550,21 +550,20 @@ The EF class stays EF-shaped; the API returns a record DTO.
 - Provides safe autofix for `Name = value` to `Name: value` only when parsed in initializer-entry context.
 - Provides non-autofix guidance for DTO class-to-record conversion.
 - Provides non-autofix warning when EF entity types leak through API boundaries.
-- Provides converter-specific diagnostics for COTM leftovers.
+- Provides migration-tooling diagnostics for COTM leftovers; these feed the AI diagnostic migration loop instead of blessing one-shot syntax conversion.
 
-### C#-to-N# converter
+### AI/prototype migration drafts
 
-- Converts C# DTO classes with only auto-properties into N# records by default.
-- Preserves classes when the C# type has behavior, constructors with invariants, mutable lifecycle, EF attributes/configuration, inheritance/proxies, or framework base classes.
-- Converts C# object initializers to `new Type { Name: value }`.
-- Converts C# `with` expressions to N# `with { Name: value }`.
-- Emits a migration note when unsure whether a class is an EF entity or DTO.
+- Initial migration drafts, whether AI-authored or produced by an internal prototype, should prefer N# records for C# DTO classes with only auto-properties.
+- Preserve classes when the C# type has behavior, constructors with invariants, mutable lifecycle, EF attributes/configuration, inheritance/proxies, or framework base classes.
+- Normalize object initializers to `new Type { Name: value }` and `with` expressions to `with { Name: value }` during the check/idiom/fix/format/test loop.
+- Emit or retain migration notes when unsure whether a class is an EF entity or DTO; do not treat prototype output as review-ready without the diagnostic loop.
 
 ### Documentation and examples
 
 - Update `website/docs/types.md` record/class sections to reflect this decision.
 - Update `docs/guide/for-csharp-developers.md` with C# object initializer conversion examples.
-- Update example projects to remove `new Type() { ... }` and `Name = value` initializer leftovers.
+- Update example projects to remove `new Type { ... }` and `Name = value` initializer leftovers.
 - Add an explicit EF entity versus API DTO section.
 - Add formatter/linter examples to CLI docs once rule IDs exist.
 

@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Cli.Daemon;
 using Xunit;
@@ -111,6 +112,25 @@ public class DaemonCommandTests
     }
 
     [Fact]
+    public void DaemonConstants_GetSocketPath_FallsBackForLongProjectPaths()
+    {
+        var tempDir = Path.Combine("/tmp", "nlc-" + new string('x', 120));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var socketPath = DaemonConstants.GetSocketPath(tempDir);
+
+            Assert.True(Encoding.UTF8.GetByteCount(socketPath) <= 100);
+            Assert.Contains(Path.Combine("nlc-daemon"), socketPath);
+            Assert.EndsWith("daemon.sock", socketPath);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void DaemonConstants_HasExpectedMethodNames()
     {
         Assert.Equal("daemon/ping", DaemonConstants.MethodPing);
@@ -118,6 +138,13 @@ public class DaemonCommandTests
         Assert.Equal("daemon/status", DaemonConstants.MethodStatus);
         Assert.Equal("query/symbols", DaemonConstants.MethodSymbols);
         Assert.Equal("query/batch", DaemonConstants.MethodBatch);
+        Assert.Equal("query/outline", DaemonConstants.MethodOutline);
+        Assert.Equal("query/diagnostics", DaemonConstants.MethodDiagnostics);
+        Assert.Equal("query/type", DaemonConstants.MethodType);
+        Assert.Equal("query/definition", DaemonConstants.MethodDefinition);
+        Assert.Equal("query/references", DaemonConstants.MethodReferences);
+        Assert.Equal("query/completions", DaemonConstants.MethodCompletions);
+        Assert.Equal("query/inspect", DaemonConstants.MethodInspect);
     }
 
     [Fact]
@@ -335,13 +362,311 @@ public class DaemonCommandTests
         }
     }
 
+    // ── Lifecycle integration ───────────────────────────────────────────
+
+    [Fact]
+    public void DaemonServer_Lifecycle_CoversSocketPidStatusAndStop()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+            var socketPath = DaemonConstants.GetSocketPath(projectDir);
+            var pidPath = Path.Combine(Path.GetDirectoryName(socketPath)!, "daemon.pid");
+
+            Assert.True(File.Exists(socketPath));
+            Assert.True(File.Exists(pidPath));
+            Assert.True(int.TryParse(File.ReadAllText(pidPath), out var pid));
+            Assert.True(pid > 0);
+
+            Assert.Equal("\"pong\"", DaemonClient.Query(projectDir, DaemonConstants.MethodPing));
+
+            var statusJson = DaemonClient.GetStatus(projectDir);
+            Assert.NotNull(statusJson);
+            var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
+            Assert.NotNull(status);
+            Assert.Equal(projectDir, status!.ProjectRoot);
+            Assert.Equal(pid, status.Pid);
+            Assert.Equal("30m", status.IdleTimeout);
+
+            Assert.True(DaemonClient.StopDaemon(projectDir));
+            Assert.True(WaitUntil(() => !File.Exists(socketPath) && !File.Exists(pidPath), TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_ReturnsStructuredErrors_ForUnknownMethodAndMalformedJson()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var unknown = DaemonClient.QueryResponse(projectDir, "daemon/nope");
+            Assert.NotNull(unknown);
+            Assert.NotNull(unknown!.Error);
+            Assert.Equal("2.0", unknown.JsonRpc);
+            Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
+            Assert.Contains("Unknown method", unknown.Error.Message);
+
+            var malformedJson = SendRawDaemonRequest(projectDir, "{not json");
+            var malformed = JsonSerializer.Deserialize<DaemonResponse>(malformedJson);
+            Assert.NotNull(malformed);
+            Assert.NotNull(malformed!.Error);
+            Assert.Equal(DaemonConstants.ErrorParse, malformed.Error!.Code);
+            Assert.Equal("Malformed daemon request JSON.", malformed.Error.Message);
+            Assert.NotNull(malformed.Error.Data);
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_ReturnsMethodNotFoundBeforeProjectLoad()
+    {
+        var projectDir = CreateTempDir();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var unknown = DaemonClient.QueryResponse(projectDir, "query/not-real");
+            Assert.NotNull(unknown);
+            Assert.NotNull(unknown!.Error);
+            Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
+            Assert.Contains("Unknown method", unknown.Error.Message);
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void QueryCommand_DiagnosticsClusters_UsesDaemonEnvelopeWhenDaemonRunning()
+    {
+        var projectDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(projectDir, "project.yml"), """
+name: DaemonDiagnosticClusters
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(projectDir, "Program.nl"), """
+func Main() {
+    Console.WriteLine(undefinedDaemonCluster)
+}
+""");
+
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--clusters",
+                "--project", projectDir
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.DoesNotContain("\"error\"", stderr, StringComparison.OrdinalIgnoreCase);
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("diagnostics.clusters", doc.RootElement.GetProperty("command").GetString());
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.True(doc.RootElement.TryGetProperty("clusters", out var clusters));
+            Assert.True(clusters.ValueKind == JsonValueKind.Array);
+            Assert.False(doc.RootElement.TryGetProperty("results", out _));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_FileWatcher_ReloadsSnapshotWhenNlFileIsAdded()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            Assert.NotNull(DaemonClient.Query(projectDir, DaemonConstants.MethodDiagnostics));
+            var cachedBefore = GetCachedFileCount(projectDir);
+            Assert.True(cachedBefore > 0);
+
+            File.WriteAllText(
+                Path.Combine(projectDir, "WatcherAdded.nl"),
+                "namespace IssueTracker\n\nclass WatcherAdded {\n}\n");
+
+            Assert.True(WaitUntil(() =>
+            {
+                Assert.NotNull(DaemonClient.Query(projectDir, DaemonConstants.MethodDiagnostics));
+                return GetCachedFileCount(projectDir) > cachedBefore;
+            }, TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_IdleTimeout_ShutsDownDeterministically()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            var socketPath = DaemonConstants.GetSocketPath(projectDir);
+            using var server = DaemonTestServer.Start(
+                projectDir,
+                idleTimeout: TimeSpan.FromMilliseconds(200),
+                idleCheckInterval: TimeSpan.FromMilliseconds(25));
+
+            Assert.True(File.Exists(socketPath));
+            Assert.True(WaitUntil(() => !File.Exists(socketPath), TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static string CreateTempDir()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"nsharp-daemon-{Guid.NewGuid():N}");
+        var path = Path.Combine("/tmp", $"nlc-{Guid.NewGuid():N}"[..16]);
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static string CreateTempProject()
+    {
+        var tempDir = CreateTempDir();
+        CopyDirectory(Path.Combine(FindRepoRoot(), "tests", "fixtures", "issue-tracker"), tempDir);
+        return tempDir;
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            var fixtureDir = Path.Combine(dir.FullName, "tests", "fixtures", "issue-tracker");
+            if (Directory.Exists(fixtureDir))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not find repository root containing tests/fixtures/issue-tracker.");
+    }
+
+    private static void CopyDirectory(string sourceDir, string destinationDir)
+    {
+        Directory.CreateDirectory(destinationDir);
+        foreach (var sourceFile in Directory.GetFiles(sourceDir))
+        {
+            File.Copy(sourceFile, Path.Combine(destinationDir, Path.GetFileName(sourceFile)), overwrite: true);
+        }
+
+        foreach (var sourceSubdir in Directory.GetDirectories(sourceDir))
+        {
+            CopyDirectory(sourceSubdir, Path.Combine(destinationDir, Path.GetFileName(sourceSubdir)));
+        }
+    }
+
+    private static int GetCachedFileCount(string projectDir)
+    {
+        var statusJson = DaemonClient.GetStatus(projectDir);
+        Assert.NotNull(statusJson);
+        var status = JsonSerializer.Deserialize<DaemonStatus>(statusJson!);
+        Assert.NotNull(status);
+        return status!.CachedFiles;
+    }
+
+    private static string SendRawDaemonRequest(string projectDir, string requestJson)
+    {
+        var socketPath = DaemonConstants.GetSocketPath(projectDir);
+        using var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        socket.ReceiveTimeout = DaemonConstants.ConnectionTimeoutMs;
+        socket.SendTimeout = DaemonConstants.ConnectionTimeoutMs;
+        socket.Connect(new UnixDomainSocketEndPoint(socketPath));
+        var bytes = Encoding.UTF8.GetBytes(requestJson);
+        socket.Send(bytes);
+        socket.Shutdown(SocketShutdown.Send);
+
+        using var responseStream = new MemoryStream();
+        var buffer = new byte[8192];
+        int received;
+        while ((received = socket.Receive(buffer)) > 0)
+        {
+            responseStream.Write(buffer, 0, received);
+        }
+
+        return Encoding.UTF8.GetString(responseStream.ToArray());
+    }
+
+    private static bool WaitUntil(Func<bool> predicate, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+                return true;
+            Thread.Sleep(25);
+        }
+
+        return predicate();
+    }
+
+    private sealed class DaemonTestServer : IDisposable
+    {
+        private readonly string _projectDir;
+        private readonly Thread _thread;
+        private bool _disposed;
+
+        private DaemonTestServer(string projectDir, TimeSpan idleTimeout, TimeSpan idleCheckInterval)
+        {
+            _projectDir = projectDir;
+            _thread = new Thread(() => new DaemonServer(projectDir, idleTimeout, idleCheckInterval).Run())
+            {
+                IsBackground = true,
+                Name = "nlc-daemon-test-server"
+            };
+            _thread.Start();
+        }
+
+        public static DaemonTestServer Start(
+            string projectDir,
+            TimeSpan? idleTimeout = null,
+            TimeSpan? idleCheckInterval = null)
+        {
+            var server = new DaemonTestServer(
+                projectDir,
+                idleTimeout ?? TimeSpan.FromMinutes(DaemonConstants.IdleTimeoutMinutes),
+                idleCheckInterval ?? TimeSpan.FromMinutes(1));
+
+            var started = WaitUntil(() => DaemonClient.IsRunning(projectDir), TimeSpan.FromSeconds(5));
+            Assert.True(started, "Daemon test server did not become responsive.");
+            return server;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+
+            DaemonClient.StopDaemon(_projectDir);
+            _thread.Join(TimeSpan.FromSeconds(5));
+        }
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action)

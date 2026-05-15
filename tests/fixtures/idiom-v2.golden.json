@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 2,
+  "command": "idiom",
+  "ok": true,
+  "projectRoot": "<PROJECT_ROOT>",
+  "scannedFiles": 1,
+  "score": 25,
+  "grade": "csharp-heavy",
+  "summary": {
+    "csharpDebt": 6,
+    "adoptionSignals": 2,
+    "grade": "csharp-heavy"
+  },
+  "signals": {
+    "csharpIsms": {
+      "modifiers": 2,
+      "semicolons": 0,
+      "propertySyntax": 0,
+      "underscoreFields": 1,
+      "nullForgiving": 0,
+      "outVar": 0,
+      "tryGetValue": 0,
+      "actionResults": 0,
+      "anonymousApiDtos": 0,
+      "querySyntax": 0,
+      "equalsInitializers": 0,
+      "unsafeValueAccess": 0,
+      "usingDirectives": 0,
+      "namespaceDeclarations": 0,
+      "missingPackageDeclarations": 1,
+      "wrongPackageDeclarations": 0,
+      "examples": {
+        "modifiers": [
+          {
+            "file": "Models/Customer.nl",
+            "line": 2,
+            "column": 5,
+            "text": "public id: string"
+          },
+          {
+            "file": "Models/Customer.nl",
+            "line": 3,
+            "column": 5,
+            "text": "private _legacyId: string"
+          }
+        ],
+        "semicolons": [],
+        "propertySyntax": [],
+        "underscoreFields": [
+          {
+            "file": "Models/Customer.nl",
+            "line": 3,
+            "column": 5,
+            "text": "private _legacyId: string"
+          }
+        ],
+        "nullForgiving": [],
+        "outVar": [],
+        "tryGetValue": [],
+        "actionResults": [],
+        "anonymousApiDtos": [],
+        "querySyntax": [],
+        "equalsInitializers": [],
+        "unsafeValueAccess": [],
+        "usingDirectives": [],
+        "namespaceDeclarations": [],
+        "missingPackageDeclarations": [
+          {
+            "file": "Models/Customer.nl",
+            "line": 1,
+            "column": 1,
+            "text": "expected package Models"
+          }
+        ],
+        "wrongPackageDeclarations": []
+      }
+    },
+    "nsharpAdoption": {
+      "records": 1,
+      "matchExpressions": 0,
+      "resultMentions": 0,
+      "packageLayoutDirectories": 1,
+      "examples": {
+        "records": [
+          {
+            "file": "Models/Customer.nl",
+            "line": 6,
+            "column": 1,
+            "text": "record Order(id: string)"
+          }
+        ],
+        "matchExpressions": [],
+        "resultMentions": []
+      }
+    },
+    "dtoClasses": {
+      "count": 1,
+      "examples": [
+        {
+          "file": "Models/Customer.nl",
+          "line": 1,
+          "column": 1,
+          "text": "class CustomerDto {"
+        }
+      ]
+    },
+    "casingVisibilityIssues": {
+      "count": 1,
+      "examples": [
+        {
+          "file": "Models/Customer.nl",
+          "line": 2,
+          "column": 5,
+          "text": "public id: string"
+        }
+      ]
+    },
+    "manualReviewIslands": {
+      "count": 0,
+      "examples": []
+    }
+  },
+  "files": [
+    {
+      "file": "Models/Customer.nl",
+      "csharpDebt": 6,
+      "adoptionSignals": 1,
+      "manualReviewIslands": 0
+    }
+  ],
+  "findings": [
+    {
+      "id": "idiom-v2-artifact-modifier-models-customer-nl-2-5",
+      "category": "artifact.modifier",
+      "severity": "low",
+      "file": "Models/Customer.nl",
+      "line": 2,
+      "column": 5,
+      "snippet": "public id: string",
+      "suggestion": "Audit explicit C# modifiers; remove them when N# convention-based visibility is enough.",
+      "fixSafety": "reviewNeeded",
+      "docsUrl": "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output",
+      "clusterKey": "artifact.modifier:Models/Customer.nl",
+      "confidence": 0.78
+    },
+    {
+      "id": "idiom-v2-artifact-modifier-models-customer-nl-3-5",
+      "category": "artifact.modifier",
+      "severity": "low",
+      "file": "Models/Customer.nl",
+      "line": 3,
+      "column": 5,
+      "snippet": "private _legacyId: string",
+      "suggestion": "Audit explicit C# modifiers; remove them when N# convention-based visibility is enough.",
+      "fixSafety": "reviewNeeded",
+      "docsUrl": "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output",
+      "clusterKey": "artifact.modifier:Models/Customer.nl",
+      "confidence": 0.78
+    },
+    {
+      "id": "idiom-v2-artifact-underscorefield-models-customer-nl-3-5",
+      "category": "artifact.underscoreField",
+      "severity": "low",
+      "file": "Models/Customer.nl",
+      "line": 3,
+      "column": 5,
+      "snippet": "private _legacyId: string",
+      "suggestion": "Rename private \u0060_field\u0060 members to camelCase N# fields when not required for interop.",
+      "fixSafety": "reviewNeeded",
+      "docsUrl": "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output",
+      "clusterKey": "artifact.underscoreField:Models/Customer.nl",
+      "confidence": 0.82
+    },
+    {
+      "id": "idiom-v2-layout-package-models-customer-nl-1-1",
+      "category": "layout.package",
+      "severity": "high",
+      "file": "Models/Customer.nl",
+      "line": 1,
+      "column": 1,
+      "snippet": "expected package Models",
+      "suggestion": "Add a package declaration that matches the package-layout folder.",
+      "fixSafety": "safe",
+      "docsUrl": "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract",
+      "clusterKey": "layout.package:Models/Customer.nl",
+      "confidence": 0.9
+    },
+    {
+      "id": "idiom-v2-dto-record-models-customer-nl-1-1",
+      "category": "dto.record",
+      "severity": "medium",
+      "file": "Models/Customer.nl",
+      "line": 1,
+      "column": 1,
+      "snippet": "class CustomerDto {",
+      "suggestion": "Convert DTO-shaped classes to records where identity or framework mutation is not required.",
+      "fixSafety": "reviewNeeded",
+      "docsUrl": "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output",
+      "clusterKey": "dto.record:Models/Customer.nl",
+      "confidence": 0.79
+    },
+    {
+      "id": "idiom-v2-visibility-casing-models-customer-nl-2-5",
+      "category": "visibility.casing",
+      "severity": "low",
+      "file": "Models/Customer.nl",
+      "line": 2,
+      "column": 5,
+      "snippet": "public id: string",
+      "suggestion": "Fix visibility/casing conflicts so public names are PascalCase and private names are camelCase unless intentionally waived.",
+      "fixSafety": "reviewNeeded",
+      "docsUrl": "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract",
+      "clusterKey": "visibility.casing:Models/Customer.nl",
+      "confidence": 0.76
+    }
+  ],
+  "recommendations": [
+    "Rename private \u0060_field\u0060 members to camelCase N# fields.",
+    "Add package declarations to .nl files that live under package-layout directories.",
+    "Introduce match expressions for branching over unions, enums, and sentinel states.",
+    "Prefer Result-style unions for recoverable failures instead of sentinel values or out parameters.",
+    "Fix visibility/casing conflicts so public names are PascalCase and private names are camelCase unless intentionally overridden.",
+    "Audit explicit C# modifiers; N# should lean on convention-based visibility where possible."
+  ],
+  "thresholds": {
+    "checkErrors": 0,
+    "blockingCsharpArtifacts": 0,
+    "safeFixesRemaining": 0,
+    "reviewNeededFixes": "applied-or-waived",
+    "tests": "pass-after-source-changes"
+  }
+}

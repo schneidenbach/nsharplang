@@ -785,9 +785,7 @@ Exit codes:
             string[] files;
             if (positionalFiles.Length == 0)
             {
-                files = Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories)
-                    .Where(f => !f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
-                    .ToArray();
+                files = EnumerateFormatFiles(projectRoot).ToArray();
             }
             else
             {
@@ -1116,6 +1114,86 @@ Exit codes:
         }
 
         return result.Text;
+    }
+
+    static IEnumerable<string> EnumerateFormatFiles(string projectRoot)
+    {
+        var pending = new Stack<string>();
+        pending.Push(projectRoot);
+
+        while (pending.Count > 0)
+        {
+            var directory = pending.Pop();
+
+            string[] childDirectories;
+            string[] childFiles;
+            try
+            {
+                childDirectories = Directory.GetDirectories(directory);
+                childFiles = Directory.GetFiles(directory, "*.nl");
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException or IOException)
+            {
+                continue;
+            }
+
+            foreach (var childDirectory in childDirectories)
+            {
+                if (!ShouldSkipDiscoveredDirectory(childDirectory))
+                    pending.Push(childDirectory);
+            }
+
+            foreach (var file in childFiles)
+            {
+                if (!file.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
+                    && ShouldFormatDiscoveredFile(projectRoot, file))
+                {
+                    yield return file;
+                }
+            }
+        }
+    }
+
+    static bool ShouldSkipDiscoveredDirectory(string directory)
+    {
+        var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        return name.Equals(".git", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".hg", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".svn", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
+            || name.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("bin", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("obj", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("node_modules", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
+    {
+        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".svn", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        for (var i = 0; i <= segments.Length - 2; i++)
+        {
+            var isFixtureRoot = string.Equals(segments[i], "test", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(segments[i], "tests", StringComparison.OrdinalIgnoreCase);
+            if (isFixtureRoot && string.Equals(segments[i + 1], "fixtures", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static string? GetOptionValue(string[] args, string flag)

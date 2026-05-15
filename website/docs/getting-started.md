@@ -26,7 +26,7 @@ dotnet --version
 dotnet new install NSharpLang.Templates
 ```
 
-This adds the `nsharp-console` project template to your system.
+This assumes `NSharpLang.Templates` is available from your configured repo/private package source. Public package availability should be verified for the target release before publishing this as a general install path.
 
 ## Create Your First Project
 
@@ -164,11 +164,11 @@ When you run `dotnet build`:
 3. All `.nl` files are transpiled to C# (under `obj/`)
 4. The .NET compiler builds the generated C# into an executable
 
-You never see the intermediate C# — it just works.
+Most project workflows hide intermediate generated artifacts; use explicit export/debug flags when you need to inspect them.
 
 ## Next Steps
 
-- **[Language Tour](language-tour.md)** — Learn every major feature with runnable examples
+- **[Language Tour](language-tour.md)** — Learn the main implemented language surfaces with runnable examples
 - **[For C# Developers](for-csharp-developers.md)** — Side-by-side syntax comparison
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
-- **[Examples](/examples)** — Browse 15+ complete working examples
+- **[Examples](/examples)** — Browse curated examples; verify gates before using them as release evidence

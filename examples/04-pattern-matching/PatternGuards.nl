@@ -111,7 +111,7 @@ func Main() {
     unrealisticAge := new IntOption.Some(200)
     print ValidateAge(unrealisticAge)
 
-    noAge := new IntOption.None {}
+    noAge := new IntOption.None {  }
     print ValidateAge(noAge)
     print ""
 

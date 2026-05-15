@@ -12,6 +12,7 @@ using NSharpLang.LanguageServer.Services;
 using NSharpLang.LanguageServer.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using OmniSharp.Extensions.JsonRpc.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -93,6 +94,41 @@ public class LanguageServerCollection : ICollectionFixture<LanguageServerFixture
     // This class has no code, and is never created. Its purpose is simply
     // to be the place to apply [CollectionDefinition] and all the
     // ICollectionFixture<> interfaces.
+}
+
+internal sealed class CapturingLogger<T> : ILogger<T>
+{
+    public List<LogEntry> Entries { get; } = new();
+
+    public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        Entries.Add(new LogEntry(
+            logLevel,
+            formatter(state, exception),
+            state as IReadOnlyList<KeyValuePair<string, object?>> ?? Array.Empty<KeyValuePair<string, object?>>(),
+            exception));
+    }
+
+    public sealed record LogEntry(
+        LogLevel Level,
+        string Message,
+        IReadOnlyList<KeyValuePair<string, object?>> State,
+        Exception? Exception);
+
+    private sealed class NullScope : IDisposable
+    {
+        public static readonly NullScope Instance = new();
+        public void Dispose() { }
+    }
 }
 
 /// <summary>
@@ -263,14 +299,17 @@ public class LanguageServerTests
         public CodeLensHandler CodeLensHandler { get; }
         public OnTypeFormattingHandler OnTypeFormattingHandler { get; }
 
-        public LspTestHarness(XmlDocReader xmlDocReader, TypeResolver typeResolver)
+        public LspTestHarness(
+            XmlDocReader xmlDocReader,
+            TypeResolver typeResolver,
+            ILogger<DocumentManager>? documentManagerLogger = null)
         {
             // Reuse shared XmlDocReader and TypeResolver from fixture
             XmlDocReader = xmlDocReader;
             TypeResolver = typeResolver;
 
             // Create test-specific DocumentManager (each test needs its own)
-            DocumentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+            DocumentManager = new DocumentManager(documentManagerLogger ?? NullLogger<DocumentManager>.Instance);
 
             // Create handlers with shared services
             CompletionHandler = new CompletionHandler(
@@ -356,7 +395,10 @@ public class LanguageServerTests
         /// </summary>
         public void OpenDocument(string uri, string content)
         {
-            // DocumentManager.UpdateDocument does all the parsing and analyzing
+            // Mirror didOpen behavior: editor-open documents provide source-text overrides
+            // for project snapshots, while workspace-scanned documents continue to read
+            // from disk unless explicitly opened.
+            DocumentManager.MarkEditorOpen(uri);
             DocumentManager.UpdateDocument(uri, content, 1);
         }
 
@@ -1341,6 +1383,27 @@ func main(): void
     }
 
     [Fact]
+    public async Task Definition_InterpolatedStringHole_LocalVariableAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let name := ""Spencer""
+    print($""Hello, {name}!"")";
+
+        harness.OpenDocument(uri, source);
+
+        var definition = await harness.GetDefinitionAsync(uri, 3, 21);
+        Assert.NotNull(definition);
+
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(2, location.Range.Start.Line);
+        Assert.Equal(8, location.Range.Start.Character);
+    }
+
+    [Fact]
     public async Task Definition_CrossFileType_UsesCompilerProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -1402,16 +1465,15 @@ func Foo(): void {
     }
 
     [Fact]
-    public async Task Definition_CrossFile_WithUnsavedChanges_UsesDiskFallbackAsync()
+    public async Task Definition_CrossFile_WithUnsavedComment_UsesOpenBufferProjectSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
 
-        // Append a comment so the open buffer differs from disk,
-        // causing IsProjectSynchronizedWithDisk to return false.
-        // The disk-based fallback should still resolve cross-file definitions.
+        // Append a comment so the open buffer differs from disk. Semantic project
+        // resolution should analyze that open-buffer snapshot, not reject it.
         harness.OpenDocument(uri, source + "\n// unsaved edit");
 
         // F12 on IssueService at line 26 col 20 (0-indexed: 25, 19)
@@ -1424,24 +1486,272 @@ func Foo(): void {
     }
 
     [Fact]
-    public async Task Definition_CrossFile_DiskFallback_DifferentSymbolAsync()
+    public async Task Definition_CrossFile_WithUnsavedComment_DifferentSymbolAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var programPath = Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Program.nl");
         var uri = new Uri(programPath).AbsoluteUri;
         var source = File.ReadAllText(programPath);
 
-        // Make the buffer differ from disk to force disk fallback
+        // Make the buffer differ from disk; the open-buffer project snapshot should still resolve.
         harness.OpenDocument(uri, source + "\n// modified");
 
         // F12 on IssueStore at line 25 col 18 (0-indexed: 24, 17)
-        // IssueStore is defined in Database.nl
         var definition = await harness.GetDefinitionAsync(uri, 24, 17);
         Assert.NotNull(definition);
 
         var location = ExtractSingleDefinitionLocation(definition!);
-        var expectedUri = new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Database.nl")).AbsoluteUri;
-        Assert.Equal(expectedUri, location.Uri.ToString());
+        Assert.EndsWith("Database.nl", location.Uri.GetFileSystemPath());
+    }
+
+    [Fact]
+    public async Task Definition_StandaloneSyntheticFile_DegradesStructuredAndUsesDocumentFallbackAsync()
+    {
+        var logger = new CapturingLogger<DocumentManager>();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver, logger);
+        var uri = "file:///test.nl";
+        var source = "func main(): void\n    let answer := 42\n    print(answer)";
+
+        harness.OpenDocument(uri, source);
+
+        var definition = await harness.GetDefinitionAsync(uri, 2, 12);
+
+        Assert.NotNull(definition);
+        var location = ExtractSingleDefinitionLocation(definition!);
+        Assert.Equal(uri, location.Uri.ToString());
+        Assert.Equal(1, location.Range.Start.Line);
+        Assert.Equal(8, location.Range.Start.Character);
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning
+            && entry.Message.Contains("Project semantic snapshot degraded", StringComparison.Ordinal)
+            && entry.State.Any(kvp => kvp.Key == "Reason" && kvp.Value?.ToString() == "NoProjectRoot"));
+    }
+
+    [Fact]
+    public async Task Definition_DiskBackedStandaloneUnsavedFile_DoesNotUseStaleDiskSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-standalone-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var sourcePath = Path.Combine(tempRoot, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func main(): void {
+    alpha()
+}
+
+func alpha(): void {
+    return
+}
+""");
+
+            var unsavedSource = """
+func main(): void {
+    bravo()
+}
+
+func helper(): void {
+    return
+}
+
+func bravo(): void {
+    return
+}
+""";
+
+            var uri = new Uri(sourcePath).AbsoluteUri;
+            harness.OpenDocument(uri, unsavedSource);
+
+            var definition = await harness.GetDefinitionAsync(uri, 1, 5);
+
+            Assert.NotNull(definition);
+            var location = ExtractSingleDefinitionLocation(definition!);
+            Assert.Equal(uri, location.Uri.ToString());
+            Assert.Equal(8, location.Range.Start.Line);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Definition_ScannedWorkspaceWithoutProjectFile_ResolvesAgainstWorkspaceRootAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-workspace-root-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+            var widgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var usePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            File.WriteAllText(widgetPath, """
+namespace TempWorkspaceRoot.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(usePath, """
+namespace TempWorkspaceRoot.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""");
+
+            harness.DocumentManager.ScanWorkspaceDirectory(tempRoot);
+            var useUri = new Uri(usePath).AbsoluteUri;
+
+            var definition = await harness.GetDefinitionAsync(useUri, 3, 18);
+
+            Assert.NotNull(definition);
+            var location = ExtractSingleDefinitionLocation(definition!);
+            Assert.Equal(new Uri(widgetPath).AbsoluteUri, location.Uri.ToString());
+            Assert.Equal(3, location.Range.Start.Line);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Definition_ScannedWorkspaceUsesCurrentDiskForUnopenedFilesAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-scan-stale-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var helperPath = Path.Combine(tempRoot, "Helper.nl");
+            File.WriteAllText(programPath, """
+func main(): void {
+    beta()
+}
+""");
+            File.WriteAllText(helperPath, """
+func alpha(): void {
+    return
+}
+""");
+
+            harness.DocumentManager.ScanWorkspaceDirectory(tempRoot);
+
+            File.WriteAllText(helperPath, """
+func beta(): void {
+    return
+}
+""");
+
+            var programUri = new Uri(programPath).AbsoluteUri;
+            harness.OpenDocument(programUri, File.ReadAllText(programPath));
+
+            var definition = await harness.GetDefinitionAsync(programUri, 1, 5);
+
+            Assert.NotNull(definition);
+            var location = ExtractSingleDefinitionLocation(definition!);
+            Assert.Equal(new Uri(helperPath).AbsoluteUri, location.Uri.ToString());
+            Assert.Equal(0, location.Range.Start.Line);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Definition_DegradedStandaloneDirectoryWithUnsavedPeer_DoesNotUseStaleDiskSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-stale-disk-peer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var helperPath = Path.Combine(tempRoot, "Helper.nl");
+            var peerPath = Path.Combine(tempRoot, "Peer.nl");
+            File.WriteAllText(programPath, """
+func main(): void {
+    alpha()
+}
+""");
+            File.WriteAllText(helperPath, """
+func alpha(): void {
+    return
+}
+""");
+            File.WriteAllText(peerPath, """
+func peer(): void {
+    return
+}
+""");
+
+            var programUri = new Uri(programPath).AbsoluteUri;
+            var peerUri = new Uri(peerPath).AbsoluteUri;
+            harness.OpenDocument(programUri, File.ReadAllText(programPath));
+            harness.OpenDocument(peerUri, """
+func peerUnsaved(): void {
+    return
+}
+""");
+
+            var definition = await harness.GetDefinitionAsync(programUri, 1, 5);
+
+            Assert.Null(definition);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Definition_ProjectSnapshotLoadFailure_LogsStructuredDegradedStateAsync()
+    {
+        var logger = new CapturingLogger<DocumentManager>();
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver, logger);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-degraded-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), "[not valid project config");
+            var sourcePath = Path.Combine(tempRoot, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func main(): void {
+    print("broken project config")
+}
+""");
+
+            var uri = new Uri(sourcePath).AbsoluteUri;
+            harness.OpenDocument(uri, File.ReadAllText(sourcePath));
+
+            var definition = await harness.GetDefinitionAsync(uri, 1, 5);
+
+            Assert.Null(definition);
+            var degradedLogs = logger.Entries
+                .Where(entry => entry.Level == LogLevel.Warning
+                    && entry.Message.Contains("Project semantic snapshot degraded", StringComparison.Ordinal))
+                .ToList();
+            Assert.NotEmpty(degradedLogs);
+
+            var degradedLog = degradedLogs[0];
+            Assert.Contains(degradedLog.State, kvp => kvp.Key == "Reason" && kvp.Value?.ToString() == "LoadFailed");
+            Assert.Contains(degradedLog.State, kvp => kvp.Key == "ProjectRoot" && Equals(kvp.Value, tempRoot));
+            Assert.Contains(degradedLog.State, kvp => kvp.Key == "Message" && kvp.Value is string message && message.Length > 0);
+            Assert.NotNull(degradedLog.Exception);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     #endregion
@@ -1486,6 +1796,28 @@ func main(): void
         var refs = await harness.GetReferencesAsync(uri, 3, 13);
         Assert.NotNull(refs);
         Assert.True(refs!.Count() >= 2, $"Expected at least 2 references to 'x', got {refs!.Count()}");
+    }
+
+    [Fact]
+    public async Task References_LocalVariable_FromInterpolatedStringHoleAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let name := ""Spencer""
+    print($""Hello, {name}!"")
+    print(name)";
+
+        harness.OpenDocument(uri, source);
+
+        var refs = await harness.GetReferencesAsync(uri, 3, 21);
+        Assert.NotNull(refs);
+        Assert.True(refs!.Count() >= 3, $"Expected declaration plus two uses of 'name', got {refs!.Count()}");
+        Assert.Contains(refs!, r => r.Range.Start.Line == 2 && r.Range.Start.Character == 8);
+        Assert.Contains(refs!, r => r.Range.Start.Line == 3 && r.Range.Start.Character == 20);
+        Assert.Contains(refs!, r => r.Range.Start.Line == 4 && r.Range.Start.Character == 10);
     }
 
     [Fact]
@@ -1554,6 +1886,261 @@ func main(): void
         var refs = await harness.GetReferencesAsync(uri, 25, 19);
         Assert.NotNull(refs);
         Assert.NotEmpty(refs!);
+    }
+
+    [Fact]
+    public async Task References_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-refs-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempUnsavedRefsTest
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
+            var barUsePath = Path.Combine(tempRoot, "Bar", "UseWidget.nl");
+
+            File.WriteAllText(fooWidgetPath, """
+namespace TempUnsavedRefsTest.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(fooUsePath, """
+namespace TempUnsavedRefsTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""");
+            File.WriteAllText(barWidgetPath, """
+namespace TempUnsavedRefsTest.Bar
+
+record Widget {
+    Value: int
+}
+""");
+            File.WriteAllText(barUsePath, """
+namespace TempUnsavedRefsTest.Bar
+
+func Read(widget: Widget): int {
+    return widget.Value
+}
+""");
+
+            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
+            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
+            var barUseUri = new Uri(barUsePath).AbsoluteUri;
+
+            var unsavedFooWidget = """
+namespace TempUnsavedRefsTest.Foo
+
+record Widget {
+    UnsavedValue: string
+}
+""";
+            var unsavedFooUse = """
+namespace TempUnsavedRefsTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.UnsavedValue
+}
+""";
+
+            harness.OpenDocument(fooWidgetUri, unsavedFooWidget);
+            harness.OpenDocument(fooUseUri, unsavedFooUse);
+            harness.OpenDocument(barUseUri, File.ReadAllText(barUsePath));
+
+            var references = await harness.GetReferencesAsync(fooWidgetUri, 3, 5);
+
+            Assert.NotNull(references);
+            var referenceList = references!.ToList();
+            Assert.Contains(referenceList, r => r.Uri.ToString() == fooWidgetUri && r.Range.Start.Line == 3);
+            Assert.Contains(referenceList, r => r.Uri.ToString() == fooUseUri && r.Range.Start.Line == 3);
+            Assert.DoesNotContain(referenceList, r => r.Uri.ToString() == barUseUri);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Definition_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-def-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempUnsavedDefTest
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
+
+            File.WriteAllText(fooWidgetPath, """
+namespace TempUnsavedDefTest.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(fooUsePath, """
+namespace TempUnsavedDefTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""");
+            File.WriteAllText(barWidgetPath, """
+namespace TempUnsavedDefTest.Bar
+
+record Widget {
+    UnsavedValue: int
+}
+""");
+
+            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
+            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
+
+            var unsavedFooWidget = """
+namespace TempUnsavedDefTest.Foo
+
+record Widget {
+    UnsavedValue: string
+}
+""";
+            var unsavedFooUse = """
+namespace TempUnsavedDefTest.Foo
+
+record Decoy {
+    UnsavedValue: string
+}
+
+func Read(widget: Widget): string {
+    return widget.UnsavedValue
+}
+""";
+
+            harness.OpenDocument(fooWidgetUri, unsavedFooWidget);
+            harness.OpenDocument(fooUseUri, unsavedFooUse);
+
+            var definition = await harness.GetDefinitionAsync(fooUseUri, 7, 18);
+
+            Assert.NotNull(definition);
+            var location = ExtractSingleDefinitionLocation(definition!);
+            Assert.Equal(fooWidgetUri, location.Uri.ToString());
+            Assert.Equal(3, location.Range.Start.Line);
+            Assert.Equal(4, location.Range.Start.Character);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Rename_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-unsaved-rename-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempUnsavedRenameTest
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            var barUsePath = Path.Combine(tempRoot, "Bar", "UseWidget.nl");
+
+            File.WriteAllText(fooWidgetPath, """
+namespace TempUnsavedRenameTest.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(fooUsePath, """
+namespace TempUnsavedRenameTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""");
+            File.WriteAllText(Path.Combine(tempRoot, "Bar", "Widget.nl"), """
+namespace TempUnsavedRenameTest.Bar
+
+record Widget {
+    UnsavedValue: int
+}
+""");
+            File.WriteAllText(barUsePath, """
+namespace TempUnsavedRenameTest.Bar
+
+func Read(widget: Widget): int {
+    return widget.UnsavedValue
+}
+""");
+
+            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
+            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
+            var barUseUri = new Uri(barUsePath).AbsoluteUri;
+
+            var unsavedFooWidget = """
+namespace TempUnsavedRenameTest.Foo
+
+record Widget {
+    UnsavedValue: string
+}
+""";
+            var unsavedFooUse = """
+namespace TempUnsavedRenameTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.UnsavedValue
+}
+""";
+
+            harness.OpenDocument(fooWidgetUri, unsavedFooWidget);
+            harness.OpenDocument(fooUseUri, unsavedFooUse);
+            harness.OpenDocument(barUseUri, File.ReadAllText(barUsePath));
+
+            var edit = await harness.RenameAsync(fooWidgetUri, 3, 5, "FreshValue");
+
+            Assert.NotNull(edit);
+            Assert.NotNull(edit!.Changes);
+            Assert.True(edit.Changes!.ContainsKey(DocumentUri.From(fooWidgetUri)));
+            Assert.True(edit.Changes!.ContainsKey(DocumentUri.From(fooUseUri)));
+            Assert.False(edit.Changes!.ContainsKey(DocumentUri.From(barUseUri)));
+            Assert.Equal(2, edit.Changes!.Values.SelectMany(e => e).Count());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -1814,6 +2401,131 @@ func outer(): void
         Assert.Contains(edit.Changes[serviceDocUri], change => change.NewText == "FetchAll" &&
             change.Range.Start.Line == 67 &&
             change.Range.Start.Character == 4);
+    }
+
+    [Fact]
+    public async Task Rename_InterpolatedStringHole_LocalVariableAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let name := ""Spencer""
+    print($""Hello, {name}!"")
+    print(name)";
+
+        harness.OpenDocument(uri, source);
+
+        var edit = await harness.RenameAsync(uri, 3, 21, "displayName");
+        Assert.NotNull(edit);
+        Assert.NotNull(edit!.Changes);
+
+        var docUri = DocumentUri.From(uri);
+        Assert.True(edit.Changes!.ContainsKey(docUri));
+        var edits = edit.Changes[docUri].ToList();
+        Assert.Equal(3, edits.Count);
+        Assert.All(edits, e => Assert.Equal("displayName", e.NewText));
+        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
+        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 20);
+        Assert.Contains(edits, e => e.Range.Start.Line == 4 && e.Range.Start.Character == 10);
+    }
+
+    [Fact]
+    public async Task Rename_StandaloneDuplicateDeclarations_RefusesUnsafeTextRenameAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/unsafe-rename.nl";
+        var source = @"
+func main(): void
+    let value := 1
+    print(value)
+
+func other(): void
+    let value := 2
+    print(value)";
+
+        harness.OpenDocument(uri, source);
+
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.RenameAsync(uri, 2, 8, "renamed"));
+        Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
+        Assert.Contains("unsafe without project semantics", ex.Message);
+        Assert.Contains("No edits were applied", ex.Message);
+    }
+
+    [Fact]
+    public async Task Rename_DegradedProjectSnapshot_RefusesTextOnlyRenameWithReasonAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-degraded-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), "name: [broken");
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var source = @"
+func main(): void
+    let value := 1
+    print(value)";
+            File.WriteAllText(programPath, source);
+            var uri = new Uri(programPath).AbsoluteUri;
+
+            harness.OpenDocument(uri, source);
+
+            var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.RenameAsync(uri, 2, 8, "renamed"));
+            Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
+            Assert.Contains("semantic project analysis is degraded", ex.Message);
+            Assert.Contains("refusing text-only rename", ex.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Rename_ProjectCommentWord_RefusesSemanticFallbackRenameAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-rename-comment-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempRenameCommentTest
+targetFramework: net10.0
+""");
+
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var source = """
+namespace TempRenameCommentTest
+
+func Main(): void
+    let value := 1
+    // value should not bind to the local above
+    print(value)
+""";
+            File.WriteAllText(programPath, source);
+
+            var uri = new Uri(programPath).AbsoluteUri;
+            harness.OpenDocument(uri, source);
+
+            var commentLine = Array.FindIndex(source.Split('\n'), line => line.Contains("// value", StringComparison.Ordinal));
+            Assert.True(commentLine >= 0);
+            var commentColumn = source.Split('\n')[commentLine].IndexOf("value", StringComparison.Ordinal);
+            Assert.True(commentColumn >= 0);
+
+            var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.RenameAsync(uri, commentLine, commentColumn, "renamed"));
+            Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
+            Assert.Contains("semantic resolution could not safely identify", ex.Message);
+            Assert.Contains("No edits were applied", ex.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -3012,6 +3724,107 @@ func main() {
         var intCol = lines[1].IndexOf("int");
         var result = await harness.PrepareRenameAsync(uri, 1, intCol);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PrepareRename_ProjectSemanticMemberUsage_AcceptsStrictProjectTargetAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempPrepareRenameProject
+targetFramework: net10.0
+""");
+            var widgetPath = Path.Combine(tempRoot, "Widget.nl");
+            var usePath = Path.Combine(tempRoot, "UseWidget.nl");
+            File.WriteAllText(widgetPath, """
+namespace TempPrepareRenameProject
+
+record Widget {
+    Value: string
+}
+""");
+            var useSource = """
+namespace TempPrepareRenameProject
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""";
+            File.WriteAllText(usePath, useSource);
+
+            var widgetUri = new Uri(widgetPath).AbsoluteUri;
+            var useUri = new Uri(usePath).AbsoluteUri;
+            harness.OpenDocument(widgetUri, File.ReadAllText(widgetPath));
+            harness.OpenDocument(useUri, useSource);
+
+            var result = await harness.PrepareRenameAsync(useUri, 3, 20);
+
+            Assert.NotNull(result);
+            Assert.True(result!.IsPlaceholderRange);
+            Assert.Equal("Value", result.PlaceholderRange.Placeholder);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareRename_StandaloneDuplicateDeclarations_RefusesUnsafeTextRenameAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/unsafe-prepare-rename.nl";
+        var source = @"
+func main(): void
+    let value := 1
+    print(value)
+
+func other(): void
+    let value := 2
+    print(value)";
+
+        harness.OpenDocument(uri, source);
+
+        var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.PrepareRenameAsync(uri, 2, 8));
+        Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
+        Assert.Contains("unsafe without project semantics", ex.Message);
+        Assert.Contains("No edits were applied", ex.Message);
+    }
+
+    [Fact]
+    public async Task PrepareRename_DegradedProjectSnapshot_RefusesWithReasonAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-prepare-rename-degraded-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), "name: [broken");
+            var programPath = Path.Combine(tempRoot, "Program.nl");
+            var source = @"
+func main(): void
+    let value := 1
+    print(value)";
+            File.WriteAllText(programPath, source);
+            var uri = new Uri(programPath).AbsoluteUri;
+
+            harness.OpenDocument(uri, source);
+
+            var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.PrepareRenameAsync(uri, 2, 8));
+            Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
+            Assert.Contains("semantic project analysis is degraded", ex.Message);
+            Assert.Contains("refusing text-only rename", ex.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     #endregion

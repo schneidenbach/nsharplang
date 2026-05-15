@@ -15,8 +15,8 @@ func Test(p: Person): string {
 }
 
 func Main() {
-    addr := new Address() { City: "NYC" }
-    person := new Person() { Name: "Alice", Addr: addr }
+    addr := new Address { City: "NYC" }
+    person := new Person { Name: "Alice", Addr: addr }
     result := Test(person)
     print result
 }

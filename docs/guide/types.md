@@ -321,8 +321,8 @@ func divide(a: double, b: double): Result<double> {
 result := divide(10, 2)
 
 message := match result {
-    Result.Success<double> { value: v } => $"Result: {v}",
-    Result.Failure<double> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Result: {v}",
+    Result.Failure { error: e } => $"Error: {e}"
 }
 ```
 
@@ -362,7 +362,7 @@ union Option<T> {
 func findUser(id: int): Option<User> {
     user := database.Find(id)
     if user == null {
-        return new Option.None<User> { }
+        return new Option.None
     }
     return new Option.Some<User> { value: user }
 }
@@ -733,7 +733,9 @@ age: int? = null
 age = 25
 
 if age != null {
-    Console.WriteLine($"Age: {age.Value}")
+    // Direct null checks narrow nullable values inside this block.
+    definitelyAge: int = age
+    Console.WriteLine($"Age: {definitelyAge}")
 }
 
 // Null-coalescing operator
@@ -750,12 +752,22 @@ name := user?.Name  // null if user is null
 city := user?.Address?.City
 ```
 
-### Null-forgiving Operator
+### Null checks instead of null-forgiving
+
+N# does not use C#'s null-forgiving `!` as the migration escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
 
 ```n#
-// When you know it's not null
-name: string = optionalName!
+optionalName: string? = GetName()
+
+if optionalName != null {
+    // `optionalName` is narrowed to `string` in this block.
+    name: string = optionalName
+}
+
+displayName := optionalName ?? "anonymous"
 ```
+
+`null!`, `default!`, and blind `.Value` access are migration leftovers; `nlc lint` reports them so you can replace suppression with explicit nullable handling.
 
 ## Type Aliases
 
@@ -877,13 +889,13 @@ func main() {
     // Retrieve and match
     result := repo.GetById(person.Id)
     match result {
-        Result.Success<Person> { value: p } => {
+        Result.Success { value: p } => {
             Console.WriteLine($"Found: {p.describe()}")
             if p.Address != null {
                 Console.WriteLine($"Lives in: {p.Address.City}")
             }
         },
-        Result.Failure<Person> { error: e } => {
+        Result.Failure { error: e } => {
             Console.WriteLine($"Error: {e}")
         }
     }

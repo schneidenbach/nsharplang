@@ -8,14 +8,14 @@ import System
 import "Models"
 
 class Workflow {
+
     // Transition is PascalCase → public.
     // Returns the new status or throws on invalid transition.
     static func Transition(issue: Issue, to: IssueStatus): IssueStatus {
         if !isValid(issue.Status, to) {
-            throw new Exception(FormatError(
-                new IssueError.InvalidTransition(describe(issue.Status), describe(to))
-            ))
+            throw new Exception(FormatError(new IssueError.InvalidTransition(describe(issue.Status), describe(to))))
         }
+
         return to
     }
 
@@ -33,16 +33,18 @@ class Workflow {
             IssueStatus.InProgress { assigneeId } => match to {
                 IssueStatus.Open => true,
                 IssueStatus.Closed { resolution, closedAt } => true,
-                // same-state transition not allowed
                 _ => false
             },
             IssueStatus.Closed { resolution, closedAt } => match to {
                 IssueStatus.Open => true,
-                // can only reopen from closed
                 _ => false
             }
         }
     }
+
+    // same-state transition not allowed
+
+    // can only reopen from closed
 
     // camelCase → private helper for status labels.
     // Exhaustive match — no wildcard fallback.

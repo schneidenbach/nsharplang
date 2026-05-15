@@ -1,6 +1,5 @@
 // Interpolated Raw String Literals Example
 // Demonstrates C# 11 raw string interpolation feature in N#
-
 class Person {
     Name: string
     Age: int
@@ -56,9 +55,9 @@ func Main() {
     ================================
     User Report
     ================================
-    Name:  {name}
-    Age:   {age}
-    Email: {email}
+    Name:  {{name}}
+    Age:   {{age}}
+    Email: {{email}}
     ================================
     """
 

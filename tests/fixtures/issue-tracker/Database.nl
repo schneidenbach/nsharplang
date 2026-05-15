@@ -26,6 +26,7 @@ class IssueStore {
                 return i
             }
         }
+
         return -1
     }
 

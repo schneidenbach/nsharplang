@@ -61,6 +61,28 @@ class UserDto {
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("default!"));
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("null!"));
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("value!"));
+        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Suggestion!.Contains("real initializer"));
+    }
+
+    [Fact]
+    public void LintSource_FlagsUnsafeValueAccessAsMigrationDiagnostic()
+    {
+        var diagnostics = LintSource("""
+func Read(result: Result<string>, maybeAge: int?): string {
+    name := result.Value
+    if maybeAge != null {
+        return maybeAge.Value.ToString()
+    }
+    return "missing"
+}
+""");
+
+        var valueDiagnostics = diagnostics.Where(d => d.Code == "NL111").ToList();
+
+        Assert.Equal(2, valueDiagnostics.Count);
+        Assert.Contains(valueDiagnostics, d => d.Message.Contains("result.Value"));
+        Assert.Contains(valueDiagnostics, d => d.Message.Contains("maybeAge.Value"));
+        Assert.All(valueDiagnostics, d => Assert.Contains("match", d.Suggestion));
     }
 
     [Fact]
@@ -109,6 +131,55 @@ class UserDto {
     }
 
     [Fact]
+    public void LintSource_FlagsInlineEqualsStyleObjectInitializerMember()
+    {
+        var diagnostics = LintSource("""
+func Create(): User {
+    return new User { Name = "A", Age: 30 }
+}
+""");
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Code == "NL110"));
+        Assert.Equal(2, diagnostic.Location.Line);
+        Assert.Equal(23, diagnostic.Location.Column);
+        Assert.Contains("Use canonical N# object initialization", diagnostic.Suggestion);
+    }
+
+    [Fact]
+    public void MigrationCodeFixes_RewriteEqualsStyleObjectInitializerOnlyAtDiagnosticToken()
+    {
+        var ast = new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1);
+        var source = """
+func Create(): User {
+    return new User { Name = "A", Age = value == 3 }
+}
+""";
+        var diagnostics = LintSource(source).Where(d => d.Code == "NL110").ToList();
+        var fixService = new CodeFixService();
+
+        var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
+        Assert.Equal(2, actions.Count);
+        Assert.All(actions, a => Assert.Equal(FixSafety.Safe, a.Safety));
+
+        var fixedSource = NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(source, actions.SelectMany(a => a.Edits).ToList());
+        Assert.Contains("new User { Name: \"A\", Age: value == 3 }", fixedSource);
+    }
+
+    [Fact]
+    public void LintSource_DoesNotFlagNormalAssignmentOutsideObjectInitializer()
+    {
+        var diagnostics = LintSource("""
+func Update() {
+    name = "A"
+    options := new User { Name: "A" }
+    name = "B"
+}
+""");
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL110");
+    }
+
+    [Fact]
     public void LintSource_FlagsWrongPackageDeclarationForFileLayout()
     {
         var diagnostics = LintSource("""
@@ -151,5 +222,25 @@ public class UserDto {
         Assert.Contains(actions, a => a.DiagnosticCode == "NL101" && a.Title.Contains("Remove 'public'"));
         Assert.Contains(actions, a => a.DiagnosticCode == "NL103" && a.Title.Contains("Remove null-forgiving"));
         Assert.All(actions.Where(a => a.DiagnosticCode is "NL101" or "NL103"), a => Assert.Equal(FixSafety.ReviewNeeded, a.Safety));
+    }
+
+    [Fact]
+    public void MigrationCodeFixes_OfferReviewOnlyRewriteForUnsafeValueAccess()
+    {
+        var ast = new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1);
+        var source = """
+func Read(result: Result<string>): string {
+    return result.Value
+}
+""";
+        var diagnostics = LintSource(source);
+        var fixService = new CodeFixService();
+
+        var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
+
+        var action = Assert.Single(actions, a => a.DiagnosticCode == "NL111");
+        Assert.Contains("unsafe .Value", action.Title);
+        Assert.Equal(FixSafety.SuggestionOnly, action.Safety);
+        Assert.Empty(action.Edits);
     }
 }

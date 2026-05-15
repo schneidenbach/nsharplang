@@ -2,7 +2,7 @@
 
 ## Test Suite
 
-**Total Tests:** 944+ total, 0 failures, 3 skipped
+**Total Tests:** Do not hard-code counts here. Run `dotnet test tests/Tests.csproj` for the current unit count and `./scripts/test-all.sh` for the full product gate.
 
 ## Test Organization
 
@@ -36,7 +36,7 @@ tests/
 ### 1. No Mocks
 Tests use real components, not mocks. This ensures:
 - Real-world behavior validation
-- Integration testing by default
+- Integration coverage where feasible
 - Simpler test code
 
 ### 2. Focused Tests
@@ -74,9 +74,8 @@ public void TestFullCompilation()
     var result = new Analyzer().Analyze(ast, "test", "/");
     Assert.Empty(result.Errors);
 
-    // Export to C#
-    var csharp = new Transpiler().Transpile(ast);
-    Assert.Contains("var x = 42;", csharp);
+    // Compile/analyze through the current backend under test
+    Assert.Empty(result.Errors);
 }
 ```
 

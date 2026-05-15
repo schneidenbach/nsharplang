@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
+using OmniSharp.Extensions.JsonRpc.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -56,8 +57,29 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
         }
 
+        var hasSynchronizedProjectSnapshot = _documentManager.HasSynchronizedProjectSnapshot(uri);
+        var hasStrictProjectRenameTarget = false;
+        if (hasSynchronizedProjectSnapshot)
+        {
+            var projectReferences = _documentManager.FindStrictProjectReferences(uri, request.Position.Line, request.Position.Character);
+            if (projectReferences == null)
+            {
+                throw RenameRefused(
+                    $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
+                    "No edits were applied; refusing fallback rename to avoid editing unrelated symbols.");
+            }
+
+            hasStrictProjectRenameTarget = true;
+        }
+        else if (_documentManager.HasSemanticProjectContext(uri))
+        {
+            throw RenameRefused(
+                $"Rename for '{word}' is unavailable because semantic project analysis is degraded. " +
+                "Save or fix the project files and retry; refusing text-only rename to avoid editing unrelated symbols.");
+        }
+
         // Verify the symbol exists in our analysis
-        var isKnownSymbol = false;
+        var isKnownSymbol = hasStrictProjectRenameTarget;
         if (doc.SymbolLocations?.ContainsKey(word) == true)
             isKnownSymbol = true;
         else if (doc.SemanticModel?.LookupIdentifier(word) != null)
@@ -71,6 +93,17 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         {
             _logger.LogDebug("Cannot rename unknown symbol: {Word}", word);
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
+        }
+
+        if (!hasSynchronizedProjectSnapshot)
+        {
+            var declarationCount = _documentManager.CountDocumentDeclarations(uri, word);
+            if (declarationCount > 1)
+            {
+                throw RenameRefused(
+                    $"Rename for '{word}' is unsafe without project semantics because this document declares {declarationCount} symbols with that name. " +
+                    "No edits were applied; open the containing project or remove the ambiguity and retry.");
+            }
         }
 
         // Return the range of the word and a placeholder
@@ -130,5 +163,14 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
                 => true,
             _ => false
         };
+    }
+
+    private static RequestFailedException RenameRefused(string message)
+    {
+        return new RequestFailedException(
+            ErrorCodes.RequestFailed,
+            message,
+            RequestFailedException.UnknownRequestId,
+            inner: null!);
     }
 }

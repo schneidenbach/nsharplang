@@ -2,6 +2,7 @@ namespace NSharpInteropLib
 
 import System
 
+
 // Tests ref/out parameter interop from C#
 class StringUtils {
     static func TryParseInt(input: string, out result: int): bool {
@@ -24,6 +25,7 @@ class StringUtils {
         if input.Length <= maxLength {
             return input
         }
+
         return input.Substring(0, maxLength) + "..."
     }
 }

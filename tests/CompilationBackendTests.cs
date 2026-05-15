@@ -969,6 +969,54 @@ class NotifierHub {
     }
 
     [Fact]
+    public void CompilationStubEmitter_EmitsParameterAttributesForFrameworkInterop()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Controller.nl");
+            File.WriteAllText(sourcePath, """"
+import Microsoft.AspNetCore.Mvc
+import System.ComponentModel.DataAnnotations
+
+class UsersController {
+    func Get([FromRoute(Name: "id")] id: int): IActionResult {
+        return null
+    }
+
+    func GetRaw([FromRoute(Name: """raw-id""")] id: int): IActionResult {
+        return null
+    }
+
+    func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
+        return null
+    }
+}
+
+class CreateUserRequest {
+}
+"""");
+
+            var stub = CompilationStubEmitter.Generate(
+                new ProjectConfig
+                {
+                    Name = "ParameterAttributeStub",
+                    OutputType = "library",
+                    TargetFramework = "net10.0"
+                },
+                new[] { sourcePath });
+
+            Assert.Contains("IActionResult Get([FromRoute(Name = \"id\")] int id)", stub);
+            Assert.Contains("IActionResult GetRaw([FromRoute(Name = \"raw-id\")] int id)", stub);
+            Assert.Contains("IActionResult Create([FromBody] [Required] CreateUserRequest user)", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanRunExecutableProjectWithTypeScopedMainEntryPoint()
     {
         var tempDir = CreateTempDir();

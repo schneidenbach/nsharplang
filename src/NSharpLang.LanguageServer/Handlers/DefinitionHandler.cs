@@ -50,21 +50,30 @@ public class DefinitionHandler : DefinitionHandlerBase
 
             _logger.LogDebug("Go to definition for: {Word}", word);
 
-            // Tier 1: Synchronized project snapshot (most accurate — open buffers match disk)
+            // Tier 1: Semantic project snapshot (open buffers override disk files)
             var projectDefinition = _documentManager.FindProjectDefinition(uri, request.Position.Line, request.Position.Character);
             if (projectDefinition != null)
             {
                 return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));
             }
 
-            // If the synced snapshot exists but found nothing, that's authoritative
+            // If the semantic snapshot exists but found nothing, that's authoritative.
             if (_documentManager.HasSynchronizedProjectSnapshot(uri))
             {
                 return Task.FromResult<LocationOrLocationLinks?>(null);
             }
 
-            // Tier 2: Disk-based project snapshot (cross-file, may be slightly stale)
-            projectDefinition = _documentManager.FindProjectDefinitionFromDisk(uri, request.Position.Line, request.Position.Character);
+            // Tier 2: Disk-based project snapshot, only when the semantic snapshot is degraded/unavailable
+            // and every open buffer in the project still matches disk. Never answer from stale disk
+            // semantics while any open project buffer has unsaved text.
+            if (_documentManager.HasUnsavedOpenBuffersInProject(uri))
+            {
+                projectDefinition = null;
+            }
+            else
+            {
+                projectDefinition = _documentManager.FindProjectDefinitionFromDisk(uri, request.Position.Line, request.Position.Character);
+            }
             if (projectDefinition != null)
             {
                 return Task.FromResult<LocationOrLocationLinks?>(CreateProjectLocation(uri, projectDefinition));

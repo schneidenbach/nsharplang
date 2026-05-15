@@ -1,6 +1,5 @@
 // Expression-Bodied Members Example
 // Demonstrates the => syntax for properties and methods
-
 class Person {
     FirstName: string
     LastName: string

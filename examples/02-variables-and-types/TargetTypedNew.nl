@@ -52,7 +52,7 @@ func Main() {
 
     // Example 2: Target-typed new with object initializer
     print "2. Explicit type with object initializer:"
-    point: Point = new Point() { X: 3.0, Y: 4.0 }
+    point: Point = new Point { X: 3.0, Y: 4.0 }
     print $"Point: ({point.X}, {point.Y})"
     print ""
 

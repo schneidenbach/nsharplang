@@ -14,18 +14,25 @@ namespace NSharpLang.Compiler;
 public class MultiFileCompiler
 {
     private const string DebugLogEnvVar = "NSHARP_DEBUG_LOG";
+    private const int MaxDisplayedImportCycleNodes = 10;
+    private const int MaxReportedImportCycles = 20;
     private readonly string _projectRoot;
     private readonly ProjectConfig? _config;
     private readonly List<string> _sourceFiles;
-    private readonly Dictionary<string, CompilationUnit> _compilationUnits = new();
-    private readonly Dictionary<string, SemanticModel> _semanticModels = new();
+    private readonly Dictionary<string, CompilationUnit> _compilationUnits = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SemanticModel> _semanticModels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HashSet<string>> _autoResolvedNamespaces = new(); // file -> namespaces auto-resolved
     private readonly Dictionary<string, string> _exportedCSharpFiles = new();
     private readonly List<CompilerError> _allErrors = new();
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
+    private readonly IReadOnlyDictionary<string, string> _sourceTextOverrides;
+    private readonly Dictionary<string, string> _sourceTexts = new(StringComparer.OrdinalIgnoreCase);
     private readonly BindingMap _projectBindings = new();
     private readonly Dictionary<string, string> _projectTypeDeclarationFiles = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _reportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _filesInReportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _resolvedFileImportDiagnosticKeys = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -37,6 +44,7 @@ public class MultiFileCompiler
     public Analyzer SharedAnalyzer => _sharedAnalyzer;
     public IReadOnlyList<CompilerError> AllErrors => _allErrors;
     public IReadOnlyList<string> SourceFiles => _sourceFiles;
+    public IReadOnlyDictionary<string, string> SourceTexts => _sourceTexts;
     public string ProjectRoot => _projectRoot;
 
     /// <summary>
@@ -48,10 +56,30 @@ public class MultiFileCompiler
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
+        : this(projectRoot, config, sourceTextOverrides: null)
+    {
+    }
+
+    public MultiFileCompiler(string projectRoot, ProjectConfig? config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
+        : this(BuildSourceFiles(projectRoot, config ?? ProjectFileParser.CreateDefault(), sourceTextOverrides), projectRoot, config, sourceTextOverrides)
+    {
+    }
+
+    public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config = null)
+        : this(sourceFiles, projectRoot, config, sourceTextOverrides: null)
+    {
+    }
+
+    public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
-        _sourceFiles = DiscoverSourceFiles(projectRoot, _config);
+        _sourceTextOverrides = NormalizeSourceTextOverrides(sourceTextOverrides);
+        _sourceFiles = sourceFiles
+            .Select(Path.GetFullPath)
+            .Concat(_sourceTextOverrides.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         _debugLoggingEnabled = IsDebugLoggingEnabled();
 
         // Initialize shared analyzer ONCE with system assemblies and project config
@@ -60,17 +88,33 @@ public class MultiFileCompiler
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
     }
 
-    public MultiFileCompiler(IEnumerable<string> sourceFiles, string projectRoot, ProjectConfig? config = null)
+    private static List<string> BuildSourceFiles(string projectRoot, ProjectConfig config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
-        _projectRoot = projectRoot;
-        _config = config ?? ProjectFileParser.CreateDefault();
-        _sourceFiles = sourceFiles.ToList();
-        _debugLoggingEnabled = IsDebugLoggingEnabled();
+        return DiscoverSourceFiles(projectRoot, config)
+            .Concat(NormalizeSourceTextOverrides(sourceTextOverrides).Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
-        // Initialize shared analyzer ONCE with system assemblies and project config
-        _sharedAnalyzer = new Analyzer();
-        _sharedAnalyzer.LoadSystemAssemblies();
-        _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
+    private static IReadOnlyDictionary<string, string> NormalizeSourceTextOverrides(IReadOnlyDictionary<string, string>? sourceTextOverrides)
+    {
+        if (sourceTextOverrides == null || sourceTextOverrides.Count == 0)
+        {
+            return new Dictionary<string, string>();
+        }
+
+        return sourceTextOverrides.ToDictionary(
+            kvp => Path.GetFullPath(kvp.Key),
+            kvp => kvp.Value,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string ReadSourceText(string sourceFile)
+    {
+        var fullPath = Path.GetFullPath(sourceFile);
+        return _sourceTextOverrides.TryGetValue(fullPath, out var text)
+            ? text
+            : File.ReadAllText(fullPath);
     }
 
     /// <summary>
@@ -100,7 +144,8 @@ public class MultiFileCompiler
             try
             {
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]   Parsing {Path.GetFileName(sourceFile)}");
-                var source = File.ReadAllText(sourceFile);
+                var source = ReadSourceText(sourceFile);
+                _sourceTexts[Path.GetFullPath(sourceFile)] = source;
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Read file ({source.Length} bytes)");
                 var lexer = new Lexer(source, sourceFile);
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created");
@@ -165,6 +210,253 @@ public class MultiFileCompiler
     }
 
     /// <summary>
+    /// Detect circular file-import graphs before semantic analysis so project checks
+    /// fail with a bounded, actionable diagnostic instead of relying on per-file
+    /// shallow checks.
+    /// </summary>
+    private void DetectCircularFileImports()
+    {
+        var edgesByFile = BuildFileImportGraph();
+        var visitState = new Dictionary<string, ImportVisitState>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sourceFile in _compilationUnits.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            VisitImportGraph(sourceFile, edgesByFile, visitState);
+        }
+    }
+
+    private Dictionary<string, List<ImportEdge>> BuildFileImportGraph()
+    {
+        var graph = new Dictionary<string, List<ImportEdge>>(StringComparer.OrdinalIgnoreCase);
+        var sourceFileByFullPath = _compilationUnits.Keys.ToDictionary(
+            Path.GetFullPath,
+            path => path,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (sourceFile, compilationUnit) in _compilationUnits)
+        {
+            var resolver = new FileResolver(_projectRoot, sourceFile);
+            foreach (var fileImport in compilationUnit.FileImports.OfType<FileImport>())
+            {
+                var resolvedPath = ResolveImportedCompilationUnitPath(resolver, fileImport.Path, sourceFileByFullPath);
+                if (resolvedPath == null)
+                    continue;
+
+                if (!graph.TryGetValue(sourceFile, out var edges))
+                {
+                    edges = new List<ImportEdge>();
+                    graph[sourceFile] = edges;
+                }
+
+                _resolvedFileImportDiagnosticKeys.Add(BuildFileImportDiagnosticKey(sourceFile, fileImport.Line, fileImport.Column));
+                edges.Add(new ImportEdge(sourceFile, resolvedPath, fileImport.Path, fileImport.Line, fileImport.Column));
+            }
+        }
+
+        return graph;
+    }
+
+    private static string? ResolveImportedCompilationUnitPath(
+        FileResolver resolver,
+        string importPath,
+        IReadOnlyDictionary<string, string> sourceFileByFullPath)
+    {
+        var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
+        return sourceFileByFullPath.TryGetValue(resolvedPath, out var sourceFile)
+            ? sourceFile
+            : null;
+    }
+
+    private static string BuildFileImportDiagnosticKey(string filePath, int line, int column)
+    {
+        return $"{Path.GetFullPath(filePath)}:{line}:{column}";
+    }
+
+    private void VisitImportGraph(
+        string sourceFile,
+        IReadOnlyDictionary<string, List<ImportEdge>> edgesByFile,
+        Dictionary<string, ImportVisitState> visitState)
+    {
+        if (visitState.TryGetValue(sourceFile, out var existingState) && existingState == ImportVisitState.Visited)
+            return;
+
+        var pathStack = new List<string>();
+        var pathIndexByFile = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var traversalStack = new List<ImportTraversalFrame>();
+
+        visitState[sourceFile] = ImportVisitState.Visiting;
+        pathIndexByFile[sourceFile] = 0;
+        pathStack.Add(sourceFile);
+        traversalStack.Add(new ImportTraversalFrame(sourceFile, GetSortedImportEdges(sourceFile, edgesByFile)));
+
+        while (traversalStack.Count > 0)
+        {
+            var frame = traversalStack[^1];
+            if (frame.NextEdgeIndex >= frame.Edges.Count)
+            {
+                traversalStack.RemoveAt(traversalStack.Count - 1);
+                pathIndexByFile.Remove(frame.SourceFile);
+                pathStack.RemoveAt(pathStack.Count - 1);
+                visitState[frame.SourceFile] = ImportVisitState.Visited;
+                continue;
+            }
+
+            var edge = frame.Edges[frame.NextEdgeIndex++];
+            if (pathIndexByFile.TryGetValue(edge.TargetFile, out var cycleStartIndex))
+            {
+                var cyclePath = pathStack.Skip(cycleStartIndex).Concat(new[] { edge.TargetFile }).ToList();
+                ReportCircularImportCycle(edge, cyclePath);
+                continue;
+            }
+
+            if (visitState.TryGetValue(edge.TargetFile, out var targetState) && targetState == ImportVisitState.Visited)
+                continue;
+
+            visitState[edge.TargetFile] = ImportVisitState.Visiting;
+            pathIndexByFile[edge.TargetFile] = pathStack.Count;
+            pathStack.Add(edge.TargetFile);
+            traversalStack.Add(new ImportTraversalFrame(edge.TargetFile, GetSortedImportEdges(edge.TargetFile, edgesByFile)));
+        }
+    }
+
+    private static IReadOnlyList<ImportEdge> GetSortedImportEdges(
+        string sourceFile,
+        IReadOnlyDictionary<string, List<ImportEdge>> edgesByFile)
+    {
+        return edgesByFile.TryGetValue(sourceFile, out var edges)
+            ? edges.OrderBy(edge => edge.TargetFile, StringComparer.OrdinalIgnoreCase).ToList()
+            : Array.Empty<ImportEdge>();
+    }
+
+    private void ReportCircularImportCycle(ImportEdge edge, IReadOnlyList<string> cyclePath)
+    {
+        var displayPath = FormatCyclePath(cyclePath);
+        var canonicalCycle = CanonicalizeCycle(cyclePath);
+        if (!_reportedImportCycles.Add(canonicalCycle))
+            return;
+
+        foreach (var filePath in cyclePath.Take(Math.Max(0, cyclePath.Count - 1)))
+        {
+            _filesInReportedImportCycles.Add(Path.GetFullPath(filePath));
+        }
+
+        if (_allErrors.Count(error => error.Code == ErrorCode.CircularImport) >= MaxReportedImportCycles)
+            return;
+
+        var sourceSnippet = TryReadSourceLine(edge.SourceFile, edge.Line);
+        _allErrors.Add(new CompilerError(
+            ErrorCode.CircularImport,
+            $"Circular import detected: {displayPath}",
+            edge.Line,
+            edge.Column,
+            ErrorSeverity.Error)
+        {
+            FileName = edge.SourceFile,
+            SourceSnippet = sourceSnippet,
+            Length = Math.Max(1, edge.ImportPath.Length),
+            HumanExplanation = $"File imports form a cycle: {displayPath}",
+            ContextualHint =
+                "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
+                $"Import path: {displayPath}",
+            Suggestion = "Move shared types or functions into a separate file/package that every file can import without importing back, or invert one dependency so imports flow in one direction.",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL703"
+        });
+    }
+
+    private string FormatCyclePath(IReadOnlyList<string> cyclePath)
+    {
+        var displayNodes = cyclePath.Select(GetProjectRelativeDisplayPath).ToList();
+        if (displayNodes.Count <= MaxDisplayedImportCycleNodes)
+            return string.Join(" -> ", displayNodes);
+
+        const int headCount = 6;
+        const int tailCount = 3;
+        var omittedCount = displayNodes.Count - headCount - tailCount;
+        var boundedNodes = displayNodes
+            .Take(headCount)
+            .Concat(new[] { $"... ({omittedCount} more imports)" })
+            .Concat(displayNodes.Skip(displayNodes.Count - tailCount));
+        return string.Join(" -> ", boundedNodes);
+    }
+
+    private string GetProjectRelativeDisplayPath(string filePath)
+    {
+        try
+        {
+            return Path.GetRelativePath(_projectRoot, filePath).Replace('\\', '/');
+        }
+        catch
+        {
+            return Path.GetFileName(filePath);
+        }
+    }
+
+    private static string CanonicalizeCycle(IReadOnlyList<string> cyclePath)
+    {
+        var nodes = cyclePath.Take(Math.Max(0, cyclePath.Count - 1))
+            .Select(Path.GetFullPath)
+            .ToList();
+        if (nodes.Count == 0)
+            return string.Empty;
+
+        var rotations = Enumerable.Range(0, nodes.Count)
+            .Select(index => string.Join("->", nodes.Skip(index).Concat(nodes.Take(index))));
+        return rotations.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).First();
+    }
+
+    private string? TryReadSourceLine(string filePath, int line)
+    {
+        if (line <= 0)
+            return null;
+
+        try
+        {
+            return ReadSourceText(filePath)
+                .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None)
+                .Skip(line - 1)
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private bool ShouldSuppressAnalyzerDiagnostic(CompilerError error)
+    {
+        if (error.Code == ErrorCode.CircularImport &&
+            error.FileName != null &&
+            _filesInReportedImportCycles.Contains(Path.GetFullPath(error.FileName)))
+        {
+            return true;
+        }
+
+        if (error.Code == ErrorCode.ImportNotFound &&
+            error.FileName != null &&
+            _resolvedFileImportDiagnosticKeys.Contains(BuildFileImportDiagnosticKey(error.FileName, error.Line, error.Column)))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private sealed class ImportTraversalFrame(string sourceFile, IReadOnlyList<ImportEdge> edges)
+    {
+        public string SourceFile { get; } = sourceFile;
+        public IReadOnlyList<ImportEdge> Edges { get; } = edges;
+        public int NextEdgeIndex { get; set; }
+    }
+
+    private enum ImportVisitState
+    {
+        Visiting,
+        Visited,
+    }
+
+    private sealed record ImportEdge(string SourceFile, string TargetFile, string ImportPath, int Line, int Column);
+
+    /// <summary>
     /// Pass 2: Analyze all files with complete symbol table
     /// Uses a shared Analyzer instance that was initialized once with system assemblies and project config.
     /// This prevents the performance issue of reloading assemblies for each file.
@@ -186,7 +478,7 @@ public class MultiFileCompiler
             try
             {
                 // Use the shared analyzer (assemblies already loaded in constructor)
-                var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, File.ReadAllText(sourceFile));
+                var result = _sharedAnalyzer.Analyze(compilationUnit, sourceFile, _projectRoot, ReadSourceText(sourceFile));
 
                 // Save semantic model for C# export.
                 _semanticModels[sourceFile] = result.SemanticModel;
@@ -210,9 +502,14 @@ public class MultiFileCompiler
                     _projectTypeDeclarationFiles[typeName] = filePath;
                 }
 
-                // Collect errors
+                // Collect errors. Project-level import graph resolution reports complete cycle paths
+                // before analysis; suppress the analyzer's older shallow NL703 duplicates and
+                // stale NL701 import-not-found errors for case-only/open-buffer imports already in the graph.
                 foreach (var error in result.Errors)
                 {
+                    if (ShouldSuppressAnalyzerDiagnostic(error))
+                        continue;
+
                     _allErrors.Add(error);
                 }
             }
@@ -283,6 +580,7 @@ public class MultiFileCompiler
     public void CompileForAnalysis()
     {
         ParseAllFiles();
+        DetectCircularFileImports();
         AnalyzeAllFiles();
     }
 
@@ -301,6 +599,7 @@ public class MultiFileCompiler
         // Pass 2: Analyze — always run, even if some files had parse errors.
         // Files that parsed successfully are analyzed so we can report both
         // syntax and semantic diagnostics in a single compilation pass.
+        DetectCircularFileImports();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
         AnalyzeAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
@@ -331,6 +630,7 @@ public class MultiFileCompiler
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START");
 
         ParseAllFiles();
+        DetectCircularFileImports();
         AnalyzeAllFiles();
 
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))

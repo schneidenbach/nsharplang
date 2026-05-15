@@ -185,6 +185,137 @@ func main() {
     }
 
     [Fact]
+    public void UnnecessaryNullCheck_EditUsesZeroBasedColumnsAndAppliesExactly()
+    {
+        var sourceCode = @"func main() {
+    let x = 42
+    if x != null {
+        print x
+    }
+}";
+        var diagnostic = new Diagnostic(
+            "NL003",
+            "Unnecessary null check: 'int' is never null",
+            new Location(3, 8),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
+        var edit = Assert.Single(fix.Edits);
+
+        Assert.Equal(new TextEdit(3, 7, 3, 16, "true"), edit);
+        var fixedSource = NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits);
+        Assert.Equal(@"func main() {
+    let x = 42
+    if true {
+        print x
+    }
+}", fixedSource);
+
+        var fixedTokens = new Lexer(fixedSource).Tokenize();
+        var fixedParse = new Parser(fixedTokens).ParseCompilationUnit();
+        Assert.True(fixedParse.Success, string.Join("\n", fixedParse.Errors.Select(e => e.Message)));
+    }
+
+    [Fact]
+    public void EmptyCatch_EditUsesZeroBasedEndColumnAndAppliesExactly()
+    {
+        var sourceCode = @"func main() {
+    try {
+    } catch {
+    }
+}";
+        var diagnostic = new Diagnostic(
+            "NL011",
+            "Empty catch block",
+            new Location(3, 7),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
+        var edit = Assert.Single(fix.Edits);
+
+        Assert.Equal(3, edit.StartLine);
+        Assert.Equal(13, edit.StartColumn);
+        Assert.Equal(3, edit.EndLine);
+        Assert.Equal(13, edit.EndColumn);
+        Assert.Equal(@"func main() {
+    try {
+    } catch {
+        // TODO: handle exception
+    }
+}", NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+    }
+
+    [Fact]
+    public void EmptyCatch_CrlfSource_DoesNotCountCarriageReturnInColumns()
+    {
+        var sourceCode = "func main() {\r\n    try {\r\n    } catch {\r\n    }\r\n}";
+        var diagnostic = new Diagnostic(
+            "NL011",
+            "Empty catch block",
+            new Location(3, 7),
+            DiagnosticSeverity.Warning);
+
+        var ast = ParseCode(sourceCode);
+        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
+        var edit = Assert.Single(fix.Edits);
+
+        Assert.Equal(3, edit.StartLine);
+        Assert.Equal(13, edit.StartColumn);
+        Assert.Equal(3, edit.EndLine);
+        Assert.Equal(13, edit.EndColumn);
+        Assert.Equal("func main() {\n    try {\n    } catch {\n        // TODO: handle exception\n    }\n}",
+            NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+    }
+
+    [Fact]
+    public void ChangeLetToConst_EditUsesZeroBasedColumnsAndAppliesExactly()
+    {
+        var sourceCode = @"func main() {
+    let answer = 42
+    print answer
+}";
+        var diagnostic = new Diagnostic(
+            "NL015",
+            "'answer' is never reassigned; use const",
+            new Location(2, 5),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
+        var edit = Assert.Single(fix.Edits);
+
+        Assert.Equal(new TextEdit(2, 4, 2, 8, "const "), edit);
+        Assert.Equal(@"func main() {
+    const answer = 42
+    print answer
+}", NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+    }
+
+    [Fact]
+    public void ObjectInitializerEquals_EditUsesZeroBasedColumnsAndAppliesExactly()
+    {
+        var sourceCode = @"func main() {
+    p := new Person { Name = ""Ada"" }
+}";
+        var diagnostic = new Diagnostic(
+            "NL110",
+            "C# object initializer uses '='; use ':' in N#",
+            new Location(2, 23),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
+        var edit = Assert.Single(fix.Edits);
+
+        Assert.Equal(new TextEdit(2, 26, 2, 29, ": "), edit);
+        Assert.Equal(@"func main() {
+    p := new Person { Name: ""Ada"" }
+}", NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
+    }
+
+    [Fact]
     public void CodeFixService_ReturnsNoFixes_ForUnknownDiagnosticCode()
     {
         // Arrange

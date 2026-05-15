@@ -2,9 +2,9 @@ namespace TaskCli
 
 import System
 import System.Threading.Tasks
+import TaskCli.Commands
 import TaskCli.Models
 import TaskCli.Services
-import TaskCli.Commands
 
 async func Main() {
     rawArgs := Environment.GetCommandLineArgs()
@@ -21,6 +21,7 @@ async func Main() {
     for i := 2; i < rawArgs.Length; i++ {
         remainingArgs.Add(rawArgs[i])
     }
+
     args := remainingArgs.ToArray()
 
     // Initialize store and service

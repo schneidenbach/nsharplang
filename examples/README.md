@@ -47,8 +47,8 @@ Standalone projects for operator overloading, conversions, locks, file-scoped ty
 ### [12. Multi-File Projects](./12-multi-file-projects/)
 Complete projects demonstrating how to structure larger N# applications.
 
-### [13. ASP.NET Core Demo](./13-aspnet-demo/)
-Production-quality ASP.NET Core Web API built with N#.
+### [14. Minimal API](./14-minimal-api/)
+Curated ASP.NET Core minimal API sample built with N#.
 
 ## Running Examples
 
@@ -80,7 +80,7 @@ If you're new to N#, we recommend following the examples in order:
 5. Understand **Discriminated Unions** - a game-changer for domain modeling
 6. Study **Classes and Records** for object-oriented programming
 7. Try the **Multi-File Projects** to see how to structure real applications
-8. Dive into the **ASP.NET Core Demo** for a production example
+8. Try the **Minimal API** sample for an ASP.NET Core-shaped example
 
 ## Contributing
 

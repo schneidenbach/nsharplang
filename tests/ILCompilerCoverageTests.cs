@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
 using Xunit;
@@ -297,6 +298,70 @@ class Annotated {
     }
 
     [Fact]
+    public void ILCompiler_EmitsParameterAttributesOnMethods()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+class Api {
+    func Create([RuntimeCoverage(42, [""route""], Enabled: true)] id: int): int {
+        return id
+    }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var apiType = assembly.GetType("Api");
+            Assert.NotNull(apiType);
+            var createMethod = apiType!.GetMethod("Create", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(createMethod);
+
+            var attribute = Assert.Single(createMethod!.GetParameters()[0].CustomAttributes);
+            Assert.Equal("NSharpLang.Tests.RuntimeCoverageAttribute", attribute.AttributeType.FullName);
+            Assert.Equal(new object?[] { 42, new object?[] { "route" } }, GetAttributeArguments(attribute));
+            Assert.True(Assert.IsType<bool>(GetNamedAttributeValue(attribute, "Enabled")));
+            return true;
+        });
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsAspNetParameterAttributes()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Mvc
+
+class IssuesController {
+    func Create([FromRoute] id: int, [FromBody] request: CreateIssueRequest): int {
+        return id
+    }
+}
+
+class CreateIssueRequest {
+    Title: string
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        CompileAndInspect(source, config, assembly =>
+        {
+            var controllerType = assembly.GetType("IssuesController");
+            Assert.NotNull(controllerType);
+
+            var createMethod = controllerType!.GetMethod("Create", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(createMethod);
+
+            var parameters = createMethod!.GetParameters();
+            Assert.Contains(parameters[0].CustomAttributes, attribute => attribute.AttributeType.FullName == "Microsoft.AspNetCore.Mvc.FromRouteAttribute");
+            Assert.Contains(parameters[1].CustomAttributes, attribute => attribute.AttributeType.FullName == "Microsoft.AspNetCore.Mvc.FromBodyAttribute");
+            return true;
+        });
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteListPatternOnCustomIndexedTypeWithSliceBinding()
     {
         var source = @"
@@ -475,6 +540,150 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(4, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_DirectLocalFunctionCall_DoesNotMaterializeDelegateInCaller()
+    {
+        var source = @"
+func main(): int {
+    func addOne(value: int): int {
+        return value + 1
+    }
+
+    return addOne(4) + addOne(5)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(11, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 2, "Direct local function calls should lower to direct call instructions.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectCapturingLocalFunctionCall_DoesNotMaterializeDelegateInCaller()
+    {
+        var source = @"
+func main(): int {
+    offset := 3
+    func addOffset(value: int): int {
+        return value + offset
+    }
+
+    return addOffset(4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(7, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 1, "Direct capturing local function calls should lower to direct calls with capture arguments.");
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingLocalFunctionValue_MaterializesDelegateOnlyAtValueBoundary()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    func addOne(value: int): int {
+        return value + 1
+    }
+
+    escaped: Func<int, int> = addOne
+    return addOne(4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(5, Assert.IsType<int>(result.Value));
+        Assert.True(result.NewobjCount >= 1, "Escaping a local function as a Func value must materialize a delegate at the value boundary.");
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 1, "Direct calls should remain direct calls even when the same local function also escapes as a value.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingLocalFunctionValue_MaterializesDelegateAtBoundary()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    func addOne(value: int): int {
+        return value + 1
+    }
+
+    escaped: Func<int, int> = addOne
+    return escaped(4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(5, Assert.IsType<int>(result.Value));
+        Assert.True(result.NewobjCount >= 1, "Escaping a local function as a Func value must materialize a delegate.");
+        Assert.True(result.CallvirtCount >= 1, "Invoking an escaped delegate should still use the delegate Invoke path.");
     }
 
     [Fact]

@@ -72,11 +72,13 @@ Test coverage needed:
 
 ### P1-3 Unsaved-buffer semantic tooling falls back to simple-name text behavior
 
+Status: Mitigated in the LSP implementation. `DocumentManager` now builds semantic project snapshots from open-buffer text plus disk files, and logs structured degraded states when that snapshot cannot be built. Keep the old evidence below as historical context until the full launch gate is green.
+
 Evidence:
-- Definition handler falls back to `FindSymbolLocations(word)` and `PickBestLocation` when synchronized/disk project snapshots miss: `src/NSharpLang.LanguageServer/Handlers/DefinitionHandler.cs:43-86`.
+- Definition handler now asks for a semantic project snapshot where open buffers override disk files before considering disk/text fallbacks: `src/NSharpLang.LanguageServer/Handlers/DefinitionHandler.cs:53-73` and `src/NSharpLang.LanguageServer/Services/DocumentManager.cs`.
 - References handler falls back to text-based single-document search when no synchronized snapshot is available: `src/NSharpLang.LanguageServer/Handlers/ReferencesHandler.cs:67-100`.
 - Rename handler falls back to same-document text edits when project references are unavailable: `src/NSharpLang.LanguageServer/Handlers/RenameHandler.cs:65-113`.
-- `DocumentManager.FindAllReferences` documents the non-semantic fallback and says BindingMap is not yet used for LSP fallback: `src/NSharpLang.LanguageServer/Services/DocumentManager.cs:436-447`.
+- `DocumentManager` logs structured project-snapshot degradation with reason/project/file/message before falling back or returning no semantic result.
 
 Affected files:
 - `src/NSharpLang.LanguageServer/Handlers/DefinitionHandler.cs`
@@ -85,8 +87,8 @@ Affected files:
 - `src/NSharpLang.LanguageServer/Services/DocumentManager.cs`
 
 User impact:
-- A normal editing state, where open buffers differ from disk, can degrade semantic operations to simple-name matching.
-- Rename is the highest-risk case because an apparently semantic F2 operation can edit unrelated identifiers in the same document.
+- A normal editing state, where open buffers differ from disk, should now preserve semantic definition/references/rename over the in-memory project snapshot.
+- Residual risk: truly degraded snapshots still fall through to legacy fallback paths for some handlers, so completion/review should retain explicit degraded logging evidence and duplicate-name regression tests.
 
 Recommended fix:
 - Build in-memory project snapshots from open document text plus disk for unopened files, then use the same semantic resolver for definition/references/rename.
@@ -94,20 +96,20 @@ Recommended fix:
 - If definition keeps a fallback, mark it as best-effort in logs only and never use it for refactoring edits.
 
 Test coverage needed:
-- LSP tests with unsaved edits and duplicate names in nested scopes.
-- Rename tests that assert unrelated same-name symbols are not edited when project snapshots are unavailable.
+- LSP tests with unsaved edits and duplicate names in nested scopes. Covered for cross-file duplicate member definition/references/rename.
+- Rename tests that assert unrelated same-name symbols are not edited when project snapshots are unavailable. Covered for unsaved duplicate-member rename; still worth extending to degraded/no-project synthetic URI paths.
 
 ## P2 Findings
 
 ### P2-1 Shell completion and docs drift from the actual query command tree
 
+Status: Remediated in the current working tree by centralizing public command metadata in `CommandRegistry` and adding parity coverage. Keep this section as a regression guard until the launch branch is cut.
+
 Evidence:
-- Current `Program.Execute` registers `pack`, `export`, and `idiom`, with no `convert` command: `src/NSharpLang.Cli/Program.cs:58-60`.
-- `CompletionCommand.TopLevelCommands` already includes `export` and `idiom`: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:8-37`.
-- `QueryCommand` implements `hover`, `call-graph`, and `implementors`: `src/NSharpLang.Cli/Commands/QueryCommand.cs:31-45`.
-- Generated query completions omit those subcommands: `src/NSharpLang.Cli/Commands/CompletionCommand.cs:88-93`, `src/NSharpLang.Cli/Commands/CompletionCommand.cs:131-134`.
-- Observed `nlc completion zsh` output includes top-level `export` and `idiom`, omits `convert` as expected, and still omits query subcommands `hover`, `call-graph`, and `implementors`.
-- `docs/guide/cli-reference.md:34-48` also omits `hover`, `call-graph`, and `implementors` from the query table, despite `nlc query help` listing them.
+- Current `Program.Execute` registers `pack`, `export`, and `idiom`, with no `convert` command.
+- `nlc --help`, `nlc query help`, and `nlc completion zsh` now expose the same top-level/query command surface, including `hover`, `call-graph`, and `implementors`, while still omitting `convert`.
+- `docs/guide/cli-reference.md` and `website/docs/cli-reference.md` list the current query subcommands and the no-public-`nlc convert` migration contract.
+- `CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs` covers registry/help/completion/docs parity.
 
 Affected files:
 - `src/NSharpLang.Cli/Commands/CompletionCommand.cs`
@@ -119,11 +121,11 @@ User impact:
 - This is especially harmful for the LLM-first CLI story because shell completion is one of the primary machine-navigation affordances.
 
 Recommended fix:
-- Generate query completions from the same command registry or tested data model used by `QueryCommand`, not hand-maintained string lists.
-- Update `docs/guide/cli-reference.md` from `nlc query help` output or add a parity test that fails when docs omit implemented public query commands.
+- Keep query completions generated from the command registry.
+- Keep `docs/guide/cli-reference.md` and `website/docs/cli-reference.md` covered by the parity test when command metadata changes.
 
 Test coverage needed:
-- Compare `nlc query help`, query completion scripts, and docs query tables in one parity audit test.
+- Continue running the parity audit that compares `nlc query help`, query completion scripts, and docs query tables.
 
 ### P2-2 VS Code Test Explorer debug mode reports skipped instead of debug results
 
@@ -149,13 +151,10 @@ Test coverage needed:
 ### P2-3 Documentation overstates tooling maturity and contains stale counts
 
 Evidence:
-- `memory/README.md:3-4` says "Feature-complete" and `944+ total`.
-- `memory/testing.md:5` says `944+ total`.
-- `memory/components/cli-toolchain.md:3-4` says "Production-ready" and `1558+ tests passing`.
-- `README.md:130` and `README.md:192` still reference `876` tests.
-- Hand-maintained counts conflict with each other and should not be presented as current without a fresh `./scripts/test-all.sh` artifact.
-- VS Code docs claim "Zero-config debugging" and automatic build/test tasks at `editors/vscode/README.md:35-49`, but the extension uses direct `dotnet` tasks that fail for csproj-free templates.
-- `editors/vscode/INTELLISENSE.md:91-95` claims `<100ms` completion performance with no observed performance gate in `./scripts/test-all.sh`.
+- Earlier evidence found stale hand-maintained counts and maturity claims across `README.md`, `memory/README.md`, `memory/testing.md`, `memory/components/cli-toolchain.md`, website docs, and VS Code docs. Public-facing copies have been softened, but counts still drift unless generated from a fresh `./scripts/test-all.sh` artifact.
+- Treat any remaining static counts in memory/completed-task history as historical notes, not current launch evidence.
+- VS Code public docs now hide F5/debugging as an unsupported N# workflow and describe `nlc`-backed tasks, but this still requires fresh extension/visual QA before a launch claim.
+- `editors/vscode/INTELLISENSE.md` no longer quotes a `<100ms` latency number without a current performance gate.
 
 Affected files:
 - `README.md`
@@ -181,36 +180,27 @@ Test coverage needed:
 
 ## P3 Findings
 
-### P3-1 Full-suite script encodes known example failures without issue-level traceability
+### P3-1 Full-suite script previously encoded known example failures without issue-level traceability
+
+Status: Remediated in current working tree. The single-file example allowlist was removed, the two stale single-file examples now build under the IL backend, `examples/12-multi-file-projects/imports/` has a project manifest so it is tested as a multi-file project, and parent umbrella `nlc check` allowlists were removed in favor of checking only real project/single-file scopes.
 
 Evidence:
-- `scripts/test-all.sh:383-389` lists known single-file example failures for `PrintNameofTypeof.nl`, `ConstructorChaining.nl`, and `12-multi-file-projects/imports/`.
-- The run still reported known parent-directory `nlc check` warnings: `12-multi-file-projects (known: 11 errors)` and `17-issue-tracker (known: 13 errors)`.
+- `scripts/test-all.sh` no longer defines `KNOWN_FAILURES` or `CHECK_KNOWN_FAILURES`.
+- `PrintNameofTypeof.nl` and `ConstructorChaining.nl` build directly with `nlc build`.
+- `examples/12-multi-file-projects/imports/project.yml` makes the imports sample a first-class project.
 
-Affected files:
-- `scripts/test-all.sh`
-- `examples/02-variables-and-types/PrintNameofTypeof.nl`
-- `examples/06-classes-and-records/ConstructorChaining.nl`
-- `examples/12-multi-file-projects/**`
-- `examples/17-issue-tracker/**`
-
-User impact:
-- Known failures can become permanent because the script classifies them as acceptable without linking to owner, issue, or expiry criteria.
-- The Language Server false-error guarantee in Step 10 is weakened by known parent-directory failures.
-
-Recommended fix:
-- Link each known failure to a tracked issue or TODO file with owner and expected fix condition.
-- Prefer quarantined tests with explicit assertions over regex allowlists in a release gate.
+Residual policy:
+- Future known failures must not be hidden behind regex allowlists. Fix them, or link them to a tracked issue with owner and expiry before allowing the gate to pass.
 
 Test coverage needed:
-- Add a small "known failures registry" check that requires issue IDs and fails on stale entries past an expiry date.
+- Keep `./scripts/test-all.sh` as the audit: example build/check failures now fail the suite instead of printing "known" warnings.
 
 ## Commands Run
 
 - `rg --files ...`, `rg -n ...`, `sed`, `nl -ba`, `find` — repo/source/docs inspection.
 - `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- help` — confirmed top-level help includes `pack`, `export`, and `idiom`, with no `convert`.
 - `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help` — confirmed query help includes `hover`, `call-graph`, `implementors`.
-- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- completion zsh` — confirmed top-level `export`/`idiom` completion is present and query subcommand completion drift remains.
+- `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- completion zsh` — confirmed top-level `export`/`idiom` and query subcommands `hover`/`call-graph`/`implementors` are present; `convert` remains absent.
 - `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- convert --help` — confirmed `convert` is not currently registered (`Unknown command: convert`).
 - `dotnet build templates/nsharp-console --disable-build-servers -v q` — failed with `MSB1003` because no project file exists.
 - `dotnet test templates/nsharp-console --disable-build-servers -v q` — failed with `MSB1003` because no project file exists.
@@ -219,6 +209,6 @@ Test coverage needed:
 
 ## Non-Findings / Positive Signals
 
-- `convert` is not a current top-level command; `export` and `idiom` are registered and present in shell completion. The remaining stale surface is query subcommand completion/docs parity.
+- `convert` is not a current top-level command; `export`, `idiom`, and the current query subcommands are registered, documented, and present in shell completion.
 - `./scripts/test-all.sh` successfully built template-generated projects via `nlc build`.
 - VS Code smoke tests passed for extension activation, diagnostics, hover, and completion in this run.

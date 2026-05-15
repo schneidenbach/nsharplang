@@ -53,7 +53,7 @@ class Employee: Person {
     }
 
     func GetEmployeeInfo(): string {
-        return $"{GetInfo()} - {EmployeeId} ({Department})"
+        return $"{base.GetInfo()} - {EmployeeId} ({Department})"
     }
 }
 

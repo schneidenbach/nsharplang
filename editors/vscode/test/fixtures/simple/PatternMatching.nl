@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // If/else chains (control flow that always works)
 func Classify(value: int): string {
     if value > 100 {
@@ -48,8 +49,10 @@ func FindFirst(items: string[], target: string): int {
         if item == target {
             return index
         }
+
         index = index + 1
     }
+
     return -1
 }
 

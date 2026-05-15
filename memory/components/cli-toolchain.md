@@ -1,7 +1,7 @@
 # N# CLI Toolchain (`nlc`)
 
-**Status:** Production-ready LLM-first CLI with code intelligence, auto-fix, and daemon mode.
-**Test count:** 1558+ tests passing, 0 failures.
+**Status:** Active pre-release CLI with code intelligence, auto-fix, and daemon mode. Verify release claims with current help/completion output and test logs.
+**Test count:** Do not hard-code; run `dotnet test tests/Tests.csproj` or `./scripts/test-all.sh` for current evidence.
 
 The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navigating code via bash. `nlc query`, `nlc check`, `nlc fix`, and `nlc lint` all output structured JSON by default with a versioned envelope. `check`, `fix`, and `lint` use `ok`/`error` at the top level; query failures use the same structured error envelope. Add `--text` for human-readable output. `nlc --version` prints the installed version.
 
@@ -31,7 +31,7 @@ The executable toolchain is now IL-only:
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
-| `nlc watch <check\|build\|test>` | Re-run a command on file changes | `nlc watch check` |
+| `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |

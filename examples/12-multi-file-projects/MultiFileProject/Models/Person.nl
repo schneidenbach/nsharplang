@@ -1,5 +1,6 @@
 namespace MultiFileProject.Models
 
+
 // Person record - immutable data type
 record Person {
     Name: string
@@ -12,7 +13,7 @@ record Person {
 }
 
 // Status enum
-enum Status {
+enum Status: string {
     Active = "active",
     Inactive = "inactive",
     Pending = "pending"

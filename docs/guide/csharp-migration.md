@@ -342,8 +342,8 @@ result := new Result.Success<int> { value: 42 }
 
 // Pattern matching (exhaustiveness checked!)
 message := match result {
-    Result.Success<int> { value: v } => $"Got {v}",
-    Result.Failure<int> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Got {v}",
+    Result.Failure { error: e } => $"Error: {e}"
 }
 ```
 
@@ -450,7 +450,7 @@ Mix C# and N# in the same solution, but do not stop at syntactic translation:
 2. Reference C# projects from N# (full interop!).
 3. Migrate one module/feature slice at a time.
 4. Run `nlc check --project <nsharp-out> --json` to clear parse/semantic diagnostics.
-5. Run `nlc idiom --project <nsharp-out>` to catch C#-shaped output such as semicolons, copied modifiers, `_field` names, property blocks, DTO classes, and null-forgiving suppressions.
+5. Run `nlc idiom --project <nsharp-out>` to catch C#-shaped output such as semicolons, copied modifiers, `_field` names, property blocks, DTO classes, null/default-forgiving suppressions, and unsafe `.Value` access.
 6. Run `nlc fix --project <nsharp-out> --dry-run --json`; apply safe fixes, review `reviewNeeded` fixes manually, and waive suggestion-only items only with rationale.
 7. Re-run check/idiom/fix/format/tests after every cluster of edits.
 
@@ -486,7 +486,7 @@ class Calculator {
 using MyLibrary;
 
 var calc = new Calculator();
-var result = calc.Add(5, 10);  // Works perfectly!
+var result = calc.Add(5, 10);  // Ordinary C# call shape
 ```
 
 ## AI-Assisted C# Migration Contract
@@ -510,7 +510,7 @@ Required cleanup before review:
 - Package declarations and folder/package layout match the target N# project shape; the loop flags missing or wrong `package` declarations in `.nl` files under package folders.
 - C# `using` directives and `namespace` declarations are converted to N# `import`/`package` form before review.
 - Public framework-discovered surface stays PascalCase; private implementation details use camelCase; copied C# `public`/`private` modifiers are removed unless interop requires them.
-- Statement semicolons, C# property blocks, `_field` private naming, null-forgiving suppressions, `default!` placeholders, and C# equals-style object initializers are removed or waived with diagnostic-backed rationale.
+- Statement semicolons, C# property blocks, `_field` private naming, null/default-forgiving suppressions, unsafe `.Value` access, and C# equals-style object initializers are removed or waived with diagnostic-backed rationale.
 - DTO-shaped API/request/response classes become records unless mutation or identity is required.
 - Domain failure flows become unions plus exhaustive `match`; ASP.NET/EF code maps those domain results at the boundary.
 - Ordinary async methods can use implicit N# return types, but xUnit/framework-discovered methods that require C# `Task` signatures must declare explicit `: Task` or `: Task<T>`; `Task<T>` bodies return bare `T` values.
@@ -726,15 +726,15 @@ union Option<T> {
 func findUser(id: Guid): Option<User> {
     user := users.FirstOrDefault(u => u.Id == id)
     if user == null {
-        return new Option.None<User> { }
+        return new Option.None
     }
     return new Option.Some<User> { value: user }
 }
 
 // Usage with exhaustive matching
 match findUser(id) {
-    Option.Some<User> { value: u } => Console.WriteLine(u.Name),
-    Option.None<User> { } => Console.WriteLine("User not found")
+    Option.Some { value: u } => Console.WriteLine(u.Name),
+    Option.None => Console.WriteLine("User not found")
 }
 ```
 
@@ -766,7 +766,7 @@ Migrate one module or feature at a time, not the entire codebase.
 
 ### 2. Use Interop
 
-N# and C# work together seamlessly. Don't feel pressure to migrate everything.
+N# and C# are designed to coexist. Don't feel pressure to migrate everything, and verify each interop seam with the current tests/examples.
 
 ### 3. Leverage Union Types
 

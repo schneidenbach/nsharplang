@@ -220,6 +220,29 @@ public class DocumentManager
     /// </summary>
     public bool HasDocument(string uri) => _documents.ContainsKey(uri);
 
+    public bool IsDocumentSynchronizedWithDisk(string uri)
+    {
+        if (!_documents.TryGetValue(uri, out var document))
+        {
+            return true;
+        }
+
+        var filePath = UriToFilePath(uri);
+        if (!File.Exists(filePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            return string.Equals(document.Text, File.ReadAllText(filePath), StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public void UpdateDocument(string uri, string text, int version)
     {
         try
@@ -372,9 +395,172 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
+    public List<ReferenceResult>? FindStrictProjectReferences(string uri, int line0, int character0)
+    {
+        if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out var filePath, out var snapshot))
+        {
+            return null;
+        }
+
+        var results = _codeIntelligenceService.FindStrictReferences(snapshot, filePath, line0 + 1, character0 + 1);
+        return results.Count > 0 ? results : null;
+    }
+
+    public List<ReferenceResult>? FindStrictDocumentReferences(string uri, int line0, int character0)
+    {
+        var doc = GetDocument(uri);
+        if (doc?.Bindings == null || doc.Text == null)
+        {
+            return null;
+        }
+
+        var span = TryGetIdentifierSpanAtPosition(doc.Text, line0, character0);
+        if (span == null)
+        {
+            return null;
+        }
+
+        var filePath = UriToFilePath(uri);
+        var line = line0 + 1;
+        var declaration = doc.Bindings.GetBindingAt(filePath, line, span.Value.StartColumn)
+            ?? doc.Bindings.FindDeclarationsByName(span.Value.Name).FirstOrDefault(candidate =>
+                string.Equals(candidate.File, filePath, StringComparison.Ordinal)
+                && candidate.Line == line
+                && candidate.Column == span.Value.StartColumn);
+
+        if (declaration == null
+            || !string.Equals(declaration.File, filePath, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var results = new List<ReferenceResult>
+        {
+            new(
+                filePath,
+                declaration.Line,
+                declaration.Column,
+                declaration.Name.Length,
+                GetSourceContext(doc.Text, declaration.Line),
+                IsDefinition: true)
+        };
+
+        foreach (var usage in doc.Bindings.GetReferences(declaration))
+        {
+            var isDefinition = usage.File == declaration.File
+                && usage.Line == declaration.Line
+                && usage.Column == declaration.Column;
+            var overlapsDefinitionName = usage.File == declaration.File
+                && usage.Line == declaration.Line
+                && usage.Column >= declaration.Column
+                && usage.Column < declaration.Column + declaration.Name.Length;
+
+            if (isDefinition || overlapsDefinitionName)
+            {
+                continue;
+            }
+
+            if (!string.Equals(usage.File, filePath, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            results.Add(new ReferenceResult(
+                filePath,
+                usage.Line,
+                usage.Column,
+                usage.Length,
+                GetSourceContext(doc.Text, usage.Line),
+                IsDefinition: false));
+        }
+
+        return results
+            .GroupBy(r => (r.File, r.Line, r.Column))
+            .Select(g => g.First())
+            .OrderBy(r => r.Line)
+            .ThenBy(r => r.Column)
+            .ToList();
+    }
+
+    public int CountDocumentDeclarations(string uri, string name)
+    {
+        var doc = GetDocument(uri);
+        if (doc?.Bindings != null)
+        {
+            var filePath = UriToFilePath(uri);
+            return doc.Bindings.FindDeclarationsByName(name)
+                .Count(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal));
+        }
+
+        return doc?.SymbolLocations?.TryGetValue(name, out var locations) == true
+            ? locations.Count
+            : 0;
+    }
+
+    private static (int StartColumn, int EndColumn, string Name)? TryGetIdentifierSpanAtPosition(string text, int line0, int character0)
+    {
+        var lines = text.Split('\n');
+        if (line0 < 0 || line0 >= lines.Length)
+        {
+            return null;
+        }
+
+        var lineText = lines[line0].TrimEnd('\r');
+        if (lineText.Length == 0)
+        {
+            return null;
+        }
+
+        var index = Math.Clamp(character0, 0, lineText.Length - 1);
+        if (!EditorUtilities.IsIdentifierChar(lineText[index]))
+        {
+            if (character0 > 0
+                && character0 <= lineText.Length
+                && !EditorUtilities.IsIdentifierChar(lineText[Math.Min(character0, lineText.Length - 1)])
+                && EditorUtilities.IsIdentifierChar(lineText[character0 - 1]))
+            {
+                index = character0 - 1;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        var start = index;
+        while (start > 0 && EditorUtilities.IsIdentifierChar(lineText[start - 1]))
+        {
+            start--;
+        }
+
+        var end = index;
+        while (end + 1 < lineText.Length && EditorUtilities.IsIdentifierChar(lineText[end + 1]))
+        {
+            end++;
+        }
+
+        return (start + 1, end + 1, lineText.Substring(start, end - start + 1));
+    }
+
+    private static string GetSourceContext(string source, int line)
+    {
+        var lines = source.Split('\n');
+        return line > 0 && line <= lines.Length
+            ? lines[line - 1].TrimEnd('\r')
+            : string.Empty;
+    }
+
     public bool HasSynchronizedProjectSnapshot(string uri)
     {
         return TryGetSynchronizedProjectSnapshot(uri, out _, out _, out _);
+    }
+
+    public bool HasSemanticProjectContext(string uri)
+    {
+        var filePath = UriToFilePath(uri);
+        var projectRoot = ResolveSemanticProjectRoot(filePath);
+        return File.Exists(Path.Combine(projectRoot, "project.yml"))
+            || _workspaceRoots.Keys.Any(root => IsPathUnderProject(filePath, root));
     }
 
     /// <summary>
@@ -394,7 +580,32 @@ public class DocumentManager
 
     public string GetProjectRootForUri(string uri)
     {
-        return FindProjectRoot(UriToFilePath(uri));
+        return ResolveSemanticProjectRoot(UriToFilePath(uri));
+    }
+
+    public bool HasUnsavedOpenBuffersInProject(string uri)
+    {
+        var projectRoot = ResolveSemanticProjectRoot(UriToFilePath(uri));
+        foreach (var openUri in _editorOpenUris.Keys)
+        {
+            if (!_documents.TryGetValue(openUri, out var document))
+            {
+                continue;
+            }
+
+            var documentPath = UriToFilePath(document.Uri);
+            if (!IsPathUnderProject(documentPath, projectRoot))
+            {
+                continue;
+            }
+
+            if (!IsDocumentSynchronizedWithDisk(document.Uri))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)
@@ -572,20 +783,49 @@ public class DocumentManager
     private bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
     {
         filePath = UriToFilePath(uri);
-        projectRoot = FindProjectRoot(filePath);
+        projectRoot = ResolveSemanticProjectRoot(filePath);
         snapshot = null!;
 
-        if (!IsProjectSynchronizedWithDisk(projectRoot))
+        var requestedFilePath = filePath;
+        var hasProjectFile = File.Exists(Path.Combine(projectRoot, "project.yml"));
+        var isUnderKnownWorkspace = _workspaceRoots.Keys.Any(root => IsPathUnderProject(requestedFilePath, root));
+        if (!hasProjectFile && !isUnderKnownWorkspace)
         {
-            _logger.LogDebug("Skipping compiler project snapshot for {ProjectRoot}: open buffers differ from disk", projectRoot);
+            LogProjectSnapshotDegraded(new ProjectSnapshotDegradedState(
+                projectRoot,
+                ProjectSnapshotDegradedReason.NoProjectRoot,
+                requestedFilePath,
+                "Open buffer is not backed by a project.yml project or known workspace root"));
             return false;
         }
 
-        var stamp = ComputeProjectSnapshotStamp(projectRoot);
+        if (!File.Exists(requestedFilePath)
+            && !IsPathUnderProject(requestedFilePath, projectRoot)
+            && !isUnderKnownWorkspace)
+        {
+            LogProjectSnapshotDegraded(new ProjectSnapshotDegradedState(
+                projectRoot,
+                ProjectSnapshotDegradedReason.OpenBufferOutsideProject,
+                requestedFilePath,
+                "Open buffer is not backed by a disk file, discovered project root, or known workspace root"));
+            return false;
+        }
+
+        var sourceTextOverrides = BuildOpenBufferSourceTextOverrides(projectRoot);
+        var stamp = ComputeProjectSnapshotStamp(projectRoot, sourceTextOverrides);
+        if (stamp == null)
+        {
+            LogProjectSnapshotDegraded(new ProjectSnapshotDegradedState(
+                projectRoot,
+                ProjectSnapshotDegradedReason.NoSourceFiles,
+                null,
+                "Project has no source files or open buffers to analyze"));
+            return false;
+        }
 
         lock (_projectSnapshotLock)
         {
-            if (_projectSnapshots.TryGetValue(projectRoot, out var cached) && cached.StampUtcTicks == stamp)
+            if (_projectSnapshots.TryGetValue(projectRoot, out var cached) && cached.Stamp == stamp)
             {
                 snapshot = cached.Snapshot;
                 return true;
@@ -593,13 +833,21 @@ public class DocumentManager
 
             try
             {
-                snapshot = _codeIntelligenceService.LoadProject(projectRoot);
+                snapshot = _codeIntelligenceService.LoadProject(projectRoot, sourceTextOverrides);
                 _projectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, snapshot);
+                _logger.LogDebug(
+                    "Loaded semantic project snapshot for {ProjectRoot} with {OpenBufferCount} open-buffer overrides",
+                    projectRoot,
+                    sourceTextOverrides.Count);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load compiler project snapshot for {ProjectRoot}", projectRoot);
+                LogProjectSnapshotDegraded(new ProjectSnapshotDegradedState(
+                    projectRoot,
+                    ProjectSnapshotDegradedReason.LoadFailed,
+                    null,
+                    ex.Message), ex);
                 return false;
             }
         }
@@ -612,7 +860,7 @@ public class DocumentManager
     private bool TryGetProjectSnapshotFromDisk(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
     {
         filePath = UriToFilePath(uri);
-        projectRoot = FindProjectRoot(filePath);
+        projectRoot = ResolveSemanticProjectRoot(filePath);
         snapshot = null!;
 
         if (!File.Exists(filePath))
@@ -620,15 +868,15 @@ public class DocumentManager
             return false;
         }
 
-        var stamp = ComputeProjectSnapshotStamp(projectRoot);
-        if (stamp == 0)
+        var stamp = ComputeProjectSnapshotStamp(projectRoot).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (stamp == "0")
         {
             return false;
         }
 
         lock (_projectSnapshotLock)
         {
-            if (_diskProjectSnapshots.TryGetValue(projectRoot, out var cached) && cached.StampUtcTicks == stamp)
+            if (_diskProjectSnapshots.TryGetValue(projectRoot, out var cached) && cached.Stamp == stamp)
             {
                 snapshot = cached.Snapshot;
                 return true;
@@ -650,9 +898,11 @@ public class DocumentManager
 
     private void InvalidateProjectSnapshot(string filePath)
     {
-        var projectRoot = FindProjectRoot(filePath);
-        _projectSnapshots.TryRemove(projectRoot, out _);
-        _projectSymbolTables.TryRemove(projectRoot, out _);
+        foreach (var projectRoot in ResolvePossibleSemanticProjectRoots(filePath))
+        {
+            _projectSnapshots.TryRemove(projectRoot, out _);
+            _projectSymbolTables.TryRemove(projectRoot, out _);
+        }
     }
 
     /// <summary>
@@ -693,40 +943,6 @@ public class DocumentManager
         return table;
     }
 
-    private bool IsProjectSynchronizedWithDisk(string projectRoot)
-    {
-        foreach (var document in _documents.Values)
-        {
-            var documentPath = UriToFilePath(document.Uri);
-            if (!IsPathUnderProject(documentPath, projectRoot))
-            {
-                continue;
-            }
-
-            if (!File.Exists(documentPath))
-            {
-                return false;
-            }
-
-            string diskText;
-            try
-            {
-                diskText = File.ReadAllText(documentPath);
-            }
-            catch
-            {
-                return false;
-            }
-
-            if (!string.Equals(document.Text, diskText, StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     private static string FindProjectRoot(string filePath)
     {
         var directory = Directory.Exists(filePath)
@@ -745,6 +961,41 @@ public class DocumentManager
         }
 
         return Path.GetFullPath(directory);
+    }
+
+    private string ResolveSemanticProjectRoot(string filePath)
+    {
+        var discoveredRoot = FindProjectRoot(filePath);
+        if (File.Exists(Path.Combine(discoveredRoot, "project.yml")))
+        {
+            return discoveredRoot;
+        }
+
+        return FindContainingWorkspaceRoot(filePath) ?? discoveredRoot;
+    }
+
+    private IEnumerable<string> ResolvePossibleSemanticProjectRoots(string filePath)
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            FindProjectRoot(filePath)
+        };
+
+        var workspaceRoot = FindContainingWorkspaceRoot(filePath);
+        if (workspaceRoot != null)
+        {
+            roots.Add(workspaceRoot);
+        }
+
+        return roots;
+    }
+
+    private string? FindContainingWorkspaceRoot(string filePath)
+    {
+        return _workspaceRoots.Keys
+            .Where(root => IsPathUnderProject(filePath, root))
+            .OrderByDescending(root => Path.GetFullPath(root).Length)
+            .FirstOrDefault();
     }
 
     private static bool IsPathUnderProject(string filePath, string projectRoot)
@@ -774,6 +1025,71 @@ public class DocumentManager
     private static string NormalizePath(string path)
     {
         return path.Replace('\\', '/');
+    }
+
+    private string? ComputeProjectSnapshotStamp(string projectRoot, IReadOnlyDictionary<string, string> sourceTextOverrides)
+    {
+        var diskStamp = ComputeProjectSnapshotStamp(projectRoot);
+        var hash = new HashCode();
+        hash.Add(diskStamp);
+
+        foreach (var (path, text) in sourceTextOverrides.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            hash.Add(Path.GetFullPath(path), StringComparer.OrdinalIgnoreCase);
+            hash.Add(text, StringComparer.Ordinal);
+        }
+
+        if (diskStamp == 0 && sourceTextOverrides.Count == 0)
+        {
+            return null;
+        }
+
+        return $"{diskStamp}:{sourceTextOverrides.Count}:{hash.ToHashCode()}";
+    }
+
+    private Dictionary<string, string> BuildOpenBufferSourceTextOverrides(string projectRoot)
+    {
+        var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var openUri in _editorOpenUris.Keys)
+        {
+            if (!_documents.TryGetValue(openUri, out var document))
+            {
+                continue;
+            }
+
+            var documentPath = UriToFilePath(document.Uri);
+            if (!IsPathUnderProject(documentPath, projectRoot))
+            {
+                continue;
+            }
+
+            overrides[Path.GetFullPath(documentPath)] = document.Text;
+        }
+
+        return overrides;
+    }
+
+    private void LogProjectSnapshotDegraded(ProjectSnapshotDegradedState state, Exception? exception = null)
+    {
+        if (exception == null)
+        {
+            _logger.LogWarning(
+                "Project semantic snapshot degraded: {Reason}; ProjectRoot={ProjectRoot}; FilePath={FilePath}; Message={Message}",
+                state.Reason,
+                state.ProjectRoot,
+                state.FilePath,
+                state.Message);
+            return;
+        }
+
+        _logger.LogWarning(
+            exception,
+            "Project semantic snapshot degraded: {Reason}; ProjectRoot={ProjectRoot}; FilePath={FilePath}; Message={Message}",
+            state.Reason,
+            state.ProjectRoot,
+            state.FilePath,
+            state.Message);
     }
 
     private static long ComputeProjectSnapshotStamp(string projectRoot)
@@ -1375,7 +1691,21 @@ public class DocumentManager
         return new Uri(fullPath).ToString();
     }
 
-    private sealed record CachedProjectSnapshot(long StampUtcTicks, ProjectSnapshot Snapshot);
+    private sealed record CachedProjectSnapshot(string Stamp, ProjectSnapshot Snapshot);
+
+    private enum ProjectSnapshotDegradedReason
+    {
+        NoSourceFiles,
+        NoProjectRoot,
+        OpenBufferOutsideProject,
+        LoadFailed
+    }
+
+    private sealed record ProjectSnapshotDegradedState(
+        string ProjectRoot,
+        ProjectSnapshotDegradedReason Reason,
+        string? FilePath,
+        string Message);
 }
 
 /// <summary>

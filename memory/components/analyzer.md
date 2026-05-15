@@ -142,11 +142,13 @@ Skipped when:
 
 ## Circular Import Detection
 
-The analyzer detects circular file imports during `ProcessFileImport`:
-- **Self-import**: File importing itself (A→A) — detected by comparing resolved path against `_currentFilePath`
-- **Two-file cycle**: A→B→A — detected by inspecting imported file's own `FileImports` for back-references to current file
-- **Longer chains**: A→B→C→A not yet detected (known limitation)
-- Reports `ErrorCode.CircularImport` (NL703) with Elm-style error message
+Project compilation detects circular file imports before semantic analysis:
+- **Self-import**: File importing itself (A -> A)
+- **Two-file cycle**: A -> B -> A
+- **Longer chains**: A -> B -> C -> A and longer cycles
+- Reports `ErrorCode.CircularImport` (NL703) with a bounded cycle path and a suggested refactor to extract shared declarations or invert one dependency
+
+The analyzer still has a shallow per-file guard in `ProcessFileImport` for direct self-import and two-file cycles, but `MultiFileCompiler` owns the complete project-level graph diagnostic.
 
 ## Error Reporting
 

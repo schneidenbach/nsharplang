@@ -10,7 +10,7 @@ namespace NSharpLang.Tests;
 public class DiagnosticClusteringTests
 {
     [Fact]
-    public void CheckJson_IncludesAiConsumableDiagnosticClustersWithRootLocationExamplesAndActions()
+    public void DiagnosticClustersJson_IncludesAiConsumableRootLocationExamplesAndActions()
     {
         var diagnostics = new List<DiagnosticResult>
         {
@@ -19,28 +19,32 @@ public class DiagnosticClusteringTests
             UndefinedBuilder("src/C.nl", 12)
         };
 
-        var json = OutputFormatter.CheckToJson(diagnostics, "/repo", checkedFiles: 3);
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/repo");
 
         using var doc = JsonDocument.Parse(json);
-        var clusters = doc.RootElement.GetProperty("diagnosticClusters").EnumerateArray().ToArray();
+        var clusters = doc.RootElement.GetProperty("clusters").EnumerateArray().ToArray();
 
         Assert.Equal(2, clusters.Length);
-        Assert.Equal("NL102", clusters[0].GetProperty("code").GetString());
+        Assert.Equal("syntax-missing-terminator", clusters[0].GetProperty("category").GetString());
         Assert.Equal(2, clusters[0].GetProperty("count").GetInt32());
-        Assert.Equal("syntax-missing-terminator", clusters[0].GetProperty("syntaxShape").GetString());
         Assert.Equal("variable-declaration", clusters[0].GetProperty("sourceConstruct").GetString());
-        Assert.Equal("converter:semicolon-elision-or-statement-boundary", clusters[0].GetProperty("likelyRecipe").GetString());
+        Assert.Equal("converter:semicolon-elision-or-statement-boundary", clusters[0].GetProperty("recipe").GetString());
+        Assert.Equal("high", clusters[0].GetProperty("risk").GetString());
+        Assert.Equal("src/A.nl", clusters[0].GetProperty("files")[0].GetString());
+        Assert.Equal("src/B.nl", clusters[0].GetProperty("files")[1].GetString());
+        Assert.Equal("NL102", clusters[0].GetProperty("relatedDiagnostics")[0].GetProperty("code").GetString());
+        Assert.StartsWith("nlc query inspect --file src/B.nl --pos 7:5", clusters[0].GetProperty("nextCommand").GetString());
         Assert.Equal("src/B.nl", clusters[0].GetProperty("rootLocation").GetProperty("file").GetString());
         Assert.Equal(7, clusters[0].GetProperty("rootLocation").GetProperty("line").GetInt32());
         Assert.NotEmpty(clusters[0].GetProperty("suggestedNextActions").EnumerateArray());
         Assert.Equal(2, clusters[0].GetProperty("examples").GetArrayLength());
 
-        Assert.Equal("NL301", clusters[1].GetProperty("code").GetString());
-        Assert.Equal("identifier-resolution", clusters[1].GetProperty("syntaxShape").GetString());
+        Assert.Equal("identifier-resolution", clusters[1].GetProperty("category").GetString());
+        Assert.Equal("NL301", clusters[1].GetProperty("relatedDiagnostics")[0].GetProperty("code").GetString());
     }
 
     [Fact]
-    public void CheckJson_ClassifiesCanonicalAsyncFunctionDeclarations()
+    public void DiagnosticClustersJson_ClassifiesCanonicalAsyncFunctionDeclarations()
     {
         var diagnostics = new List<DiagnosticResult>
         {
@@ -48,15 +52,15 @@ public class DiagnosticClusteringTests
             MissingSemicolon("src/B.nl", 20, "override async func Save(): Task {")
         };
 
-        var json = OutputFormatter.CheckToJson(diagnostics, "/repo", checkedFiles: 2);
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/repo");
 
         using var doc = JsonDocument.Parse(json);
-        var cluster = Assert.Single(doc.RootElement.GetProperty("diagnosticClusters").EnumerateArray());
+        var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
         Assert.Equal("function-declaration", cluster.GetProperty("sourceConstruct").GetString());
     }
 
     [Fact]
-    public void CheckJson_ClassifiesCSharpAutoPropertyAsMigrationArtifactNotParseFailure()
+    public void DiagnosticClustersJson_ClassifiesCSharpAutoPropertyAsMigrationArtifactNotParseFailure()
     {
         var diagnostics = new List<DiagnosticResult>
         {
@@ -77,13 +81,13 @@ public class DiagnosticClusteringTests
                 DocsUrl: null)
         };
 
-        var json = OutputFormatter.CheckToJson(diagnostics, "/repo", checkedFiles: 1);
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/repo");
 
         using var doc = JsonDocument.Parse(json);
-        var cluster = Assert.Single(doc.RootElement.GetProperty("diagnosticClusters").EnumerateArray());
-        Assert.Equal("csharp-migration-artifact", cluster.GetProperty("syntaxShape").GetString());
+        var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
+        Assert.Equal("csharp-migration-artifact", cluster.GetProperty("category").GetString());
         Assert.Equal("property-declaration", cluster.GetProperty("sourceConstruct").GetString());
-        Assert.Equal("migration:rewrite-auto-property-as-record-or-explicit-nsharp-property", cluster.GetProperty("likelyRecipe").GetString());
+        Assert.Equal("migration:rewrite-auto-property-as-record-or-explicit-nsharp-property", cluster.GetProperty("recipe").GetString());
     }
 
     [Fact]
@@ -99,7 +103,7 @@ public class DiagnosticClusteringTests
         var text = OutputFormatter.DiagnosticsToText(diagnostics);
 
         Assert.Contains("Diagnostic clusters (2 groups, 3 diagnostics)", text);
-        Assert.Contains("[2x] NL102 / syntax-missing-terminator / variable-declaration", text);
+        Assert.Contains("[2x] syntax-missing-terminator / variable-declaration / risk: high", text);
         Assert.Contains("root: src/B.nl:7:5", text);
         Assert.Contains("next: Fix the earliest statement-boundary parse error first", text);
         Assert.True(text.IndexOf("Diagnostic clusters", StringComparison.Ordinal) < text.IndexOf("── [NL102] ERROR", StringComparison.Ordinal));
