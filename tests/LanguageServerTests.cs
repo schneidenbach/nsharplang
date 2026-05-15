@@ -4534,6 +4534,86 @@ func helper() {
         var mainLens = Assert.Single(lenses!);
         Assert.NotNull(mainLens.Command);
         Assert.Equal("Entry point", mainLens.Command!.Title);
+        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
+    }
+
+    [Fact]
+    public async Task CodeLens_DuplicateCrossFileMemberNames_CountsOnlySemanticReferencesAndIsClickable()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-codelens-duplicates-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+            Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempCodeLensDuplicateTest
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
+            var barUsePath = Path.Combine(tempRoot, "Bar", "UseWidget.nl");
+
+            File.WriteAllText(fooWidgetPath, """
+namespace TempCodeLensDuplicateTest.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(fooUsePath, """
+namespace TempCodeLensDuplicateTest.Foo
+
+func Read(widget: Widget): string {
+    return widget.Value
+}
+""");
+            File.WriteAllText(barWidgetPath, """
+namespace TempCodeLensDuplicateTest.Bar
+
+record Widget {
+    Value: int
+}
+""");
+            File.WriteAllText(barUsePath, """
+namespace TempCodeLensDuplicateTest.Bar
+
+func Read(widget: Widget): int {
+    return widget.Value
+}
+""");
+
+            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
+            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
+            var barWidgetUri = new Uri(barWidgetPath).AbsoluteUri;
+            var barUseUri = new Uri(barUsePath).AbsoluteUri;
+
+            harness.OpenDocument(fooWidgetUri, File.ReadAllText(fooWidgetPath));
+            harness.OpenDocument(fooUseUri, File.ReadAllText(fooUsePath));
+            harness.OpenDocument(barWidgetUri, File.ReadAllText(barWidgetPath));
+            harness.OpenDocument(barUseUri, File.ReadAllText(barUsePath));
+
+            var lenses = await harness.GetCodeLensesAsync(fooWidgetUri);
+
+            Assert.NotNull(lenses);
+            var widgetLens = Assert.Single(lenses!.Where(l => l.Range.Start.Line == 2));
+            Assert.NotNull(widgetLens.Command);
+            Assert.Equal("1 reference", widgetLens.Command!.Title);
+            Assert.Equal("nsharp.showReferences", widgetLens.Command!.Name);
+            Assert.NotNull(widgetLens.Command!.Arguments);
+            var args = widgetLens.Command!.Arguments!.ToList();
+            Assert.Equal(fooWidgetUri, args[0]!.ToString());
+            Assert.Equal(2, (int)args[1]!);
+            Assert.Equal(7, (int)args[2]!);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -4554,6 +4634,7 @@ func helper() {
         var mainLens = lenses!.Single(l => l.Range.Start.Line == 1);
         Assert.NotNull(mainLens.Command);
         Assert.Equal("Entry point", mainLens.Command!.Title);
+        Assert.Equal("nsharp.noop", mainLens.Command!.Name);
     }
 
     [Fact]

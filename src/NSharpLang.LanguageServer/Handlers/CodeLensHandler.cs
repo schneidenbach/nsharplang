@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler.Ast;
@@ -92,19 +93,35 @@ public class CodeLensHandler : CodeLensHandlerBase
         if (name == null) return;
 
         var line2 = decl.Line - 1; // Convert to 0-based
-        var commandTitle = IsEntryPointCandidate(decl, isTopLevel, name)
+        var isEntryPoint = IsEntryPointCandidate(decl, isTopLevel, name);
+        var nameStartCharacter = isEntryPoint ? null : GetDeclarationNameStartCharacter(uri, decl, name);
+        var referenceInfo = nameStartCharacter != null
+            ? CountReferencesForCodeLens(name, uri, decl, line2, nameStartCharacter.Value)
+            : null;
+        var commandTitle = isEntryPoint
             ? "Entry point"
-            : FormatReferenceCount(CountReferencesExcludingDeclaration(name, uri, decl));
+            : referenceInfo != null
+                ? FormatReferenceCount(referenceInfo.Value.Count)
+                : "References unavailable";
+
+        var command = !isEntryPoint && referenceInfo?.IsClickable == true && nameStartCharacter != null
+            ? new Command
+            {
+                Title = commandTitle,
+                Name = "nsharp.showReferences",
+                Arguments = new Newtonsoft.Json.Linq.JArray(uri, line2, nameStartCharacter.Value)
+            }
+            : new Command
+            {
+                Title = commandTitle,
+                Name = "nsharp.noop"
+            };
 
         lenses.Add(new CodeLens
         {
             Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
                 line2, 0, line2, 0),
-            Command = new Command
-            {
-                Title = commandTitle,
-                Name = "nsharp.showReferences"
-            }
+            Command = command
         });
 
         // Recurse into type members
@@ -126,31 +143,74 @@ public class CodeLensHandler : CodeLensHandlerBase
         }
     }
 
-    private int CountReferencesExcludingDeclaration(string name, string declarationUri, Declaration declaration)
+    private (int Count, bool IsClickable)? CountReferencesForCodeLens(string name, string declarationUri, Declaration declaration, int line0, int character0)
     {
-        var refCount = 0;
-        var declarationLine = declaration.Line - 1;
-        var declarationOccurrenceRemoved = false;
-
-        foreach (var doc in _documentManager.GetAllDocuments())
+        var semanticCount = CountSemanticReferencesExcludingDeclarations(declarationUri, line0, character0);
+        if (semanticCount != null)
         {
-            foreach (var reference in _documentManager.FindAllReferences(doc.Uri, name))
-            {
-                if (!declarationOccurrenceRemoved
-                    && doc.Uri == declarationUri
-                    && reference.Line == declarationLine)
-                {
-                    declarationOccurrenceRemoved = true;
-                    continue;
-                }
-
-                refCount++;
-            }
+            return (semanticCount.Value, IsClickable: true);
         }
 
-        // FindAllReferences counts the declaration identifier itself. CodeLens reference counts
-        // should count usages only, matching VS Code/Roslyn's "N references" behavior.
-        return refCount;
+        var sameDocumentCount = CountSingleDocumentTextReferencesExcludingDeclaration(name, declarationUri, declaration);
+        return sameDocumentCount != null ? (sameDocumentCount.Value, IsClickable: false) : null;
+    }
+
+    private int? CountSemanticReferencesExcludingDeclarations(string declarationUri, int line0, int character0)
+    {
+        var references = _documentManager.FindProjectReferences(declarationUri, line0, character0)
+            ?? _documentManager.FindStrictDocumentReferences(declarationUri, line0, character0);
+
+        return references?.Count(reference => !reference.IsDefinition);
+    }
+
+    private int? CountSingleDocumentTextReferencesExcludingDeclaration(string name, string declarationUri, Declaration declaration)
+    {
+        if (_documentManager.CountDocumentDeclarations(declarationUri, name) != 1)
+        {
+            return null;
+        }
+
+        var declarationLine = declaration.Line - 1;
+        var declarationOccurrenceRemoved = false;
+        var count = 0;
+        foreach (var reference in _documentManager.FindAllReferences(declarationUri, name))
+        {
+            if (!declarationOccurrenceRemoved && reference.Line == declarationLine)
+            {
+                declarationOccurrenceRemoved = true;
+                continue;
+            }
+
+            count++;
+        }
+
+        return count;
+    }
+
+    private int? GetDeclarationNameStartCharacter(string uri, Declaration declaration, string name)
+    {
+        var doc = _documentManager.GetDocument(uri);
+        if (doc?.Text == null)
+        {
+            return null;
+        }
+
+        var lines = doc.Text.Split('\n');
+        var line0 = declaration.Line - 1;
+        if (line0 < 0 || line0 >= lines.Length)
+        {
+            return null;
+        }
+
+        var lineText = lines[line0].TrimEnd('\r');
+        var searchStart = System.Math.Max(0, System.Math.Min(declaration.Column - 1, lineText.Length));
+        var nameIndex = lineText.IndexOf(name, searchStart, System.StringComparison.Ordinal);
+        if (nameIndex < 0)
+        {
+            nameIndex = lineText.IndexOf(name, System.StringComparison.Ordinal);
+        }
+
+        return nameIndex >= 0 ? nameIndex : null;
     }
 
     private static bool IsEntryPointCandidate(Declaration decl, bool isTopLevel, string name)
