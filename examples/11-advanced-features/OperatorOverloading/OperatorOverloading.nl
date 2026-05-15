@@ -2,7 +2,6 @@
 // This example demonstrates the syntax for operator overloading
 // Note: Full runtime support requires analyzer enhancements (tracked separately)
 
-
 // Simple vector class demonstrating operator overload syntax
 class Vector2D {
     X: double
@@ -10,17 +9,17 @@ class Vector2D {
 
     // Binary addition operator
     static func operator +(a: Vector2D, b: Vector2D): Vector2D {
-        return new Vector2D() { X: a.X + b.X, Y: a.Y + b.Y }
+        return new Vector2D { X: a.X + b.X, Y: a.Y + b.Y }
     }
 
     // Binary subtraction operator
     static func operator -(a: Vector2D, b: Vector2D): Vector2D {
-        return new Vector2D() { X: a.X - b.X, Y: a.Y - b.Y }
+        return new Vector2D { X: a.X - b.X, Y: a.Y - b.Y }
     }
 
     // Scalar multiplication
     static func operator *(v: Vector2D, scalar: double): Vector2D {
-        return new Vector2D() { X: v.X * scalar, Y: v.Y * scalar }
+        return new Vector2D { X: v.X * scalar, Y: v.Y * scalar }
     }
 
     // Equality operators (must come in pairs)
@@ -43,10 +42,16 @@ struct Complex {
     Imaginary: double
 
     // Expression-bodied operator overload
-    static func operator +(a: Complex, b: Complex): Complex => new Complex() { Real: a.Real + b.Real, Imaginary: a.Imaginary + b.Imaginary }
+    static func operator +(a: Complex, b: Complex): Complex => new Complex {
+        Real: a.Real + b.Real,
+        Imaginary: a.Imaginary + b.Imaginary
+    }
 
     // Complex multiplication
-    static func operator *(a: Complex, b: Complex): Complex => new Complex() { Real: a.Real * b.Real - a.Imaginary * b.Imaginary, Imaginary: a.Real * b.Imaginary + a.Imaginary * b.Real }
+    static func operator *(a: Complex, b: Complex): Complex => new Complex {
+        Real: a.Real * b.Real - a.Imaginary * b.Imaginary,
+        Imaginary: a.Real * b.Imaginary + a.Imaginary * b.Real
+    }
 }
 
 class Program {

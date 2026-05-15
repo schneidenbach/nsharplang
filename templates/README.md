@@ -2,6 +2,8 @@
 
 Project templates for N# language.
 
+Templates are `project.yml`-first and do not require user-authored build logic in the project file. The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; the VS Code extension exposes those same commands as N# tasks and honors `nsharp.cli.path`.
+
 ## Installation
 
 ```bash
@@ -29,6 +31,8 @@ nlc run
 - `NuGet.config` - Package source configuration
 - `global.json` - SDK version pinning
 
+Open the generated folder in VS Code and run the `nsharp: build`, `nsharp: run`, or `nsharp: test` tasks. F5/debugging is intentionally hidden until N# has a real debugger-backed workflow.
+
 ### Web API Application
 
 Creates a minimal ASP.NET Core N# web API.
@@ -48,6 +52,8 @@ nlc run
 - `project.yml` - Project configuration with web SDK settings
 - `NuGet.config` - Package source configuration
 - `global.json` - SDK version pinning
+
+Open the generated folder in VS Code and run the `nsharp: build`, `nsharp: run`, or `nsharp: test` tasks. F5/debugging is intentionally hidden until N# has a real debugger-backed workflow.
 
 ## Uninstall
 

@@ -1,4 +1,7 @@
+using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -47,6 +50,10 @@ public class DaemonError
 
     [JsonPropertyName("message")]
     public string Message { get; set; } = "";
+
+    [JsonPropertyName("data")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Data { get; set; }
 }
 
 /// <summary>
@@ -81,11 +88,28 @@ public static class DaemonConstants
     public const int ConnectionTimeoutMs = 5000;
     public const int PingTimeoutMs = 2000;
 
+    public const int ErrorParse = -32700;
+    public const int ErrorInvalidRequest = -32600;
+    public const int ErrorMethodNotFound = -32601;
+    public const int ErrorInvalidParams = -32602;
+    public const int ErrorInternal = -32603;
+
     public static string GetSocketPath(string projectRoot)
     {
-        var dir = Path.Combine(projectRoot, SocketDir);
-        Directory.CreateDirectory(dir);
-        return Path.Combine(dir, SocketName);
+        var canonicalRoot = Path.GetFullPath(projectRoot);
+        var dir = Path.Combine(canonicalRoot, SocketDir);
+        var projectLocalPath = Path.Combine(dir, SocketName);
+
+        if (Encoding.UTF8.GetByteCount(projectLocalPath) <= 100)
+        {
+            Directory.CreateDirectory(dir);
+            return projectLocalPath;
+        }
+
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonicalRoot))).ToLowerInvariant()[..16];
+        var runtimeDir = Path.Combine(Path.GetTempPath(), "nlc-daemon", hash);
+        Directory.CreateDirectory(runtimeDir);
+        return Path.Combine(runtimeDir, SocketName);
     }
 
     // JSON-RPC method names

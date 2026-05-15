@@ -1,5 +1,6 @@
 namespace NSharpInteropLib.Models
 
+
 // Record with properties and methods - tests record consumption from C#
 record Person {
     Name: string

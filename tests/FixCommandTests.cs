@@ -445,6 +445,36 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void FixCommand_DryRun_CrlfEmptyCatch_ReportsLogicalLineColumns()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"),
+                "func main() {\r\n    try {\r\n    } catch {\r\n    }\r\n}");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
+
+            Assert.Equal(1, exitCode);
+            var doc = JsonDocument.Parse(stdout);
+            var fixes = doc.RootElement.GetProperty("fixesApplied").EnumerateArray().ToArray();
+            var emptyCatchFix = Assert.Single(fixes,
+                f => f.GetProperty("diagnostic").GetString() == "NL011");
+            var edit = Assert.Single(emptyCatchFix.GetProperty("edits").EnumerateArray());
+
+            Assert.Equal(3, edit.GetProperty("startLine").GetInt32());
+            Assert.Equal(13, edit.GetProperty("startColumn").GetInt32());
+            Assert.Equal(3, edit.GetProperty("endLine").GetInt32());
+            Assert.Equal(13, edit.GetProperty("endColumn").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Safety filtering ───────────────���────────────────────────────────
 
     [Fact]
@@ -674,7 +704,159 @@ func Main() {
         Assert.False(FixCommand.ShouldApply(FixSafety.SuggestionOnly, includeReviewNeeded: true));
     }
 
+    [Fact]
+    public void FixCommand_DryRun_File_NL003_ReportsExactZeroBasedEditAndDoesNotModifyFile()
+    {
+        AssertDryRunSingleFix(
+            "NL003",
+            @"func Main() {
+    if 1 != null {
+        print 1
+    }
+}",
+            startLine: 2,
+            startColumn: 7,
+            endLine: 2,
+            endColumn: 16,
+            newText: "true");
+    }
+
+    [Fact]
+    public void FixCommand_DryRun_File_NL011_ReportsExactZeroBasedEditAndDoesNotModifyFile()
+    {
+        AssertDryRunSingleFix(
+            "NL011",
+            @"func Main() {
+    try {
+    } catch {
+    }
+}",
+            startLine: 3,
+            startColumn: 13,
+            endLine: 3,
+            endColumn: 13,
+            newText: "\n        // TODO: handle exception");
+    }
+
+    [Fact]
+    public void FixCommand_DryRun_File_NL011_StandaloneCrReportsLogicalLineAndColumn()
+    {
+        AssertDryRunSingleFix(
+            "NL011",
+            "func Main() {\r    try {\r    } catch {\r    }\r}\r",
+            startLine: 3,
+            startColumn: 13,
+            endLine: 3,
+            endColumn: 13,
+            newText: "\n        // TODO: handle exception");
+    }
+
+    [Fact]
+    public void FixCommand_DryRun_File_NL015_ReportsExactZeroBasedEditAndDoesNotModifyFile()
+    {
+        AssertDryRunSingleFix(
+            "NL015",
+            @"func Main() {
+    let answer: int = 42
+    print answer
+}",
+            startLine: 2,
+            startColumn: 4,
+            endLine: 2,
+            endColumn: 8,
+            newText: "const ");
+    }
+
+    [Fact]
+    public void FixCommand_DryRun_File_NL110_ReportsExactZeroBasedEditAndDoesNotModifyFile()
+    {
+        AssertDryRunSingleFix(
+            "NL110",
+            @"func Main() {
+    p := new Person { Name = ""Ada"" }
+}",
+            startLine: 2,
+            startColumn: 26,
+            endLine: 2,
+            endColumn: 29,
+            newText: ": ");
+    }
+
+    [Fact]
+    public void FixCommand_DryRun_LastLineWholeLineDeletion_PreflightsSafely()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var source = "import System.IO";
+            var filePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(filePath, source);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--file", "Program.nl", "--dry-run", "--include-review-needed" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Equal(source, File.ReadAllText(filePath));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var fix = Assert.Single(doc.RootElement.GetProperty("fixesApplied").EnumerateArray());
+            Assert.Equal("NL010", fix.GetProperty("diagnostic").GetString());
+            var edit = Assert.Single(fix.GetProperty("edits").EnumerateArray());
+            Assert.Equal(1, edit.GetProperty("startLine").GetInt32());
+            Assert.Equal(0, edit.GetProperty("startColumn").GetInt32());
+            Assert.Equal(2, edit.GetProperty("endLine").GetInt32());
+            Assert.Equal(0, edit.GetProperty("endColumn").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
+
+    private static void AssertDryRunSingleFix(
+        string diagnosticCode,
+        string source,
+        int startLine,
+        int startColumn,
+        int endLine,
+        int endColumn,
+        string newText)
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var filePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(filePath, source);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                FixCommand.Execute(new[] { "--project", tempDir, "--file", "Program.nl", "--dry-run" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Equal(source, File.ReadAllText(filePath));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var fix = Assert.Single(
+                doc.RootElement.GetProperty("fixesApplied").EnumerateArray(),
+                candidate => candidate.GetProperty("diagnostic").GetString() == diagnosticCode);
+            Assert.Equal("Program.nl", fix.GetProperty("file").GetString());
+            Assert.Equal("safe", fix.GetProperty("safety").GetString());
+
+            var edit = Assert.Single(fix.GetProperty("edits").EnumerateArray());
+            Assert.Equal(startLine, edit.GetProperty("startLine").GetInt32());
+            Assert.Equal(startColumn, edit.GetProperty("startColumn").GetInt32());
+            Assert.Equal(endLine, edit.GetProperty("endLine").GetInt32());
+            Assert.Equal(endColumn, edit.GetProperty("endColumn").GetInt32());
+            Assert.Equal(newText, edit.GetProperty("newText").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 
     private static string CreateTempDir()
     {

@@ -2,7 +2,7 @@
 
 ## ✅ Member Completion for Objects
 
-The N# VS Code extension provides **full IntelliSense support** for object member access using the Language Server Protocol (LSP).
+The N# VS Code extension provides LSP-backed IntelliSense for supported object member access scenarios.
 
 ### How It Works
 
@@ -90,7 +90,7 @@ The extension looks for the Language Server in:
 
 ### Performance
 
-- ⚡ **Fast:** <100ms completion response time
+- ⚡ **Performance:** Completion paths should be measured with current smoke/performance gates before quoting latency numbers
 - 📦 **Cached:** Assembly metadata cached after first load
 - 🔄 **Lazy:** XML docs loaded on-demand
 

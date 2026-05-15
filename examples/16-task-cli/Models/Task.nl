@@ -3,6 +3,7 @@ namespace TaskCli.Models
 import System
 import System.Collections.Generic
 
+
 // Type alias for task identifiers
 type TaskId = int
 
@@ -62,11 +63,13 @@ record TaskItem {
         if Title.ToLower().Contains(lower) {
             return true
         }
+
         for tag in Tags {
             if tag.ToLower().Contains(lower) {
                 return true
             }
         }
+
         return false
     }
 }

@@ -4,7 +4,7 @@
 
 **Fixed by:** Task 030 Phase 1 (Compiler Enhancements)
 
-**Status:** Works perfectly. The compiler now loads assembly metadata and resolves external types from imported namespaces.
+**Status:** Covered by targeted tests. The compiler loads assembly metadata and resolves external types from imported namespaces in the exercised scenarios.
 
 **Example:**
 ```n#
@@ -21,7 +21,7 @@ builder := WebApplication.CreateBuilder(args)  // ✅ Works!
 
 **Fixed by:** Task 030 Phase 1 (Compiler Enhancements)
 
-**Status:** Works perfectly. Type inference from external methods is fully functional.
+**Status:** Covered by targeted tests. Type inference from external methods works in the exercised scenarios.
 
 **Example:**
 ```n#
@@ -55,7 +55,7 @@ title := dto.Title ?? "Untitled"  // ✅ Works!
 
 ## ✅ Gap 4: Class and Method Attributes (WORKING)
 
-**Status:** ✅ Class-level and method-level attributes with parameters work perfectly
+**Status:** ✅ Class-level and method-level attributes with parameters are covered by targeted transpiler tests.
 
 **Example:**
 ```n#
@@ -73,20 +73,24 @@ class TasksController : ControllerBase {
 
 ---
 
-## ❌ Gap 4b: Parameter Attributes (NOT SUPPORTED)
+## ✅ Gap 4b: Parameter Attributes (WORKING)
 
-**Status:** 🔴 Not yet supported
+**Status:** ✅ Parameter attributes are parsed, formatted, emitted in C# stubs, and written to CLR parameter metadata by the IL backend.
 
 **Example:**
 ```n#
-func Create([FromBody] dto: CreateTaskDto)  // ❌ Doesn't work yet
+func Get([FromRoute] id: int): IActionResult {
+    return Ok(id)
+}
+
+func Create([FromBody] [Required] dto: CreateTaskDto): IActionResult {
+    return Created("/tasks", dto)
+}
 ```
 
-**Workaround:** Use implicit binding - ASP.NET Core infers `[FromBody]` for complex types automatically.
+**Why it matters:** ASP.NET Core model binding and xUnit-style parameter attributes from referenced packages can now inspect the emitted parameter metadata directly.
 
-**Priority:** Low - ASP.NET Core's implicit binding works for most scenarios
-
-**Tracking:** Consider for future enhancement if needed
+**Test Coverage:** `Format_PreservesParameterAttributes`, `CompilationStubEmitter_EmitsParameterAttributesForFrameworkInterop`, `ILCompiler_EmitsParameterAttributesOnMethods`
 
 ---
 
@@ -151,10 +155,10 @@ if name != null {
 | Boolean Type Inference | ✅ Resolved | - |
 | Null-Coalescing | ✅ Verified | - |
 | Class/Method Attributes | ✅ Working | - |
-| Parameter Attributes | ❌ Not Supported | Low |
+| Parameter Attributes | ✅ Working | - |
 | Property Accessors | ✅ N# Convention | - |
 | Null-Forgiving Operator | ❌ Not Supported | Low |
 
-**ASP.NET Core Readiness:** ✅ Ready for production use
+**ASP.NET Core Interop Readiness:** Parameter-attribute model-binding path verified by targeted parser, stub-emitter, and IL metadata tests.
 
-The critical gaps (external types and boolean inference) have been resolved. The remaining unsupported features (parameter attributes and null-forgiving operator) have simple workarounds and don't block ASP.NET Core development.
+The critical gaps in this ASP.NET-focused audit path (external types, boolean inference, and parameter attributes for framework interop) have been resolved. The remaining unsupported null-forgiving operator has simple explicit alternatives and should not be used as a workaround; N# migration diagnostics now call out `null!`, `default!`, and unsafe `.Value` access so code can move to explicit null checks, `??`, or `match`. This is not a broader production-readiness claim beyond the evidence captured by the focused tests and full-gate status.

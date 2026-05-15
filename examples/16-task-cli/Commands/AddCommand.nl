@@ -4,6 +4,7 @@ import System.Collections.Generic
 import TaskCli.Models
 import TaskCli.Services
 
+
 // Handle the "add" command
 class AddCommand {
     static func Run(service: TaskService, args: string[]) {
@@ -45,6 +46,7 @@ class AddCommand {
                 return args[i + 1]
             }
         }
+
         return ""
     }
 
@@ -56,6 +58,7 @@ class AddCommand {
                 result.Add(args[i + 1])
             }
         }
+
         return result
     }
 }

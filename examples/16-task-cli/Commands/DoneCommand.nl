@@ -4,8 +4,10 @@ import System
 import TaskCli.Models
 import TaskCli.Services
 
+
 // Handle the "done" and "start" commands
 class DoneCommand {
+
     // Mark a task as done
     static func RunDone(service: TaskService, args: string[]) {
         if args.Length == 0 {
@@ -50,6 +52,7 @@ class DoneCommand {
         } catch {
             result = -1
         }
+
         return result
     }
 }

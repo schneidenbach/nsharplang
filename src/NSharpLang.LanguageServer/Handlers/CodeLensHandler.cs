@@ -69,7 +69,8 @@ public class CodeLensHandler : CodeLensHandlerBase
 
     private void CollectCodeLenses(Declaration decl, List<CodeLens> lenses, string uri, bool isTopLevel)
     {
-        // Test declarations get Run/Debug lenses instead of reference counts
+        // Test declarations get a Run lens instead of reference counts. Debug is
+        // intentionally hidden until the extension has a real debugger-backed path.
         if (decl is TestDeclaration test)
         {
             var line = decl.Line - 1; // Convert to 0-based
@@ -81,17 +82,6 @@ public class CodeLensHandler : CodeLensHandlerBase
                 {
                     Title = "$(play) Run Test",
                     Name = "nsharp.runTest",
-                    Arguments = new Newtonsoft.Json.Linq.JArray(test.Description, uri)
-                }
-            });
-            lenses.Add(new CodeLens
-            {
-                Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                    line, 0, line, 0),
-                Command = new Command
-                {
-                    Title = "$(debug-alt) Debug Test",
-                    Name = "nsharp.debugTest",
                     Arguments = new Newtonsoft.Json.Linq.JArray(test.Description, uri)
                 }
             });

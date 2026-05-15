@@ -1,7 +1,7 @@
 # N# Compiler and Toolset Documentation
 
-**Status:** Feature-complete compiler + LLM-first CLI toolchain for the N# language
-**Tests:** 944+ total, 0 failures, 3 skipped
+**Status:** Active N# compiler + CLI/tooling documentation. Verify launch readiness with current command output and dated audit evidence.
+**Tests:** Counts move quickly; use fresh `./scripts/test-all.sh` output or dated evidence artifacts instead of this index.
 
 Welcome to the N# compiler documentation. This folder contains technical documentation organized for fast lookup and minimal context usage.
 
@@ -92,7 +92,7 @@ C# code generation from AST.
 Command-line interface basics. *Legacy doc — see cli-toolchain.md for the full picture.*
 
 ### [components/cli-toolchain.md](components/cli-toolchain.md)
-**The complete N# CLI toolchain reference.** Covers every `nlc` command including the LLM-first code intelligence toolchain.
+N# CLI/toolchain reference. Covers the current `nlc` command surface including the LLM-first code intelligence workflows.
 
 **Key details:**
 - `nlc check` — fast type-check (like `cargo check`)
@@ -180,7 +180,7 @@ C# interop, using statements, external types, attributes.
 Test suite organization, strategy, and examples.
 
 **Details:**
-- 876 total tests, 873 passing, 3 skipped
+- Avoid hard-coded counts here; use fresh `./scripts/test-all.sh` output or dated evidence artifacts
 - No mocks strategy
 - Test examples
 - Running tests

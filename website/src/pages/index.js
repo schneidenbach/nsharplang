@@ -100,8 +100,8 @@ func Process(r: IReader) {
   },
   {
     icon: '\u21C4',
-    title: 'Perfect C# Interop',
-    desc: 'Use any NuGet package. Call any C# library. C# consumers can\'t tell the difference. Full MSBuild integration.',
+    title: 'Pragmatic C# Interop',
+    desc: 'Use NuGet packages and call C# libraries in covered interop scenarios. N# is designed for CLR integration, with limitations documented instead of hidden.',
     code: `import Microsoft.AspNetCore.Builder
 
 func main(args: string[]) {
@@ -122,25 +122,25 @@ const toolingItems = [
   {
     icon: '\u2318',
     title: 'nlc CLI',
-    desc: 'A complete toolchain rivaling Go and Rust. Check, format, lint, test, benchmark — all built in.',
+    desc: 'A broad pre-release CLI surface modeled on Go/Rust inner loops: check, format, lint, test, benchmark, and related project commands.',
     code: 'nlc check && nlc format --check && nlc lint',
   },
   {
     icon: '\u26A1',
     title: 'VS Code Extension',
-    desc: 'Full Language Server with IntelliSense, diagnostics, go-to-definition, find references, rename, and code actions.',
+    desc: 'VS Code/LSP support for syntax, diagnostics, hover/completions, and selected navigation/refactoring paths, pending full visual QA.',
     code: 'code --install-extension nsharp',
   },
   {
     icon: '\uD83E\uDD16',
     title: 'LLM-First Queries',
-    desc: 'Every CLI command outputs structured JSON. Built for AI agents to navigate your codebase with the same power as a human in VS Code.',
+    desc: '`check`, `fix`, `query`, and `lint` default to structured JSON; other commands expose JSON where implemented for automation and AI agents.',
     code: 'nlc query inspect --file main.nl --pos 10:5',
   },
   {
     icon: '\uD83D\uDD27',
     title: 'Auto-Fix',
-    desc: '8 auto-fix rules that handle unused variables, missing imports, naming conventions, and more. Run in CI or your editor.',
+    desc: 'Compiler-suggested fixes for supported scenarios such as missing imports and cleanup. Use --dry-run in CI or review before applying.',
     code: 'nlc fix --dry-run',
   },
   {
@@ -151,8 +151,8 @@ const toolingItems = [
   },
   {
     icon: '\uD83C\uDFAF',
-    title: '20 Lint Rules',
-    desc: 'Static analysis catches unused variables, empty catches, shadowed variables, naming issues, and more. All suppressible inline.',
+    title: 'Static Analysis',
+    desc: 'Static analysis covers supported rules such as unused variables, missing imports, async-without-await, and unreachable code. Verify rule coverage against current nlc help/tests.',
     code: 'nlc lint --text',
   },
 ];
@@ -302,7 +302,7 @@ export default function Home() {
   return (
     <Layout
       title="Simple by design. Powerful by .NET."
-      description="N# — A pragmatic language with Go-inspired syntax, discriminated unions, duck interfaces, and perfect C# interop.">
+      description="N# — A pragmatic language with Go-inspired syntax, discriminated unions, duck interfaces, and practical C# interop.">
 
       {/* Hero */}
       <header className="hero--nsharp">
@@ -361,9 +361,9 @@ export default function Home() {
         {/* Tooling */}
         <section className="section">
           <div className="section__header">
-            <h2 className="section__title">World-Class Tooling</h2>
+            <h2 className="section__title">Tooling That Is Becoming the Product</h2>
             <p className="section__subtitle">
-              A complete developer toolchain that rivals Go and Rust. Every command outputs structured JSON for automation and AI agents.
+              A broad pre-release CLI surface modeled on Go/Rust inner loops, with structured JSON on the key automation commands used by agents.
             </p>
           </div>
           <div className="tooling-grid">
@@ -375,7 +375,7 @@ export default function Home() {
         <section className="section section--alt">
           <div className="section__header">
             <h2 className="section__title">Quick Start</h2>
-            <p className="section__subtitle">Get up and running in 30 seconds.</p>
+            <p className="section__subtitle">Use the repo/private-feed setup today; verify public package availability for external installs.</p>
           </div>
           <div className="quickstart">
             <div className="quickstart__block">
@@ -389,7 +389,7 @@ export default function Home() {
               </div>
               <pre className="quickstart__code">
                 <code>
-                  <span className="quickstart__line"><span className="quickstart__comment"># Install the N# project templates</span></span>
+                  <span className="quickstart__line"><span className="quickstart__comment"># Install templates from your configured repo/private package source</span></span>
                   <span className="quickstart__line"><span className="quickstart__prompt">$ </span>dotnet new install NSharpLang.Templates</span>
                   <span className="quickstart__line">&nbsp;</span>
                   <span className="quickstart__line"><span className="quickstart__comment"># Create a new console app</span></span>

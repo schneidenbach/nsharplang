@@ -132,10 +132,11 @@ public static class IdiomCommand
             + adoption.resultMentions
             + adoption.packageLayoutDirectories;
         var score = CalculateScore(adoptionSignals, csharpDebt);
+        var findings = BuildFindings(fileReports);
 
         return new
         {
-            schemaVersion = 1,
+            schemaVersion = 2,
             command = "idiom",
             ok = true,
             projectRoot = NormalizePath(projectRoot),
@@ -163,6 +164,7 @@ public static class IdiomCommand
                 adoptionSignals = file.AdoptionSignals,
                 manualReviewIslands = file.ManualReviewIslands.Count
             }).ToArray(),
+            findings,
             recommendations = BuildRecommendations(csharpIsms.modifiers, csharpIsms.semicolons, csharpIsms.propertySyntax,
                 csharpIsms.underscoreFields, csharpIsms.nullForgiving, csharpIsms.outVar, csharpIsms.tryGetValue,
                 csharpIsms.actionResults, csharpIsms.anonymousApiDtos, csharpIsms.querySyntax,
@@ -580,6 +582,65 @@ public static class IdiomCommand
         _ => "needs-migration"
     };
 
+
+    private static object[] BuildFindings(IEnumerable<FileIdiomReport> fileReports)
+    {
+        var findings = new List<object>();
+        foreach (var file in fileReports)
+        {
+            AddFindings(findings, file.CSharpModifiers, new("artifact.modifier", "low", "Audit explicit C# modifiers; remove them when N# convention-based visibility is enough.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.78));
+            AddFindings(findings, file.Semicolons, new("artifact.semicolon", "medium", "Remove C# statement semicolons from migrated N# files except where syntax explicitly requires them.", "safe", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.92));
+            AddFindings(findings, file.PropertySyntax, new("artifact.propertyBlock", "medium", "Replace C# property blocks with N# field/property syntax.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.88));
+            AddFindings(findings, file.UnderscoreFields, new("artifact.underscoreField", "low", "Rename private `_field` members to camelCase N# fields when not required for interop.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.82));
+            AddFindings(findings, file.NullForgiving, new("artifact.nullForgiving", "high", "Model nullability explicitly instead of carrying C# null/default-forgiving suppressions.", "suggestionOnly", "docs/guide/types.md#nullable-types", 0.86));
+            AddFindings(findings, file.OutVar, new("artifact.outVar", "medium", "Replace out-var flows with result-returning helpers or matchable results.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.84));
+            AddFindings(findings, file.TryGetValue, new("artifact.tryGetValue", "medium", "Wrap TryGetValue-style APIs at the boundary and expose result/option-shaped N# helpers.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.82));
+            AddFindings(findings, file.ActionResults, new("aspnet.actionResult", "medium", "Prefer typed ASP.NET results or concrete return records over IActionResult defaults when endpoint shape is known.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.78));
+            AddFindings(findings, file.AnonymousApiDtos, new("dto.anonymousApi", "medium", "Promote anonymous API DTOs to named N# records at framework boundaries.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.8));
+            AddFindings(findings, file.QuerySyntax, new("ef.querySyntax", "medium", "Rewrite C# query syntax to fluent LINQ calls or explicit service-owned query helpers.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.84));
+            AddFindings(findings, file.EqualsInitializers, new("initializer.objectColon", "high", "Use canonical N# object initialization with colon fields: new Type { Name: value }.", "safe", "docs/design/native-object-initialization.md", 0.93));
+            AddFindings(findings, file.UnsafeValueAccess, new("nullability.unsafeValue", "high", "Replace unsafe .Value access on result/option-like values with match, ??, or an explicit guard.", "suggestionOnly", "docs/guide/types.md#nullable-types", 0.86));
+            AddFindings(findings, file.UsingDirectives, new("layout.usingDirective", "high", "Convert C# using directives in .nl files to N# import declarations or project references.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.9));
+            AddFindings(findings, file.NamespaceDeclarations, new("layout.namespace", "high", "Replace C# namespace declarations in .nl files with N# package declarations.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.91));
+            AddFindings(findings, file.MissingPackageDeclarations, new("layout.package", "high", "Add a package declaration that matches the package-layout folder.", "safe", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.9));
+            AddFindings(findings, file.WrongPackageDeclarations, new("layout.package", "high", "Align the package declaration with the file layout or move the file to the declared package.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.9));
+            AddFindings(findings, file.DtoClasses, new("dto.record", "medium", "Convert DTO-shaped classes to records where identity or framework mutation is not required.", "reviewNeeded", "docs/design/ai-csharp-migration-contract.md#required-idiomatic-n-output", 0.79));
+            AddFindings(findings, file.CasingVisibilityIssues, new("visibility.casing", "low", "Fix visibility/casing conflicts so public names are PascalCase and private names are camelCase unless intentionally waived.", "reviewNeeded", "docs/guide/csharp-migration.md#ai-assisted-c-to-n-migration-contract", 0.76));
+            AddFindings(findings, file.ManualReviewIslands, new("manualReview.todo", "high", "Resolve or owner-tag TODO/manual-review islands before considering the migration complete.", "none", "docs/design/migration-loop.md#final-idiom-audit", 0.88));
+        }
+
+        return findings.ToArray();
+    }
+
+    private static void AddFindings(List<object> findings, IEnumerable<Occurrence> occurrences, FindingDescriptor descriptor)
+    {
+        foreach (var occurrence in occurrences)
+        {
+            findings.Add(new
+            {
+                id = StableFindingId(descriptor.Category, occurrence),
+                category = descriptor.Category,
+                severity = descriptor.Severity,
+                file = occurrence.File,
+                line = occurrence.Line,
+                column = occurrence.Column,
+                snippet = occurrence.Text,
+                suggestion = descriptor.Suggestion,
+                fixSafety = descriptor.FixSafety,
+                docsUrl = descriptor.DocsUrl,
+                clusterKey = $"{descriptor.Category}:{occurrence.File}",
+                confidence = descriptor.Confidence
+            });
+        }
+    }
+
+    private static string StableFindingId(string category, Occurrence occurrence)
+    {
+        var fileKey = Regex.Replace(occurrence.File.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        var categoryKey = Regex.Replace(category.ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+        return $"idiom-v2-{categoryKey}-{fileKey}-{occurrence.Line}-{occurrence.Column}";
+    }
+
     private static string[] BuildRecommendations(
         int modifiers,
         int semicolons,
@@ -669,7 +730,7 @@ Exit codes:
     {
         var envelope = new
         {
-            schemaVersion = 1,
+            schemaVersion = 2,
             command = "idiom",
             ok = false,
             projectRoot = NormalizePath(projectRoot),
@@ -686,6 +747,8 @@ Exit codes:
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private sealed record Occurrence(string File, int Line, int Column, string Text);
+
+    private sealed record FindingDescriptor(string Category, string Severity, string Suggestion, string FixSafety, string DocsUrl, double Confidence);
 
     private sealed record FileIdiomReport(
         string File,

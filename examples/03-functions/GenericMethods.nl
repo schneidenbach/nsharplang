@@ -1,6 +1,5 @@
 // Generic Method Calls Example
 // Demonstrates type inference and explicit type argument syntax for generic methods
-
 import System.Collections.Generic
 import System.Linq
 
@@ -28,15 +27,18 @@ func Main() {
 
     // Example 1: Type inference — type parameters inferred from arguments
     print "1. Type inference (no explicit type args needed):"
-    inferredInt := Identity(42)          // T inferred as int
-    inferredStr := Identity("hello")     // T inferred as string
+    inferredInt := Identity(42)
+    // T inferred as int
+    inferredStr := Identity("hello")
+    // T inferred as string
     print $"Identity(42) = {inferredInt}"
     print $"Identity(\"hello\") = {inferredStr}"
 
     // Example 2: Multi-parameter type inference
     print ""
     print "2. Multi-parameter inference:"
-    pairResult := Pair(1, "hello")       // A=int, B=string inferred
+    pairResult := Pair(1, "hello")
+    // A=int, B=string inferred
     print $"Pair(1, \"hello\") = {pairResult}"
 
     // Example 3: Inference from generic container arguments
@@ -45,14 +47,17 @@ func Main() {
     myList := new List<int>()
     myList.Add(10)
     myList.Add(20)
-    firstItem := First(myList)           // T=int inferred from List<int>
+    firstItem := First(myList)
+    // T=int inferred from List<int>
     print $"First(myList) = {firstItem}"
 
     // Example 4: Inference with params arrays
     print ""
     print "4. Inference with params:"
-    numbers := CreateList(1, 2, 3, 4, 5)       // T=int inferred from args
-    strings := CreateList("a", "b", "c")        // T=string inferred from args
+    numbers := CreateList(1, 2, 3, 4, 5)
+    // T=int inferred from args
+    strings := CreateList("a", "b", "c")
+    // T=string inferred from args
     print $"CreateList(1,2,3,4,5) created list with {numbers.Count} integers"
     print $"CreateList(\"a\",\"b\",\"c\") created list with {strings.Count} strings"
 

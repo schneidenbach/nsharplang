@@ -69,7 +69,7 @@ There is intentionally no public `nlc convert` shortcut in the migration contrac
 
 ## `nlc idiom` report contract
 
-The report must remain machine-readable and stable. Compatible fields should be added without breaking existing consumers; incompatible shape changes require a schema version bump.
+The report must remain machine-readable and stable. Compatible fields should be added without breaking existing consumers; incompatible shape changes require a schema version bump. The current `nlc idiom` contract is `schemaVersion: 2`.
 
 Top-level fields:
 
@@ -83,8 +83,11 @@ Top-level fields:
 - `summary`
 - `signals`
 - `files`
+- `findings`
 - `recommendations`
 - `thresholds`
+
+`findings` is the agent-actionable v2 surface. Each entry is a single migration-quality finding with stable keys: `id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, and `confidence`. `fixSafety` is one of `safe`, `reviewNeeded`, `suggestionOnly`, or `none`; agents may batch only `safe` edits without a review gate. The `snippet` field intentionally contains source text for local automation and CI artifacts, so do not publish raw reports from proprietary migrations without redaction.
 
 Debt/signal categories should cover:
 
@@ -107,7 +110,7 @@ Debt/signal categories should cover:
 - `nullability.flowMustMatch`
 - `manualReview.todo`
 
-Each individual signal should be representable with: `id`, `category`, `severity`, `message`, `file`, `line`, `column`, `snippet`, `suggestion`, `preferredFix`, `fixSafety` (`safe`, `reviewNeeded`, `suggestionOnly`, `none`), `docsUrl`, `relatedCheckDiagnostic`, `clusterKey`, and `confidence`.
+Each category that produces migration debt should map into a v2 `findings` entry so agents can sort by severity, group by `clusterKey`, and choose only safe edits when `fixSafety` is `safe`.
 
 ## Refactoring order for agents
 

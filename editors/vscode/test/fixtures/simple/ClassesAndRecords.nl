@@ -1,5 +1,6 @@
 namespace SimpleTest
 
+
 // Class with typed properties and constructor
 class Vehicle {
     Make: string
@@ -71,6 +72,7 @@ func CreateParseResult(input: string): ParseResult {
     if input.Length > 0 {
         return new ParseResult(42, true)
     }
+
     return new ParseResult(0, false)
 }
 

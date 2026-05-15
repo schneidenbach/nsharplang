@@ -85,7 +85,7 @@ public partial class ILCompiler
         }
 
         var combinedGenericParameters = CombineGenericParameters(localGenericParameters, _currentGenericParameters);
-        var returnType = GetDeclaredFunctionReturnType(localFunction.Function, combinedGenericParameters);
+        var returnType = GetLocalFunctionReturnType(localFunction.Function);
         var declaredParameterTypes = localFunction.Function.Parameters
             .Select(parameter => ResolveParameterType(parameter, combinedGenericParameters))
             .ToArray();
@@ -561,7 +561,13 @@ public partial class ILCompiler
         out IReadOnlyList<BoundCallArgument> boundArguments)
     {
         var resolvedParameterTypes = declaredParameters
-            .Select(parameter => ResolveGenericLocalFunctionTypeReference(parameter.Type, typeBindings))
+            .Select(parameter =>
+            {
+                var parameterType = ResolveGenericLocalFunctionTypeReference(parameter.Type, typeBindings);
+                return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
+                    ? parameterType.MakeByRefType()
+                    : parameterType;
+            })
             .ToArray();
         var bound = new BoundCallArgument[resolvedParameterTypes.Length];
         var usesParams = declaredParameters.Count > 0 && declaredParameters[^1].Modifier == Ast.ParameterModifier.Params;
@@ -831,7 +837,7 @@ public partial class ILCompiler
                 savedCurrentGenericParameters);
             _currentGenericParameters = combinedGenericParameters;
 
-            var returnType = GetDeclaredFunctionReturnType(localFunction.Function, combinedGenericParameters);
+            var returnType = GetLocalFunctionReturnType(localFunction.Function);
             var bodyReturnType = returnType;
             if (localFunction.Function.Modifiers.HasFlag(Modifiers.Async)
                 && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -946,6 +952,372 @@ public partial class ILCompiler
             _pendingLocalFunctionDefinition = savedPendingLocalFunctionDefinition;
             _localFunctionDeclarations = savedLocalFunctionDeclarations;
             _currentHasThis = savedCurrentHasThis;
+        }
+    }
+
+    private HashSet<FunctionDeclaration> GetDirectLocalFunctionDeclarations(
+        BlockStatement block,
+        IReadOnlyCollection<LocalFunctionStatement> localFunctions)
+    {
+        var localFunctionNames = localFunctions
+            .Select(localFunction => localFunction.Function.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var escapingNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var statement in block.Statements)
+        {
+            if (statement is LocalFunctionStatement localFunction)
+            {
+                if (localFunction.Function.ExpressionBody != null)
+                {
+                    FindEscapingLocalFunctionReferences(localFunction.Function.ExpressionBody, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+
+                if (localFunction.Function.Body != null)
+                {
+                    FindEscapingLocalFunctionReferences(localFunction.Function.Body, localFunctionNames, escapingNames);
+                }
+
+                continue;
+            }
+
+            FindEscapingLocalFunctionReferences(statement, localFunctionNames, escapingNames);
+        }
+
+        return new HashSet<FunctionDeclaration>(
+            localFunctions
+                .Where(localFunction => localFunction.Function.ReturnType != null
+                    && (!escapingNames.Contains(localFunction.Function.Name)
+                        || CanMaterializeLocalFunctionValueAtBoundary(localFunction)))
+                .Select(localFunction => localFunction.Function),
+            ReferenceEqualityComparer.Instance);
+    }
+
+    private bool CanMaterializeLocalFunctionValueAtBoundary(LocalFunctionStatement localFunction)
+    {
+        if (localFunction.Function.TypeParameters is { Count: > 0 })
+        {
+            return false;
+        }
+
+        var lambda = new LambdaExpression(
+            localFunction.Function.Parameters,
+            localFunction.Function.ExpressionBody,
+            localFunction.Function.Body,
+            localFunction.Line,
+            localFunction.Column);
+
+        var captures = AnalyzeCapturedVariables(lambda);
+        if (!localFunction.Function.Modifiers.HasFlag(Modifiers.Static) && _currentHasThis)
+        {
+            captures.Remove(ThisCaptureName);
+        }
+
+        return captures.Count == 0;
+    }
+
+    private bool TryEmitDirectLocalFunctionDelegateValue(FunctionDeclaration declaration)
+    {
+        if (_currentIL == null
+            || !_genericLocalFunctionBuilders.TryGetValue(declaration, out var methodBuilder)
+            || !_genericLocalFunctionCaptures.TryGetValue(declaration, out var captures)
+            || captures.Count != 0
+            || declaration.TypeParameters is { Count: > 0 })
+        {
+            return false;
+        }
+
+        var delegateType = GetLocalFunctionDelegateType(declaration);
+        var delegateConstructor = delegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) })
+            ?? throw new InvalidOperationException($"Could not resolve delegate constructor for local function {declaration.Name}");
+
+        if (methodBuilder.IsStatic)
+        {
+            _currentIL.Emit(OpCodes.Ldnull);
+        }
+        else
+        {
+            EmitGenericLocalFunctionReceiver(methodBuilder);
+        }
+
+        _currentIL.Emit(OpCodes.Ldftn, methodBuilder);
+        _currentIL.Emit(OpCodes.Newobj, delegateConstructor);
+        return true;
+    }
+
+    private void FindEscapingLocalFunctionReferences(
+        Statement statement,
+        HashSet<string> localFunctionNames,
+        HashSet<string> escapingNames)
+    {
+        switch (statement)
+        {
+            case BlockStatement block:
+                foreach (var innerStatement in block.Statements)
+                {
+                    FindEscapingLocalFunctionReferences(innerStatement, localFunctionNames, escapingNames);
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                FindEscapingLocalFunctionReferences(expressionStatement.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case VariableDeclarationStatement variableDeclaration when variableDeclaration.Initializer != null:
+                FindEscapingLocalFunctionReferences(variableDeclaration.Initializer, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                FindEscapingLocalFunctionReferences(tupleDeconstruction.Initializer, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                FindEscapingLocalFunctionReferences(returnStatement.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case IfStatement ifStatement:
+                FindEscapingLocalFunctionReferences(ifStatement.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(ifStatement.ThenStatement, localFunctionNames, escapingNames);
+                if (ifStatement.ElseStatement != null)
+                {
+                    FindEscapingLocalFunctionReferences(ifStatement.ElseStatement, localFunctionNames, escapingNames);
+                }
+                break;
+            case WhileStatement whileStatement:
+                FindEscapingLocalFunctionReferences(whileStatement.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(whileStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    FindEscapingLocalFunctionReferences(forStatement.Initializer, localFunctionNames, escapingNames);
+                }
+                if (forStatement.Condition != null)
+                {
+                    FindEscapingLocalFunctionReferences(forStatement.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    FindEscapingLocalFunctionReferences(forStatement.Iterator, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                FindEscapingLocalFunctionReferences(forStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case ForeachStatement foreachStatement:
+                FindEscapingLocalFunctionReferences(foreachStatement.Collection, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(foreachStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                FindEscapingLocalFunctionReferences(awaitForEachStatement.Collection, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(awaitForEachStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case ThrowStatement throwStatement:
+                FindEscapingLocalFunctionReferences(throwStatement.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case TryStatement tryStatement:
+                FindEscapingLocalFunctionReferences(tryStatement.TryBlock, localFunctionNames, escapingNames);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    FindEscapingLocalFunctionReferences(catchClause.Block, localFunctionNames, escapingNames);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    FindEscapingLocalFunctionReferences(tryStatement.FinallyBlock, localFunctionNames, escapingNames);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration?.Initializer != null)
+                {
+                    FindEscapingLocalFunctionReferences(usingStatement.Declaration.Initializer, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    FindEscapingLocalFunctionReferences(usingStatement.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (usingStatement.Body != null)
+                {
+                    FindEscapingLocalFunctionReferences(usingStatement.Body, localFunctionNames, escapingNames);
+                }
+                break;
+            case LockStatement lockStatement:
+                FindEscapingLocalFunctionReferences(lockStatement.LockObject, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(lockStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case SwitchStatement switchStatement:
+                FindEscapingLocalFunctionReferences(switchStatement.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        FindEscapingLocalFunctionReferences(caseStatement, localFunctionNames, escapingNames);
+                    }
+                }
+                break;
+            case PrintStatement printStatement:
+                FindEscapingLocalFunctionReferences(printStatement.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case AssertStatement assertStatement:
+                FindEscapingLocalFunctionReferences(assertStatement.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                if (assertStatement.Message != null)
+                {
+                    FindEscapingLocalFunctionReferences(assertStatement.Message, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                FindEscapingLocalFunctionReferences(assertThrowsStatement.Body, localFunctionNames, escapingNames);
+                break;
+            case LocalFunctionStatement localFunctionStatement:
+                if (localFunctionStatement.Function.ExpressionBody != null)
+                {
+                    FindEscapingLocalFunctionReferences(localFunctionStatement.Function.ExpressionBody, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (localFunctionStatement.Function.Body != null)
+                {
+                    FindEscapingLocalFunctionReferences(localFunctionStatement.Function.Body, localFunctionNames, escapingNames);
+                }
+                break;
+        }
+    }
+
+    private void FindEscapingLocalFunctionReferences(
+        Expression expression,
+        HashSet<string> localFunctionNames,
+        HashSet<string> escapingNames,
+        bool isDirectCallCallee)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                if (!isDirectCallCallee && localFunctionNames.Contains(identifier.Name))
+                {
+                    escapingNames.Add(identifier.Name);
+                }
+                break;
+            case CallExpression call:
+                FindEscapingLocalFunctionReferences(call.Callee, localFunctionNames, escapingNames, isDirectCallCallee: true);
+                foreach (var argument in call.Arguments)
+                {
+                    FindEscapingLocalFunctionReferences(argument.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case BinaryExpression binary:
+                FindEscapingLocalFunctionReferences(binary.Left, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(binary.Right, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case UnaryExpression unary:
+                FindEscapingLocalFunctionReferences(unary.Operand, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case AssignmentExpression assignment:
+                FindEscapingLocalFunctionReferences(assignment.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(assignment.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case MemberAccessExpression memberAccess:
+                FindEscapingLocalFunctionReferences(memberAccess.Object, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case IndexAccessExpression indexAccess:
+                FindEscapingLocalFunctionReferences(indexAccess.Object, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(indexAccess.Index, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case LambdaExpression lambda:
+                if (lambda.ExpressionBody != null)
+                {
+                    FindEscapingLocalFunctionReferences(lambda.ExpressionBody, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (lambda.BlockBody != null)
+                {
+                    FindEscapingLocalFunctionReferences(lambda.BlockBody, localFunctionNames, escapingNames);
+                }
+                break;
+            case ParenthesizedExpression parenthesized:
+                FindEscapingLocalFunctionReferences(parenthesized.Inner, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case TernaryExpression ternary:
+                FindEscapingLocalFunctionReferences(ternary.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(ternary.ThenExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(ternary.ElseExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    FindEscapingLocalFunctionReferences(element, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case SpreadExpression spread:
+                FindEscapingLocalFunctionReferences(spread.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    FindEscapingLocalFunctionReferences(element.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case InterpolatedStringExpression interpolatedString:
+                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+                {
+                    FindEscapingLocalFunctionReferences(hole.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case RangeExpression range:
+                if (range.Start != null)
+                {
+                    FindEscapingLocalFunctionReferences(range.Start, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (range.End != null)
+                {
+                    FindEscapingLocalFunctionReferences(range.End, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case IsExpression isExpression:
+                FindEscapingLocalFunctionReferences(isExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case WithExpression withExpression:
+                FindEscapingLocalFunctionReferences(withExpression.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        FindEscapingLocalFunctionReferences(property.IndexExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                    }
+                    FindEscapingLocalFunctionReferences(property.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case AwaitExpression awaitExpression:
+                FindEscapingLocalFunctionReferences(awaitExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case ThrowExpression throwExpression:
+                FindEscapingLocalFunctionReferences(throwExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case CastExpression castExpression:
+                FindEscapingLocalFunctionReferences(castExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case CheckedExpression checkedExpression:
+                FindEscapingLocalFunctionReferences(checkedExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case UncheckedExpression uncheckedExpression:
+                FindEscapingLocalFunctionReferences(uncheckedExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
+            case MatchExpression matchExpression:
+                FindEscapingLocalFunctionReferences(matchExpression.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    if (matchCase.Guard != null)
+                    {
+                        FindEscapingLocalFunctionReferences(matchCase.Guard, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                    }
+                    FindEscapingLocalFunctionReferences(matchCase.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    FindEscapingLocalFunctionReferences(argument.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                }
+                if (newExpression.Initializer != null)
+                {
+                    foreach (var property in newExpression.Initializer.Properties)
+                    {
+                        if (property.IndexExpression != null)
+                        {
+                            FindEscapingLocalFunctionReferences(property.IndexExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                        }
+                        FindEscapingLocalFunctionReferences(property.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                    }
+                }
+                break;
         }
     }
 

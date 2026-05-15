@@ -3,8 +3,8 @@
 namespace IssueTracker
 
 import System
-import System.IO
 import System.Collections.Generic
+import System.IO
 import System.Text.Json
 import System.Threading.Tasks
 import Microsoft.AspNetCore.Builder
@@ -40,12 +40,7 @@ class Routes {
         }
 
         // Error tuples at the call site — Go-style error handling
-        issue, err := service.CreateIssue(
-            request.Title,
-            request.Description,
-            request.Priority,
-            request.Tags
-        )
+        issue, err := service.CreateIssue(request.Title, request.Description, request.Priority, request.Tags)
 
         if err != null {
             context.Response.StatusCode = 400

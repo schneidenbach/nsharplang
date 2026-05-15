@@ -30,8 +30,30 @@
     "ok",
     "projectRoot",
     "results",
-    "diagnosticClusters",
     "summary"
+  ],
+  "diagnosticsClusters": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "clusters",
+    "summary"
+  ],
+  "idiom": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "scannedFiles",
+    "score",
+    "grade",
+    "summary",
+    "signals",
+    "files",
+    "findings",
+    "recommendations",
+    "thresholds"
   ],
   "doc": [
     "schemaVersion",
@@ -103,7 +125,6 @@
     "checkedFiles",
     "ok",
     "results",
-    "diagnosticClusters",
     "summary"
   ],
   "fix": [
@@ -111,6 +132,7 @@
     "command",
     "projectRoot",
     "dryRun",
+    "includeReviewNeeded",
     "ok",
     "filesModified",
     "results",
@@ -141,20 +163,6 @@
     "name",
     "version",
     "packagePath"
-  ],
-  "idiom": [
-    "schemaVersion",
-    "command",
-    "ok",
-    "projectRoot",
-    "scannedFiles",
-    "score",
-    "grade",
-    "summary",
-    "signals",
-    "files",
-    "recommendations",
-    "thresholds"
   ],
   "hover": [
     "schemaVersion",

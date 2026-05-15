@@ -1,7 +1,6 @@
 // Duck Interfaces Example
 // Demonstrates structural typing with duck interfaces
 
-
 // Define a duck interface for anything that can read
 duck interface IReader {
     func Read(): string

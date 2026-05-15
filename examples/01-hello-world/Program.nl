@@ -1,5 +1,4 @@
 // A simple hello-world program demonstrating functions and string interpolation
-
 func Hi(): int {
     print "hi there!"
     return 42

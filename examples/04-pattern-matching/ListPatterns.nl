@@ -1,8 +1,6 @@
 // List Pattern Matching Example
 // Demonstrates C# 11 list patterns for array and collection matching
 
-
-
 // Example 1: Empty list check
 func IsEmpty(numbers: int[]): bool {
     result := match numbers {

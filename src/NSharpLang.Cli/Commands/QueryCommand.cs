@@ -359,6 +359,7 @@ public static class QueryCommand
 
     private static int DiagnosticsCommand(string[] args, QueryOptions options)
     {
+        var wantsClusters = HasOption(args, "--clusters");
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
@@ -375,7 +376,11 @@ public static class QueryCommand
             results = results.Where(d => d.Severity.Equals(severityFilter, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        if (options.UseText)
+        if (wantsClusters)
+        {
+            Console.Write(OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot));
+        }
+        else if (options.UseText)
         {
             Console.Write(OutputFormatter.DiagnosticsToText(results));
         }
@@ -531,16 +536,16 @@ public static class QueryCommand
     {
         var file = GetOption(args, "--file") ?? options.File;
         var posStr = GetOption(args, "--pos") ?? options.Pos;
-        var summaryMode = options.InspectSummary;
+        var compactMode = options.InspectCompact;
 
         if (file == null || posStr == null)
         {
             return QueryError("Usage: nlc query inspect --file <path> --pos <line>:<col>");
         }
 
-        if (summaryMode && options.UseText)
+        if (compactMode && options.UseText)
         {
-            return QueryError("--summary is only supported with JSON output.");
+            return QueryError("--compact/--summary is only supported with JSON output.");
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
@@ -614,7 +619,7 @@ public static class QueryCommand
         }
         else
         {
-            Console.Write(summaryMode
+            Console.Write(compactMode
                 ? OutputFormatter.InspectSummaryToJson(inspect, file, line, col)
                 : OutputFormatter.InspectToJson(inspect, file, line, col));
         }
@@ -773,7 +778,7 @@ public static class QueryCommand
         string? Pos,
         bool UseText,
         bool NoDaemon,
-        bool InspectSummary);
+        bool InspectCompact);
 
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
@@ -782,7 +787,7 @@ public static class QueryCommand
         string? pos = null;
         var useText = false;
         var noDaemon = false;
-        var inspectSummary = false;
+        var inspectCompact = false;
 
         subcommand = args[0];
         var remaining = new List<string>();
@@ -810,7 +815,8 @@ public static class QueryCommand
                     noDaemon = true;
                     break;
                 case "--summary":
-                    inspectSummary = true;
+                case "--compact":
+                    inspectCompact = true;
                     break;
                 default:
                     remaining.Add(args[i]);
@@ -819,7 +825,7 @@ public static class QueryCommand
         }
 
         remainingArgs = remaining.ToArray();
-        return new QueryOptions(projectDir, file, pos, useText, noDaemon, inspectSummary);
+        return new QueryOptions(projectDir, file, pos, useText, noDaemon, inspectCompact);
     }
 
     private static string? GetOption(string[] args, string flag)
@@ -831,6 +837,9 @@ public static class QueryCommand
         }
         return null;
     }
+
+    private static bool HasOption(string[] args, string flag)
+        => args.Contains(flag, StringComparer.Ordinal);
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
     {
@@ -894,7 +903,8 @@ public static class QueryCommand
         var kind = GetOption(args, "--kind");
         var severity = GetOption(args, "--severity");
         var includeKeywords = args.Contains("--include-keywords");
-        var summaryMode = options.InspectSummary;
+        var compactMode = options.InspectCompact;
+        var clusters = args.Contains("--clusters");
 
         if (!string.IsNullOrWhiteSpace(file))
             parameters["file"] = file;
@@ -908,8 +918,10 @@ public static class QueryCommand
             parameters["severity"] = severity;
         if (includeKeywords)
             parameters["includeKeywords"] = true;
-        if (summaryMode)
+        if (compactMode)
             parameters["summary"] = true;
+        if (clusters)
+            parameters["clusters"] = true;
 
         return parameters;
     }
@@ -928,7 +940,18 @@ public static class QueryCommand
         if (!DaemonClient.IsRunning(projectRoot))
             return false;
 
-        var result = DaemonClient.Query(projectRoot, method, parameters);
+        var response = DaemonClient.QueryResponse(projectRoot, method, parameters);
+        if (response == null)
+            return false;
+
+        if (response.Error != null)
+        {
+            Console.Error.WriteLine(JsonSerializer.Serialize(response));
+            exitCode = 1;
+            return true;
+        }
+
+        var result = response.Result;
         if (string.IsNullOrWhiteSpace(result))
             return false;
 
@@ -959,26 +982,30 @@ public static class QueryCommand
         return 1;
     }
 
+    private static string FormatQueryDescription(CliCommandSpec command)
+    {
+        var aliases = CommandRegistry.QueryCommands
+            .Where(candidate => string.Equals(candidate.AliasOf, command.Name, StringComparison.Ordinal))
+            .Select(candidate => candidate.Name)
+            .ToArray();
+
+        return aliases.Length == 0
+            ? command.Description
+            : $"{command.Description} (aliases: {string.Join(", ", aliases)})";
+    }
+
     private static int ShowQueryHelp()
     {
-        Console.WriteLine(@"N# Code Intelligence CLI
+        var commandLines = string.Join(Environment.NewLine, CommandRegistry.QueryCommands
+            .Where(command => !command.IsAlias)
+            .Select(command => $"  {command.Name,-13} {FormatQueryDescription(command)}"));
+
+        Console.WriteLine($@"N# Code Intelligence CLI
 
 Usage: nlc query <command> [options]
 
 Commands:
-  batch         Execute multiple query requests from one JSON file
-  symbols       List all symbols in a file or project
-  outline       Structural outline of a file
-  diagnostics   Errors and warnings with rich context
-  type          Get type info at a position
-  inspect       One-shot symbol/type/refs/completions bundle
-  definition    Find where a symbol is defined (aliases: def)
-  references    Find all references to a symbol (aliases: refs)
-  completions   Get completions at a position (LLM-optimized)
-  doc           Look up .NET API documentation
-  hover         Signature + docs at a position
-  call-graph    Callers and callees of a function
-  implementors  Concrete types implementing an interface
+{commandLines}
 
 Global Options:
   --json        Output as JSON (default)
@@ -987,6 +1014,8 @@ Global Options:
   --project     Project root directory (default: current directory)
   --file        Target file for file-scoped operations
   --pos         Position as line:col (e.g. 5:12)
+  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)
+  --clusters    For diagnostics, emit the stable AI migration cluster JSON envelope
 
 Examples:
   nlc query symbols                              # All symbols in project
@@ -997,10 +1026,11 @@ Examples:
   nlc query symbols --kind function              # Only functions
   nlc query outline Program.nl                   # File structure
   nlc query diagnostics                          # All errors/warnings
+  nlc query diagnostics --clusters               # AI migration diagnostic clusters
   nlc query diagnostics --text                   # Elm-style error output
   nlc query type --file Program.nl --pos 5:4     # Type at position
   nlc query inspect --file Program.nl --pos 5:4
-  nlc query inspect --file Program.nl --pos 5:4 --summary
+  nlc query inspect --file Program.nl --pos 5:4 --compact
   nlc query def --file Program.nl --pos 5:4      # Definition at position
   nlc query def --name Person                    # Search by name
   nlc query refs --file Program.nl --pos 5:4     # All references

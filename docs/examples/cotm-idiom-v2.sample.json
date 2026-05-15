@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 2,
+  "command": "idiom",
+  "ok": true,
+  "projectRoot": "/redacted/cotm2-nsharp",
+  "scannedFiles": 2,
+  "score": 97,
+  "grade": "idiomatic",
+  "summary": {
+    "csharpDebt": 2,
+    "adoptionSignals": 71,
+    "grade": "idiomatic"
+  },
+  "signals": {
+    "csharpIsms": {
+      "modifiers": 0,
+      "semicolons": 0,
+      "propertySyntax": 0,
+      "underscoreFields": 0,
+      "nullForgiving": 1,
+      "outVar": 0,
+      "tryGetValue": 0,
+      "actionResults": 0,
+      "anonymousApiDtos": 0,
+      "querySyntax": 0,
+      "equalsInitializers": 1,
+      "unsafeValueAccess": 0,
+      "usingDirectives": 0,
+      "namespaceDeclarations": 0,
+      "missingPackageDeclarations": 0,
+      "wrongPackageDeclarations": 0,
+      "examples": {
+        "modifiers": [],
+        "semicolons": [],
+        "propertySyntax": [],
+        "underscoreFields": [],
+        "nullForgiving": [
+          { "file": "cotm-backend-api/Models/LoginRequest.nl", "line": 6, "column": 27, "text": "email: string = default!" }
+        ],
+        "outVar": [],
+        "tryGetValue": [],
+        "actionResults": [],
+        "anonymousApiDtos": [],
+        "querySyntax": [],
+        "equalsInitializers": [
+          { "file": "cotm-backend-api/Models/UserSummary.nl", "line": 31, "column": 9, "text": "Name = user.Name" }
+        ],
+        "unsafeValueAccess": [],
+        "usingDirectives": [],
+        "namespaceDeclarations": [],
+        "missingPackageDeclarations": [],
+        "wrongPackageDeclarations": []
+      }
+    },
+    "nsharpAdoption": {
+      "records": 28,
+      "matchExpressions": 9,
+      "resultMentions": 19,
+      "packageLayoutDirectories": 15,
+      "examples": {
+        "records": [
+          { "file": "cotm-backend-api/Models/UserSummary.nl", "line": 3, "column": 1, "text": "record UserSummary(id: Guid, name: string)" }
+        ],
+        "matchExpressions": [],
+        "resultMentions": []
+      }
+    },
+    "dtoClasses": { "count": 0, "examples": [] },
+    "casingVisibilityIssues": { "count": 0, "examples": [] },
+    "manualReviewIslands": { "count": 0, "examples": [] }
+  },
+  "files": [
+    { "file": "cotm-backend-api/Models/LoginRequest.nl", "csharpDebt": 1, "adoptionSignals": 1, "manualReviewIslands": 0 },
+    { "file": "cotm-backend-api/Models/UserSummary.nl", "csharpDebt": 1, "adoptionSignals": 2, "manualReviewIslands": 0 }
+  ],
+  "findings": [
+    {
+      "id": "idiom-v2-artifact-nullforgiving-cotm-backend-api-models-loginrequest-nl-6-27",
+      "category": "artifact.nullForgiving",
+      "severity": "high",
+      "file": "cotm-backend-api/Models/LoginRequest.nl",
+      "line": 6,
+      "column": 27,
+      "snippet": "email: string = default!",
+      "suggestion": "Model nullability explicitly instead of carrying C# null/default-forgiving suppressions.",
+      "fixSafety": "suggestionOnly",
+      "docsUrl": "docs/guide/types.md#nullable-types",
+      "clusterKey": "artifact.nullForgiving:cotm-backend-api/Models/LoginRequest.nl",
+      "confidence": 0.86
+    },
+    {
+      "id": "idiom-v2-initializer-objectcolon-cotm-backend-api-models-usersummary-nl-31-9",
+      "category": "initializer.objectColon",
+      "severity": "high",
+      "file": "cotm-backend-api/Models/UserSummary.nl",
+      "line": 31,
+      "column": 9,
+      "snippet": "Name = user.Name",
+      "suggestion": "Use canonical N# object initialization with colon fields: new Type { Name: value }.",
+      "fixSafety": "safe",
+      "docsUrl": "docs/design/native-object-initialization.md",
+      "clusterKey": "initializer.objectColon:cotm-backend-api/Models/UserSummary.nl",
+      "confidence": 0.93
+    }
+  ],
+  "recommendations": [
+    "Use canonical N# object initialization with colon fields: new Type { Name: value }.",
+    "Review null-forgiving/default-forgiving operators and model nullability explicitly."
+  ],
+  "thresholds": {
+    "checkErrors": 0,
+    "blockingCsharpArtifacts": 0,
+    "safeFixesRemaining": 0,
+    "reviewNeededFixes": "applied-or-waived",
+    "tests": "pass-after-source-changes"
+  }
+}

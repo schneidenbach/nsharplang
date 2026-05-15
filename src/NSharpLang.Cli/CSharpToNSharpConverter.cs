@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace NSharpLang.Cli;
 
-public sealed class CSharpToNSharpConverter
+internal sealed class CSharpToNSharpConverter
 {
     public CSharpConversionResult Convert(string source, string? filePath = null)
     {
@@ -822,7 +822,7 @@ public sealed class CSharpToNSharpConverter
         private void EmitUnsupported(SyntaxNode node, string label)
         {
             AddWarning(node, $"Unsupported {label} '{node.Kind()}'.");
-            WriteLine($"// TODO(nlc convert): unsupported {label}: {node.Kind()}");
+            WriteLine($"// TODO(internal C# migration prototype): unsupported {label}: {node.Kind()}");
             foreach (var line in node.ToString().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
             {
                 WriteLine($"// {line}");
@@ -847,4 +847,4 @@ public sealed class CSharpToNSharpConverter
     }
 }
 
-public sealed record CSharpConversionResult(bool Success, string Output, IReadOnlyList<string> Diagnostics);
+internal sealed record CSharpConversionResult(bool Success, string Output, IReadOnlyList<string> Diagnostics);

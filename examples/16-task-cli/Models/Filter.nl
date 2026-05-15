@@ -1,5 +1,6 @@
 namespace TaskCli.Models
 
+
 // Search and filter criteria for listing tasks
 record Filter {
     Query: string

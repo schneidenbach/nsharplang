@@ -1,41 +1,13 @@
 using System;
 using System.Linq;
+using NSharpLang.Cli;
 
 namespace NSharpLang.Cli.Commands;
 
 public static class CompletionCommand
 {
-    private static readonly string[] TopLevelCommands =
-    {
-        "build",
-        "run",
-        "new",
-        "init",
-        "test",
-        "format",
-        "lint",
-        "bench",
-        "clean",
-        "watch",
-        "doc",
-        "completion",
-        "check",
-        "fix",
-        "query",
-        "daemon",
-        "add",
-        "tidy",
-        "remove",
-        "update",
-        "publish",
-        "export",
-        "idiom",
-        "tree",
-        "audit",
-        "env",
-        "restore",
-        "help"
-    };
+    private static readonly string TopLevelCommandNames = CommandRegistry.JoinCommandNames(CommandRegistry.TopLevelCommands);
+    private static readonly string QueryCommandNames = CommandRegistry.JoinCommandNames(CommandRegistry.QueryCommands);
 
     public static int Execute(string[] args)
     {
@@ -86,8 +58,8 @@ Exit codes:
     }
 
     private static readonly string BashScript = $$"""
-_nlc_commands="{{string.Join(" ", TopLevelCommands)}}"
-_nlc_query_commands="batch symbols outline diagnostics type inspect definition def references refs completions doc help"
+_nlc_commands="{{TopLevelCommandNames}}"
+_nlc_query_commands="{{QueryCommandNames}}"
 _nlc_daemon_commands="start stop status run help"
 _nlc_watch_commands="check build test lint format"
 _nlc_export_commands="csharp help"
@@ -126,11 +98,11 @@ complete -F _nlc nlc
 #compdef nlc
 
 local -a commands
-commands=({{string.Join(" ", TopLevelCommands)}})
+commands=({{TopLevelCommandNames}})
 
 case $words[2] in
   query)
-    _values 'query command' batch symbols outline diagnostics type inspect definition def references refs completions doc help
+    _values 'query command' {{QueryCommandNames}}
     ;;
   daemon)
     _values 'daemon command' start stop status run help
@@ -149,8 +121,8 @@ esac
 
     private static readonly string FishScript = $$"""
 complete -c nlc -f
-complete -c nlc -n '__fish_use_subcommand' -a '{{string.Join(" ", TopLevelCommands)}}'
-complete -c nlc -n '__fish_seen_subcommand_from query' -a 'batch symbols outline diagnostics type inspect definition def references refs completions doc help'
+complete -c nlc -n '__fish_use_subcommand' -a '{{TopLevelCommandNames}}'
+complete -c nlc -n '__fish_seen_subcommand_from query' -a '{{QueryCommandNames}}'
 complete -c nlc -n '__fish_seen_subcommand_from daemon' -a 'start stop status run help'
 complete -c nlc -n '__fish_seen_subcommand_from export' -a 'csharp help'
 complete -c nlc -n '__fish_seen_subcommand_from watch' -a 'check build test lint format'

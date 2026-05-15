@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "command": "diagnostics.clusters",
+  "ok": false,
+  "projectRoot": "/redacted/cotm2-nsharp",
+  "clusters": [
+    {
+      "id": "diag-598763f0",
+      "category": "identifier-resolution",
+      "recipe": "converter:missing-import-qualification-or-rename",
+      "risk": "medium",
+      "count": 2,
+      "severity": "error",
+      "files": [
+        "cotm-backend-api/AuthController.nl"
+      ],
+      "relatedDiagnostics": [
+        {
+          "code": "NL301",
+          "severity": "error",
+          "file": "cotm-backend-api/AuthController.nl",
+          "line": 42,
+          "column": 17,
+          "message": "Undefined variable \u0027UserManager\u0027"
+        },
+        {
+          "code": "NL301",
+          "severity": "error",
+          "file": "cotm-backend-api/AuthController.nl",
+          "line": 43,
+          "column": 17,
+          "message": "Undefined variable \u0027RoleManager\u0027"
+        }
+      ],
+      "nextCommand": "nlc query inspect --file cotm-backend-api/AuthController.nl --pos 42:17",
+      "rootLocation": {
+        "file": "cotm-backend-api/AuthController.nl",
+        "line": 42,
+        "column": 17
+      },
+      "messagePattern": "Undefined variable {value}",
+      "sourceConstruct": "variable-declaration",
+      "suggestedNextActions": [
+        "Resolve the first missing identifier by adding the import/qualification or updating the rename map.",
+        "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
+      ],
+      "examples": [
+        {
+          "file": "cotm-backend-api/AuthController.nl",
+          "line": 42,
+          "column": 17,
+          "message": "Undefined variable \u0027UserManager\u0027",
+          "sourceSnippet": "let manager := UserManager.Create()",
+          "suggestion": "Add the import or update the converter rename map."
+        },
+        {
+          "file": "cotm-backend-api/AuthController.nl",
+          "line": 43,
+          "column": 17,
+          "message": "Undefined variable \u0027RoleManager\u0027",
+          "sourceSnippet": "let roles := RoleManager.Create()",
+          "suggestion": "Add the import or update the converter rename map."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "errors": 2,
+    "warnings": 0,
+    "info": 0
+  }
+}
