@@ -134,6 +134,30 @@ export function activate(context: vscode.ExtensionContext) {
         clientOptions
     );
 
+    // Display-only CodeLens labels use this command id because LSP Command requires a command string.
+    // The command intentionally does nothing; reference lenses use nsharp.showReferences instead.
+    context.subscriptions.push(vscode.commands.registerCommand('nsharp.noop', () => undefined));
+
+    // Bridge CodeLens reference commands from the language server to VS Code's references UI.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('nsharp.showReferences', async (uriArg: string | vscode.Uri, line: number, character: number) => {
+            const uri = typeof uriArg === 'string' ? vscode.Uri.parse(uriArg) : uriArg;
+            const position = new vscode.Position(line, character);
+            const locations = await vscode.commands.executeCommand<vscode.Location[]>(
+                'vscode.executeReferenceProvider',
+                uri,
+                position
+            ) ?? [];
+
+            await vscode.commands.executeCommand(
+                'editor.action.showReferences',
+                uri,
+                position,
+                locations
+            );
+        })
+    );
+
     // Register nlc-backed build/run/test tasks for fresh project.yml templates.
     context.subscriptions.push(
         vscode.tasks.registerTaskProvider('nsharp', {
