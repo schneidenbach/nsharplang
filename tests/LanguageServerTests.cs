@@ -3727,6 +3727,106 @@ func main() {
     }
 
     [Fact]
+    public async Task PrepareRename_RejectsStringLiteralContent()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_string_literal.nl";
+        var source = @"func main() {
+    message := ""oldName""
+    print message
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var stringContentCol = source.Split('\n')[1].IndexOf("oldName", StringComparison.Ordinal);
+        var result = await harness.PrepareRenameAsync(uri, 1, stringContentCol);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PrepareRename_AllowsInterpolatedExpressionHole()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_interpolated_hole.nl";
+        var source = """
+func main() {
+    oldName := "world"
+    message := $"hello {oldName}"
+    print message
+}
+""";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.PrepareRenameAsync(uri, 2, source.Split('\n')[2].IndexOf("oldName", StringComparison.Ordinal));
+
+        Assert.NotNull(result);
+        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
+    }
+
+    [Fact]
+    public async Task PrepareRename_RejectsEscapedInterpolatedBraceLiteralContent()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_interpolated_escaped_braces.nl";
+        var source = """
+func main() {
+    oldName := "world"
+    message := $"hello {{oldName}}"
+    print message
+}
+""";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.PrepareRenameAsync(uri, 2, source.Split('\n')[2].IndexOf("oldName", StringComparison.Ordinal));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task PrepareRename_AllowsInterpolatedRawStringExpressionHole()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_interpolated_raw_hole.nl";
+        var source = """"
+func main() {
+    oldName := "world"
+    message := $"""
+hello {oldName}
+"""
+    print message
+}
+"""";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.PrepareRenameAsync(uri, 3, source.Split('\n')[3].IndexOf("oldName", StringComparison.Ordinal));
+
+        Assert.NotNull(result);
+        Assert.Equal("oldName", result!.PlaceholderRange.Placeholder);
+    }
+
+    [Fact]
+    public async Task PrepareRename_RejectsMultiLineRawStringContent()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/prepare_rename_raw_string_literal.nl";
+        var source = """"
+func main() {
+    oldName := "symbol"
+    text := """
+oldName
+"""
+    print text
+}
+"""";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.PrepareRenameAsync(uri, 3, source.Split('\n')[3].IndexOf("oldName", StringComparison.Ordinal));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task PrepareRename_ProjectSemanticMemberUsage_AcceptsStrictProjectTargetAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);

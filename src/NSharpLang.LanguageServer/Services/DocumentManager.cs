@@ -64,7 +64,7 @@ public class DocumentManager
         IEnumerable<string> nlFiles;
         try
         {
-            nlFiles = Directory.EnumerateFiles(rootPath, "*.nl", SearchOption.AllDirectories);
+            nlFiles = ProjectConfig.EnumerateSourceFiles(rootPath);
         }
         catch (Exception ex)
         {
@@ -1096,7 +1096,7 @@ public class DocumentManager
     {
         long latest = 0;
 
-        foreach (var file in Directory.EnumerateFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
+        foreach (var file in ProjectConfig.EnumerateSourceFiles(projectRoot))
         {
             latest = Math.Max(latest, File.GetLastWriteTimeUtc(file).Ticks);
         }

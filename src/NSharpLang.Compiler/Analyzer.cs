@@ -7949,13 +7949,8 @@ public class Analyzer : IDisposable
 
         var namespaces = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var filePath in Directory.EnumerateFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
+        foreach (var filePath in ProjectConfig.EnumerateSourceFiles(projectRoot))
         {
-            if (IsBuildArtifactPath(filePath))
-            {
-                continue;
-            }
-
             try
             {
                 var source = File.ReadAllText(filePath);
@@ -8060,12 +8055,6 @@ public class Analyzer : IDisposable
             line,
             column);
         return true;
-    }
-
-    private static bool IsBuildArtifactPath(string filePath)
-    {
-        return filePath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
-               filePath.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private IEnumerable<Assembly> GetExternalSearchAssemblies()

@@ -37,6 +37,11 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
             return Task.FromResult<RangeOrPlaceholderRange?>(null);
         }
 
+        if (EditorUtilities.IsPositionInsideStringLiteral(doc.Text, request.Position.Line, request.Position.Character))
+        {
+            return Task.FromResult<RangeOrPlaceholderRange?>(null);
+        }
+
         var word = EditorUtilities.GetWordAtPosition(doc.Text, request.Position.Line, request.Position.Character);
         if (string.IsNullOrWhiteSpace(word))
         {
