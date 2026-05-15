@@ -4,7 +4,7 @@ import * as path from 'path';
 import { runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
-    const extensionDevelopmentPath = path.resolve(__dirname, '../..');
+    const extensionDevelopmentPath = path.resolve(__dirname, '../../..');
     const repoRoot = path.resolve(extensionDevelopmentPath, '../..');
     const reportPath = process.env.NSHARP_VSCODE_REPORT_PATH
         ?? path.join(repoRoot, '.context', 'vscode-headless-report.json');
@@ -28,25 +28,45 @@ async function main(): Promise<void> {
     process.env.NSHARP_VSCODE_REPORT_PATH = reportPath;
     process.env.NSHARP_VSCODE_SERVER_PATH = serverPath;
 
-    await runTests({
-        extensionDevelopmentPath,
-        extensionTestsPath,
-        extensionTestsEnv: {
-            NSHARP_VSCODE_FIXTURE_ROOT: workspaceRoot,
-            NSHARP_VSCODE_REPORT_PATH: reportPath,
-            NSHARP_VSCODE_SERVER_PATH: serverPath
-        },
-        reuseMachineInstall: true,
-        launchArgs: [
-            workspaceRoot,
-            '--disable-workspace-trust',
-            '--skip-welcome',
-            '--skip-release-notes',
-            '--disable-gpu',
-            `--user-data-dir=${userDataDir}`,
-            `--extensions-dir=${extensionsDir}`
-        ]
-    });
+    try {
+        await runTests({
+            extensionDevelopmentPath,
+            extensionTestsPath,
+            extensionTestsEnv: {
+                NSHARP_VSCODE_FIXTURE_ROOT: workspaceRoot,
+                NSHARP_VSCODE_REPORT_PATH: reportPath,
+                NSHARP_VSCODE_SERVER_PATH: serverPath
+            },
+            reuseMachineInstall: true,
+            launchArgs: [
+                workspaceRoot,
+                '--disable-workspace-trust',
+                '--skip-welcome',
+                '--skip-release-notes',
+                '--disable-gpu',
+                '--password-store=basic',
+                '--disable-extension',
+                'vscode.git',
+                '--disable-extension',
+                'vscode.github',
+                '--disable-extension',
+                'vscode.github-authentication',
+                '--disable-extension',
+                'GitHub.copilot',
+                '--disable-extension',
+                'GitHub.copilot-chat',
+                '--disable-extension',
+                'github.copilot',
+                '--disable-extension',
+                'github.copilot-chat',
+                `--user-data-dir=${userDataDir}`,
+                `--extensions-dir=${extensionsDir}`
+            ]
+        });
+    } finally {
+        fs.rmSync(profileRoot, { recursive: true, force: true });
+        fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
 }
 
 function createFixtureWorkspace(serverPath: string): string {
