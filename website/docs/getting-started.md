@@ -39,12 +39,13 @@ Your project looks like this:
 
 ```
 MyApp/
-├── MyApp.csproj      # Minimal — just one line, don't edit this
 ├── NuGet.config       # Package sources
 ├── global.json        # SDK version pin
 ├── project.yml        # All project configuration lives here
 └── Program.nl         # Your N# code
 ```
+
+N# fresh projects are csproj-free. `nlc build`/`nlc run` generate a minimal `*.g.csproj` build artifact when MSBuild needs one; don't add project settings to a hand-authored `.csproj`.
 
 ## Write Hello World
 
@@ -61,8 +62,8 @@ That's a complete program. No imports, no class wrappers, no semicolons.
 ## Build and Run
 
 ```bash
-dotnet build
-dotnet run
+nlc build
+nlc run
 ```
 
 Output:
@@ -90,7 +91,7 @@ func main() {
 Run it again:
 
 ```bash
-dotnet run
+nlc run
 ```
 
 ```text
@@ -104,7 +105,7 @@ Hello, World!
 
 ## Project Configuration
 
-All configuration lives in `project.yml` — never edit the `.csproj` directly.
+All configuration lives in `project.yml` — never add build settings to a `.csproj`.
 
 ```yaml
 name: MyApp
@@ -157,12 +158,12 @@ Open your project folder in VS Code and start editing `.nl` files.
 
 ## How It Works
 
-When you run `dotnet build`:
+When you run `nlc build`:
 
-1. The minimal `.csproj` loads the N# MSBuild SDK
-2. The SDK reads `project.yml` for project settings
-3. All `.nl` files are transpiled to C# (under `obj/`)
-4. The .NET compiler builds the generated C# into an executable
+1. The CLI reads `project.yml` for project settings
+2. The CLI generates a minimal `*.g.csproj` build artifact for the N# MSBuild SDK
+3. The compiler emits IL directly for the project assembly
+4. The .NET toolchain builds and runs with the emitted assembly and runtime assets
 
 Most project workflows hide intermediate generated artifacts; use explicit export/debug flags when you need to inspect them.
 

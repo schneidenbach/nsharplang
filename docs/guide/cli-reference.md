@@ -15,7 +15,7 @@ Updated: 2026-05-14
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--timings`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc new <name>` | Create a new N# project scaffold | none | `nlc new MyApp` |
+| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |

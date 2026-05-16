@@ -1,6 +1,6 @@
 # N# Quick Start
 
-**Project.yml-first N# projects with a minimal SDK `.csproj`.**
+**Project.yml-first, csproj-free N# projects. `nlc` generates a minimal `*.g.csproj` build artifact when needed.**
 
 ## Install (Local Development)
 

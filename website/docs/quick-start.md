@@ -25,7 +25,6 @@ cd MyApp
 **Your project has:**
 ```
 MyApp/
-├── MyApp.csproj
 ├── NuGet.config
 ├── global.json
 ├── project.yml
@@ -35,8 +34,8 @@ MyApp/
 ## Build and Run
 
 ```bash
-dotnet build
-dotnet run
+nlc build
+nlc run
 ```
 
 Output:
@@ -46,8 +45,8 @@ Hello, N#!
 
 ## How It Works
 
-1. `dotnet build` loads the minimal `.csproj`
-2. `NSharpLang.Sdk` reads `project.yml`
+1. `nlc build` reads `project.yml`
+2. `nlc` generates a minimal `*.g.csproj` build artifact for the N# SDK
 3. The SDK discovers `.nl` files and transpiles them to C# under `obj/`
 4. The normal .NET toolchain builds and runs the result
 
@@ -133,4 +132,4 @@ If you want to compile a loose `.nl` file directly:
 dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- run Program.nl
 ```
 
-That path is useful for experiments, but the recommended workflow is template-generated projects plus `dotnet build` and `dotnet run`.
+That path is useful for experiments, but the recommended workflow is template-generated projects plus `nlc build`, `nlc run`, and `nlc test`.
