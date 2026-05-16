@@ -172,7 +172,7 @@ There is intentionally no public `nlc convert` command. C#→N# migration should
 Current `nlc --help` lists these top-level commands:
 
 ```text
-build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export idiom watch doc env completion help
+build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export idiom watch doc env doctor completion help
 ```
 
 `nlc query help` lists these query commands:
