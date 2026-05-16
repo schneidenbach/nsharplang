@@ -12,9 +12,15 @@ async function main() {
         const testWorkspace = process.env.TEST_WORKSPACE
             || path.resolve(__dirname, '../../test/fixtures/simple');
 
-        // Use a short temp directory for user data to avoid IPC socket path length issues
-        // (macOS limits Unix domain sockets to 104 chars)
-        const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-test-'));
+        // Use short temp directories for user data to avoid IPC socket path length issues
+        // (macOS limits Unix domain sockets to 104 chars) and isolate installed user extensions.
+        // Do not pass --disable-extensions: VS Code 1.120 can leave the extension-test host
+        // waiting forever before the test entrypoint runs when that global switch is present.
+        const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-test-'));
+        const userDataDir = path.join(profileRoot, 'user-data');
+        const extensionsDir = path.join(profileRoot, 'extensions');
+        fs.mkdirSync(userDataDir, { recursive: true });
+        fs.mkdirSync(extensionsDir, { recursive: true });
 
         console.log('=== N# VS Code Integration Tests ===');
         console.log(`Extension: ${extensionDevelopmentPath}`);
@@ -39,15 +45,30 @@ async function main() {
             extensionTestsEnv,
             launchArgs: [
                 testWorkspace,
-                '--disable-extensions',
                 '--disable-workspace-trust',
+                '--password-store=basic',
+                '--disable-extension',
+                'vscode.git',
+                '--disable-extension',
+                'vscode.github',
+                '--disable-extension',
+                'vscode.github-authentication',
+                '--disable-extension',
+                'GitHub.copilot',
+                '--disable-extension',
+                'GitHub.copilot-chat',
+                '--disable-extension',
+                'github.copilot',
+                '--disable-extension',
+                'github.copilot-chat',
                 `--user-data-dir=${userDataDir}`,
+                `--extensions-dir=${extensionsDir}`,
             ],
         });
 
-        // Clean up user data
+        // Clean up the temporary profile.
         try {
-            fs.rmSync(userDataDir, { recursive: true, force: true });
+            fs.rmSync(profileRoot, { recursive: true, force: true });
         } catch {
             // Best effort cleanup
         }
