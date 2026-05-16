@@ -806,6 +806,21 @@ class WeatherController: ControllerBase {
         data := [""Sunny"", ""Cloudy"", ""Rainy""]
         return Ok(data)
     }
+
+    [HttpGet(""{id}"")]
+    func GetById([FromRoute] id: int): IActionResult {
+        return Ok(id)
+    }
+
+    [HttpPost]
+    func Create([FromBody] request: CreateWeatherRequest): IActionResult {
+        return Ok(request)
+    }
+}
+
+class CreateWeatherRequest {
+    Summary: string
+    TemperatureC: int
 }
 ";
 
