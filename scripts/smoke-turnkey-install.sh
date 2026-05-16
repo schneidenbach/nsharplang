@@ -85,15 +85,76 @@ cd "$RUN_DIR/work"
 nlc new MyApp
 cd "$APP_DIR"
 
-# nlc-generated projects include NuGet.config; point NSharp packages at the isolated local feed.
-python3 - <<PY
+# nlc-generated projects include NuGet.config; rewrite this smoke app to use only
+# the local artifacts feed so NSharpLang package restore cannot fall back to nuget.org.
+FEED="$FEED" python3 - <<'PY'
 from pathlib import Path
-p=Path('NuGet.config')
-s=p.read_text()
-s=s.replace('%HOME%/.nuget/local-feed', '$FEED')
-s=s.replace('$HOME/.nuget/local-feed', '$FEED')
+import os
+import xml.etree.ElementTree as ET
+
+feed = os.environ['FEED']
+p = Path('NuGet.config')
+s = p.read_text()
+s = s.replace('%HOME%/.nuget/local-feed', feed)
+s = s.replace('$HOME/.nuget/local-feed', feed)
 p.write_text(s)
+
+tree = ET.parse(p)
+root = tree.getroot()
+package_sources = root.find('packageSources')
+if package_sources is None:
+    package_sources = ET.SubElement(root, 'packageSources')
+
+for add in list(package_sources.findall('add')):
+    if add.attrib.get('key') == 'nuget.org':
+        package_sources.remove(add)
+
+local = next((add for add in package_sources.findall('add') if add.attrib.get('key') == 'nsharp-local'), None)
+if local is None:
+    local = ET.SubElement(package_sources, 'add')
+local.set('key', 'nsharp-local')
+local.set('value', feed)
+
+ET.indent(tree, space='  ')
+tree.write(p, encoding='unicode', xml_declaration=True)
+rewritten = p.read_text()
+if not rewritten.endswith('\n'):
+    p.write_text(rewritten + '\n')
 PY
+
+assert_only_local_nsharp_source() {
+  local config_file="$1"
+  local sources
+  sources="$(dotnet nuget list source --configfile "$config_file")"
+  printf '%s\n' "$sources"
+
+  FEED="$FEED" CONFIG_FILE="$config_file" python3 - <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+feed = os.environ['FEED']
+config_file = os.environ['CONFIG_FILE']
+root = ET.parse(config_file).getroot()
+package_sources = root.find('packageSources')
+if package_sources is None:
+    sys.exit('ERROR: generated app NuGet.config has no packageSources element.')
+
+if package_sources.find('clear') is None:
+    sys.exit('ERROR: generated app NuGet.config must clear inherited package sources.')
+
+sources = [
+    (add.attrib.get('key'), add.attrib.get('value'))
+    for add in package_sources.findall('add')
+]
+expected = [('nsharp-local', feed)]
+if sources != expected:
+    sys.exit(f'ERROR: generated app NuGet.config sources must be exactly {expected}, got {sources}.')
+PY
+}
+
+echo "==> Verifying generated app NuGet source isolation"
+assert_only_local_nsharp_source "$APP_DIR/NuGet.config"
 
 nlc build
 nlc run

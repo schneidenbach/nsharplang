@@ -39,7 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 Useful variants:
 
 ```bash
-# Use a private/local feed during validation
+# Use a private/local feed during validation. The turnkey smoke also rewrites
+# the generated app NuGet.config so NSharpLang restore stays on that feed.
 ./scripts/install.sh --source ./artifacts/nuget
 
 # Remove installed N# tools/templates/extension

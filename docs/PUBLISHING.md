@@ -62,7 +62,7 @@ Run the local-feed smoke before publishing:
 ./scripts/smoke-turnkey-install.sh
 ```
 
-The smoke creates an isolated `HOME` with a NuGet config that clears all package sources except `artifacts/nuget`, verifies that unsupported `--version` pins fail fast, installs from that local feed, runs:
+The smoke creates an isolated `HOME` with a NuGet config that clears all package sources except `artifacts/nuget`, verifies that unsupported `--version` pins fail fast, installs from that local feed, rewrites the generated smoke app's `NuGet.config` to remove `nuget.org`, asserts the app config has `<clear />` and exactly one package source (`nsharp-local` pointing at the local NSharp artifacts feed), then runs:
 
 ```bash
 nlc --version
