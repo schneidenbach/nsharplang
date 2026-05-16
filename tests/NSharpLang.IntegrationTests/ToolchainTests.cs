@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DotNet.Testcontainers.Containers;
 using Xunit;
@@ -176,6 +179,35 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     }
 
     [Fact]
+    public async Task TemplateQuickstartDocs_ReplaySuccessfully()
+    {
+        await InstallTemplates();
+        await InstallCli();
+
+        var repoRoot = FindRepoRoot();
+        var docsPath = Path.Combine(repoRoot, "templates", "README.md");
+        var quickstarts = ReadTemplateQuickstarts(docsPath);
+
+        Assert.Equal(new[] { "console", "library", "test", "webapi" }, quickstarts.Select(q => q.Name).OrderBy(name => name));
+
+        foreach (var quickstart in quickstarts)
+        {
+            var workingDirectory = "/workspace";
+            var projectDir = UniqueDir($"docs-{quickstart.Name}");
+            var commands = RewriteProjectName(quickstart.Commands, projectDir);
+
+            Assert.InRange(commands.Count, 1, 4);
+
+            foreach (var command in commands)
+            {
+                var result = await Bash($"cd {workingDirectory} && {ReplayCommand(command)}");
+                AssertSuccess(result, $"templates/README.md quickstart '{quickstart.Name}' command: {command}");
+                workingDirectory = ApplyCd(workingDirectory, command);
+            }
+        }
+    }
+
+    [Fact]
     public async Task CliTool_InstallsAndReportsVersion()
     {
         var install = await Bash("dotnet tool install -g NSharpLang.Cli");
@@ -202,6 +234,83 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     private Task<ExecResult> Bash(string command) =>
         _fixture.Container.ExecAsync(["bash", "-c", command]);
 
+    private static IReadOnlyList<TemplateQuickstart> ReadTemplateQuickstarts(string docsPath)
+    {
+        var markdown = File.ReadAllText(docsPath);
+        var matches = Regex.Matches(
+            markdown,
+            @"<!--\s*quickstart:(?<name>[a-z0-9-]+)\s*-->\s*```bash\s*(?<commands>.*?)\s*```",
+            RegexOptions.Singleline);
+
+        return matches
+            .Select(match => new TemplateQuickstart(
+                match.Groups["name"].Value,
+                match.Groups["commands"].Value
+                    .Split('\n')
+                    .Select(line => line.Trim())
+                    .Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal))
+                    .ToArray()))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> RewriteProjectName(IReadOnlyList<string> commands, string projectDir)
+    {
+        var projectName = Path.GetFileName(projectDir);
+
+        return commands
+            .Select(command => Regex.Replace(command, @"\s-o\s+\S+", $" -o {projectDir}"))
+            .Select(command => Regex.Replace(command, @"^cd\s+\S+$", $"cd {projectDir}"))
+            .Select(command => command.Replace(" MyApp", $" {projectName}", StringComparison.Ordinal))
+            .Select(command => command.Replace(" MyLib", $" {projectName}", StringComparison.Ordinal))
+            .Select(command => command.Replace(" MyTests", $" {projectName}", StringComparison.Ordinal))
+            .Select(command => command.Replace(" MyApi", $" {projectName}", StringComparison.Ordinal))
+            .ToArray();
+    }
+
+    private static string ApplyCd(string workingDirectory, string command)
+    {
+        if (!command.StartsWith("cd ", StringComparison.Ordinal))
+            return workingDirectory;
+
+        var destination = command[3..].Trim();
+        return destination.StartsWith("/", StringComparison.Ordinal)
+            ? destination
+            : $"{workingDirectory.TrimEnd('/')}/{destination}";
+    }
+
+    private static string ReplayCommand(string command)
+    {
+        if (!command.StartsWith("ASPNETCORE_URLS=", StringComparison.Ordinal) || !command.EndsWith(" nlc run", StringComparison.Ordinal))
+            return command;
+
+        var escaped = command.Replace("'", "'\\''", StringComparison.Ordinal);
+        return "bash -lc 'set -e; " +
+               $"{escaped} > /tmp/nsharp-webapi-quickstart.log 2>&1 & pid=$!; " +
+               "for i in $(seq 1 40); do " +
+               "if curl -fsS http://127.0.0.1:5050/api/weather >/tmp/nsharp-webapi-quickstart-response.txt 2>/dev/null; then " +
+               "kill $pid; wait $pid 2>/dev/null || true; cat /tmp/nsharp-webapi-quickstart-response.txt; exit 0; " +
+               "fi; " +
+               "if ! kill -0 $pid 2>/dev/null; then cat /tmp/nsharp-webapi-quickstart.log; exit 1; fi; " +
+               "sleep 0.5; " +
+               "done; " +
+               "cat /tmp/nsharp-webapi-quickstart.log; kill $pid 2>/dev/null || true; exit 1'";
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir, "NSharpLang.sln")))
+                return dir;
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        throw new InvalidOperationException(
+            "Could not find repository root (NSharpLang.sln). " +
+            $"Searched upward from {AppContext.BaseDirectory}");
+    }
+
     private async Task InstallTemplates()
     {
         var result = await Bash("dotnet new install NSharpLang.Templates --force");
@@ -227,4 +336,6 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             $"--- stdout ---\n{result.Stdout}\n" +
             $"--- stderr ---\n{result.Stderr}");
     }
+
+    private sealed record TemplateQuickstart(string Name, IReadOnlyList<string> Commands);
 }
