@@ -6,54 +6,7 @@ N# is in active development. The repository has a working compiler, SDK, CLI, te
 
 ## Quick Start
 
-Install N# with the canonical public installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
-```
-
-The installer sets up the public NSharpLang toolchain as one product surface: the `nlc` CLI, `dotnet new` templates, SDK restore support, the N# language server, and the VS Code extension when the `code` CLI is available. Users should install NSharpLang, not a stack of internal packages.
-
-Verify the install and create a project:
-
-```bash
-nlc --version
-nlc doctor
-nlc new MyApp
-cd MyApp
-nlc run
-```
-
-Fresh projects are project.yml-first and csproj-free. `nlc build`/`nlc run` generate the minimal MSBuild entry point when needed.
-
----
-
-## Installation
-
-### One-Line Installer (macOS/Linux bash)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
-```
-
-Useful variants:
-
-```bash
-# Use a private/local feed during validation. The turnkey smoke also rewrites
-# the generated app NuGet.config so NSharpLang restore stays on that feed.
-./scripts/install.sh --source ./artifacts/nuget
-
-# Remove installed N# tools/templates/extension
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --uninstall
-```
-
-Exact public version pinning is intentionally disabled for now. The current package set still has mixed package versions across the CLI, SDK, templates, compiler, and language server, so a single user-facing `--version` value cannot safely select the full toolchain. Until releases use one unified version, rerun the installer to update to the latest package set from the configured source.
-
-The public one-liner expects NSharpLang NuGet packages to be published to the configured source and the VS Code extension to be available as `nsharp.nsharp` in the VS Code marketplace path (or as a release VSIX via `NSHARP_VSIX_URL`). If either public artifact is not published yet, the installer fails with the exact missing artifact instead of sending users through manual internal package steps.
-
-Windows note: this pass ships the canonical bash installer for macOS/Linux. Windows users can use WSL or run the equivalent commands manually until a PowerShell installer lands.
-
-### Build from Source (contributors)
+### 1. One-Time Setup
 
 ```bash
 git clone <repo-url>
@@ -61,7 +14,134 @@ cd nsharplang
 ./scripts/setup-local.sh
 ```
 
-This path is for contributors and private-feed consumers. Public users should start with the one-line installer above.
+This local setup path is for contributors and private-feed consumers. Public package availability should be verified before using the NuGet/template commands outside this repo.
+
+### 2. Create Project
+
+```bash
+dotnet new nsharp-console -o MyApp
+cd MyApp
+```
+
+**Files created:**
+- `project.yml` - all project configuration lives here
+- `Program.nl` - N# source
+- `global.json` - SDK selection
+- `NuGet.config` - package sources when using local/private packages
+
+Fresh N# projects are intentionally `.csproj`-free. `nlc build`, `nlc run`, and `nlc test` generate a minimal `*.g.csproj` build artifact only when MSBuild needs one.
+
+### 3. Build and Run
+
+```bash
+nlc build
+nlc run
+```
+
+For repo-local CLI testing, use:
+
+```bash
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build
+dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
+```
+
+---
+
+## Philosophy
+
+- **Small syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
+- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, MSBuild, and C# interop
+- **Project-first workflow**: `project.yml` owns user-facing configuration; `.csproj` stays minimal
+- **Tooling matters**: `nlc check`, `nlc query`, formatting, tests, and VS Code support are product surface, not afterthoughts
+- **Evidence over hype**: docs should describe what is implemented and tested, not what the language hopes to become
+
+## Why N#?
+
+N# explores a tighter, Go-flavored developer experience for .NET while keeping C# interop as a core design constraint. The goal is to emit types and assemblies that fit normal .NET workflows while giving N# source a smaller, more direct shape.
+
+| Area | N# direction |
+|------|--------------|
+| **Unions** | Discriminated unions that compile into C#-consumable shapes |
+| **Records/classes** | Familiar .NET object model with terser syntax |
+| **Async** | `Task`/`ValueTask` interop instead of a separate async ecosystem |
+| **Nullability** | Works with .NET nullable reference types and explicit checks |
+| **Visibility** | Go-style casing by default, explicit modifiers for interop escapes |
+
+## Quick Example
+
+```nsharp
+// Variables with type inference
+name := "Alice"
+items := [1, 2, 3, 4, 5]
+
+// Discriminated unions with pattern matching
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+message := result match {
+    Result.Success { value: x } => $"Got {x}",
+    Result.Failure { error: e } => $"Error: {e}"
+}
+
+// Duck interfaces (structural typing)
+duck interface IReader {
+    func Read(): string
+}
+
+class FileReader {
+    func Read(): string => "file contents"
+}
+
+func Process(r: IReader) {
+    print r.Read()
+}
+
+Process(new FileReader())
+```
+
+## Installation
+
+### One-Liner (Private Feed)
+
+Requires the [GitHub CLI](https://cli.github.com/) authenticated with access to this repository/package feed:
+
+```bash
+bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
+```
+
+This installs templates, the `nlc` CLI, the language server, and a reusable `NuGet.config` under `~/.nsharp/` for the private feed path.
+
+### From Templates
+
+```bash
+# Install templates from the configured package source
+dotnet new install NSharpLang.Templates
+
+# Create a new console app
+dotnet new nsharp-console -o MyApp
+cd MyApp
+
+# Build and run
+nlc build
+nlc run
+```
+
+`dotnet new nsharp-*` writes `project.yml`, `.nl` source, `global.json`, and `NuGet.config`; it does not write a user-authored `.csproj`. Use `nlc build`, `nlc run`, and `nlc test` for the fresh-project path.
+
+The SDK (`NSharpLang.Sdk`) is restored from the configured package source when you build.
+
+### Build from Source
+
+```bash
+git clone <repo-url>
+cd nsharplang
+dotnet build
+dotnet test tests/Tests.csproj
+```
+
+Do not hard-code test totals in docs; they move quickly. Use the current `dotnet test` output for release/talk evidence.
 
 ### CLI Usage
 

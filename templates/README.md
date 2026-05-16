@@ -6,6 +6,8 @@ Canonical fresh-project policy: templates are csproj-free and `project.yml`-firs
 
 The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; the VS Code extension exposes those same commands as N# tasks and honors `nsharp.cli.path`.
 
+Every quickstart block below is replayed by `scripts/replay-template-quickstarts.py` and by the template integration test. Keep the marked command blocks copy/pasteable and under five commands.
+
 ## Installation
 
 Public users should install NSharpLang through the canonical installer, which installs the templates together with `nlc`, SDK restore support, language server, and VS Code tooling:
@@ -22,6 +24,7 @@ Maintainers can still install this template package directly from a local feed w
 
 Creates a simple N# console application.
 
+<!-- quickstart:console -->
 ```bash
 dotnet new nsharp-console -o MyApp
 cd MyApp
@@ -49,6 +52,7 @@ Open the generated folder in VS Code and run the `nsharp: build`, `nsharp: run`,
 
 Creates a library project with a small `Calculator` type.
 
+<!-- quickstart:library -->
 ```bash
 dotnet new nsharp-library -o MyLib
 cd MyLib
@@ -73,6 +77,7 @@ nlc new MyLib --template library
 
 Creates a library-shaped project with `.tests.nl` examples ready for `nlc test`.
 
+<!-- quickstart:test -->
 ```bash
 dotnet new nsharp-test -o MyTests
 cd MyTests
@@ -99,11 +104,12 @@ nlc new MyTests --template test
 
 Creates a minimal ASP.NET Core N# web API.
 
+<!-- quickstart:webapi -->
 ```bash
 dotnet new nsharp-webapi -o MyApi
 cd MyApi
 nlc build
-nlc run
+ASPNETCORE_URLS=http://127.0.0.1:5050 nlc run
 ```
 
 Equivalent CLI scaffold:
