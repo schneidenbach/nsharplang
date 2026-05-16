@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "N# Team",
+  "classifications": ["Library", "N#"],
+  "identity": "NSharp.Library",
+  "name": "N# Class Library",
+  "shortName": "nsharp-library",
+  "tags": {
+    "language": "N#",
+    "type": "project"
+  },
+  "sourceName": "LibraryProject",
+  "preferNameDirectory": true,
+  "symbols": {
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project",
+      "datatype": "choice",
+      "choices": [
+        {
+          "choice": "net10.0",
+          "description": ".NET 10.0"
+        },
+        {
+          "choice": "net9.0",
+          "description": ".NET 9.0"
+        },
+        {
+          "choice": "net8.0",
+          "description": ".NET 8.0"
+        }
+      ],
+      "defaultValue": "net10.0",
+      "replaces": "net10.0"
+    }
+  }
+}

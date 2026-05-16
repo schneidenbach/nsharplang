@@ -550,13 +550,21 @@ Exit codes:
         {
             Console.WriteLine(@"N# New Project
 
-Usage: nlc new <project-name>
+Usage: nlc new <project-name> [--template <template>]
 
-Create a new N# project with `project.yml` and `Program.nl`.
-No .csproj file is created — the toolchain generates it automatically.
+Create a new csproj-free N# project. Fresh projects are project.yml-first:
+`nlc build`, `nlc run`, and `nlc test` generate the minimal *.g.csproj MSBuild
+entry point when needed. Do not hand-author project build settings in .csproj.
+
+Options:
+  --template <template>  Project template: console, library, test, webapi (default: console)
+  --type <template>      Alias for --template
+  --help, -h             Show this help text
 
 Examples:
   nlc new MyApp
+  nlc new MyLib --template library
+  nlc new MyApi --template webapi
   cd MyApp && nlc build
 
 Exit codes:
@@ -565,12 +573,19 @@ Exit codes:
             return 0;
         }
 
-        if (args.Length == 0)
+        var positional = GetPositionalArgs(args, "--template", "--type");
+        if (positional.Length == 0)
         {
-            return Error("Usage: nlc new <project-name>");
+            return Error("Usage: nlc new <project-name> [--template <template>]");
         }
 
-        var projectName = args[0];
+        var projectName = positional[0];
+        var template = NormalizeProjectTemplate(GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type") ?? "console");
+        if (template == null)
+        {
+            return Error("Invalid template. Expected one of: console, library, test, webapi.");
+        }
+
         var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
 
         if (Directory.Exists(projectDir))
@@ -580,36 +595,37 @@ Exit codes:
 
         try
         {
-            Console.WriteLine($"Creating new project: {projectName}");
+            Console.WriteLine($"Creating new {template} project: {projectName}");
 
-            // Create project directory
             Directory.CreateDirectory(projectDir);
-
-            // Create project.yml
-            var projectYml = Path.Combine(projectDir, "project.yml");
-            File.WriteAllText(projectYml, ProjectFileParser.GenerateTemplate(projectName));
-
-            // Create Program.nl
-            var programNl = Path.Combine(projectDir, "Program.nl");
-            File.WriteAllText(programNl, @"func main() {
-    print ""Hello, N#!""
-}");
-
-            // Create minimal .csproj (MSBuild entry point — all config comes from project.yml)
-            var csprojPath = Path.Combine(projectDir, $"{projectName}.csproj");
-            File.WriteAllText(csprojPath, "<Project Sdk=\"NSharpLang.Sdk\" />\n");
-
-            // Generate obj/project.g.props so dotnet build works immediately
-            RestoreCommand.Restore(projectDir, quiet: true);
+            WriteCanonicalProject(projectDir, projectName, template);
 
             Console.WriteLine($"Created: {projectName}/project.yml");
-            Console.WriteLine($"Created: {projectName}/Program.nl");
-            Console.WriteLine($"Created: {projectName}/{projectName}.csproj");
+            Console.WriteLine($"Created: {projectName}/global.json");
+            Console.WriteLine($"Created: {projectName}/NuGet.config");
+            foreach (var file in GetTemplateSourceFiles(template))
+            {
+                Console.WriteLine($"Created: {projectName}/{file}");
+            }
+
             Console.WriteLine();
-            Console.WriteLine($"To build and run your project:");
+            Console.WriteLine("Project shape: csproj-free source tree; nlc generates a minimal .g.csproj at build time.");
+            var nextCommand = template switch
+            {
+                "test" => "  nlc test",
+                "library" => null,
+                _ => "  nlc run",
+            };
+            Console.WriteLine(template switch
+            {
+                "test" => "To build and test your project:",
+                "library" => "To build your project:",
+                _ => "To build and run your project:",
+            });
             Console.WriteLine($"  cd {projectName}");
-            Console.WriteLine($"  nlc build");
-            Console.WriteLine($"  nlc run");
+            Console.WriteLine("  nlc build");
+            if (nextCommand != null)
+                Console.WriteLine(nextCommand);
             Console.WriteLine();
 
             return 0;
@@ -619,6 +635,194 @@ Exit codes:
             return Error($"Failed to create project: {ex.Message}");
         }
     }
+
+    static string[] GetTemplateSourceFiles(string template) => template switch
+    {
+        "console" => new[] { "Program.nl" },
+        "library" => new[] { "Calculator.nl" },
+        "test" => new[] { "Calculator.nl", "Calculator.tests.nl" },
+        "webapi" => new[] { "Program.nl", "Controllers/WeatherController.nl" },
+        _ => Array.Empty<string>(),
+    };
+
+    static string? NormalizeProjectTemplate(string value)
+    {
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "console" or "exe" or "app" => "console",
+            "library" or "lib" => "library",
+            "test" or "tests" => "test",
+            "webapi" or "web-api" or "web" => "webapi",
+            _ => null,
+        };
+    }
+
+    static void WriteCanonicalProject(string projectDir, string projectName, string template)
+    {
+        File.WriteAllText(Path.Combine(projectDir, "project.yml"), GenerateProjectYaml(projectName, template));
+        WriteSdkSupportFiles(projectDir);
+
+        switch (template)
+        {
+            case "console":
+                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), ConsoleProgramSource);
+                break;
+            case "library":
+                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
+                break;
+            case "test":
+                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
+                File.WriteAllText(Path.Combine(projectDir, "Calculator.tests.nl"), CalculatorTestsSource);
+                break;
+            case "webapi":
+                Directory.CreateDirectory(Path.Combine(projectDir, "Controllers"));
+                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), WebApiProgramSource);
+                File.WriteAllText(Path.Combine(projectDir, "Controllers", "WeatherController.nl"), WebApiControllerSource);
+                break;
+        }
+    }
+
+    static void WriteSdkSupportFiles(string projectDir)
+    {
+        File.WriteAllText(Path.Combine(projectDir, "global.json"), GlobalJsonContent);
+        File.WriteAllText(Path.Combine(projectDir, "NuGet.config"), NuGetConfigContent);
+    }
+
+    static string GenerateProjectYaml(string projectName, string template)
+    {
+        return template switch
+        {
+            "library" or "test" => $@"name: {projectName}
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# Test framework: xunit (default) or nunit
+# testFramework: xunit
+
+language:
+  asyncDefaultType: ValueTask
+",
+            "webapi" => $@"name: {projectName}
+version: 1.0.0
+entry: Program.nl
+backend: il
+outputType: exe
+targetFramework: net10.0
+sdk: Microsoft.NET.Sdk.Web
+
+dependencies:
+  - framework: Microsoft.AspNetCore.App
+  - nuget: Swashbuckle.AspNetCore
+    version: 7.2.0
+  - nuget: Microsoft.AspNetCore.OpenApi
+    version: 9.0.0
+
+language:
+  asyncDefaultType: ValueTask
+",
+            _ => ProjectFileParser.GenerateTemplate(projectName),
+        };
+    }
+
+    const string GlobalJsonContent = @"{
+  ""sdk"": {
+    ""version"": ""10.0.100"",
+    ""rollForward"": ""latestFeature""
+  },
+  ""msbuild-sdks"": {
+    ""NSharpLang.Sdk"": ""0.1.0""
+  }
+}
+";
+
+    const string NuGetConfigContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
+    <add key=""nsharp-local"" value=""%HOME%/.nuget/local-feed"" />
+  </packageSources>
+</configuration>
+";
+
+    const string ConsoleProgramSource = @"func main() {
+    print ""Hello, N#!""
+}
+";
+
+    const string CalculatorSource = @"class Calculator {
+    static func Add(a: int, b: int): int {
+        return a + b
+    }
+
+    static func Subtract(a: int, b: int): int {
+        return a - b
+    }
+}
+";
+
+    const string CalculatorTestsSource = @"test ""adds two numbers"" {
+    result := Calculator.Add(2, 3)
+    assert result == 5
+}
+
+test ""subtracts two numbers"" {
+    result := Calculator.Subtract(7, 4)
+    assert result == 3
+}
+";
+
+    const string WebApiProgramSource = @"import Microsoft.AspNetCore.Builder
+import Microsoft.Extensions.DependencyInjection
+
+func main(args: string[]) {
+    builder := WebApplication.CreateBuilder(args)
+
+    builder.Services.AddControllers()
+    builder.Services.AddEndpointsApiExplorer()
+    builder.Services.AddSwaggerGen()
+
+    app := builder.Build()
+
+    app.UseSwagger()
+    app.UseSwaggerUI()
+    app.UseHttpsRedirection()
+    app.UseAuthorization()
+    app.MapControllers()
+
+    app.Run()
+}
+";
+
+    const string WebApiControllerSource = @"import Microsoft.AspNetCore.Mvc
+
+[ApiController]
+[Route(""api/weather"")]
+class WeatherController: ControllerBase {
+    [HttpGet]
+    func Get(): IActionResult {
+        data := [""Sunny"", ""Cloudy"", ""Rainy""]
+        return Ok(data)
+    }
+
+    [HttpGet(""{id}"")]
+    func GetById([FromRoute] id: int): IActionResult {
+        return Ok(id)
+    }
+
+    [HttpPost]
+    func Create([FromBody] request: CreateWeatherRequest): IActionResult {
+        return Ok(request)
+    }
+}
+
+class CreateWeatherRequest {
+    Summary: string
+    TemperatureC: int
+}
+";
 
     static int TestCommand(string[] args)
     {

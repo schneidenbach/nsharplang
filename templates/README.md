@@ -2,7 +2,9 @@
 
 Project templates for N# language.
 
-Templates are `project.yml`-first and do not require user-authored build logic in the project file. The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; the VS Code extension exposes those same commands as N# tasks and honors `nsharp.cli.path`.
+Canonical fresh-project policy: templates are csproj-free and `project.yml`-first. Neither `nlc new` nor `dotnet new nsharp-*` writes a user-authored `.csproj`. `nlc build`, `nlc run`, `nlc test`, and the VS Code N# tasks generate a minimal `<Project Sdk="NSharpLang.Sdk" />` `*.g.csproj` only as a build artifact when needed. All project configuration belongs in `project.yml`.
+
+The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; the VS Code extension exposes those same commands as N# tasks and honors `nsharp.cli.path`.
 
 ## Installation
 
@@ -23,6 +25,12 @@ nlc build
 nlc run
 ```
 
+Equivalent CLI scaffold:
+
+```bash
+nlc new MyApp --template console
+```
+
 **Template short name:** `nsharp-console`
 
 **What's included:**
@@ -33,6 +41,56 @@ nlc run
 
 Open the generated folder in VS Code and run the `nsharp: build`, `nsharp: run`, or `nsharp: test` tasks. F5/debugging is intentionally hidden until N# has a real debugger-backed workflow.
 
+### Class Library
+
+Creates a library project with a small `Calculator` type.
+
+```bash
+dotnet new nsharp-library -o MyLib
+cd MyLib
+nlc build
+```
+
+Equivalent CLI scaffold:
+
+```bash
+nlc new MyLib --template library
+```
+
+**Template short name:** `nsharp-library`
+
+**What's included:**
+- `Calculator.nl` - Starter library type
+- `project.yml` - Library configuration (`outputType: library`)
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
+
+### Test Project
+
+Creates a library-shaped project with `.tests.nl` examples ready for `nlc test`.
+
+```bash
+dotnet new nsharp-test -o MyTests
+cd MyTests
+nlc build
+nlc test
+```
+
+Equivalent CLI scaffold:
+
+```bash
+nlc new MyTests --template test
+```
+
+**Template short name:** `nsharp-test`
+
+**What's included:**
+- `Calculator.nl` - Starter code under test
+- `Calculator.tests.nl` - xUnit-backed N# tests
+- `project.yml` - Library/test configuration
+- `NuGet.config` - Package source configuration
+- `global.json` - SDK version pinning
+
 ### Web API Application
 
 Creates a minimal ASP.NET Core N# web API.
@@ -42,6 +100,12 @@ dotnet new nsharp-webapi -o MyApi
 cd MyApi
 nlc build
 nlc run
+```
+
+Equivalent CLI scaffold:
+
+```bash
+nlc new MyApi --template webapi
 ```
 
 **Template short name:** `nsharp-webapi`

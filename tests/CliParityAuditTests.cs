@@ -536,6 +536,54 @@ func Main() {
         }
     }
 
+    [Theory]
+    [InlineData("console", true, false, false)]
+    [InlineData("library", false, false, false)]
+    [InlineData("test", false, true, false)]
+    [InlineData("webapi", true, false, true)]
+    public void NewCommand_CreatesCanonicalCsprojFreeProjectShape(string template, bool hasProgram, bool hasTests, bool hasWebController)
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = $"Demo{template}";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", projectName, "--template", template));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            AssertCanonicalProjectShape(projectDir, projectName, hasProgram, hasTests, hasWebController);
+            Assert.Contains("project.yml", stdout);
+            Assert.Contains("nlc build", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_Help_StatesCsprojFreePolicyAndTemplates()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("csproj-free", stdout, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--template", stdout);
+        Assert.Contains("console", stdout);
+        Assert.Contains("library", stdout);
+        Assert.Contains("test", stdout);
+        Assert.Contains("webapi", stdout);
+    }
+
     // ── nlc bench ────────────────────────────────────────────────────────────
 
     [Fact]
@@ -830,6 +878,29 @@ test "add works" {
         var path = Path.Combine(Path.GetTempPath(), $"nsharp-cli-audit-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static void AssertCanonicalProjectShape(
+        string projectDir,
+        string projectName,
+        bool hasProgram,
+        bool hasTests,
+        bool hasWebController)
+    {
+        Assert.True(File.Exists(Path.Combine(projectDir, "project.yml")), "project.yml should exist");
+        Assert.True(File.Exists(Path.Combine(projectDir, "global.json")), "global.json should exist");
+        Assert.True(File.Exists(Path.Combine(projectDir, "NuGet.config")), "NuGet.config should exist");
+        Assert.False(File.Exists(Path.Combine(projectDir, $"{projectName}.csproj")), "nlc new must not create a user-authored .csproj");
+        Assert.False(File.Exists(Path.Combine(projectDir, $"{projectName}.g.csproj")), "nlc new must not create generated build artifacts before build");
+        Assert.Empty(Directory.GetFiles(projectDir, "*.csproj", SearchOption.TopDirectoryOnly));
+
+        Assert.Equal(hasProgram, File.Exists(Path.Combine(projectDir, "Program.nl")));
+        Assert.Equal(hasTests, File.Exists(Path.Combine(projectDir, "Calculator.tests.nl")));
+        Assert.Equal(hasWebController, File.Exists(Path.Combine(projectDir, "Controllers", "WeatherController.nl")));
+
+        var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+        Assert.Contains($"name: {projectName}", projectYaml);
+        Assert.Contains(hasProgram ? "entry: Program.nl" : "outputType: library", projectYaml);
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)

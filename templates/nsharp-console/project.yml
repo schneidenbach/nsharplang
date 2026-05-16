@@ -1,10 +1,22 @@
 name: ConsoleApp
 version: 1.0.0
 entry: Program.nl
+backend: il
 outputType: exe
 targetFramework: net10.0
+
+# Test framework: xunit (default) or nunit
+# testFramework: xunit
 
 # Add your dependencies here
 # dependencies:
 #   - nuget: Newtonsoft.Json
 #     version: 13.0.3
+
+language:
+  asyncDefaultType: ValueTask
+
+# package:
+#   author: Your Name
+#   description: A short description
+#   license: MIT
