@@ -70,7 +70,7 @@ step "Running N# backend tests"
 "${NLC[@]}" test
 
 step "Starting ASP.NET backend on http://localhost:$PORT"
-ASPNETCORE_URLS="http://localhost:$PORT" dotnet run --project IssueTracker.csproj --no-build --urls "http://localhost:$PORT" >"$SERVER_LOG" 2>&1 &
+ASPNETCORE_URLS="http://localhost:$PORT" dotnet "$BACKEND/bin/Debug/net10.0/IssueTracker.dll" --urls "http://localhost:$PORT" >"$SERVER_LOG" 2>&1 &
 SERVER_PID="$!"
 wait_for_backend
 
