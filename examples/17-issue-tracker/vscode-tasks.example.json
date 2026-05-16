@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "N#: issue tracker build",
+      "type": "shell",
+      "command": "npm run build",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}/examples/17-issue-tracker"
+      }
+    },
+    {
+      "label": "N#: issue tracker backend tests",
+      "type": "shell",
+      "command": "npm run test:backend",
+      "group": "test",
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}/examples/17-issue-tracker"
+      }
+    },
+    {
+      "label": "N#: issue tracker flagship demo",
+      "type": "shell",
+      "command": "npm run demo",
+      "isBackground": true,
+      "problemMatcher": [],
+      "options": {
+        "cwd": "${workspaceFolder}/examples/17-issue-tracker"
+      }
+    }
+  ]
+}
