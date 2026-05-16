@@ -39,15 +39,15 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 Useful variants:
 
 ```bash
-# Pin an exact release
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --version 0.1.0
-
-# Use a private/local feed during validation
+# Use a private/local feed during validation. The turnkey smoke also rewrites
+# the generated app NuGet.config so NSharpLang restore stays on that feed.
 ./scripts/install.sh --source ./artifacts/nuget
 
 # Remove installed N# tools/templates/extension
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --uninstall
 ```
+
+Exact public version pinning is intentionally disabled for now. The current package set still has mixed package versions across the CLI, SDK, templates, compiler, and language server, so a single user-facing `--version` value cannot safely select the full toolchain. Until releases use one unified version, rerun the installer to update to the latest package set from the configured source.
 
 The public one-liner expects NSharpLang NuGet packages to be published to the configured source and the VS Code extension to be available as `nsharp.nsharp` in the VS Code marketplace path (or as a release VSIX via `NSHARP_VSIX_URL`). If either public artifact is not published yet, the installer fails with the exact missing artifact instead of sending users through manual internal package steps.
 

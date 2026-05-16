@@ -2,7 +2,6 @@
 set -euo pipefail
 
 NUGET_SOURCE="https://api.nuget.org/v3/index.json"
-VERSION=""
 DRY_RUN=0
 SKIP_VSCODE=0
 UNINSTALL=0
@@ -20,12 +19,15 @@ Canonical one-liner:
   curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
 Options:
-  --version VERSION     Install an exact NSharpLang package version
   --source SOURCE       NuGet source or local feed directory (default: NuGet.org)
   --skip-vscode         Do not install/probe the VS Code extension
   --uninstall           Remove N# tools/templates/VS Code extension instead
   --dry-run             Print commands without running them
   --help, -h            Show this help text
+
+Version pinning:
+  --version is intentionally unsupported until all public NSharpLang packages
+  ship with one unified release version. Use the default latest install for now.
 
 Environment:
   NSHARP_VSIX_URL       Optional VSIX fallback URL when marketplace install fails
@@ -34,7 +36,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --version) VERSION="$2"; shift ;;
+    --version|--version=*)
+      echo "ERROR: scripts/install.sh does not support --version yet." >&2
+      echo "NSharpLang packages currently ship with mixed package versions, so one public version cannot safely pin the full toolchain." >&2
+      echo "Use the default latest install, or publish a unified release version across CLI, SDK, templates, compiler, and language server first." >&2
+      exit 2
+      ;;
     --source) NUGET_SOURCE="$2"; shift ;;
     --skip-vscode) SKIP_VSCODE=1 ;;
     --uninstall) UNINSTALL=1 ;;
@@ -71,13 +78,6 @@ for candidate in (os.path.join(os.path.dirname(bin_dir), 'libexec'), os.path.dir
 PY
 }
 
-tool_version_args=()
-template_version_args=()
-if [[ -n "$VERSION" ]]; then
-  tool_version_args=(--version "$VERSION")
-  template_version_args=("::$VERSION")
-fi
-
 source_args=()
 if [[ -n "$NUGET_SOURCE" ]]; then
   source_args=(--add-source "$NUGET_SOURCE")
@@ -91,9 +91,6 @@ install_or_update_tool() {
   fi
 
   local cmd=(dotnet tool "$action" -g "$package_id")
-  if [[ ${#tool_version_args[@]} -gt 0 ]]; then
-    cmd+=("${tool_version_args[@]}")
-  fi
   if [[ ${#source_args[@]} -gt 0 ]]; then
     cmd+=("${source_args[@]}")
   fi
@@ -103,9 +100,6 @@ install_or_update_tool() {
 install_templates() {
   run dotnet new uninstall NSharpLang.Templates || true
   local package="NSharpLang.Templates"
-  if [[ ${#template_version_args[@]} -gt 0 ]]; then
-    package="NSharpLang.Templates${template_version_args[0]}"
-  fi
   local cmd=(dotnet new install "$package")
   if [[ ${#source_args[@]} -gt 0 ]]; then
     cmd+=("${source_args[@]}")
@@ -198,7 +192,7 @@ echo "========================================"
 echo "Installing N# toolchain"
 echo "========================================"
 echo "Source:  $NUGET_SOURCE"
-echo "Version: ${VERSION:-latest available}"
+echo "Version: latest available"
 echo ""
 
 install_templates
