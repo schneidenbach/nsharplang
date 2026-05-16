@@ -23,8 +23,10 @@ Thumbs.db
 # NuGet
 packages/
 *.nupkg
+*.vsix
 nupkg/
 local-packages/
+artifacts/
 
 # Test results
 TestResults/

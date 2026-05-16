@@ -159,8 +159,8 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Install N# CLI
-      run: dotnet tool install -g NSharpLang.Cli
+    - name: Install N# toolchain
+      run: curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
     - name: Add .NET tools to PATH
       run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
@@ -192,8 +192,8 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Install N# CLI
-      run: dotnet tool install -g NSharpLang.Cli
+    - name: Install N# toolchain
+      run: curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
     - name: Add .NET tools to PATH
       run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
@@ -302,7 +302,7 @@ stages:
         version: '10.0.x'
 
     - script: |
-        dotnet tool install -g NSharpLang.Cli
+        curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
         export PATH="$PATH:$HOME/.dotnet/tools"
         nlc lint
       displayName: 'Run linter'
@@ -314,7 +314,7 @@ stages:
         version: '10.0.x'
 
     - script: |
-        dotnet tool install -g NSharpLang.Cli
+        curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
         export PATH="$PATH:$HOME/.dotnet/tools"
         nlc format --verify-no-changes
       displayName: 'Check formatting'
@@ -329,8 +329,7 @@ Use this for building and development:
 ```dockerfile
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 
-RUN dotnet tool install -g NSharpLang.Cli && \
-    dotnet tool install -g NSharpLang.LanguageServer
+RUN curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
 ENV PATH="${PATH}:/root/.dotnet/tools"
 

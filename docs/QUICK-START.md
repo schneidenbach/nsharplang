@@ -2,18 +2,19 @@
 
 **Project.yml-first, csproj-free N# projects. `nlc` generates a minimal `*.g.csproj` build artifact when needed.**
 
-## Install (Local Development)
+## Install N#
 
 ```bash
-git clone <repo-url>
-cd nsharplang
-./scripts/setup-local.sh
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+nlc doctor
 ```
+
+For contributor source builds, clone the repo and run `./scripts/setup-local.sh`; public users should use the one-line installer.
 
 ## Create Your First Project
 
 ```bash
-dotnet new nsharp-console -o MyApp
+nlc new MyApp
 cd MyApp
 ```
 
