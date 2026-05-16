@@ -39,8 +39,15 @@ class Routes {
             return context.Response.WriteAsync("Invalid request body")
         }
 
+        if !IsPriorityName(request.Priority) {
+            context.Response.StatusCode = 400
+            return context.Response.WriteAsync("Invalid priority")
+        }
+
+        priority := ParsePriority(request.Priority)
+
         // Error tuples at the call site — Go-style error handling
-        issue, err := service.CreateIssue(request.Title, request.Description, request.Priority, request.Tags)
+        issue, err := service.CreateIssue(request.Title, request.Description, priority, request.Tags)
 
         if err != null {
             context.Response.StatusCode = 400
@@ -52,13 +59,36 @@ class Routes {
         json := JsonSerializer.Serialize<object>(issue, jsonOptions)
         return context.Response.WriteAsync(json)
     }
+    func IsPriorityName(priority: string): bool {
+        return priority == "Low" || priority == "Medium" || priority == "High" || priority == "Critical"
+    }
+
+    func ParsePriority(priority: string): Priority {
+        if priority == "Low" {
+            return Priority.Low
+        }
+
+        if priority == "Medium" {
+            return Priority.Medium
+        }
+
+        if priority == "High" {
+            return Priority.High
+        }
+
+        if priority == "Critical" {
+            return Priority.Critical
+        }
+
+        throw new Exception("Invalid priority")
+    }
 }
 
 // Request DTOs — records, not classes. Immutable, concise.
 record CreateIssueRequest {
     Title: string
     Description: string
-    Priority: Priority
+    Priority: string
     Tags: string[]
 }
 

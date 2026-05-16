@@ -7,4 +7,3 @@ outputType: exe
 
 dependencies:
   - framework: Microsoft.AspNetCore.App
-  - project: ../AspNetBridge/AspNetBridge.csproj
