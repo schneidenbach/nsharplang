@@ -33,6 +33,8 @@ NuGet package versions are read from each project file's `<Version>` element:
 
 `scripts/pack-nuget.sh` packs those projects. `scripts/publish-nuget.sh` reads the same project-file versions when validating artifact names, so there is no second hard-coded version table to drift.
 
+The public installer does not expose exact version pinning while those project-file versions are mixed. `scripts/install.sh --version ...` fails fast with an explanation instead of applying one version to every package and producing a partial install. Re-enable a single public pin only after CLI, SDK, templates, compiler, and language server releases share one unified NSharpLang version, or replace it with explicit package-specific pins.
+
 The VS Code extension version is currently sourced from `editors/vscode/package.json`; publish the generated VSIX alongside the NuGet release or publish it to the extension marketplace before marking the IDE installer path public-green.
 
 ## Pack Locally
@@ -60,7 +62,7 @@ Run the local-feed smoke before publishing:
 ./scripts/smoke-turnkey-install.sh
 ```
 
-The smoke creates an isolated `HOME`, installs from `artifacts/nuget`, runs:
+The smoke creates an isolated `HOME` with a NuGet config that clears all package sources except `artifacts/nuget`, verifies that unsupported `--version` pins fail fast, installs from that local feed, rewrites the generated smoke app's `NuGet.config` to remove `nuget.org`, asserts the app config has `<clear />` and exactly one package source (`nsharp-local` pointing at the local NSharp artifacts feed), then runs:
 
 ```bash
 nlc --version
@@ -107,11 +109,7 @@ Update to latest:
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
 
-Pin a version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --version 0.1.0
-```
+Exact version pinning is disabled until all public NSharpLang packages use one unified release version. `--version` exits before installing anything so releases cannot silently mix incompatible package versions.
 
 Uninstall:
 
@@ -123,10 +121,10 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 
 ### `nlc doctor` reports missing templates or tools
 
-Re-run the installer with the exact source/version you intended:
+Re-run the installer with the exact source you intended:
 
 ```bash
-./scripts/install.sh --source ./artifacts/nuget --version 0.1.0
+./scripts/install.sh --source ./artifacts/nuget
 ```
 
 ### SDK restore fails in a fresh project
