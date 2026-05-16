@@ -2,9 +2,12 @@
 
 namespace IssueTracker
 
+import System.IO
+import System.Linq
 import System.Text.Json
+import System.Threading.Tasks
 import Microsoft.AspNetCore.Builder
-import IssueTracker.Bridge
+import Microsoft.AspNetCore.Http
 import "Models"
 import "Service"
 
@@ -22,11 +25,122 @@ class Routes {
     }
 
     func Map(app: WebApplication) {
-        app.MapGet("/api/health", () => "ok")
-        listHandler := AspNetDelegateBridge.ListIssuesHandler(service, jsonOptions)
-        createHandler := AspNetDelegateBridge.CreateIssueHandler(service, jsonOptions)
+        healthHandler: RequestDelegate = context => context.Response.WriteAsync("ok")
+        listHandler: RequestDelegate = context => HandleList(context)
+        createHandler: RequestDelegate = context => HandleCreate(context)
+
+        app.MapGet("/api/health", healthHandler)
         app.MapGet("/api/issues", listHandler)
         app.MapPost("/api/issues", createHandler)
+    }
+
+    // RequestDelegate handler implemented in N#; serializes the service response directly.
+    func HandleList(context: HttpContext): Task {
+        context.Response.ContentType = "application/json"
+        response := service.GetAll().Select(issue => ToResponse(issue)).ToList()
+        return context.Response.WriteAsJsonAsync(response, jsonOptions)
+    }
+
+    // Returns Task by calling WriteAsync — satisfies RequestDelegate signature.
+    func HandleCreate(context: HttpContext): Task {
+        reader := new StreamReader(context.Request.Body)
+        body := reader.ReadToEndAsync().Result
+        request := JsonSerializer.Deserialize<CreateIssueRequest>(body, jsonOptions)
+
+        if request == null {
+            context.Response.StatusCode = 400
+            return context.Response.WriteAsync("Invalid request body")
+        }
+
+        if !IsPriorityName(request.Priority) {
+            context.Response.StatusCode = 400
+            return context.Response.WriteAsync("Invalid priority")
+        }
+
+        priority := ParsePriority(request.Priority)
+
+        // Error tuples at the call site — Go-style error handling
+        issue, err := service.CreateIssue(request.Title, request.Description, priority, request.Tags)
+
+        if err != null {
+            context.Response.StatusCode = 400
+            return context.Response.WriteAsync(err.Message)
+        }
+
+        context.Response.StatusCode = 201
+        return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions)
+    }
+
+    func ToResponse(issue: Issue): IssueResponse {
+        return new IssueResponse {
+            Id: issue.Id,
+            Title: issue.Title,
+            Description: issue.Description,
+            Status: new IssueStatusResponse { Type: StatusType(issue.Status) },
+            Priority: PriorityName(issue.Priority),
+            CreatedAt: issue.CreatedAt,
+            Tags: issue.Tags
+        }
+    }
+
+    func PriorityName(priority: Priority): string {
+        if priority == Priority.Low {
+            return "Low"
+        }
+
+        if priority == Priority.Medium {
+            return "Medium"
+        }
+
+        if priority == Priority.High {
+            return "High"
+        }
+
+        if priority == Priority.Critical {
+            return "Critical"
+        }
+
+        return "Unknown"
+    }
+
+    func IsPriorityName(priority: string): bool {
+        return priority == "Low" || priority == "Medium" || priority == "High" || priority == "Critical"
+    }
+
+    func ParsePriority(priority: string): Priority {
+        if priority == "Low" {
+            return Priority.Low
+        }
+
+        if priority == "Medium" {
+            return Priority.Medium
+        }
+
+        if priority == "High" {
+            return Priority.High
+        }
+
+        if priority == "Critical" {
+            return Priority.Critical
+        }
+
+        throw new Exception("Invalid priority")
+    }
+
+    func StatusType(status: IssueStatus): string {
+        if status is IssueStatus.Open {
+            return "Open"
+        }
+
+        if status is IssueStatus.InProgress {
+            return "InProgress"
+        }
+
+        if status is IssueStatus.Closed {
+            return "Closed"
+        }
+
+        return "Unknown"
     }
 }
 
@@ -34,7 +148,21 @@ class Routes {
 record CreateIssueRequest {
     Title: string
     Description: string
-    Priority: Priority
+    Priority: string
+    Tags: string[]
+}
+
+record IssueStatusResponse {
+    Type: string
+}
+
+record IssueResponse {
+    Id: int
+    Title: string
+    Description: string
+    Status: IssueStatusResponse
+    Priority: string
+    CreatedAt: DateTime
     Tags: string[]
 }
 
