@@ -1,0 +1,11 @@
+name: LibraryProject
+version: 1.0.0
+backend: il
+outputType: library
+targetFramework: net10.0
+
+# Test framework: xunit (default) or nunit
+# testFramework: xunit
+
+language:
+  asyncDefaultType: ValueTask

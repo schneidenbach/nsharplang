@@ -25,6 +25,19 @@
     <Content Include="nsharp-console/Program.nl" Pack="true" PackagePath="content/nsharp-console/Program.nl" />
     <Content Include="nsharp-console/project.yml" Pack="true" PackagePath="content/nsharp-console/project.yml" />
 
+    <Content Include="nsharp-library/.template.config/template.json" Pack="true" PackagePath="content/nsharp-library/.template.config/template.json" />
+    <Content Include="nsharp-library/Calculator.nl" Pack="true" PackagePath="content/nsharp-library/Calculator.nl" />
+    <Content Include="nsharp-library/global.json" Pack="true" PackagePath="content/nsharp-library/global.json" />
+    <Content Include="nsharp-library/NuGet.config" Pack="true" PackagePath="content/nsharp-library/NuGet.config" />
+    <Content Include="nsharp-library/project.yml" Pack="true" PackagePath="content/nsharp-library/project.yml" />
+
+    <Content Include="nsharp-test/.template.config/template.json" Pack="true" PackagePath="content/nsharp-test/.template.config/template.json" />
+    <Content Include="nsharp-test/Calculator.nl" Pack="true" PackagePath="content/nsharp-test/Calculator.nl" />
+    <Content Include="nsharp-test/Calculator.tests.nl" Pack="true" PackagePath="content/nsharp-test/Calculator.tests.nl" />
+    <Content Include="nsharp-test/global.json" Pack="true" PackagePath="content/nsharp-test/global.json" />
+    <Content Include="nsharp-test/NuGet.config" Pack="true" PackagePath="content/nsharp-test/NuGet.config" />
+    <Content Include="nsharp-test/project.yml" Pack="true" PackagePath="content/nsharp-test/project.yml" />
+
     <Content Include="nsharp-webapi/.template.config/template.json" Pack="true" PackagePath="content/nsharp-webapi/.template.config/template.json" />
     <Content Include="nsharp-webapi/Controllers/WeatherController.nl" Pack="true" PackagePath="content/nsharp-webapi/Controllers/WeatherController.nl" />
     <Content Include="nsharp-webapi/global.json" Pack="true" PackagePath="content/nsharp-webapi/global.json" />
