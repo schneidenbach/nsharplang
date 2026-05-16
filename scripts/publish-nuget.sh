@@ -1,79 +1,69 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-SDK_VERSION="0.1.0"
-TEMPLATES_VERSION="1.0.0"
-COMPILER_VERSION="1.0.0"
-CLI_VERSION="0.1.0"
-LANGUAGE_SERVER_VERSION="1.0.0"
+NUGET_SOURCE="https://api.nuget.org/v3/index.json"
+
+read_version() {
+  python3 - "$1" <<'PY'
+import re, sys
+text=open(sys.argv[1], encoding='utf-8').read()
+match=re.search(r'<Version>([^<]+)</Version>', text)
+if not match:
+    raise SystemExit(f'No <Version> in {sys.argv[1]}')
+print(match.group(1))
+PY
+}
+
+package_path() {
+  local id="$1"
+  local project="$2"
+  local version
+  version="$(read_version "$project")"
+  echo "artifacts/nuget/${id}.${version}.nupkg"
+}
 
 PACKAGES=(
-  "NSharpLang.Sdk.${SDK_VERSION}"
-  "NSharpLang.Templates.${TEMPLATES_VERSION}"
-  "NSharpLang.Compiler.${COMPILER_VERSION}"
-  "NSharpLang.Cli.${CLI_VERSION}"
-  "NSharpLang.LanguageServer.${LANGUAGE_SERVER_VERSION}"
+  "$(package_path NSharpLang.Sdk src/NSharpLang.Sdk/NSharpLang.Sdk.csproj)"
+  "$(package_path NSharpLang.Templates templates/NSharpLang.Templates.csproj)"
+  "$(package_path NSharpLang.Compiler src/NSharpLang.Compiler/Compiler.csproj)"
+  "$(package_path NSharpLang.Cli src/NSharpLang.Cli/Cli.csproj)"
+  "$(package_path NSharpLang.LanguageServer src/NSharpLang.LanguageServer/LanguageServer.csproj)"
 )
 
 echo "================================"
 echo "Publishing N# NuGet Packages"
 echo "================================"
 
-if [ -z "$NUGET_API_KEY" ]; then
+if [[ -z "${NUGET_API_KEY:-}" ]]; then
   echo "ERROR: NUGET_API_KEY environment variable is not set"
   echo "Please set it using: export NUGET_API_KEY=your_api_key"
   exit 1
 fi
 
 echo ""
-echo "Checking packages..."
+echo "Checking packages from project-file version source..."
 for pkg in "${PACKAGES[@]}"; do
-  if [ ! -f "artifacts/nuget/${pkg}.nupkg" ]; then
-    echo "ERROR: ${pkg}.nupkg not found. Run ./scripts/pack-nuget.sh first"
+  if [[ ! -f "$pkg" ]]; then
+    echo "ERROR: $pkg not found. Run ./scripts/pack-nuget.sh first"
     exit 1
   fi
-  echo "  - ${pkg}.nupkg"
+  echo "  - $pkg"
 done
 
 echo ""
-echo "Publishing packages to NuGet.org..."
-
-echo ""
-echo "Publishing NSharpLang.Sdk..."
-dotnet nuget push "artifacts/nuget/NSharpLang.Sdk.${SDK_VERSION}.nupkg" \
-  --api-key "$NUGET_API_KEY" \
-  --source https://api.nuget.org/v3/index.json
-
-echo ""
-echo "Publishing NSharpLang.Templates..."
-dotnet nuget push "artifacts/nuget/NSharpLang.Templates.${TEMPLATES_VERSION}.nupkg" \
-  --api-key "$NUGET_API_KEY" \
-  --source https://api.nuget.org/v3/index.json
-
-echo ""
-echo "Publishing NSharpLang.Compiler..."
-dotnet nuget push "artifacts/nuget/NSharpLang.Compiler.${COMPILER_VERSION}.nupkg" \
-  --api-key "$NUGET_API_KEY" \
-  --source https://api.nuget.org/v3/index.json
-
-echo ""
-echo "Publishing NSharpLang.Cli..."
-dotnet nuget push "artifacts/nuget/NSharpLang.Cli.${CLI_VERSION}.nupkg" \
-  --api-key "$NUGET_API_KEY" \
-  --source https://api.nuget.org/v3/index.json
-
-echo ""
-echo "Publishing NSharpLang.LanguageServer..."
-dotnet nuget push "artifacts/nuget/NSharpLang.LanguageServer.${LANGUAGE_SERVER_VERSION}.nupkg" \
-  --api-key "$NUGET_API_KEY" \
-  --source https://api.nuget.org/v3/index.json
+echo "Publishing packages to $NUGET_SOURCE..."
+for pkg in "${PACKAGES[@]}"; do
+  echo ""
+  echo "Publishing $(basename "$pkg")..."
+  dotnet nuget push "$pkg" --api-key "$NUGET_API_KEY" --source "$NUGET_SOURCE" --skip-duplicate
+done
 
 echo ""
 echo "================================"
-echo "Packages published successfully!"
+echo "NuGet packages published successfully!"
 echo "================================"
 echo ""
-echo "Users can now install with:"
-echo "  dotnet new install NSharpLang.Templates"
-echo "  dotnet tool install -g NSharpLang.Cli"
-echo "  dotnet tool install -g NSharpLang.LanguageServer"
+echo "Canonical public install command:"
+echo "  curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash"
+echo ""
+echo "VS Code extension publishing is separate: publish artifacts/vscode/*.vsix to the Marketplace/Open VSX or a GitHub release before announcing IDE auto-install as public-green."

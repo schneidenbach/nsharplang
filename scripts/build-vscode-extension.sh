@@ -29,15 +29,11 @@ cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net10.0"/* server
 
 # Compile TypeScript
 echo "   - Compiling TypeScript..."
-npm run compile > /dev/null 2>&1 || echo "   ⚠️  TypeScript compile failed (continuing anyway)"
+npm run compile
 
 # Package VSIX
 echo "   - Creating VSIX package..."
-npx vsce package --allow-star-activation > /dev/null 2>&1 || {
-    echo "   ⚠️  vsce not found, installing..."
-    npm install -g @vscode/vsce > /dev/null 2>&1
-    npx vsce package --allow-star-activation > /dev/null 2>&1
-}
+npx vsce package --allow-star-activation
 
 VSIX_FILE=$(ls -t nsharp-*.vsix | head -1)
 echo ""

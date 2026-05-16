@@ -1,66 +1,55 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "================================"
-echo "Packing N# NuGet Packages"
+echo "Packing N# Release Artifacts"
 echo "================================"
 
-# Create artifacts directory
-mkdir -p artifacts/nuget
+# Create artifacts directories
+mkdir -p artifacts/nuget artifacts/vscode
 
-# Build the build tasks in Release mode
 echo ""
 echo "Building NSharpLang.Build.Tasks in Release mode..."
 dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
 
-# Pack the SDK
-echo ""
-echo "Packing NSharpLang.Sdk..."
-dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj \
-  -c Release \
-  -o artifacts/nuget
+pack_project() {
+  local label="$1"
+  local project="$2"
+  echo ""
+  echo "Packing $label..."
+  dotnet pack "$project" -c Release -o artifacts/nuget
+}
 
-# Pack the templates
-echo ""
-echo "Packing NSharpLang.Templates..."
-dotnet pack templates/NSharpLang.Templates.csproj \
-  -c Release \
-  -o artifacts/nuget
+pack_project "NSharpLang.Sdk" src/NSharpLang.Sdk/NSharpLang.Sdk.csproj
+pack_project "NSharpLang.Templates" templates/NSharpLang.Templates.csproj
+pack_project "NSharpLang.Compiler" src/NSharpLang.Compiler/Compiler.csproj
+pack_project "nlc (N# CLI tool)" src/NSharpLang.Cli/Cli.csproj
+pack_project "NSharpLang.LanguageServer" src/NSharpLang.LanguageServer/LanguageServer.csproj
 
-# Pack the compiler library
-echo ""
-echo "Packing NSharpLang.Compiler..."
-dotnet pack src/NSharpLang.Compiler/Compiler.csproj \
-  -c Release \
-  -o artifacts/nuget
+if [[ "${SKIP_VSCODE_PACKAGE:-0}" != "1" ]]; then
+  echo ""
+  echo "Packaging VS Code extension..."
+  ./scripts/build-vscode-extension.sh
+  cp -f editors/vscode/*.vsix artifacts/vscode/ 2>/dev/null || true
+else
+  echo ""
+  echo "Skipping VS Code extension package (SKIP_VSCODE_PACKAGE=1)."
+fi
 
-# Pack the CLI tool
-echo ""
-echo "Packing nlc (N# CLI tool)..."
-dotnet pack src/NSharpLang.Cli/Cli.csproj \
-  -c Release \
-  -o artifacts/nuget
-
-# Pack the Language Server
-echo ""
-echo "Packing NSharpLang.LanguageServer..."
-dotnet pack src/NSharpLang.LanguageServer/LanguageServer.csproj \
-  -c Release \
-  -o artifacts/nuget
-
-# List the created packages
 echo ""
 echo "================================"
-echo "Packages created successfully:"
+echo "Artifacts created successfully:"
 echo "================================"
 ls -lh artifacts/nuget/*.nupkg
+if compgen -G "artifacts/vscode/*.vsix" >/dev/null; then
+  ls -lh artifacts/vscode/*.vsix
+fi
 
 echo ""
-echo "Packages are ready in artifacts/nuget/"
-echo ""
-echo "Core packages:"
-echo "  - NSharpLang.Sdk - MSBuild SDK"
+echo "Release artifact set:"
+echo "  - NSharpLang.Sdk - MSBuild SDK restored by projects"
 echo "  - NSharpLang.Templates - dotnet new templates"
 echo "  - NSharpLang.Compiler - Compiler API library"
-echo "  - NSharpLang.Cli - CLI tool (command: nlc)"
-echo "  - NSharpLang.LanguageServer - LSP server"
+echo "  - NSharpLang.Cli - global tool that provides nlc"
+echo "  - NSharpLang.LanguageServer - global tool that provides nsharp-lsp"
+echo "  - nsharp VSIX - VS Code extension installed by scripts/install.sh when published"

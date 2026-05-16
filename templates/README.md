@@ -8,9 +8,13 @@ The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; 
 
 ## Installation
 
+Public users should install NSharpLang through the canonical installer, which installs the templates together with `nlc`, SDK restore support, language server, and VS Code tooling:
+
 ```bash
-dotnet new install NSharpLang.Templates
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
+
+Maintainers can still install this template package directly from a local feed while validating release artifacts, but that is not the public first-run path.
 
 ## Available Templates
 

@@ -1,167 +1,144 @@
 # Publishing N# Packages
 
-This document describes how to pack and publish the NuGet packages that make up the N# toolchain.
+This document describes the release artifact set behind the one-line public installer.
 
-## Package Set
+## Public Artifact Set
 
-The current package set is:
+Users install NSharpLang through one front door:
 
-- `NSharpLang.Sdk`: MSBuild SDK for `dotnet build`
-- `NSharpLang.Templates`: `dotnet new` templates
-- `NSharpLang.Compiler`: compiler API package
-- `NSharpLang.Cli`: standalone CLI tool package that provides the `nlc` command
-- `NSharpLang.LanguageServer`: standalone LSP tool package
+```bash
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+```
 
-## Prerequisites
+That installer expects these artifacts to exist for the target version:
 
-1. A NuGet.org account with permission to publish these package IDs.
-2. `NUGET_API_KEY` exported in your shell.
-3. A clean `artifacts/nuget/` directory containing fresh packages from this repo.
+- `NSharpLang.Cli`: global tool that provides `nlc`
+- `NSharpLang.Sdk`: MSBuild SDK restored by generated project build files
+- `NSharpLang.Templates`: `dotnet new` templates used by `nlc new`/template consumers
+- `NSharpLang.LanguageServer`: global tool that provides `nsharp-lsp`
+- `NSharpLang.Compiler`: compiler API library used by SDK/tooling packages
+- `nsharp.nsharp` VS Code extension, either published to the marketplace/Open VSX path or provided as a release VSIX via `NSHARP_VSIX_URL`
+
+Internal package names can stay internal to scripts and release automation; public docs should point users at the installer and `nlc doctor`, not manual package-by-package setup.
+
+## Version Source
+
+NuGet package versions are read from each project file's `<Version>` element:
+
+- `src/NSharpLang.Cli/Cli.csproj`
+- `src/NSharpLang.Sdk/NSharpLang.Sdk.csproj`
+- `src/NSharpLang.Compiler/Compiler.csproj`
+- `src/NSharpLang.LanguageServer/LanguageServer.csproj`
+- `templates/NSharpLang.Templates.csproj`
+
+`scripts/pack-nuget.sh` packs those projects. `scripts/publish-nuget.sh` reads the same project-file versions when validating artifact names, so there is no second hard-coded version table to drift.
+
+The VS Code extension version is currently sourced from `editors/vscode/package.json`; publish the generated VSIX alongside the NuGet release or publish it to the extension marketplace before marking the IDE installer path public-green.
 
 ## Pack Locally
-
-Run:
 
 ```bash
 ./scripts/pack-nuget.sh
 ```
 
-This builds the task assembly and packs all published artifacts into `artifacts/nuget/`.
+Outputs:
 
-Expected output files:
+- `artifacts/nuget/*.nupkg`
+- `artifacts/vscode/*.vsix` unless `SKIP_VSCODE_PACKAGE=1` is set
 
-- `artifacts/nuget/NSharpLang.Sdk.0.1.0.nupkg`
-- `artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg`
-- `artifacts/nuget/NSharpLang.Compiler.1.0.0.nupkg`
-- `artifacts/nuget/NSharpLang.Cli.0.1.0.nupkg`
-- `artifacts/nuget/NSharpLang.LanguageServer.1.0.0.nupkg`
-
-## Smoke Test Locally
-
-### Templates
+For package-only smoke runs:
 
 ```bash
-dotnet new uninstall NSharpLang.Templates
-dotnet new install artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg
-dotnet new list nsharp
+SKIP_VSCODE_PACKAGE=1 ./scripts/pack-nuget.sh
 ```
 
-### SDK
+## Smoke the Turnkey Installer
 
-Create a temporary test project and point it at the local package feed:
+Run the local-feed smoke before publishing:
 
 ```bash
-mkdir -p /tmp/nsharp-test
-cd /tmp/nsharp-test
-
-dotnet nuget add source /absolute/path/to/nsharplang/artifacts/nuget --name NSharpLocal
-dotnet new nsharp-console -o TestApp
-cd TestApp
-dotnet build
-dotnet run
+./scripts/smoke-turnkey-install.sh
 ```
 
-When finished:
+The smoke creates an isolated `HOME`, installs from `artifacts/nuget`, runs:
 
 ```bash
-cd /tmp
-rm -rf /tmp/nsharp-test
-dotnet nuget remove source NSharpLocal
+nlc --version
+nlc doctor --skip-vscode
+nlc new MyApp
+cd MyApp
+nlc build
+nlc run
 ```
 
-## Publish to NuGet.org
+Logs are written under `artifacts/smoke-turnkey/<timestamp>/smoke.log`.
 
-Run:
+For a full workstation/IDE smoke after publishing the VSIX or marketplace entry:
+
+```bash
+./scripts/install.sh --source ./artifacts/nuget
+nlc doctor --require-vscode
+code --list-extensions | grep -i '^nsharp\.nsharp$'
+```
+
+## Publish NuGet Packages
 
 ```bash
 export NUGET_API_KEY=your_api_key_here
 ./scripts/publish-nuget.sh
 ```
 
-The publish script verifies that all expected package files exist, then pushes each package to NuGet.org.
+The script validates package names from project-file versions and pushes with `--skip-duplicate`.
 
-## Manual Publishing
+## Publish VS Code Tooling
 
-If you need to push packages manually:
+NuGet cannot install VS Code extensions. Before announcing the installer as public-green, do one of:
+
+1. Publish `nsharp.nsharp` to the VS Code Marketplace/Open VSX, so `code --install-extension nsharp.nsharp --force` works; or
+2. Attach the VSIX from `artifacts/vscode/` to a versioned GitHub release and set `NSHARP_VSIX_URL` in installer docs/release notes for that version.
+
+If neither exists, block the release and state that the missing external artifact is the VS Code extension publication target.
+
+## Uninstall / Update
+
+Update to latest:
 
 ```bash
-dotnet nuget push artifacts/nuget/NSharpLang.Sdk.0.1.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
-dotnet nuget push artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
-dotnet nuget push artifacts/nuget/NSharpLang.Compiler.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
-dotnet nuget push artifacts/nuget/NSharpLang.Cli.0.1.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
-dotnet nuget push artifacts/nuget/NSharpLang.LanguageServer.1.0.0.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
 
-## Publish to GitHub Packages (Private Feed)
-
-For private consumption across machines, packages are published to GitHub Packages.
-
-### Automated (CI)
-
-Push a version tag to trigger the publish workflow:
+Pin a version:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --version 0.1.0
 ```
 
-This runs `.github/workflows/publish.yml` which builds, tests, packs, and pushes all packages to `https://nuget.pkg.github.com/schneidenbach/index.json`.
-
-### Manual
+Uninstall:
 
 ```bash
-export GITHUB_TOKEN=ghp_your_pat_with_write_packages
-./scripts/pack-nuget.sh
-./scripts/publish-github-packages.sh
-```
-
-The script pushes all `.nupkg` files from `artifacts/nuget/` with `--skip-duplicate` to handle re-publishes gracefully.
-
-### Consuming from Another Machine
-
-**One-liner** (requires `gh` CLI authenticated with `gh auth login`):
-
-```bash
-bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
-```
-
-This auto-detects your `gh` token, registers the feed, and installs templates + CLI + language server. It also writes a reusable `NuGet.config` to `~/.nsharp/NuGet.config` for new projects.
-
-If you have the repo cloned locally, you can also run:
-
-```bash
-./scripts/setup-consumer.sh
-```
-
-## After Publishing
-
-Verify the packages are searchable on NuGet.org, then update any external install docs to use:
-
-```bash
-dotnet new install NSharpLang.Templates
-dotnet tool install -g NSharpLang.Cli
-dotnet tool install -g NSharpLang.LanguageServer
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --uninstall
 ```
 
 ## Troubleshooting
 
-### SDK restore fails
+### `nlc doctor` reports missing templates or tools
 
-Check that `global.json` references the correct `NSharpLang.Sdk` version and that the required package source is configured.
-
-### Templates do not appear in `dotnet new list`
-
-Clear the template cache and reinstall:
+Re-run the installer with the exact source/version you intended:
 
 ```bash
-dotnet new --debug:reinit
-dotnet new uninstall NSharpLang.Templates
-dotnet new install artifacts/nuget/NSharpLang.Templates.1.0.0.nupkg
+./scripts/install.sh --source ./artifacts/nuget --version 0.1.0
 ```
 
-### CLI or language server install command fails
+### SDK restore fails in a fresh project
 
-Use the package IDs, not the command names:
+Check `global.json`, `NuGet.config`, and the configured feed. The installer writes a shared reference config to `~/.nsharp/NuGet.config`, but generated projects should carry the feed information needed for their target release.
 
-- `dotnet tool install -g NSharpLang.Cli`
-- `dotnet tool install -g NSharpLang.LanguageServer`
+### VS Code extension install fails
+
+Confirm the external artifact exists:
+
+```bash
+code --install-extension nsharp.nsharp --force
+# or
+NSHARP_VSIX_URL=https://.../nsharp-<version>.vsix ./scripts/install.sh
+```
