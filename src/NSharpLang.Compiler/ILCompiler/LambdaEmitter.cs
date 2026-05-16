@@ -484,7 +484,7 @@ public partial class ILCompiler
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
 
-        var delegateType = CreateDelegateType(parameterTypes, returnType);
+        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, savedExpectedExpressionType);
 
         // Emit delegate creation: ldnull, ldftn, newobj
         _currentIL.Emit(OpCodes.Ldnull);
@@ -719,11 +719,53 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stfld, closureFields[varName]);
         }
 
-        var delegateType = CreateDelegateType(parameterTypes, returnType);
+        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, savedExpectedExpressionType);
 
         // The closure instance is already on the stack
         _currentIL.Emit(OpCodes.Ldftn, lambdaMethod);
         _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
+    }
+
+    private Type ResolveLambdaDelegateType(Type[] parameterTypes, Type returnType, Type? expectedType)
+    {
+        if (expectedType != null
+            && TryGetExpressionTreeDelegateType(expectedType, out var expressionDelegateType))
+        {
+            expectedType = expressionDelegateType;
+        }
+
+        if (expectedType != null
+            && typeof(Delegate).IsAssignableFrom(expectedType)
+            && TryGetDelegateInvokeMethod(expectedType, out var invokeMethod)
+            && invokeMethod != null)
+        {
+            var expectedParameterTypes = GetDelegateInvokeParameterTypes(expectedType, invokeMethod);
+            var expectedReturnType = GetDelegateInvokeReturnType(expectedType, invokeMethod);
+
+            if (expectedParameterTypes.Length == parameterTypes.Length
+                && expectedParameterTypes.Zip(parameterTypes, AreTypeIdentitiesEquivalent).All(matches => matches)
+                && AreLambdaReturnTypesCompatible(expectedReturnType, returnType))
+            {
+                return expectedType;
+            }
+        }
+
+        return CreateDelegateType(parameterTypes, returnType);
+    }
+
+    private static bool AreLambdaReturnTypesCompatible(Type expectedReturnType, Type actualReturnType)
+    {
+        if (AreTypeIdentitiesEquivalent(expectedReturnType, actualReturnType))
+        {
+            return true;
+        }
+
+        if (expectedReturnType == typeof(void) || actualReturnType == typeof(void))
+        {
+            return false;
+        }
+
+        return expectedReturnType.IsAssignableFrom(actualReturnType);
     }
 
     private void GetLambdaSignature(LambdaExpression lambda, out Type[] parameterTypes, out Type returnType)

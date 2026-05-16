@@ -81,7 +81,7 @@ curl -fsS "http://localhost:$PORT/api/issues" | tee "$LOG_DIR/issues-before.json
 printf '\n'
 curl -fsS -X POST "http://localhost:$PORT/api/issues" \
   -H 'Content-Type: application/json' \
-  -d '{"title":"Demo issue from scripts/demo.sh","description":"Created through the N# ASP.NET API during the flagship demo.","priority":"High","tags":["cli","aspnet","nsharp"]}' \
+  -d '{"title":"Demo issue from scripts/demo.sh","description":"Created through the N# ASP.NET API during the flagship demo.","priority":2,"tags":["cli","aspnet","nsharp"]}' \
   | tee "$LOG_DIR/create-response.json"
 printf '\n'
 curl -fsS "http://localhost:$PORT/api/issues" | tee "$LOG_DIR/issues-after.json"

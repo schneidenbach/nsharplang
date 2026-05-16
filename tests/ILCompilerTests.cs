@@ -7,12 +7,58 @@ using System.Reflection.Emit;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Runtime.Loader;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.ILCompiler;
 using Xunit;
 
 namespace NSharpLang.Tests;
+
+public delegate Task ExternalRequestDelegate(object context);
+
+public static class DelegateInteropProbe
+{
+    public static string Capture(ExternalRequestDelegate handler)
+    {
+        return handler.GetType().FullName ?? string.Empty;
+    }
+
+    public static string CaptureAspNet(RequestDelegate handler)
+    {
+        return handler.GetType().FullName ?? string.Empty;
+    }
+
+    public static string CaptureAspNetFunc(Func<HttpContext, Task> handler)
+    {
+        return handler.GetType().FullName ?? string.Empty;
+    }
+
+    public static string CaptureDelegate(Delegate handler)
+    {
+        return handler.GetType().FullName ?? string.Empty;
+    }
+
+    public static int MaterializeAspNetEndpoints(IEndpointRouteBuilder app)
+    {
+        return app.DataSources.Sum(dataSource => dataSource.Endpoints.Count);
+    }
+
+    public static string CaptureAspNetResponse(RequestDelegate handler)
+    {
+        var context = new DefaultHttpContext();
+        using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        handler(context).GetAwaiter().GetResult();
+
+        responseBody.Position = 0;
+        using var reader = new StreamReader(responseBody);
+        return reader.ReadToEnd();
+    }
+}
 
 public partial class ILCompilerTests
 {
@@ -1703,6 +1749,168 @@ func TestVoidLambda() {
 
         // Should not throw
         compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedExternalDelegateLambda_EmitsConcreteDelegateType()
+    {
+        var source = @"
+import NSharpLang.Tests
+import System.Threading.Tasks
+
+func main(): string {
+    return DelegateInteropProbe.Capture(context => Task.CompletedTask)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(ExternalRequestDelegate).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedExternalDelegateLambdaAssignedToLocal_EmitsConcreteDelegateType()
+    {
+        var source = @"
+import NSharpLang.Tests
+import System.Threading.Tasks
+
+func main(): string {
+    handler: ExternalRequestDelegate = context => Task.CompletedTask
+    return handler.GetType().FullName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(ExternalRequestDelegate).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedCapturedExternalDelegateLambdaAssignedToLocal_EmitsConcreteDelegateType()
+    {
+        var source = @"
+import NSharpLang.Tests
+import System.Threading.Tasks
+
+class RouteProbe {
+    func GetTask(): Task {
+        return Task.CompletedTask
+    }
+
+    func Run(): string {
+        handler: ExternalRequestDelegate = context => GetTask()
+        return handler.GetType().FullName
+    }
+}
+
+func main(): string {
+    probe := new RouteProbe()
+    return probe.Run()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(ExternalRequestDelegate).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedAspNetRequestDelegateLambdaAssignedToLocal_EmitsRequestDelegate()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Http
+
+func main(): string {
+    handler: RequestDelegate = context => context.Response.WriteAsync(""ok"")
+    return handler.GetType().FullName
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(RequestDelegate).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedAspNetRequestDelegateCapturedLocalPassedAsDelegate_EmitsRequestDelegate()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Http
+import NSharpLang.Tests
+
+class RouteProbe {
+    func Handle(context: HttpContext): Task {
+        return context.Response.WriteAsync(""ok"")
+    }
+
+    func Run(): string {
+        handler: RequestDelegate = context => Handle(context)
+        return DelegateInteropProbe.CaptureDelegate(handler)
+    }
+}
+
+func main(): string {
+    probe := new RouteProbe()
+    return probe.Run()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(RequestDelegate).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedAspNetRequestDelegateLocalMappedOnWebApplication_MaterializesEndpoint()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+import NSharpLang.Tests
+
+class RouteProbe {
+    func Handle(context: HttpContext): Task {
+        return context.Response.WriteAsync(""ok"")
+    }
+
+    func Run(): int {
+        builder := WebApplication.CreateBuilder()
+        app := builder.Build()
+        handler: RequestDelegate = context => Handle(context)
+        app.MapGet(""/api/health"", handler)
+        return DelegateInteropProbe.MaterializeAspNetEndpoints(app)
+    }
+}
+
+func main(): int {
+    probe := new RouteProbe()
+    return probe.Run()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(1, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedAspNetFuncLambda_StillEmitsFuncDelegate()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Http
+import NSharpLang.Tests
+
+func main(): string {
+    return DelegateInteropProbe.CaptureAspNetFunc(context => context.Response.WriteAsync(""ok""))
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(typeof(Func<HttpContext, Task>).FullName, Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TargetTypedAspNetRequestDelegateLambda_EmitsValidOptionalStructDefaults()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Http
+import NSharpLang.Tests
+
+func main(): string {
+    handler: RequestDelegate = context => context.Response.WriteAsync(""ok"")
+    return DelegateInteropProbe.CaptureAspNetResponse(handler)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("ok", Assert.IsType<string>(result));
     }
 
     [Fact]

@@ -3930,7 +3930,9 @@ public partial class ILCompiler
                     break;
 
                 case RuntimeDefaultBoundCallArgument runtimeDefault:
-                    if (runtimeDefault.Value == DBNull.Value || runtimeDefault.Value == Missing.Value)
+                    if (runtimeDefault.Value == DBNull.Value
+                        || runtimeDefault.Value == Missing.Value
+                        || (runtimeDefault.Value == null && runtimeDefault.ParameterType.IsValueType))
                     {
                         EmitDefaultValue(runtimeDefault.ParameterType);
                     }
