@@ -9,29 +9,33 @@ This guide takes you from zero to running N# code in under 5 minutes.
 
 ## Prerequisites
 
-- [.NET SDK 9.0+](https://dotnet.microsoft.com/download/dotnet/9.0) installed
-- A terminal (bash, zsh, PowerShell)
-- Optionally, [VS Code](https://code.visualstudio.com/) with the N# extension
+- [.NET SDK 10.0+](https://dotnet.microsoft.com/download/dotnet/10.0) installed
+- macOS/Linux shell with `bash` for the one-line installer
+- Optionally, [VS Code](https://code.visualstudio.com/) with the `code` CLI on PATH
 
-Verify your .NET installation:
+## Install N#
 
-```bash
-dotnet --version
-# Should show 9.0.x or higher
-```
-
-## Install N# Templates
+Use the one public install command:
 
 ```bash
-dotnet new install NSharpLang.Templates
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
 
-This assumes `NSharpLang.Templates` is available from your configured repo/private package source. Public package availability should be verified for the target release before publishing this as a general install path.
+Then verify the installed toolchain:
+
+```bash
+nlc --version
+nlc doctor
+```
+
+`nlc doctor` checks the CLI, SDK/template restore path, language server, and the VS Code extension when the `code` CLI is available.
+
+Windows gap: the canonical installer is bash-only in this release pass. Use WSL or translate the installer commands to PowerShell until a supported Windows installer exists.
 
 ## Create Your First Project
 
 ```bash
-dotnet new nsharp-console -o MyApp
+nlc new MyApp
 cd MyApp
 ```
 

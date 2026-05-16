@@ -10,15 +10,14 @@ title: Quick Start
 ## Install (Local Development)
 
 ```bash
-git clone <repo-url>
-cd nsharplang
-./scripts/setup-local.sh
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+nlc doctor
 ```
 
 ## Create Your First Project
 
 ```bash
-dotnet new nsharp-console -o MyApp
+nlc new MyApp
 cd MyApp
 ```
 

@@ -52,6 +52,7 @@ partial class Program
             "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
             "init" => InitCommand.Execute(args.Skip(1).ToArray()),
             "env" => EnvCommand.Execute(args.Skip(1).ToArray()),
+            "doctor" => DoctorCommand.Execute(args.Skip(1).ToArray()),
             "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
@@ -1535,6 +1536,7 @@ Project:
   watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info
+  doctor               Verify N# CLI, SDK/templates, LSP, and VS Code tooling
   completion <shell>   Generate shell completion scripts
 
 Options:
@@ -1550,6 +1552,7 @@ Common Workflows:
   nlc test                     Run tests
   nlc add Serilog@3.1.0        Add a dependency
   nlc check                    Fast feedback loop
+  nlc doctor                   Verify the installed toolchain
   nlc fix && nlc check         Auto-fix then verify
   nlc build --release          Optimized release build
   nlc export csharp --project . -o ./myapp-csharp

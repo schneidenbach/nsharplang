@@ -19,14 +19,15 @@ N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's
 ### Installation
 
 ```bash
-# Install the templates
-dotnet new install NSharpLang.Templates
+# Install the public N# toolchain
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
-# Create a new console app
-dotnet new nsharp-console -o MyApp
+# Verify CLI + SDK/templates + language server + VS Code extension when available
+nlc doctor
 
-# Run it
-cd MyApp && dotnet run
+# Create and run a new console app
+nlc new MyApp
+cd MyApp && nlc run
 ```
 
 ### Your First Program
@@ -47,8 +48,8 @@ func main() {
 Build and run:
 
 ```bash
-dotnet build
-dotnet run
+nlc build
+nlc run
 ```
 
 ## Guides

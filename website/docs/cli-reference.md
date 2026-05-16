@@ -43,7 +43,8 @@ Updated: 2026-05-14
 | `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc tree` | Show dependency tree | `--project` | `nlc tree` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
-| `nlc env` | Show environment and toolchain info | none | `nlc env` |
+| `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
+| `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
 | `nlc restore` | Generate build config from `project.yml` | `--project` | `nlc restore` |
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
@@ -85,6 +86,10 @@ nlc test --filter "should add"
 # Watch mode
 nlc watch check
 nlc watch test --filter "should add"
+
+# Installation verification
+nlc doctor
+nlc doctor --json --require-vscode
 
 # Documentation and automation
 nlc doc --json
@@ -155,6 +160,7 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 | `idiom` | Report emitted successfully | Report failed |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
+| `doctor` | Required install checks passed | One or more required checks failed |
 
 ## JSON Examples
 
