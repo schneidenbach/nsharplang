@@ -40,6 +40,38 @@ PY
 )}"
 export NUGET_PACKAGES="$RUN_DIR/nuget-packages"
 
+mkdir -p "$HOME/.nuget/NuGet"
+cat > "$HOME/.nuget/NuGet/NuGet.Config" <<NUGETCONFIG
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nsharp-local" value="$FEED" />
+  </packageSources>
+</configuration>
+NUGETCONFIG
+
+echo "==> Verifying unsupported public version pin is rejected"
+set +e
+PIN_OUTPUT=$(./scripts/install.sh --source "$FEED" --version 0.1.0 --skip-vscode --dry-run 2>&1)
+PIN_STATUS=$?
+set -e
+printf '%s\n' "$PIN_OUTPUT"
+if [[ "$PIN_STATUS" -ne 2 ]] || ! printf '%s\n' "$PIN_OUTPUT" | grep -q 'does not support --version'; then
+  echo "ERROR: installer accepted --version or did not explain why public version pinning is disabled." >&2
+  exit 1
+fi
+
+set +e
+PIN_EQUALS_OUTPUT=$(./scripts/install.sh --source "$FEED" --version=0.1.0 --skip-vscode --dry-run 2>&1)
+PIN_EQUALS_STATUS=$?
+set -e
+printf '%s\n' "$PIN_EQUALS_OUTPUT"
+if [[ "$PIN_EQUALS_STATUS" -ne 2 ]] || ! printf '%s\n' "$PIN_EQUALS_OUTPUT" | grep -q 'does not support --version'; then
+  echo "ERROR: installer accepted --version=VALUE or did not explain why public version pinning is disabled." >&2
+  exit 1
+fi
+
 echo "==> Running installer against local package feed"
 ./scripts/install.sh --source "$FEED" --skip-vscode
 
