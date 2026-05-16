@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NSharpInteropLib", "tests\N
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CSharpInteropTests", "tests\NSharpLang.CSharpInteropTests\CSharpInteropTests.csproj", "{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AspNetBridge", "examples\17-issue-tracker\AspNetBridge\AspNetBridge.csproj", "{35D44CD3-9671-422E-BABE-E116DB163AD2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -84,6 +86,10 @@ Global
 		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D4E55B72-9A1E-4F2A-9753-C67E07018DCF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{35D44CD3-9671-422E-BABE-E116DB163AD2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{35D44CD3-9671-422E-BABE-E116DB163AD2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{35D44CD3-9671-422E-BABE-E116DB163AD2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{35D44CD3-9671-422E-BABE-E116DB163AD2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{78BD85CE-6F75-4949-88AB-8DDCC1A61616} = {2E5C25A9-E8EC-4D48-97F8-7DB3E5085393}
