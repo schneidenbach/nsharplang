@@ -1,0 +1,46 @@
+Running headless VS Code smoke tests
+====================================
+
+1. Building language server
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.43
+
+2. Compiling VS Code extension and test harness
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+
+3. Executing headless VS Code smoke tests
+
+> nsharp@0.6.0 test:headless
+> node ./out/src/test/runTest.js
+
+- Resolving version...
+✔ Validated version: 1.120.0
+✔ Found existing install in /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/.vscode-test/vscode-darwin-arm64-1.120.0
+[90m[main 2026-05-16T22:59:12.039Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-05-16T22:59:12.106Z][0m [shared storage] Creating shared storage database at ':memory:' (wasCreated: true)
+[90m[main 2026-05-16T22:59:12.106Z][0m [shared storage] Initializing fallback application storage (path: in-memory)
+[90m[main 2026-05-16T22:59:12.143Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-05-16T22:59:12.143Z][0m update#setState disabled
+[90m[main 2026-05-16T22:59:12.144Z][0m update#ctor - updates are disabled by the environment
+Started local extension host with pid 67424.
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+Started initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-vscode-profile-wFD8EV/extensions
+Completed initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-vscode-profile-wFD8EV/extensions
+Loading development extension at /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode
+[DefaultAccount] Authentication provider is not declared. { id: 'github', name: 'GitHub', enterprise: false }
+Settings Sync: Account status changed from uninitialized to unavailable
+N# language extension is now active
+Using N# Language Server at: /tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+N# Language Server started
+N# Test Controller registered
+[90m[main 2026-05-16T22:59:13.831Z][0m Extension host with pid 67424 exited with code: 0, signal: unknown.
+Exit code:   0
+
+Report: /tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run2-20260516T225329Z/vscode-headless-report.json

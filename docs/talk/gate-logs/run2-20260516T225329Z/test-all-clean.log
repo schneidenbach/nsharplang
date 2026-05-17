@@ -1,0 +1,630 @@
+# run_id=run2-20260516T225329Z
+# command_name=test-all-clean
+# start_utc=2026-05-16T22:55:04Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=./scripts/test-all.sh --clean
+
+=========================================
+N# Comprehensive Test Suite
+=========================================
+
+
+[1;33m>>> Step 1: Clean Previous Build Artifacts[0m
+=========================================
+Cleaning bin/ and obj/ directories...
+[0;32m✓ PASSED: Cleaned build artifacts[0m
+
+[1;33m>>> Step 2: Build N# Compiler[0m
+=========================================
+Building compiler and CLI...
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+
+Build succeeded.
+
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+    10 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.80
+[0;32m✓ PASSED: Compiler built[0m
+
+[1;33m>>> Step 3: Run Unit Tests[0m
+=========================================
+Running all unit tests...
+[0;32m✓ PASSED: Unit tests passed[0m
+
+[1;33m>>> Step 3b: VS Code Integration Tests[0m
+=========================================
+LSP or extension changes detected — running full VS Code test suite
+Running full VS Code integration tests...
+# forced_timeout_utc=2026-05-16T22:58:08Z after repeated hang in VS Code integration
+./scripts/test-all.sh: line 184: 65455 Terminated: 15          SKIP_LS_BUILD=1 "$REPO_ROOT/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1
+=======================================
+N# VS Code Integration Tests
+=======================================
+
+[1;33mStep 1: Building Language Server[0m
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Handlers/DidChangeWatchedFilesHandler.cs(102,35): warning CS8601: Possible null reference assignment. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,34): warning CS8604: Possible null reference argument for parameter 'left' in 'bool DocumentUri.operator !=(DocumentUri left, DocumentUri right)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,53): warning CS8625: Cannot convert null literal to non-nullable reference type. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+
+Build succeeded.
+
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Handlers/DidChangeWatchedFilesHandler.cs(102,35): warning CS8601: Possible null reference assignment. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,34): warning CS8604: Possible null reference argument for parameter 'left' in 'bool DocumentUri.operator !=(DocumentUri left, DocumentUri right)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,53): warning CS8625: Cannot convert null literal to non-nullable reference type. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+    3 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.92
+[0;32m✓ Language Server built[0m
+
+[1;33mStep 2: Installing npm dependencies[0m
+[0;32m✓ Dependencies installed[0m
+
+[1;33mStep 3: Publishing Language Server to extension[0m
+
+> nsharp@0.6.0 build-server
+> dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+  Compiler -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/bin/Release/net10.0/Compiler.dll
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,34): warning CS8604: Possible null reference argument for parameter 'left' in 'bool DocumentUri.operator !=(DocumentUri left, DocumentUri right)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Program.cs(98,53): warning CS8625: Cannot convert null literal to non-nullable reference type. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/Handlers/DidChangeWatchedFilesHandler.cs(102,35): warning CS8601: Possible null reference assignment. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/server/
+[0;32m✓ Server published[0m
+
+[1;33mStep 4: Compiling TypeScript[0m
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+[0;32m✓ TypeScript compiled[0m
+
+[1;33mStep 5: Running VS Code Integration Tests[0m
+(This will download VS Code if needed and may take a minute...)
+
+
+> nsharp@0.6.0 pretest
+> npm run build-server && npm run compile
+
+
+> nsharp@0.6.0 build-server
+> dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Compiler -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/bin/Release/net10.0/Compiler.dll
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/server/
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+
+> nsharp@0.6.0 test
+> node ./out/test/runTest.js
+
+=== N# VS Code Integration Tests ===
+Extension: /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode
+Tests:     /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/out/test/suite/index
+Workspace: /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/test/fixtures/simple
+UserData:  /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-ry4g7a/user-data
+- Resolving version...
+✔ Validated version: 1.120.0
+✔ Found existing install in /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/.vscode-test/vscode-darwin-arm64-1.120.0
+[90m[main 2026-05-16T22:55:15.241Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-05-16T22:55:15.335Z][0m [shared storage] Creating shared storage database at ':memory:' (wasCreated: true)
+[90m[main 2026-05-16T22:55:15.335Z][0m [shared storage] Initializing fallback application storage (path: in-memory)
+[90m[main 2026-05-16T22:55:15.383Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-05-16T22:55:15.383Z][0m update#setState disabled
+[90m[main 2026-05-16T22:55:15.383Z][0m update#ctor - updates are disabled by the environment
+Started local extension host with pid 65556.
+Started initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-ry4g7a/extensions
+Completed initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-ry4g7a/extensions
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+Loading development extension at /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode
+[DefaultAccount] Authentication provider is not declared. { id: 'github', name: 'GitHub', enterprise: false }
+Settings Sync: Account status changed from uninitialized to unavailable
+N# language extension is now active
+Using N# Language Server at: /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/server/LanguageServer.dll
+N# Language Server started
+[N# Tests] Found 19 test files in /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/out/test/suite
+[N# Tests]   - syntaxCoverage.test.js
+[N# Tests]   - signatureHelp.test.js
+[N# Tests]   - repoWideScan.test.js
+[N# Tests]   - rename.test.js
+[N# Tests]   - regressions.test.js
+[N# Tests]   - references.test.js
+[N# Tests]   - performance.test.js
+[N# Tests]   - inlayHints.test.js
+[N# Tests]   - hover.test.js
+[N# Tests]   - extension.test.js
+[N# Tests]   - exampleFiles.test.js
+[N# Tests]   - errorCases.test.js
+[N# Tests]   - edgeCases.test.js
+[N# Tests]   - documentSymbol.test.js
+[N# Tests]   - diagnostics.test.js
+[N# Tests]   - definition.test.js
+[N# Tests]   - complexScenarios.test.js
+[N# Tests]   - completion.test.js
+[N# Tests]   - codeAction.test.js
+[0m[0m
+[0m  Syntax Coverage — Zero Error Assertions[0m
+N# Test Controller registered
+Auto updating outdated extensions. github.copilot-chat
+  [32m  ✔[0m[90m ClassesAndRecords.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m Collections.nl — zero error diagnostics[0m
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+  [32m  ✔[0m[90m EnumVariants.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m Helpers.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m OutRefParams.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m PatternMatching.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m Program.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m StringInterpolation.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m TypedDeclarations.nl — zero error diagnostics[0m
+  [32m  ✔[0m[90m LSP returns document symbols for fixture files[0m
+  [32m  ✔[0m[90m LSP returns document symbols for TypedDeclarations.nl[0m
+  [32m  ✔[0m[90m LSP returns document symbols for EnumVariants.nl[0m
+[0m  Signature Help[0m
+  [32m  ✔[0m[90m greet() shows 1 parameter with name and type[0m
+  [32m  ✔[0m[90m add() shows 2 parameters[0m
+  [32m  ✔[0m[90m add() after comma shows second parameter active[0m
+  [32m  ✔[0m[90m signature label includes return type[0m
+  [32m  ✔[0m[90m no signature help outside function call[0m
+  [32m  ✔[0m[90m signature help on constructor call[0m
+[0m  Repo-Wide File Scan — Full Workspace Simulation[0m
+  [32m  ✔[0m[90m [known: Test fixture: intentional type error] editors/vscode/test/fixtures/errors/HasErrors.nl[0m
+  [32m  ✔[0m[90m [known: Test fixture: intentional multiple syntax errors] editors/vscode/test/fixtures/errors/MultipleSyntaxErrors.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/multi-file/Models/Person.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/multi-file/Program.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/ClassesAndRecords.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/Collections.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/EnumVariants.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/Helpers.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/OutRefParams.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/PatternMatching.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/Program.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/StringInterpolation.nl[0m
+  [32m  ✔[0m[90m editors/vscode/test/fixtures/simple/TypedDeclarations.nl[0m
+  [32m  ✔[0m[90m examples/01-hello-world/Program.nl[0m
+  [32m  ✔[0m[90m examples/02-variables-and-types/PrintNameofTypeof.nl[0m
+  [32m  ✔[0m[90m examples/02-variables-and-types/TargetTypedNew.nl[0m
+  [32m  ✔[0m[90m examples/03-functions/ExpressionBodiedMembers.nl[0m
+  [32m  ✔[0m[90m examples/03-functions/GenericMethods.nl[0m
+  [32m  ✔[0m[90m examples/03-functions/LocalFunctions.nl[0m
+  [32m  ✔[0m[90m examples/03-functions/ParamsArrays.nl[0m
+  [32m  ✔[0m[90m [known: Parser: params collections not yet supported] examples/03-functions/ParamsCollections.nl[0m
+  [32m  ✔[0m[90m examples/03-functions/SimpleGenericCalls.nl[0m
+  [32m  ✔[0m[90m [known: Parser: spread syntax not yet supported] examples/03-functions/SpreadInFunctionCalls.nl[0m
+  [32m  ✔[0m[90m [known: Parser: match expressions not yet supported] examples/04-pattern-matching/GuardsSimple.nl[0m
+  [32m  ✔[0m[90m [known: Parser: list patterns not yet supported] examples/04-pattern-matching/ListPatterns.nl[0m
+  [32m  ✔[0m[90m [known: Parser: match exhaustiveness not yet supported] examples/04-pattern-matching/MatchExhaustiveness.nl[0m
+  [32m  ✔[0m[90m [known: Parser: nested property patterns not yet supported] examples/04-pattern-matching/NestedPropertyPatterns.nl[0m
+  [32m  ✔[0m[90m [known: Parser: nested property patterns not yet supported] examples/04-pattern-matching/NestedPropertyPatternsSimple.nl[0m
+  [32m  ✔[0m[90m [known: Parser: nested match not yet supported] examples/04-pattern-matching/NestedSimpleTest.nl[0m
+  [32m  ✔[0m[90m [known: Parser: pattern guards not yet supported] examples/04-pattern-matching/PatternGuards.nl[0m
+  [32m  ✔[0m[90m examples/04-pattern-matching/ResultErrorPatterns.nl[0m
+  [32m  ✔[0m[90m [known: Parser: type patterns not yet supported] examples/04-pattern-matching/TypePatterns.nl[0m
+  [32m  ✔[0m[90m examples/05-unions/ErrorHandling.nl[0m
+  [32m  ✔[0m[90m [known: Parser: union match not yet supported] examples/05-unions/UnionsAndMatch.nl[0m
+  [32m  ✔[0m[90m examples/06-classes-and-records/ConstructorChaining.nl[0m
+  [32m  ✔[0m[90m [known: Parser: primary constructors not yet supported] examples/06-classes-and-records/PrimaryConstructors.nl[0m
+  [32m  ✔[0m[90m [known: Parser: primary constructors not yet supported] examples/06-classes-and-records/PrimaryConstructorsSimple.nl[0m
+  [32m  ✔[0m[90m examples/06-classes-and-records/PropertiesAndNestedTypes.nl[0m
+  [32m  ✔[0m[90m examples/06-classes-and-records/RecordStructs.nl[0m
+  [32m  ✔[0m[90m examples/06-classes-and-records/RecordsAndInterfaces.nl[0m
+  [32m  ✔[0m[90m examples/06-classes-and-records/RequiredAndInitProperties.nl[0m
+  [32m  ✔[0m[90m examples/07-interfaces/DuckInterfaces.nl[0m
+  [32m  ✔[0m[90m [known: Parser: extension methods not yet supported] examples/07-interfaces/ExtensionMethods.nl[0m
+  [32m  ✔[0m[90m [known: Parser: async streams not yet supported] examples/08-async/AsyncStreams.nl[0m
+  [32m  ✔[0m[90m examples/09-linq-and-collections/CollectionExpressions.nl[0m
+  [32m  ✔[0m[90m [known: Parser: collection initializers with indexers not yet supported] examples/09-linq-and-collections/CollectionInitializersWithIndexers.nl[0m
+  [32m  ✔[0m[90m examples/09-linq-and-collections/Iterators.nl[0m
+  [32m  ✔[0m[90m examples/09-linq-and-collections/OpenEndedRanges.nl[0m
+  [32m  ✔[0m[90m examples/09-linq-and-collections/RangeAndIndex.nl[0m
+  [32m  ✔[0m[90m [known: Parser: inline out var not yet supported] examples/10-interop/InlineOutVariables.nl[0m
+  [32m  ✔[0m[90m examples/10-interop/QualifiedAttributes.nl[0m
+  [32m  ✔[0m[90m [known: Parser: ref/out parameters not yet supported] examples/10-interop/RefOutParameters.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/CheckedUnchecked/CheckedUnchecked.nl[0m
+  [32m  ✔[0m[90m [known: Parser: conversion operators not yet supported] examples/11-advanced-features/ConversionOperators/ConversionOperators.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/FileScopedSimple/FileScopedSimple.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/FileScopedTypes/FileScopedTypes.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/InterpolatedRawStrings/InterpolatedRawStrings.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/LockStatement/LockStatement.nl[0m
+  [32m  ✔[0m[90m [known: Parser: operator overloading not yet supported] examples/11-advanced-features/OperatorOverloading/OperatorOverloading.nl[0m
+  [32m  ✔[0m[90m examples/11-advanced-features/PreprocessorDirectives/PreprocessorDirectives.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/AutoDiscovery/Models/Product.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/AutoDiscovery/Program.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/AutoDiscovery/Services/ProductService.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/MultiFileProject/Models/Person.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/MultiFileProject/Program.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/MultiFileProject/Services/PersonService.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/SimpleProject/Program.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/TestExample/Calculator.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/TestExample/Calculator.tests.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/WeatherDemo/Models/WeatherForecast.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/WeatherDemo/Program.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/WeatherDemo/Services/WeatherService.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/imports/Models.nl[0m
+  [32m  ✔[0m[90m examples/12-multi-file-projects/imports/Program.nl[0m
+  [32m  ✔[0m[90m examples/14-minimal-api/Program.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Commands/AddCommand.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Commands/DeleteCommand.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Commands/DoneCommand.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Commands/ListCommand.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Commands/StatsCommand.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Models/Filter.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Models/Task.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Program.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Program.tests.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Services/Formatter.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Services/Store.nl[0m
+  [32m  ✔[0m[90m examples/16-task-cli/Services/TaskService.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Database.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Endpoints.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Models.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Notifier.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Program.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Service.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Service.tests.nl[0m
+  [32m  ✔[0m[90m examples/17-issue-tracker/backend/Workflow.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-console/Program.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-library/Calculator.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-test/Calculator.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-test/Calculator.tests.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-webapi/Controllers/WeatherController.nl[0m
+  [32m  ✔[0m[90m templates/nsharp-webapi/Program.nl[0m
+  [32m  ✔[0m[90m all KNOWN_ERROR_FILES entries point to real files[0m
+  [32m  ✔[0m[90m file count is reasonable (sanity check)[0m
+[0m  Rename Symbol[0m
+  [32m  ✔[0m[90m rename function updates all references[0m
+  [32m  ✔[0m[90m rename variable updates declaration and usages[0m
+  [32m  ✔[0m[90m rename edit text matches new name[0m
+  [32m  ✔[0m[90m rename at whitespace returns undefined[0m
+[0;31m✗ FAILED: VS Code integration tests (full)[0m
+
+[1;33m>>> Step 4: Pack and Install MSBuild SDK[0m
+=========================================
+Packing SDK to local NuGet feed...
+[0;32m✓ PASSED: SDK packed[0m
+
+[1;33m>>> Step 4b: Pack N# Templates[0m
+=========================================
+Packing templates to local NuGet feed...
+[0;32m✓ PASSED: Templates packed[0m
+Clearing NuGet global-packages cache...
+[0;32m✓ PASSED: NuGet global-packages cache cleared[0m
+
+[1;33m>>> Step 4c: C# Interop Tests[0m
+=========================================
+Running C# interop tests...
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 13 ms - CSharpInteropTests.dll (net10.0)
+[0;32m✓ PASSED: C# interop tests passed[0m
+
+[1;33m>>> Step 5: Install dotnet new Template[0m
+=========================================
+Installing NSharpLang.Templates from local feed...
+[0;32m✓ PASSED: Template package installed[0m
+[0;32m✓ PASSED: Console and Web API templates are listed[0m
+
+[1;33m>>> Step 6: Test Template Creation[0m
+=========================================
+Creating test project in /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/tmp.Kef0t4sAhG...
+[0;32m✓ PASSED: Template created test project[0m
+[0;32m✓ PASSED: Web API template created test project[0m
+[0;32m✓ PASSED: project.yml exists[0m
+[0;32m✓ PASSED: No .csproj in template output (csproj-free)[0m
+[0;32m✓ PASSED: webapi project.yml exists[0m
+
+[1;33m>>> Step 7: Build Template-Generated Project (via nlc build)[0m
+=========================================
+Building template-generated project with nlc build...
+[0;32m✓ PASSED: Template project builds (nlc build)[0m
+Building web API template-generated project with nlc build...
+[0;32m✓ PASSED: Web API template project builds (nlc build)[0m
+
+[1;33m>>> Step 8: Build Example Projects (via nlc build)[0m
+=========================================
+Using up to 4 parallel workers for project verification...
+Warming NuGet cache with examples/01-hello-world...
+
+Building example: 01-hello-world
+  Location: examples/01-hello-world
+[0;32m✓ PASSED: Example: 01-hello-world[0m
+
+Building example: CheckedUnchecked
+  Location: examples/11-advanced-features/CheckedUnchecked
+[0;32m✓ PASSED: Example: CheckedUnchecked[0m
+
+Building example: ConversionOperators
+  Location: examples/11-advanced-features/ConversionOperators
+[0;32m✓ PASSED: Example: ConversionOperators[0m
+
+Building example: FileScopedSimple
+  Location: examples/11-advanced-features/FileScopedSimple
+[0;32m✓ PASSED: Example: FileScopedSimple[0m
+
+Building example: FileScopedTypes
+  Location: examples/11-advanced-features/FileScopedTypes
+[0;32m✓ PASSED: Example: FileScopedTypes[0m
+
+Building example: InterpolatedRawStrings
+  Location: examples/11-advanced-features/InterpolatedRawStrings
+[0;32m✓ PASSED: Example: InterpolatedRawStrings[0m
+
+Building example: LockStatement
+  Location: examples/11-advanced-features/LockStatement
+[0;32m✓ PASSED: Example: LockStatement[0m
+
+Building example: OperatorOverloading
+  Location: examples/11-advanced-features/OperatorOverloading
+[0;32m✓ PASSED: Example: OperatorOverloading[0m
+
+Building example: PreprocessorDirectives
+  Location: examples/11-advanced-features/PreprocessorDirectives
+[0;32m✓ PASSED: Example: PreprocessorDirectives[0m
+
+Building example: AutoDiscovery
+  Location: examples/12-multi-file-projects/AutoDiscovery
+[0;32m✓ PASSED: Example: AutoDiscovery[0m
+
+Building example: MultiFileProject
+  Location: examples/12-multi-file-projects/MultiFileProject
+[0;32m✓ PASSED: Example: MultiFileProject[0m
+
+Building example: SimpleProject
+  Location: examples/12-multi-file-projects/SimpleProject
+[0;32m✓ PASSED: Example: SimpleProject[0m
+
+Building example: TestExample
+  Location: examples/12-multi-file-projects/TestExample
+[0;32m✓ PASSED: Example: TestExample[0m
+
+Building example: WeatherDemo
+  Location: examples/12-multi-file-projects/WeatherDemo
+[0;32m✓ PASSED: Example: WeatherDemo[0m
+
+Building example: imports
+  Location: examples/12-multi-file-projects/imports
+[0;32m✓ PASSED: Example: imports[0m
+
+Building example: 14-minimal-api
+  Location: examples/14-minimal-api
+[0;32m✓ PASSED: Example: 14-minimal-api[0m
+
+Building example: 16-task-cli
+  Location: examples/16-task-cli
+[0;32m✓ PASSED: Example: 16-task-cli[0m
+
+Building example: backend
+  Location: examples/17-issue-tracker/backend
+[0;32m✓ PASSED: Example: backend[0m
+
+Building example: issue-tracker
+  Location: tests/fixtures/issue-tracker
+[0;32m✓ PASSED: Example: issue-tracker[0m
+
+[1;33m>>> Step 9: Build Single-File Examples (CLI-based)[0m
+=========================================
+Building single-file examples with nlc build...
+
+Building single-file example: PrintNameofTypeof
+  Location: examples/02-variables-and-types/PrintNameofTypeof.nl
+[0;32m✓ PASSED: Single-file example: PrintNameofTypeof[0m
+
+Building single-file example: TargetTypedNew
+  Location: examples/02-variables-and-types/TargetTypedNew.nl
+[0;32m✓ PASSED: Single-file example: TargetTypedNew[0m
+
+Building single-file example: ExpressionBodiedMembers
+  Location: examples/03-functions/ExpressionBodiedMembers.nl
+[0;32m✓ PASSED: Single-file example: ExpressionBodiedMembers[0m
+
+Building single-file example: GenericMethods
+  Location: examples/03-functions/GenericMethods.nl
+[0;32m✓ PASSED: Single-file example: GenericMethods[0m
+
+Building single-file example: LocalFunctions
+  Location: examples/03-functions/LocalFunctions.nl
+[0;32m✓ PASSED: Single-file example: LocalFunctions[0m
+
+Building single-file example: ParamsArrays
+  Location: examples/03-functions/ParamsArrays.nl
+[0;32m✓ PASSED: Single-file example: ParamsArrays[0m
+
+Building single-file example: ParamsCollections
+  Location: examples/03-functions/ParamsCollections.nl
+[0;32m✓ PASSED: Single-file example: ParamsCollections[0m
+
+Building single-file example: SimpleGenericCalls
+  Location: examples/03-functions/SimpleGenericCalls.nl
+[0;32m✓ PASSED: Single-file example: SimpleGenericCalls[0m
+
+Building single-file example: SpreadInFunctionCalls
+  Location: examples/03-functions/SpreadInFunctionCalls.nl
+[0;32m✓ PASSED: Single-file example: SpreadInFunctionCalls[0m
+
+Building single-file example: GuardsSimple
+  Location: examples/04-pattern-matching/GuardsSimple.nl
+[0;32m✓ PASSED: Single-file example: GuardsSimple[0m
+
+Building single-file example: ListPatterns
+  Location: examples/04-pattern-matching/ListPatterns.nl
+[0;32m✓ PASSED: Single-file example: ListPatterns[0m
+
+Building single-file example: MatchExhaustiveness
+  Location: examples/04-pattern-matching/MatchExhaustiveness.nl
+[0;32m✓ PASSED: Single-file example: MatchExhaustiveness[0m
+
+Building single-file example: NestedPropertyPatterns
+  Location: examples/04-pattern-matching/NestedPropertyPatterns.nl
+[0;32m✓ PASSED: Single-file example: NestedPropertyPatterns[0m
+
+Building single-file example: NestedPropertyPatternsSimple
+  Location: examples/04-pattern-matching/NestedPropertyPatternsSimple.nl
+[0;32m✓ PASSED: Single-file example: NestedPropertyPatternsSimple[0m
+
+Building single-file example: NestedSimpleTest
+  Location: examples/04-pattern-matching/NestedSimpleTest.nl
+[0;32m✓ PASSED: Single-file example: NestedSimpleTest[0m
+
+Building single-file example: PatternGuards
+  Location: examples/04-pattern-matching/PatternGuards.nl
+[0;32m✓ PASSED: Single-file example: PatternGuards[0m
+
+Building single-file example: ResultErrorPatterns
+  Location: examples/04-pattern-matching/ResultErrorPatterns.nl
+[0;32m✓ PASSED: Single-file example: ResultErrorPatterns[0m
+
+Building single-file example: TypePatterns
+  Location: examples/04-pattern-matching/TypePatterns.nl
+[0;32m✓ PASSED: Single-file example: TypePatterns[0m
+
+Building single-file example: ErrorHandling
+  Location: examples/05-unions/ErrorHandling.nl
+[0;32m✓ PASSED: Single-file example: ErrorHandling[0m
+
+Building single-file example: UnionsAndMatch
+  Location: examples/05-unions/UnionsAndMatch.nl
+[0;32m✓ PASSED: Single-file example: UnionsAndMatch[0m
+
+Building single-file example: ConstructorChaining
+  Location: examples/06-classes-and-records/ConstructorChaining.nl
+[0;32m✓ PASSED: Single-file example: ConstructorChaining[0m
+
+Building single-file example: PrimaryConstructors
+  Location: examples/06-classes-and-records/PrimaryConstructors.nl
+[0;32m✓ PASSED: Single-file example: PrimaryConstructors[0m
+
+Building single-file example: PrimaryConstructorsSimple
+  Location: examples/06-classes-and-records/PrimaryConstructorsSimple.nl
+[0;32m✓ PASSED: Single-file example: PrimaryConstructorsSimple[0m
+
+Building single-file example: PropertiesAndNestedTypes
+  Location: examples/06-classes-and-records/PropertiesAndNestedTypes.nl
+[0;32m✓ PASSED: Single-file example: PropertiesAndNestedTypes[0m
+
+Building single-file example: RecordStructs
+  Location: examples/06-classes-and-records/RecordStructs.nl
+[0;32m✓ PASSED: Single-file example: RecordStructs[0m
+
+Building single-file example: RecordsAndInterfaces
+  Location: examples/06-classes-and-records/RecordsAndInterfaces.nl
+[0;32m✓ PASSED: Single-file example: RecordsAndInterfaces[0m
+
+Building single-file example: RequiredAndInitProperties
+  Location: examples/06-classes-and-records/RequiredAndInitProperties.nl
+[0;32m✓ PASSED: Single-file example: RequiredAndInitProperties[0m
+
+Building single-file example: DuckInterfaces
+  Location: examples/07-interfaces/DuckInterfaces.nl
+[0;32m✓ PASSED: Single-file example: DuckInterfaces[0m
+
+Building single-file example: ExtensionMethods
+  Location: examples/07-interfaces/ExtensionMethods.nl
+[0;32m✓ PASSED: Single-file example: ExtensionMethods[0m
+
+Building single-file example: AsyncStreams
+  Location: examples/08-async/AsyncStreams.nl
+[0;32m✓ PASSED: Single-file example: AsyncStreams[0m
+
+Building single-file example: CollectionExpressions
+  Location: examples/09-linq-and-collections/CollectionExpressions.nl
+[0;32m✓ PASSED: Single-file example: CollectionExpressions[0m
+
+Building single-file example: CollectionInitializersWithIndexers
+  Location: examples/09-linq-and-collections/CollectionInitializersWithIndexers.nl
+[0;32m✓ PASSED: Single-file example: CollectionInitializersWithIndexers[0m
+
+Building single-file example: Iterators
+  Location: examples/09-linq-and-collections/Iterators.nl
+[0;32m✓ PASSED: Single-file example: Iterators[0m
+
+Building single-file example: OpenEndedRanges
+  Location: examples/09-linq-and-collections/OpenEndedRanges.nl
+[0;32m✓ PASSED: Single-file example: OpenEndedRanges[0m
+
+Building single-file example: RangeAndIndex
+  Location: examples/09-linq-and-collections/RangeAndIndex.nl
+[0;32m✓ PASSED: Single-file example: RangeAndIndex[0m
+
+Building single-file example: InlineOutVariables
+  Location: examples/10-interop/InlineOutVariables.nl
+[0;32m✓ PASSED: Single-file example: InlineOutVariables[0m
+
+Building single-file example: QualifiedAttributes
+  Location: examples/10-interop/QualifiedAttributes.nl
+[0;32m✓ PASSED: Single-file example: QualifiedAttributes[0m
+
+Building single-file example: RefOutParameters
+  Location: examples/10-interop/RefOutParameters.nl
+[0;32m✓ PASSED: Single-file example: RefOutParameters[0m
+
+[1;33m>>> Step 10: Check Examples (nlc check)[0m
+=========================================
+Running nlc check on all example directories...
+This verifies the Language Server won't report false errors.
+Using up to 4 parallel workers for nlc check...
+  [0;32m✓[0m 01-hello-world
+  [0;32m✓[0m 02-variables-and-types
+  [0;32m✓[0m 03-functions
+  [0;32m✓[0m 04-pattern-matching
+  [0;32m✓[0m 05-unions
+  [0;32m✓[0m 06-classes-and-records
+  [0;32m✓[0m 07-interfaces
+  [0;32m✓[0m 08-async
+  [0;32m✓[0m 09-linq-and-collections
+  [0;32m✓[0m 10-interop
+  [0;32m✓[0m 14-minimal-api
+  [0;32m✓[0m 16-task-cli
+  [0;32m✓[0m 12-multi-file-projects/AutoDiscovery
+  [0;32m✓[0m 12-multi-file-projects/MultiFileProject
+  [0;32m✓[0m 12-multi-file-projects/SimpleProject
+  [0;32m✓[0m 12-multi-file-projects/TestExample
+  [0;32m✓[0m 12-multi-file-projects/WeatherDemo
+  [0;32m✓[0m 12-multi-file-projects/imports
+  [0;32m✓[0m 17-issue-tracker/backend
+  [0;32m✓[0m tests/fixtures/issue-tracker
+[0;32m✓ PASSED: nlc check on examples[0m
+
+[1;33m>>> Step 11: Summary[0m
+=========================================
+
+[0;31m=========================================[0m
+[0;31mFAILURES: 1[0m
+[0;31m=========================================[0m
+
+# end_utc=2026-05-16T22:58:34Z
+# exit_code=1

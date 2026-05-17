@@ -1,0 +1,10 @@
+# run_id=run2-20260516T225329Z
+# command_name=cli-check-console-template
+# start_utc=2026-05-16T22:58:36Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=dotnet run --project src/NSharpLang.Cli/Cli.csproj -- check --project templates/nsharp-console --text
+
+  Checked 1 file — no errors. [0.1s]
+
+# end_utc=2026-05-16T22:58:37Z
+# exit_code=0

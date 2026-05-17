@@ -1,0 +1,369 @@
+Sun May 17 00:01:11 UTC 2026
+=========================================
+N# Comprehensive Test Suite
+=========================================
+
+
+[1;33m>>> Step 1: Clean Previous Build Artifacts[0m
+=========================================
+Cleaning bin/ and obj/ directories...
+[0;32m✓ PASSED: Cleaned build artifacts[0m
+
+[1;33m>>> Step 2: Build N# Compiler[0m
+=========================================
+Building compiler and CLI...
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+
+Build succeeded.
+
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/Users/spencer/code/nsharplang/src/NSharpLang.Compiler/Compiler.csproj]
+    10 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.84
+[0;32m✓ PASSED: Compiler built[0m
+
+[1;33m>>> Step 3: Run Unit Tests[0m
+=========================================
+Running all unit tests...
+[0;32m✓ PASSED: Unit tests passed[0m
+
+[1;33m>>> Step 3b: VS Code Integration Tests[0m
+=========================================
+Running bounded VS Code smoke tests for the release gate
+  (set VSCODE_TESTS=full to run the exhaustive VS Code suite)
+Running VS Code smoke tests (extension, diagnostics, hover, completion)...
+  [92m [0m[32m 36 passing[0m[90m (45s)[0m
+  (0
+0 pending/skipped)
+[0;32m✓ PASSED: VS Code integration tests (smoke)[0m
+
+[1;33m>>> Step 4: Pack and Install MSBuild SDK[0m
+=========================================
+Packing SDK to local NuGet feed...
+[0;32m✓ PASSED: SDK packed[0m
+
+[1;33m>>> Step 4b: Pack N# Templates[0m
+=========================================
+Packing templates to local NuGet feed...
+[0;32m✓ PASSED: Templates packed[0m
+Clearing NuGet global-packages cache...
+[0;32m✓ PASSED: NuGet global-packages cache cleared[0m
+
+[1;33m>>> Step 4c: C# Interop Tests[0m
+=========================================
+Running C# interop tests...
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 12 ms - CSharpInteropTests.dll (net10.0)
+[0;32m✓ PASSED: C# interop tests passed[0m
+
+[1;33m>>> Step 5: Install dotnet new Template[0m
+=========================================
+Installing NSharpLang.Templates from local feed...
+[0;32m✓ PASSED: Template package installed[0m
+[0;32m✓ PASSED: Console and Web API templates are listed[0m
+
+[1;33m>>> Step 6: Test Template Creation[0m
+=========================================
+Creating test project in /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/tmp.eBdwX80FHW...
+[0;32m✓ PASSED: Template created test project[0m
+[0;32m✓ PASSED: Web API template created test project[0m
+[0;32m✓ PASSED: project.yml exists[0m
+[0;32m✓ PASSED: No .csproj in template output (csproj-free)[0m
+[0;32m✓ PASSED: webapi project.yml exists[0m
+
+[1;33m>>> Step 7: Build Template-Generated Project (via nlc build)[0m
+=========================================
+Building template-generated project with nlc build...
+[0;32m✓ PASSED: Template project builds (nlc build)[0m
+Building web API template-generated project with nlc build...
+[0;32m✓ PASSED: Web API template project builds (nlc build)[0m
+
+[1;33m>>> Step 8: Build Example Projects (via nlc build)[0m
+=========================================
+Using up to 4 parallel workers for project verification...
+Warming NuGet cache with examples/01-hello-world...
+
+Building example: 01-hello-world
+  Location: examples/01-hello-world
+[0;32m✓ PASSED: Example: 01-hello-world[0m
+
+Building example: CheckedUnchecked
+  Location: examples/11-advanced-features/CheckedUnchecked
+[0;32m✓ PASSED: Example: CheckedUnchecked[0m
+
+Building example: ConversionOperators
+  Location: examples/11-advanced-features/ConversionOperators
+[0;32m✓ PASSED: Example: ConversionOperators[0m
+
+Building example: FileScopedSimple
+  Location: examples/11-advanced-features/FileScopedSimple
+[0;32m✓ PASSED: Example: FileScopedSimple[0m
+
+Building example: FileScopedTypes
+  Location: examples/11-advanced-features/FileScopedTypes
+[0;32m✓ PASSED: Example: FileScopedTypes[0m
+
+Building example: InterpolatedRawStrings
+  Location: examples/11-advanced-features/InterpolatedRawStrings
+[0;32m✓ PASSED: Example: InterpolatedRawStrings[0m
+
+Building example: LockStatement
+  Location: examples/11-advanced-features/LockStatement
+[0;32m✓ PASSED: Example: LockStatement[0m
+
+Building example: OperatorOverloading
+  Location: examples/11-advanced-features/OperatorOverloading
+[0;32m✓ PASSED: Example: OperatorOverloading[0m
+
+Building example: PreprocessorDirectives
+  Location: examples/11-advanced-features/PreprocessorDirectives
+[0;32m✓ PASSED: Example: PreprocessorDirectives[0m
+
+Building example: AutoDiscovery
+  Location: examples/12-multi-file-projects/AutoDiscovery
+[0;32m✓ PASSED: Example: AutoDiscovery[0m
+
+Building example: MultiFileProject
+  Location: examples/12-multi-file-projects/MultiFileProject
+[0;32m✓ PASSED: Example: MultiFileProject[0m
+
+Building example: SimpleProject
+  Location: examples/12-multi-file-projects/SimpleProject
+[0;32m✓ PASSED: Example: SimpleProject[0m
+
+Building example: TestExample
+  Location: examples/12-multi-file-projects/TestExample
+[0;32m✓ PASSED: Example: TestExample[0m
+
+Building example: WeatherDemo
+  Location: examples/12-multi-file-projects/WeatherDemo
+[0;32m✓ PASSED: Example: WeatherDemo[0m
+
+Building example: imports
+  Location: examples/12-multi-file-projects/imports
+[0;32m✓ PASSED: Example: imports[0m
+
+Building example: 14-minimal-api
+  Location: examples/14-minimal-api
+[0;32m✓ PASSED: Example: 14-minimal-api[0m
+
+Building example: 16-task-cli
+  Location: examples/16-task-cli
+[0;32m✓ PASSED: Example: 16-task-cli[0m
+
+Building example: backend
+  Location: examples/17-issue-tracker/backend
+[0;32m✓ PASSED: Example: backend[0m
+
+Building example: issue-tracker
+  Location: tests/fixtures/issue-tracker
+[0;32m✓ PASSED: Example: issue-tracker[0m
+
+[1;33m>>> Step 9: Build Single-File Examples (CLI-based)[0m
+=========================================
+Building single-file examples with nlc build...
+
+Building single-file example: PrintNameofTypeof
+  Location: examples/02-variables-and-types/PrintNameofTypeof.nl
+[0;32m✓ PASSED: Single-file example: PrintNameofTypeof[0m
+
+Building single-file example: TargetTypedNew
+  Location: examples/02-variables-and-types/TargetTypedNew.nl
+[0;32m✓ PASSED: Single-file example: TargetTypedNew[0m
+
+Building single-file example: ExpressionBodiedMembers
+  Location: examples/03-functions/ExpressionBodiedMembers.nl
+[0;32m✓ PASSED: Single-file example: ExpressionBodiedMembers[0m
+
+Building single-file example: GenericMethods
+  Location: examples/03-functions/GenericMethods.nl
+[0;32m✓ PASSED: Single-file example: GenericMethods[0m
+
+Building single-file example: LocalFunctions
+  Location: examples/03-functions/LocalFunctions.nl
+[0;32m✓ PASSED: Single-file example: LocalFunctions[0m
+
+Building single-file example: ParamsArrays
+  Location: examples/03-functions/ParamsArrays.nl
+[0;32m✓ PASSED: Single-file example: ParamsArrays[0m
+
+Building single-file example: ParamsCollections
+  Location: examples/03-functions/ParamsCollections.nl
+[0;32m✓ PASSED: Single-file example: ParamsCollections[0m
+
+Building single-file example: SimpleGenericCalls
+  Location: examples/03-functions/SimpleGenericCalls.nl
+[0;32m✓ PASSED: Single-file example: SimpleGenericCalls[0m
+
+Building single-file example: SpreadInFunctionCalls
+  Location: examples/03-functions/SpreadInFunctionCalls.nl
+[0;32m✓ PASSED: Single-file example: SpreadInFunctionCalls[0m
+
+Building single-file example: GuardsSimple
+  Location: examples/04-pattern-matching/GuardsSimple.nl
+[0;32m✓ PASSED: Single-file example: GuardsSimple[0m
+
+Building single-file example: ListPatterns
+  Location: examples/04-pattern-matching/ListPatterns.nl
+[0;32m✓ PASSED: Single-file example: ListPatterns[0m
+
+Building single-file example: MatchExhaustiveness
+  Location: examples/04-pattern-matching/MatchExhaustiveness.nl
+[0;32m✓ PASSED: Single-file example: MatchExhaustiveness[0m
+
+Building single-file example: NestedPropertyPatterns
+  Location: examples/04-pattern-matching/NestedPropertyPatterns.nl
+[0;32m✓ PASSED: Single-file example: NestedPropertyPatterns[0m
+
+Building single-file example: NestedPropertyPatternsSimple
+  Location: examples/04-pattern-matching/NestedPropertyPatternsSimple.nl
+[0;32m✓ PASSED: Single-file example: NestedPropertyPatternsSimple[0m
+
+Building single-file example: NestedSimpleTest
+  Location: examples/04-pattern-matching/NestedSimpleTest.nl
+[0;32m✓ PASSED: Single-file example: NestedSimpleTest[0m
+
+Building single-file example: PatternGuards
+  Location: examples/04-pattern-matching/PatternGuards.nl
+[0;32m✓ PASSED: Single-file example: PatternGuards[0m
+
+Building single-file example: ResultErrorPatterns
+  Location: examples/04-pattern-matching/ResultErrorPatterns.nl
+[0;32m✓ PASSED: Single-file example: ResultErrorPatterns[0m
+
+Building single-file example: TypePatterns
+  Location: examples/04-pattern-matching/TypePatterns.nl
+[0;32m✓ PASSED: Single-file example: TypePatterns[0m
+
+Building single-file example: ErrorHandling
+  Location: examples/05-unions/ErrorHandling.nl
+[0;32m✓ PASSED: Single-file example: ErrorHandling[0m
+
+Building single-file example: UnionsAndMatch
+  Location: examples/05-unions/UnionsAndMatch.nl
+[0;32m✓ PASSED: Single-file example: UnionsAndMatch[0m
+
+Building single-file example: ConstructorChaining
+  Location: examples/06-classes-and-records/ConstructorChaining.nl
+[0;32m✓ PASSED: Single-file example: ConstructorChaining[0m
+
+Building single-file example: PrimaryConstructors
+  Location: examples/06-classes-and-records/PrimaryConstructors.nl
+[0;32m✓ PASSED: Single-file example: PrimaryConstructors[0m
+
+Building single-file example: PrimaryConstructorsSimple
+  Location: examples/06-classes-and-records/PrimaryConstructorsSimple.nl
+[0;32m✓ PASSED: Single-file example: PrimaryConstructorsSimple[0m
+
+Building single-file example: PropertiesAndNestedTypes
+  Location: examples/06-classes-and-records/PropertiesAndNestedTypes.nl
+[0;32m✓ PASSED: Single-file example: PropertiesAndNestedTypes[0m
+
+Building single-file example: RecordStructs
+  Location: examples/06-classes-and-records/RecordStructs.nl
+[0;32m✓ PASSED: Single-file example: RecordStructs[0m
+
+Building single-file example: RecordsAndInterfaces
+  Location: examples/06-classes-and-records/RecordsAndInterfaces.nl
+[0;32m✓ PASSED: Single-file example: RecordsAndInterfaces[0m
+
+Building single-file example: RequiredAndInitProperties
+  Location: examples/06-classes-and-records/RequiredAndInitProperties.nl
+[0;32m✓ PASSED: Single-file example: RequiredAndInitProperties[0m
+
+Building single-file example: DuckInterfaces
+  Location: examples/07-interfaces/DuckInterfaces.nl
+[0;32m✓ PASSED: Single-file example: DuckInterfaces[0m
+
+Building single-file example: ExtensionMethods
+  Location: examples/07-interfaces/ExtensionMethods.nl
+[0;32m✓ PASSED: Single-file example: ExtensionMethods[0m
+
+Building single-file example: AsyncStreams
+  Location: examples/08-async/AsyncStreams.nl
+[0;32m✓ PASSED: Single-file example: AsyncStreams[0m
+
+Building single-file example: CollectionExpressions
+  Location: examples/09-linq-and-collections/CollectionExpressions.nl
+[0;32m✓ PASSED: Single-file example: CollectionExpressions[0m
+
+Building single-file example: CollectionInitializersWithIndexers
+  Location: examples/09-linq-and-collections/CollectionInitializersWithIndexers.nl
+[0;32m✓ PASSED: Single-file example: CollectionInitializersWithIndexers[0m
+
+Building single-file example: Iterators
+  Location: examples/09-linq-and-collections/Iterators.nl
+[0;32m✓ PASSED: Single-file example: Iterators[0m
+
+Building single-file example: OpenEndedRanges
+  Location: examples/09-linq-and-collections/OpenEndedRanges.nl
+[0;32m✓ PASSED: Single-file example: OpenEndedRanges[0m
+
+Building single-file example: RangeAndIndex
+  Location: examples/09-linq-and-collections/RangeAndIndex.nl
+[0;32m✓ PASSED: Single-file example: RangeAndIndex[0m
+
+Building single-file example: InlineOutVariables
+  Location: examples/10-interop/InlineOutVariables.nl
+[0;32m✓ PASSED: Single-file example: InlineOutVariables[0m
+
+Building single-file example: QualifiedAttributes
+  Location: examples/10-interop/QualifiedAttributes.nl
+[0;32m✓ PASSED: Single-file example: QualifiedAttributes[0m
+
+Building single-file example: RefOutParameters
+  Location: examples/10-interop/RefOutParameters.nl
+[0;32m✓ PASSED: Single-file example: RefOutParameters[0m
+
+[1;33m>>> Step 10: Check Examples (nlc check)[0m
+=========================================
+Running nlc check on all example directories...
+This verifies the Language Server won't report false errors.
+Using up to 4 parallel workers for nlc check...
+  [0;32m✓[0m 01-hello-world
+  [0;32m✓[0m 02-variables-and-types
+  [0;32m✓[0m 03-functions
+  [0;32m✓[0m 04-pattern-matching
+  [0;32m✓[0m 05-unions
+  [0;32m✓[0m 06-classes-and-records
+  [0;32m✓[0m 07-interfaces
+  [0;32m✓[0m 08-async
+  [0;32m✓[0m 09-linq-and-collections
+  [0;32m✓[0m 10-interop
+  [0;32m✓[0m 14-minimal-api
+  [0;32m✓[0m 16-task-cli
+  [0;32m✓[0m 12-multi-file-projects/AutoDiscovery
+  [0;32m✓[0m 12-multi-file-projects/MultiFileProject
+  [0;32m✓[0m 12-multi-file-projects/SimpleProject
+  [0;32m✓[0m 12-multi-file-projects/TestExample
+  [0;32m✓[0m 12-multi-file-projects/WeatherDemo
+  [0;32m✓[0m 12-multi-file-projects/imports
+  [0;32m✓[0m 17-issue-tracker/backend
+  [0;32m✓[0m tests/fixtures/issue-tracker
+[0;32m✓ PASSED: nlc check on examples[0m
+
+[1;33m>>> Step 11: Summary[0m
+=========================================
+
+[0;32m=========================================[0m
+[0;32mALL TESTS PASSED! ✓[0m
+[0;32m=========================================[0m
+test-all-exit=0

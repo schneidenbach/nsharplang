@@ -1,0 +1,67 @@
+# run_id=run1-20260516T224126Z
+# command_name=cli-query-help
+# start_utc=2026-05-16T22:51:17Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help
+
+N# Code Intelligence CLI
+
+Usage: nlc query <command> [options]
+
+Commands:
+  batch         Execute multiple query requests from one JSON file
+  symbols       List all symbols in a file or project
+  outline       Structural outline of a file
+  diagnostics   Errors and warnings with rich context
+  type          Get type info at a position
+  inspect       One-shot symbol/type/refs/completions bundle
+  definition    Find where a symbol is defined (aliases: def)
+  references    Find all references to a symbol (aliases: refs)
+  completions   Get completions at a position
+  doc           Look up .NET API documentation
+  hover         Signature + docs at a position
+  call-graph    Callers and callees of a function
+  implementors  Concrete types implementing an interface
+  help          Show query help
+
+Global Options:
+  --json        Output as JSON (default)
+  --text        Output as human-readable text (Elm-style)
+  --no-daemon   Force in-process analysis even if a daemon is running
+  --project     Project root directory (default: current directory)
+  --file        Target file for file-scoped operations
+  --pos         Position as line:col (e.g. 5:12)
+  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)
+  --clusters    For diagnostics, emit the stable AI migration cluster JSON envelope
+
+Examples:
+  nlc query symbols                              # All symbols in project
+  nlc query symbols --filter '*Person*'          # Symbols matching glob
+  nlc query symbols --filter Person              # Symbols matching substring
+  nlc query batch --requests requests.json       # Mixed semantic queries in one call
+  nlc query symbols --file Program.nl            # Symbols in one file
+  nlc query symbols --kind function              # Only functions
+  nlc query outline Program.nl                   # File structure
+  nlc query diagnostics                          # All errors/warnings
+  nlc query diagnostics --clusters               # AI migration diagnostic clusters
+  nlc query diagnostics --text                   # Elm-style error output
+  nlc query type --file Program.nl --pos 5:4     # Type at position
+  nlc query inspect --file Program.nl --pos 5:4
+  nlc query inspect --file Program.nl --pos 5:4 --compact
+  nlc query def --file Program.nl --pos 5:4      # Definition at position
+  nlc query def --name Person                    # Search by name
+  nlc query refs --file Program.nl --pos 5:4     # All references
+  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position
+  nlc query call-graph --function Main           # Callers/callees of Main
+  nlc query call-graph --function Main --limit 50
+  nlc query implementors --name IShape           # Types implementing IShape
+  nlc query implementors --file Program.nl --pos 10:11
+  nlc query doc Console                          # Type documentation
+  nlc query doc Console.WriteLine                # Method documentation
+  nlc query doc List                             # Generic type docs
+
+JSON queries reuse `nlc daemon` automatically when a daemon is already running.
+Use `--no-daemon` to bypass the daemon for debugging.
+
+# end_utc=2026-05-16T22:51:18Z
+# exit_code=0

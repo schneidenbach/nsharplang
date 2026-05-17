@@ -1,0 +1,11 @@
+dotnet-test	2026-05-16T22:41:27Z	2026-05-16T22:43:04Z	1	/tmp/nsharplang-gate-20260516T223937Z	dotnet test --disable-build-servers -v q --nologo
+test-all-clean	2026-05-16T22:43:04Z	2026-05-16T22:51:15Z	1	/tmp/nsharplang-gate-20260516T223937Z	./scripts/test-all.sh --clean
+cli-help	2026-05-16T22:51:15Z	2026-05-16T22:51:17Z	0	/tmp/nsharplang-gate-20260516T223937Z	dotnet run --project src/NSharpLang.Cli/Cli.csproj -- --help
+cli-query-help	2026-05-16T22:51:17Z	2026-05-16T22:51:18Z	0	/tmp/nsharplang-gate-20260516T223937Z	dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help
+cli-check-console-template	2026-05-16T22:51:18Z	2026-05-16T22:51:18Z	0	/tmp/nsharplang-gate-20260516T223937Z	dotnet run --project src/NSharpLang.Cli/Cli.csproj -- check --project templates/nsharp-console --text
+cli-query-symbols-issue-tracker	2026-05-16T22:51:18Z	2026-05-16T22:51:19Z	0	/tmp/nsharplang-gate-20260516T223937Z	bash -lc dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query symbols --project examples/17-issue-tracker/backend --json | python3 -m json.tool | sed -n "1,80p"
+issue-tracker-demo	2026-05-16T22:51:19Z	2026-05-16T22:51:24Z	1	/tmp/nsharplang-gate-20260516T223937Z	bash -lc cd examples/17-issue-tracker && ISSUE_TRACKER_HOLD=0 ./scripts/demo.sh
+replay-template-quickstarts	2026-05-16T22:51:24Z	2026-05-16T22:51:45Z	0	/tmp/nsharplang-gate-20260516T223937Z	bash -lc python3 -m py_compile scripts/replay-template-quickstarts.py && ./scripts/replay-template-quickstarts.py
+sample-migration-evidence-check	2026-05-16T22:51:45Z	2026-05-16T22:51:45Z	0	/tmp/nsharplang-gate-20260516T223937Z	bash -lc test -f docs/migration-notes/migration-recipe-library.md; test ! -f docs/migration-notes/baseline-benchmark-20260514T213001Z/baseline-report.md; grep -R "Do not show raw SampleMigration\|SampleMigration remains internal\|No public SampleMigration" -n docs/talk docs/migration-notes docs/examples | sed -n "1,80p"
+build-vscode-extension	2026-05-16T22:51:45Z	2026-05-16T22:51:51Z	0	/tmp/nsharplang-gate-20260516T223937Z	./scripts/build-vscode-extension.sh
+vscode-visual-qa	2026-05-16T22:51:51Z	2026-05-16T22:53:23Z	0	/tmp/nsharplang-gate-20260516T223937Z	bash -lc NSHARP_VISUAL_QA_TS=run1-20260516T224126Z ./.hermes/visual-qa/repeatable-vscode-visual-qa.sh

@@ -40,6 +40,31 @@ compile-debug.log
 # Node.js
 node_modules/
 
+# Launch/review transient workspaces
+.review-pr117/
+examples/17-issue-tracker/.demo-artifacts/
+docs/talk/gate-logs/clean-remediation-pass1-20260517T000901Z/
+docs/talk/gate-logs/clean-remediation-run1-20260517T000424Z/
+docs/talk/gate-logs/strict-clean-final-20260517T011223Z-manifest.txt
+docs/talk/gate-logs/strict-clean-final-p1-20260517T011223Z/
+docs/talk/gate-logs/strict-clean-final-p2-20260517T011554Z/
+docs/talk/gate-logs/strict-clean-pass1-20260517T003723Z/
+docs/talk/gate-logs/strict-clean-pass1-20260517T004133Z/
+docs/talk/gate-logs/strict-clean-pass1-20260517T004616Z/
+docs/talk/gate-logs/strict-clean-pass2-20260517T005430Z/
+docs/talk/gate-logs/strict-clean-pass2-20260517T005509Z/
+docs/talk/gate-logs/strict-clean-pass3-20260517T005716Z/
+docs/talk/gate-logs/strict-clean-pass4-20260517T010134Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T-debug-current/
+docs/talk/gate-logs/strict-git-worktree-20260517T024002Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T024359Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T024833Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T025323Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T025809Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T030225Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T030703Z/
+docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/
+
 # Docusaurus
 website/build/
 website/.docusaurus/

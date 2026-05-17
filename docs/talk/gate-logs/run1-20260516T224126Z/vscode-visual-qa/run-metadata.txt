@@ -1,0 +1,8 @@
+repo=/tmp/nsharplang-gate-20260516T223937Z
+out_dir=/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z
+project_dir=/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z/workspace/VisualQaProject
+user_data_dir=/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z/user-data
+extensions_dir=/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z/extensions
+server_path=/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+vsix=/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/nsharp-0.6.0.vsix
+nlc_wrapper=/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z/bin/nlc

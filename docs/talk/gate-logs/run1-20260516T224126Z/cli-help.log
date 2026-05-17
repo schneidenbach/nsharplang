@@ -1,0 +1,77 @@
+# run_id=run1-20260516T224126Z
+# command_name=cli-help
+# start_utc=2026-05-16T22:51:15Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=dotnet run --project src/NSharpLang.Cli/Cli.csproj -- --help
+
+N# Compiler (nlc) 0.1.0+09442af71347117b87b7082028d8e27c0fc3b496
+
+Usage: nlc <command> [options]
+
+Build & Run:
+  build [file]         Compile a project or single .nl file (--release, --verbose)
+  run [file]           Build and run a project or single file
+  restore              Generate build config from project.yml
+  publish              Publish project for deployment
+  pack                 Create a NuGet package from project.yml metadata
+  clean                Remove build artifacts
+
+Analysis & Fix:
+  check                Fast type-check (JSON by default)
+  fix                  Auto-apply compiler suggestions
+  query <cmd>          Code intelligence for LLMs and terminals
+  daemon <cmd>         Background analysis daemon
+
+Code Quality:
+  format [files...]    Format .nl source files
+  lint [files...]      Run static analysis rules
+  test                 Run .tests.nl test suites (--coverage, --verbose)
+  bench                Run benchmarks
+
+Dependencies:
+  add <package>        Add a NuGet dependency to project.yml
+  tidy                 Identify and remove unused dependencies
+  remove <package>     Remove a dependency from project.yml
+  update [package]     Update dependencies to latest versions
+  tree                 Show dependency tree
+  audit                Check for known vulnerabilities
+
+Project:
+  new <name>           Create a new N# project
+  init                 Initialize N# in the current directory
+  export <target>      Export N# sources without changing the IL toolchain
+  idiom                Score migration idioms and emit a JSON report
+  watch <cmd>          Re-run check/build/test/lint/format on file changes
+  doc                  Generate HTML API documentation
+  env                  Show environment and toolchain info
+  doctor               Verify N# CLI, SDK/templates, LSP, and VS Code tooling
+  completion <shell>   Generate shell completion scripts
+
+Options:
+  --version, -V        Show nlc version
+  --text               Human-readable output for check/fix/query/lint
+  --json               Structured JSON output (default for check/fix/query/lint)
+  --help, -h           Show this help message
+
+Common Workflows:
+  nlc new MyApp && cd MyApp    Create and enter a new project
+  nlc build                    Compile the project
+  nlc run                      Build and run
+  nlc test                     Run tests
+  nlc add Serilog@3.1.0        Add a dependency
+  nlc check                    Fast feedback loop
+  nlc doctor                   Verify the installed toolchain
+  nlc fix && nlc check         Auto-fix then verify
+  nlc build --release          Optimized release build
+  nlc export csharp --project . -o ./myapp-csharp
+                               Export a C# migration bundle
+  nlc format --check           CI formatting gate
+  nlc test --filter AddPerson  Run specific tests
+  nlc test --coverage          Run tests with coverage
+  nlc watch check              Re-check on every save
+  nlc publish -c Release       Publish for deployment
+
+Run 'nlc <command> --help' for command-specific options.
+
+# end_utc=2026-05-16T22:51:17Z
+# exit_code=0

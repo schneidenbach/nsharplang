@@ -1,0 +1,57 @@
+Warning: 'disable-user-env-probe' is not in the list of known options, but still passed to Electron/Chromium.
+WARNING: IPC handle "/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run2-20260516T225329Z/portable/user-data/1.12-main.sock" is longer than 103 chars, try a shorter --user-data-dir
+[90m[main 2026-05-16T22:59:16.679Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-05-16T22:59:16.794Z][0m [shared storage] Creating shared storage database at '/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run2-20260516T225329Z/portable/shared-data/sharedStorage/state.vscdb' (wasCreated: true)
+[90m[main 2026-05-16T22:59:16.795Z][0m [shared storage] Initializing fallback application storage (path: /tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run2-20260516T225329Z/portable/user-data/User/globalStorage/state.vscdb)
+[90m[main 2026-05-16T22:59:16.795Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-05-16T22:59:16.797Z][0m update#setState idle
+[90m[main 2026-05-16T22:59:46.834Z][0m update#setState checking for updates
+[90m[main 2026-05-16T22:59:46.955Z][0m update#setState idle
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.139 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
+2026-05-16 18:00:09.153 Code[67468:12343728] representedObject is not a WeakPtrToElectronMenuModelAsNSObject
