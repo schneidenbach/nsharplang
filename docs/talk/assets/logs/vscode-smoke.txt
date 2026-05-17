@@ -1,0 +1,83 @@
+$ npm run test:smoke (editors/vscode)
+
+> nsharp@0.6.0 test:smoke
+> TEST_SUITE=extension,diagnostics,hover,completion node ./out/test/runTest.js
+
+=== N# VS Code Integration Tests ===
+Extension: /Users/spencer/code/nsharplang/editors/vscode
+Tests:     /Users/spencer/code/nsharplang/editors/vscode/out/test/suite/index
+Workspace: /Users/spencer/code/nsharplang/editors/vscode/test/fixtures/simple
+UserData:  /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-r7fb2v/user-data
+Filter:    TEST_SUITE=extension,diagnostics,hover,completion
+- Resolving version...
+✔ Validated version: 1.120.0
+✔ Found existing install in /Users/spencer/code/nsharplang/editors/vscode/.vscode-test/vscode-darwin-arm64-1.120.0
+[90m[main 2026-05-16T22:10:25.631Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-05-16T22:10:25.723Z][0m [shared storage] Creating shared storage database at ':memory:' (wasCreated: true)
+[90m[main 2026-05-16T22:10:25.723Z][0m [shared storage] Initializing fallback application storage (path: in-memory)
+[90m[main 2026-05-16T22:10:25.776Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-05-16T22:10:25.777Z][0m update#setState disabled
+[90m[main 2026-05-16T22:10:25.777Z][0m update#ctor - updates are disabled by the environment
+Started local extension host with pid 60879.
+Started initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-r7fb2v/extensions
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+Completed initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/ns-test-r7fb2v/extensions
+Loading development extension at /Users/spencer/code/nsharplang/editors/vscode
+[DefaultAccount] Authentication provider is not declared. { id: 'github', name: 'GitHub', enterprise: false }
+Settings Sync: Account status changed from uninitialized to unavailable
+N# language extension is now active
+Using N# Language Server at: /Users/spencer/code/nsharplang/editors/vscode/server/LanguageServer.dll
+N# Language Server started
+[N# Tests] Suite filter: extension, diagnostics, hover, completion
+[N# Tests] Matched 4 of 19 test files
+[N# Tests]   - hover.test.js
+[N# Tests]   - extension.test.js
+[N# Tests]   - diagnostics.test.js
+[N# Tests]   - completion.test.js
+[0m[0m
+[0m  Hover[0m
+N# Test Controller registered
+Auto updating outdated extensions. github.copilot-chat
+  [32m  ✔[0m[90m hover on function declaration shows function info[0m
+  [32m  ✔[0m[90m hover on function call shows function signature[0m
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+  [32m  ✔[0m[90m hover on variable shows type info[0m
+  [32m  ✔[0m[90m hover on inferred int variable shows int type[0m
+  [32m  ✔[0m[90m hover on keyword "func" shows keyword info[0m
+  [32m  ✔[0m[90m hover on class name shows class info[0m
+  [32m  ✔[0m[90m hover on enum name shows enum info[0m
+  [32m  ✔[0m[90m hover on primitive type annotation shows type info[0m
+  [32m  ✔[0m[90m hover on method call shows method info[0m
+  [32m  ✔[0m[90m hover on whitespace returns empty[0m
+  [32m  ✔[0m[90m hover on string literal does not crash[0m
+[0m  Extension Activation[0m
+  [32m  ✔[0m[90m nsharp language is registered[0m
+  [32m  ✔[0m[90m extension activates on .nl file[0m
+  [32m  ✔[0m[90m .nl files are assigned nsharp language ID[0m
+  [32m  ✔[0m[90m language server output channel exists[0m
+  [32m  ✔[0m[90m nsharp tasks use configured nlc path for build run and test[0m
+  [32m  ✔[0m[90m debug entry points are hidden until real N# debugging exists[0m
+  [32m  ✔[0m[90m Test Explorer only exposes the real nlc-backed Run profile[0m
+  [32m  ✔[0m[90m extension activates for N# task discovery in fresh project workspaces[0m
+[0m  Diagnostics[0m
+  [32m  ✔[0m[90m Program.nl produces zero error diagnostics[0m
+  [32m  ✔[0m[90m Helpers.nl produces zero error diagnostics[0m
+  [32m  ✔[0m[90m ClassesAndRecords.nl produces zero error diagnostics[0m
+  [32m  ✔[0m[90m all diagnostics have source "N#"[0m
+  [32m  ✔[0m[90m diagnostics have non-empty messages[0m
+  [32m  ✔[0m[90m diagnostics have valid ranges[0m
+  [32m  ✔[0m[90m diagnostics update after introducing syntax error[0m
+  [32m  ✔[0m[90m diagnostics clear after fixing syntax error[0m
+[0m  Completions[0m
+  [32m  ✔[0m[90m keywords available at top level[0m
+  [32m  ✔[0m[90m primitive types in completions[0m
+  [32m  ✔[0m[90m function names available inside function body[0m
+  [32m  ✔[0m[90m member completions after dot include methods[0m
+  [32m  ✔[0m[90m member completions after dot include properties[0m
+  [32m  ✔[0m[90m local variables appear in completions[0m
+  [32m  ✔[0m[90m completion items all have a kind set[0m
+  [32m  ✔[0m[90m no duplicate labels in completion list[0m
+  [32m  ✔[0m[90m completion count is reasonable[0m
+[92m [0m[32m 36 passing[0m[90m (42s)[0m
+[90m[main 2026-05-16T22:11:09.309Z][0m Extension host with pid 60879 exited with code: 0, signal: unknown.
+Exit code:   0

@@ -1,0 +1,14 @@
+Building project in /private/tmp/nsharp-clean-vscode-debug-test-profile-20260516-025451-dF3Gcn/FreshWorkflow...
+  Determining projects to restore...
+  Restored /private/tmp/nsharp-clean-vscode-debug-test-profile-20260516-025451-dF3Gcn/FreshWorkflow/FreshWorkflow.g.csproj (in 51 ms).
+  Generating N# IL compilation stub...
+  Emitting N# IL assembly to obj/Debug/net10.0/FreshWorkflow.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/FreshWorkflow.dll
+  FreshWorkflow.g -> /private/tmp/nsharp-clean-vscode-debug-test-profile-20260516-025451-dF3Gcn/FreshWorkflow/bin/Debug/net10.0/FreshWorkflow.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.61
+Build successful! (debug) [0.7s]

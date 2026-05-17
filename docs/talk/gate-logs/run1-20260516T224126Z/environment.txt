@@ -1,0 +1,15 @@
+run_id=run1-20260516T224126Z
+timestamp_utc=2026-05-16T22:41:26Z
+repo=/tmp/nsharplang-gate-20260516T223937Z
+git_sha=09442af71347117b87b7082028d8e27c0fc3b496
+git_branch=gate-rehearsal-20260516T223937Z
+git_status_short_begin<<EOF
+## gate-rehearsal-20260516T223937Z
+?? docs/talk/gate-logs/
+EOF
+dotnet=10.0.107
+node=v22.22.2
+npm=10.9.7
+code=/opt/homebrew/bin/code
+code_version=1.120.0 0958016b2af9f09bb4257e0df4a95e2f90590f9f arm64 
+uname=Darwin Spencers-Mini 25.4.0 Darwin Kernel Version 25.4.0: Thu Mar 19 19:31:09 PDT 2026; root:xnu-12377.101.15~1/RELEASE_ARM64_T8132 arm64

@@ -1,0 +1,54 @@
+# run_id=run1-20260516T224126Z
+# command_name=issue-tracker-demo
+# start_utc=2026-05-16T22:51:19Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=bash -lc cd examples/17-issue-tracker && ISSUE_TRACKER_HOLD=0 ./scripts/demo.sh
+
+
+[1;36m==> Checking prerequisites[0m
+
+[1;36m==> Installing npm dependencies[0m
+
+added 25 packages, and audited 26 packages in 508ms
+
+6 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+
+added 69 packages, and audited 71 packages in 613ms
+
+found 0 vulnerabilities
+
+[1;36m==> Building React frontend into backend/wwwroot[0m
+
+> issue-tracker-frontend@1.0.0 build
+> tsc && vite build
+
+vite v6.4.2 building for production...
+transforming...
+✓ 30 modules transformed.
+rendering chunks...
+computing gzip size...
+../backend/wwwroot/index.html                   0.41 kB │ gzip:  0.28 kB
+../backend/wwwroot/assets/index-CWGU2uNT.css    4.20 kB │ gzip:  1.62 kB
+../backend/wwwroot/assets/index-B4U0TWS7.js   201.45 kB │ gzip: 63.39 kB
+✓ built in 293ms
+
+[1;36m==> Restoring and building N# ASP.NET backend[0m
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+CSC : error CS0006: Metadata file '/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/obj/Debug/net10.0/ref/Compiler.dll' could not be found [/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Cli/Cli.csproj]
+
+The build failed. Fix the build errors and run again.
+
+# end_utc=2026-05-16T22:51:24Z
+# exit_code=1

@@ -1,0 +1,106 @@
+# run_id=run1-20260516T224126Z
+# command_name=build-vscode-extension
+# start_utc=2026-05-16T22:51:45Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=./scripts/build-vscode-extension.sh
+
+🔧 Building N# VS Code Extension
+================================
+
+1️⃣  Building Language Server...
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+
+Build succeeded.
+
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+    10 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.37
+
+2️⃣  Packaging VSIX...
+   - Copying language server...
+   - Compiling TypeScript...
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+   - Creating VSIX package...
+(node:64733) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Executing prepublish script 'npm run vscode:prepublish'...
+
+> nsharp@0.6.0 vscode:prepublish
+> npm run build-server && npm run compile
+
+
+> nsharp@0.6.0 build-server
+> dotnet publish ../../src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o ./server --self-contained false
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Compiler -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/bin/Release/net10.0/Compiler.dll
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+  LanguageServer -> /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/server/
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+ WARNING  LICENSE, LICENSE.md, or LICENSE.txt not found
+ WARNING  This extension consists of 281 files, out of which 170 are JavaScript files. For performance reasons, you should bundle your extension: https://aka.ms/vscode-bundle-extension. You should also exclude unnecessary files by adding them to your .vscodeignore: https://aka.ms/vscode-vscodeignore.
+
+ INFO  Files included in the VSIX:
+nsharp-0.6.0.vsix
+├─ [Content_Types].xml 
+├─ extension.vsixmanifest 
+└─ extension/
+   ├─ CHANGELOG.md [3.95 KB]
+   ├─ DEBUG.md [7.1 KB]
+   ├─ INTELLISENSE.md [3.81 KB]
+   ├─ QUICKSTART.md [7.28 KB]
+   ├─ README.md [7.11 KB]
+   ├─ icon.png [4.92 KB]
+   ├─ icon.svg [0.61 KB]
+   ├─ language-configuration.json [1.54 KB]
+   ├─ package.json [3.6 KB]
+   ├─ test-server.sh [1.1 KB]
+   ├─ icons/ (2 files) [0.54 KB]
+   ├─ node_modules/ (192 files) [1.02 MB]
+   ├─ out/ (10 files) [72.53 KB]
+   ├─ server/ (63 files) [8.65 MB]
+   ├─ snippets/ (1 file) [4.08 KB]
+   └─ syntaxes/ (1 file) [11.9 KB]
+
+=> Run vsce ls --tree to see all included files.
+
+ DONE  Packaged: /private/tmp/nsharplang-gate-20260516T223937Z/editors/vscode/nsharp-0.6.0.vsix (281 files, 3.54 MB)
+
+✅ Extension built: /tmp/nsharplang-gate-20260516T223937Z/editors/vscode/nsharp-0.6.0.vsix
+
+To install manually:
+   code --install-extension /tmp/nsharplang-gate-20260516T223937Z/editors/vscode/nsharp-0.6.0.vsix --force
+
+Or use the full reload script:
+   ./scripts/reload-vscode-extension.sh
+
+
+# end_utc=2026-05-16T22:51:51Z
+# exit_code=0

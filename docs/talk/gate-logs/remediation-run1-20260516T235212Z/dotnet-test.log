@@ -1,0 +1,46 @@
+Sat May 16 23:52:12 UTC 2026
+/Users/spencer/code/nsharplang/tests/Tests.csproj : warning NU1510: PackageReference Microsoft.Extensions.Logging will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/tests/Tests.csproj : warning NU1510: PackageReference Microsoft.Extensions.Logging.Abstractions will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.ComponentModelHost (>= 17.9.171) but Microsoft.VisualStudio.ComponentModelHost 17.9.171 was not found. Microsoft.VisualStudio.ComponentModelHost 17.9.187 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.CoreUtility (>= 17.9.171) but Microsoft.VisualStudio.CoreUtility 17.9.171 was not found. Microsoft.VisualStudio.CoreUtility 17.9.187 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.ImageCatalog (>= 17.9.36524) but Microsoft.VisualStudio.ImageCatalog 17.9.36524 was not found. Microsoft.VisualStudio.ImageCatalog 17.9.37000 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.Interop (>= 17.9.36524) but Microsoft.VisualStudio.Interop 17.9.36524 was not found. Microsoft.VisualStudio.Interop 17.9.37000 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: NSharpLang.VisualStudio depends on Microsoft.VisualStudio.SDK (>= 17.8.37221) but Microsoft.VisualStudio.SDK 17.8.37221 was not found. Microsoft.VisualStudio.SDK 17.8.37222 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.Telemetry (>= 17.9.13) but Microsoft.VisualStudio.Telemetry 17.9.13 was not found. Microsoft.VisualStudio.Telemetry 17.9.102 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.Text.Logic (>= 17.9.171) but Microsoft.VisualStudio.Text.Logic 17.9.171 was not found. Microsoft.VisualStudio.Text.Logic 17.9.187 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: NSharpLang.VisualStudio depends on Microsoft.VisualStudio.Threading (>= 17.9.27) but Microsoft.VisualStudio.Threading 17.9.27 was not found. Microsoft.VisualStudio.Threading 17.9.28 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: Microsoft.VisualStudio.SDK 17.8.37222 depends on Microsoft.VisualStudio.Utilities (>= 17.9.36524) but Microsoft.VisualStudio.Utilities 17.9.36524 was not found. Microsoft.VisualStudio.Utilities 17.9.36846 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/editors/visualstudio/NSharp.VisualStudio/NSharpLang.VisualStudio.csproj : warning NU1603: NSharpLang.VisualStudio depends on Microsoft.VSSDK.BuildTools (>= 17.8.2369) but Microsoft.VSSDK.BuildTools 17.8.2369 was not found. Microsoft.VSSDK.BuildTools 17.9.3168 was resolved instead. [/Users/spencer/code/nsharplang/NSharpLang.sln]
+/Users/spencer/code/nsharplang/tests/Tests.csproj : warning NU1510: PackageReference Microsoft.Extensions.Logging will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+/Users/spencer/code/nsharplang/tests/Tests.csproj : warning NU1510: PackageReference Microsoft.Extensions.Logging.Abstractions will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+Test run for /Users/spencer/code/nsharplang/tests/NSharpLang.IntegrationTests/bin/Debug/net10.0/IntegrationTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+Test run for /Users/spencer/code/nsharplang/tests/NSharpLang.CSharpInteropTests/bin/Debug/net10.0/CSharpInteropTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 13 ms - CSharpInteropTests.dll (net10.0)
+Test run for /Users/spencer/code/nsharplang/tests/bin/Debug/net10.0/Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Skipped! - Failed:     0, Passed:     0, Skipped:    12, Total:    12, Duration: 5 ms - IntegrationTests.dll (net10.0)
+[xUnit.net 00:00:13.09]     NSharpLang.Tests.CompilationBackendTests.BenchCommand_BackendOverrideToIl_RunsBenchmarksThroughSdkProject [FAIL]
+[xUnit.net 00:00:14.79]     NSharpLang.Tests.CompilationBackendTests.TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject [FAIL]
+[xUnit.net 00:00:15.09]     NSharpLang.Tests.CompilationBackendTests.PublishCommand_BackendOverrideToIl_UsesSdkProjectReferencesAndRuntimeAssets [FAIL]
+[xUnit.net 00:00:16.15]     NSharpLang.Tests.CompilationBackendTests.PublishCommand_BackendOverrideToIl_SupportsSelfContainedOutput [FAIL]
+[xUnit.net 00:00:16.47]     NSharpLang.Tests.CompilationBackendTests.TestCommand_UsesConfiguredIlBackendAndRunsExecutableProjectTests [FAIL]
+[xUnit.net 00:00:16.78]     NSharpLang.Tests.CompilationBackendTests.BuildCommand_BackendOverrideToIl_UsesSdkProjectReferencesAndRuntimeAssets [FAIL]
+[xUnit.net 00:00:17.06]     NSharpLang.Tests.CompilationBackendTests.PackCommand_UsesConfiguredIlBackendAndProducesNuGetPackage [FAIL]
+[xUnit.net 00:00:17.43]     NSharpLang.Tests.CompilationBackendTests.PublishCommand_BackendOverrideToIl_SupportsRuntimeSpecificOutput [FAIL]
+[xUnit.net 00:00:17.71]     NSharpLang.Tests.CompilationBackendTests.BuildCommand_ProjectWithoutBackend_DefaultsToIlAndProducesRunnableArtifacts [FAIL]
+[xUnit.net 00:00:33.96]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_IlProjectSupportsImplicitControllerBaseIdentifierCalls [FAIL]
+[xUnit.net 00:00:34.25]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_CompilationStubEmitsDuckInterfacesNeededByIlProjects [FAIL]
+[xUnit.net 00:00:34.53]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_RetiredTranspileBackend_IsRejected [FAIL]
+[xUnit.net 00:00:34.81]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_CompilationStubResolvesCrossNamespaceImportsAndTopLevelFunctions [FAIL]
+[xUnit.net 00:00:35.09]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_CSharpConsumerCanReferenceIlBackedNSharpLibrary [FAIL]
+[xUnit.net 00:00:35.37]     NSharpLang.Tests.IlSdkToolchainTests.DotnetRun_UsesIlBackendThroughSdk [FAIL]
+[xUnit.net 00:00:35.65]     NSharpLang.Tests.IlSdkToolchainTests.DotnetTest_UsesIlBackendThroughSdk [FAIL]
+[xUnit.net 00:00:35.93]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_CSharpConsumerCanReferenceIlBackedLibraryWithRecordsEnumsAndGenericRuntimeCollections [FAIL]
+[xUnit.net 00:00:36.21]     NSharpLang.Tests.IlSdkToolchainTests.DotnetBuild_UsesIlBackendThroughSdk [FAIL]
+
+Failed!  - Failed:    18, Passed:  2378, Skipped:     3, Total:  2399, Duration: 50 s - Tests.dll (net10.0)
+dotnet-test-exit=1

@@ -1,0 +1,10 @@
+# run_id=run1-20260516T224126Z
+# command_name=vscode-visual-qa
+# start_utc=2026-05-16T22:51:51Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=bash -lc NSHARP_VISUAL_QA_TS=run1-20260516T224126Z ./.hermes/visual-qa/repeatable-vscode-visual-qa.sh
+
+/tmp/nsharplang-gate-20260516T223937Z/.hermes/visual-qa/t_bd0074d7-run1-20260516T224126Z
+
+# end_utc=2026-05-16T22:53:23Z
+# exit_code=0

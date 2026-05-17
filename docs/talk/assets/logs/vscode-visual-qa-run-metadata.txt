@@ -1,0 +1,8 @@
+repo=/Users/spencer/code/nsharplang
+out_dir=/Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656
+project_dir=/Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656/workspace/VisualQaProject
+user_data_dir=/Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656/user-data
+extensions_dir=/Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656/extensions
+server_path=/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+vsix=/Users/spencer/code/nsharplang/editors/vscode/nsharp-0.6.0.vsix
+nlc_wrapper=/Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656/bin/nlc

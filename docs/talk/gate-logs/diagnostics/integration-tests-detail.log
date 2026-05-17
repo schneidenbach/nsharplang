@@ -1,0 +1,10 @@
+# command=dotnet test tests/NSharpLang.IntegrationTests/IntegrationTests.csproj -v n --nologo --no-restore
+Sat May 16 23:01:21 UTC 2026
+Build started 5/16/2026 6:01:21 PM.
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.11
+# exit=0

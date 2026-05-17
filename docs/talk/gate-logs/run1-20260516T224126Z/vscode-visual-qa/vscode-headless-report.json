@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1",
+  "generatedAt": "2026-05-16T22:51:55.025Z",
+  "workspaceRoot": "/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-vscode-headless-XKv63R",
+  "serverPath": "/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll",
+  "vscodeVersion": "1.120.0",
+  "extensionId": "nsharp.nsharp",
+  "successCount": 7,
+  "failureCount": 0,
+  "results": [
+    {
+      "name": "activate-extension",
+      "status": "passed",
+      "durationMs": 44,
+      "details": {
+        "active": true,
+        "document": "Program.nl"
+      }
+    },
+    {
+      "name": "diagnostics",
+      "status": "passed",
+      "durationMs": 678,
+      "details": {
+        "diagnostics": [
+          {
+            "code": "NL202",
+            "severity": 0,
+            "message": "NL202: Type mismatch\n\nI am having trouble with this code on line 2:\n\n    return \"oops\"\n    ^^^^^^\n\nactual: string\nexpected: int\n\nStrings and integers are different types. To convert a string to an int,\nyou can use int.Parse(yourString) or int.TryParse(yourString, out result).\n\ndocs: https://docs.n-sharp.dev/errors/NL202",
+            "line": 1,
+            "character": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "completion",
+      "status": "passed",
+      "durationMs": 45,
+      "details": {
+        "count": 107,
+        "sample": [
+          "Chars",
+          "Clone",
+          "CompareTo",
+          "CompareTo",
+          "Contains",
+          "Contains",
+          "Contains",
+          "Contains",
+          "CopyTo",
+          "CopyTo"
+        ]
+      }
+    },
+    {
+      "name": "hover",
+      "status": "passed",
+      "durationMs": 25,
+      "details": {
+        "contents": [
+          "**(method)** `ToUpper`\n\n```csharp\nstring ToUpper()```\n\n*Declaring Type:* `System.String`\n"
+        ]
+      }
+    },
+    {
+      "name": "definition",
+      "status": "passed",
+      "durationMs": 7,
+      "details": {
+        "definitions": [
+          {
+            "file": "Helpers.nl",
+            "line": 0,
+            "character": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "references",
+      "status": "passed",
+      "durationMs": 12,
+      "details": {
+        "references": [
+          {
+            "file": "Helpers.nl",
+            "line": 0,
+            "character": 0
+          },
+          {
+            "file": "Helpers.nl",
+            "line": 1,
+            "character": 11
+          },
+          {
+            "file": "Program.nl",
+            "line": 4,
+            "character": 14
+          }
+        ]
+      }
+    },
+    {
+      "name": "code-actions",
+      "status": "passed",
+      "durationMs": 24,
+      "details": {
+        "actions": [
+          "Add import System.Collections.Generic",
+          "Fix",
+          "Explain"
+        ]
+      }
+    }
+  ]
+}
