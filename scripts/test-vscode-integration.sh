@@ -67,6 +67,21 @@ fi
 echo "(This will download VS Code if needed and may take a minute...)"
 echo
 
+# @vscode/test-electron reuses editors/vscode/.vscode-test between runs. If a
+# previous download was interrupted, the directory can look installed but miss
+# VS Code's packaged node modules; launching then fails before tests start with
+# ERR_MODULE_NOT_FOUND (for example @vscode/policy-watcher). Detect that state
+# and force a clean re-download instead of letting the release gate fail on a
+# corrupt cache.
+for vscode_app in .vscode-test/vscode-*/Visual\ Studio\ Code.app; do
+    [ -d "$vscode_app" ] || continue
+    if [ ! -d "$vscode_app/Contents/Resources/app/node_modules/@vscode/policy-watcher" ]; then
+        install_dir="$(dirname "$vscode_app")"
+        echo -e "${YELLOW}Removing incomplete VS Code test install: $install_dir${NC}"
+        rm -rf "$install_dir"
+    fi
+done
+
 npm test
 
 echo

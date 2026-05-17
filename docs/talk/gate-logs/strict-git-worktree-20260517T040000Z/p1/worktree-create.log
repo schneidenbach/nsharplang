@@ -1,0 +1,4 @@
+worktree=/tmp/nsharplang-strict-git-worktree-p1-20260517T040000Z
+command: git worktree add --detach /tmp/nsharplang-strict-git-worktree-p1-20260517T040000Z be3f79fc6ba83410770fb6f7ce56b051b2204d93
+Preparing worktree (detached HEAD be3f79f)
+HEAD is now at be3f79f fix: harden final launch rehearsals
