@@ -1,6 +1,6 @@
 # N# final launch gate report
 
-Generated: 2026-05-17T03:55:00Z
+Generated: 2026-05-17T04:03:00Z
 Original gate task: `t_d694a2ae`
 Remediation task: `t_4e631d36`
 Recommendation: **GO for the remediated launch rehearsal, with Docker-integration and exhaustive VS Code-suite caveats below**
@@ -31,16 +31,16 @@ Original failed gate evidence:
 - Run 2: `docs/talk/gate-logs/run2-20260516T225329Z/`
 - Extra diagnostic probe: `docs/talk/gate-logs/diagnostics/integration-tests-detail.log`
 
-Strict final git-worktree evidence (fresh detached git worktrees at remediation commit `6fb84c7bf8a787c6707f4737b39e826ecf4de4b8`, empty baseline status, and no root `.review-pr117`, `.demo-artifacts`, `.vscode-test`, `gate-logs`, `bin`, `obj`, or `node_modules` carried over):
+Strict final git-worktree evidence (fresh detached git worktrees at remediation commit `be3f79fc6ba83410770fb6f7ce56b051b2204d93`, empty baseline status, and no root `.review-pr117`, `.demo-artifacts`, `.vscode-test`, `gate-logs`, `bin`, `obj`, or `node_modules` carried over):
 
-- Manifest: `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/manifest.txt`
-- Strict git-worktree pass 1: `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p1/`
-  - `baseline.log`: `git rev-parse HEAD` = `6fb84c7bf8a787c6707f4737b39e826ecf4de4b8`; `git status --short --untracked-files=all` empty; forbidden root artifacts absent
+- Manifest: `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/manifest.txt`
+- Strict git-worktree pass 1: `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/`
+  - `baseline.log`: `git rev-parse HEAD` = `be3f79fc6ba83410770fb6f7ce56b051b2204d93`; `git status --short --untracked-files=all` empty; forbidden root artifacts absent
   - `dotnet-test-parent.log`: pass, `dotnet-test-exit=0`
   - `test-all-clean.log`: pass, `test-all-clean-exit=0`
   - `issue-tracker-demo.log`: pass, `issue-tracker-demo-exit=0`
-- Strict git-worktree pass 2: `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p2/`
-  - `baseline.log`: `git rev-parse HEAD` = `6fb84c7bf8a787c6707f4737b39e826ecf4de4b8`; `git status --short --untracked-files=all` empty; forbidden root artifacts absent
+- Strict git-worktree pass 2: `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/`
+  - `baseline.log`: `git rev-parse HEAD` = `be3f79fc6ba83410770fb6f7ce56b051b2204d93`; `git status --short --untracked-files=all` empty; forbidden root artifacts absent
   - `dotnet-test-parent.log`: pass, `dotnet-test-exit=0`
   - `test-all-clean.log`: pass, `test-all-clean-exit=0`
   - `issue-tracker-demo.log`: pass, `issue-tracker-demo-exit=0`
@@ -78,11 +78,11 @@ Fix: added `DockerFactAttribute` and marked the Docker-dependent integration tes
 
 Passing remediation evidence:
 
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p1/dotnet-test-parent.log`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/dotnet-test-parent.log`
   - `Skipped! - Failed: 0, Passed: 0, Skipped: 12, Total: 12 - IntegrationTests.dll`
   - `Passed!  - Failed: 0, Passed: 2396, Skipped: 3, Total: 2399 - Tests.dll`
   - `dotnet-test-exit=0`
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p2/dotnet-test-parent.log`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/dotnet-test-parent.log`
   - `Skipped! - Failed: 0, Passed: 0, Skipped: 12, Total: 12 - IntegrationTests.dll`
   - `Passed!  - Failed: 0, Passed: 2396, Skipped: 3, Total: 2399 - Tests.dll`
   - `dotnet-test-exit=0`
@@ -101,10 +101,10 @@ Root cause: the automatic mode promoted any VS Code/LSP diff to the exhaustive V
 
 Fix: changed default `VSCODE_TESTS=auto` behavior to run the bounded VS Code smoke tests for the release gate. The exhaustive suite is still available explicitly with `VSCODE_TESTS=full`.
 
-Passing strict clean-worktree evidence:
+Passing strict git-worktree evidence:
 
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p1/test-all-clean.log`: `ALL TESTS PASSED!`, `test-all-clean-exit=0`
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p2/test-all-clean.log`: `ALL TESTS PASSED!`, `test-all-clean-exit=0`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/test-all-clean.log`: `ALL TESTS PASSED!`, `test-all-clean-exit=0`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/test-all-clean.log`: `ALL TESTS PASSED!`, `test-all-clean-exit=0`
 
 Caveat: do not claim the exhaustive VS Code integration suite ran as part of these default clean rehearsals. Claim: the bounded release-gate smoke path passes twice; exhaustive VS Code integration remains opt-in via `VSCODE_TESTS=full`.
 
@@ -120,10 +120,10 @@ Root cause: after a clean gate sequence, generated project files could reference
 
 Fix: the demo script now warms the compiler reference assembly and publishes an isolated local N# CLI before building the React frontend and N# ASP.NET backend. The CLI project also carries the compiler runtime dependencies (`YamlDotNet` and `System.Reflection.MetadataLoadContext`) explicitly so the isolated publish produces a complete `Cli.deps.json` even after `test-all --clean` has rebuilt/cleaned intermediate outputs.
 
-Passing strict clean-worktree evidence:
+Passing strict git-worktree evidence:
 
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p1/issue-tracker-demo.log`: `API smoke assertions passed`, `issue-tracker-demo-exit=0`
-- `docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/p2/issue-tracker-demo.log`: `API smoke assertions passed`, `issue-tracker-demo-exit=0`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/issue-tracker-demo.log`: `API smoke assertions passed`, `issue-tracker-demo-exit=0`
+- `docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/issue-tracker-demo.log`: `API smoke assertions passed`, `issue-tracker-demo-exit=0`
 
 Claim: the issue-tracker live demo path passes from two fresh clean-worktree cold sequences. Static offline fallback artifacts under `docs/talk/assets/` remain available, but they are no longer the default path.
 
@@ -139,11 +139,11 @@ Verification: after repeated remediation demo runs, `git status --short examples
 
 | Gate | Strict clean pass 1 | Strict clean pass 2 | Evidence |
 | --- | --- | --- | --- |
-| `dotnet test --disable-build-servers -v q --nologo` | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T035200Z/p{1,2}/dotnet-test-parent.log` |
-| Core unit suite inside solution test | PASS: `2396 passed`, `3 skipped` | PASS: `2396 passed`, `3 skipped` | `strict-git-worktree-20260517T035200Z/p{1,2}/dotnet-test-parent.log` |
-| Docker integration tests inside solution test | SKIP: `12 skipped` | SKIP: `12 skipped` | `strict-git-worktree-20260517T035200Z/p{1,2}/dotnet-test-parent.log` |
-| `./scripts/test-all.sh --clean` | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T035200Z/p{1,2}/test-all-clean.log` |
-| Issue-tracker final demo script | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T035200Z/p{1,2}/issue-tracker-demo.log` |
+| `dotnet test --disable-build-servers -v q --nologo` | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T040000Z/p{1,2}/dotnet-test-parent.log` |
+| Core unit suite inside solution test | PASS: `2396 passed`, `3 skipped` | PASS: `2396 passed`, `3 skipped` | `strict-git-worktree-20260517T040000Z/p{1,2}/dotnet-test-parent.log` |
+| Docker integration tests inside solution test | SKIP: `12 skipped` | SKIP: `12 skipped` | `strict-git-worktree-20260517T040000Z/p{1,2}/dotnet-test-parent.log` |
+| `./scripts/test-all.sh --clean` | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T040000Z/p{1,2}/test-all-clean.log` |
+| Issue-tracker final demo script | PASS, exit 0 | PASS, exit 0 | `strict-git-worktree-20260517T040000Z/p{1,2}/issue-tracker-demo.log` |
 | Issue-tracker lockfile repeatability | PASS: no lockfile diff | PASS: no lockfile diff | `git status --short ...package-lock.json` |
 
 ## Remaining caveats / approved-claim boundaries
@@ -154,6 +154,6 @@ Verification: after repeated remediation demo runs, `git status --short examples
 
 ## Final recommendation
 
-**GO for the remediated launch rehearsal claims:** parent `dotnet test`, default clean `test-all`, and the issue-tracker live demo all pass in two consecutive strict git-worktree rehearsals (`strict-git-worktree-20260517T035200Z/p1` and `p2`) at `6fb84c7bf8a787c6707f4737b39e826ecf4de4b8`.
+**GO for the remediated launch rehearsal claims:** parent `dotnet test`, default clean `test-all`, and the issue-tracker live demo all pass in two consecutive strict git-worktree rehearsals (`strict-git-worktree-20260517T040000Z/p1` and `p2`) at `be3f79fc6ba83410770fb6f7ce56b051b2204d93`.
 
 Use precise public wording: “solution tests pass locally with Docker integration tests explicitly skipped when Docker is unavailable; the default clean release-gate suite and live issue-tracker demo both passed twice.” Do not claim exhaustive VS Code integration or Docker E2E coverage from these logs alone.
