@@ -1,0 +1,62 @@
+command: git rev-parse HEAD
+be3f79fc6ba83410770fb6f7ce56b051b2204d93
+
+command: git status --short --untracked-files=all
+
+command: forbidden artifact scan
+absent .review-pr117
+absent .demo-artifacts
+absent .vscode-test
+absent gate-logs
+absent bin
+absent obj
+absent node_modules
+
+dotnet_info:
+.NET SDK:
+ Version:           10.0.107
+ Commit:            b16286c228
+ Workload version:  10.0.100-manifests.ef86bccd
+ MSBuild version:   18.0.11+b16286c22
+
+Runtime Environment:
+ OS Name:     Mac OS X
+ OS Version:  26.4
+ OS Platform: Darwin
+ RID:         osx-arm64
+ Base Path:   /opt/homebrew/Cellar/dotnet/10.0.107/libexec/sdk/10.0.107/
+
+.NET workloads installed:
+There are no installed workloads to display.
+Configured to use workload sets when installing new manifests.
+No workload sets are installed. Run "dotnet workload restore" to install a workload set.
+
+Host:
+  Version:      10.0.7
+  Architecture: arm64
+  Commit:       b16286c228
+
+.NET SDKs installed:
+  10.0.107 [/opt/homebrew/Cellar/dotnet/10.0.107/libexec/sdk]
+
+.NET runtimes installed:
+  Microsoft.AspNetCore.App 10.0.7 [/opt/homebrew/Cellar/dotnet/10.0.107/libexec/shared/Microsoft.AspNetCore.App]
+  Microsoft.NETCore.App 10.0.7 [/opt/homebrew/Cellar/dotnet/10.0.107/libexec/shared/Microsoft.NETCore.App]
+
+Other architectures found:
+  None
+
+Environment variables:
+  DOTNET_ROOT                              [/opt/homebrew/Cellar/dotnet/10.0.107/libexec]
+
+global.json file:
+  /Users/spencer/code/nsharplang/global.json
+
+Learn more:
+  https://aka.ms/dotnet/info
+
+Download .NET:
+  https://aka.ms/dotnet/download
+
+node_version=v22.22.2
+npm_version=10.9.7

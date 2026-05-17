@@ -50,7 +50,7 @@ function findAllNlFiles(dir: string): string[] {
     for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-            if (SKIP_DIRS.has(entry.name)) {
+            if (entry.name.startsWith('.') || SKIP_DIRS.has(entry.name)) {
                 continue;
             }
             results.push(...findAllNlFiles(fullPath));

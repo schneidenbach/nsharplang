@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
 PORT="${ISSUE_TRACKER_PORT:-5167}"
@@ -51,12 +52,42 @@ need npm
 need dotnet
 need curl
 
-NLC=("$ROOT/scripts/nlc-local.sh")
-
 step "Installing npm dependencies"
 cd "$ROOT"
-npm install
-npm --prefix "$FRONTEND" install
+npm ci
+npm --prefix "$FRONTEND" ci
+
+step "Warming local N# CLI build"
+# A clean rehearsal can remove src/**/obj after earlier generated project files
+# already reference local project outputs. Build the compiler reference assembly
+# and local CLI explicitly before the demo asks nlc-local.sh to restore the
+# backend, so dotnet has fresh project-reference outputs instead of failing with
+# CS0006 on a cold run.
+dotnet build "$REPO_ROOT/src/NSharpLang.Compiler/Compiler.csproj" --disable-build-servers -m:1 -v q /p:ProduceReferenceAssembly=true
+COMPILER_REF="$REPO_ROOT/src/NSharpLang.Compiler/obj/Debug/net10.0/ref/Compiler.dll"
+COMPILER_REFINT="$REPO_ROOT/src/NSharpLang.Compiler/obj/Debug/net10.0/refint/Compiler.dll"
+if [[ ! -f "$COMPILER_REF" && -f "$COMPILER_REFINT" ]]; then
+  mkdir -p "$(dirname "$COMPILER_REF")"
+  cp "$COMPILER_REFINT" "$COMPILER_REF"
+fi
+if [[ ! -f "$COMPILER_REF" ]]; then
+  echo "Compiler reference assembly warm-up did not produce src/NSharpLang.Compiler/obj/Debug/net10.0/ref/Compiler.dll" >&2
+  exit 1
+fi
+CLI_PUBLISH_DIR="$LOG_DIR/local-cli"
+# Use publish rather than build -o: the demo executes the CLI from this isolated
+# artifact directory, so package dependencies such as YamlDotNet must be copied
+# alongside Cli.dll for a cold worktree run.
+# test-all --clean can leave a partial Cli bin/Debug output that makes publish
+# incorrectly consider runtimeconfig/deps up to date; remove just the CLI build
+# intermediates before publishing the local demo CLI.
+rm -rf "$REPO_ROOT/src/NSharpLang.Cli/bin" "$REPO_ROOT/src/NSharpLang.Cli/obj"
+dotnet publish "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" \
+  --disable-build-servers -m:1 -c Debug -o "$CLI_PUBLISH_DIR" -v q \
+  /p:PackAsTool=false \
+  /p:GenerateRuntimeConfigurationFiles=true \
+  /p:GenerateDependencyFile=true
+NLC=(dotnet "$CLI_PUBLISH_DIR/Cli.dll")
 
 step "Building React frontend into backend/wwwroot"
 npm --prefix "$FRONTEND" run build

@@ -1,0 +1,19 @@
+strict git worktree rehearsal
+source_repo=/Users/spencer/code/nsharplang
+source_sha=be3f79fc6ba83410770fb6f7ce56b051b2204d93
+started_utc=2026-05-17T03:56:15Z
+p1 sha=be3f79fc6ba83410770fb6f7ce56b051b2204d93 dotnet_test=0 test_all_clean=0 issue_tracker_demo=0 port=5167 worktree=/tmp/nsharplang-strict-git-worktree-p1-20260517T040000Z
+afd052e1dbd57d50a779c1680f467b38929ce6521286574da977e701a4426884  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/baseline.log
+4da1dda53b2ce0a582c55d237b4a1d52c8132282ad67bcf7fc44d69ed98e2b09  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/dotnet-test-parent.log
+7773e98326d4b3cdf64c9d72aac7c89c14a746be12bbb7ced046d78204f28072  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/final-status.log
+d2857fe39a6996a1d543772fe9369c2646a0f79d325e139e1920757886fc7a66  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/issue-tracker-demo.log
+b96d23fea8fd5c85089cf3f5655b304e34c6e4a38e4119d9807ad3857a73905b  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/test-all-clean.log
+126a22e91e292735028f32f62da412f8d22a382cfeca9b6b4465fc8fcf6a53ba  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p1/worktree-create.log
+p2 sha=be3f79fc6ba83410770fb6f7ce56b051b2204d93 dotnet_test=0 test_all_clean=0 issue_tracker_demo=0 port=5168 worktree=/tmp/nsharplang-strict-git-worktree-p2-20260517T040000Z
+afd052e1dbd57d50a779c1680f467b38929ce6521286574da977e701a4426884  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/baseline.log
+162de6820e310204b27b2c30a0320e43bfc4c57a69ee3a77653ac0de987c56d9  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/dotnet-test-parent.log
+7773e98326d4b3cdf64c9d72aac7c89c14a746be12bbb7ced046d78204f28072  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/final-status.log
+2a082cdd4138b40a6b54b99e03a51ac080946a06b08b5d14e5cbbf481a8a4ee5  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/issue-tracker-demo.log
+22a437542598121ba09d4d163279b3613357d2a648f1efe6473b7bb19f6c8d23  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/test-all-clean.log
+827fafc6906b4403ef6cc8c560a428e6458770e9e3d413936348cfecf0257ce8  /Users/spencer/code/nsharplang/docs/talk/gate-logs/strict-git-worktree-20260517T040000Z/p2/worktree-create.log
+finished_utc=2026-05-17T04:03:02Z

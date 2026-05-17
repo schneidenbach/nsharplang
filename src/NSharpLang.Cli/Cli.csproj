@@ -28,6 +28,12 @@
   <ItemGroup>
     <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <!-- Keep compiler runtime dependencies explicit for publish/deps.json.
+         Clean rehearsals can reuse prior Compiler builds, which otherwise lets
+         dotnet publish omit transitive ProjectReference runtime assets and leaves
+         the isolated demo CLI unable to parse project.yml. -->
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
 </Project>

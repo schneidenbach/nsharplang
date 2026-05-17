@@ -24,7 +24,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         _fixture = fixture;
     }
 
-    [Fact]
+    [DockerFact]
     public async Task InstallTemplates_ListsConsoleLibraryTestAndWebApi()
     {
         await Bash("dotnet new install NSharpLang.Templates --force");
@@ -37,7 +37,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         Assert.Contains("nsharp-webapi", list.Stdout);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task DotnetTemplates_ScaffoldCanonicalCsprojFreeShape()
     {
         await InstallTemplates();
@@ -63,7 +63,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         }
     }
 
-    [Fact]
+    [DockerFact]
     public async Task NlcNew_AndDotnetNewTemplates_ProduceCompatibleProjectShape()
     {
         await InstallTemplates();
@@ -101,7 +101,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         }
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ConsoleApp_ScaffoldsCorrectFiles()
     {
         var dir = UniqueDir("scaffold");
@@ -117,7 +117,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(check, "expected files exist");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ConsoleApp_BuildsSuccessfully()
     {
         var dir = UniqueDir("console-build");
@@ -129,7 +129,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(build, "nlc build (console)");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ConsoleApp_RunsAndProducesOutput()
     {
         var dir = UniqueDir("console-run");
@@ -142,7 +142,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         Assert.Contains("Hello, N#!", run.Stdout);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task LibraryTemplate_BuildsSuccessfully()
     {
         var dir = UniqueDir("library-build");
@@ -154,7 +154,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(build, "nlc build (library)");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task TestTemplate_TestsSuccessfully()
     {
         var dir = UniqueDir("test-run");
@@ -166,7 +166,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(test, "nlc test (test template)");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task WebApiApp_BuildsSuccessfully()
     {
         var dir = UniqueDir("webapi-build");
@@ -178,7 +178,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(build, "nlc build (webapi)");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task TemplateQuickstartDocs_ReplaySuccessfully()
     {
         await InstallTemplates();
@@ -207,7 +207,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         }
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CliTool_InstallsAndReportsVersion()
     {
         var install = await Bash("dotnet tool install -g NSharpLang.Cli");
@@ -217,7 +217,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         AssertSuccess(version, "nlc --version");
     }
 
-    [Fact]
+    [DockerFact]
     public async Task LanguageServer_Installs()
     {
         var install = await Bash("dotnet tool install -g NSharpLang.LanguageServer");
