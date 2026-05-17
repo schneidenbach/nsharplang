@@ -1,0 +1,195 @@
+# run_id=run1-20260516T224126Z
+# command_name=replay-template-quickstarts
+# start_utc=2026-05-16T22:51:24Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=bash -lc python3 -m py_compile scripts/replay-template-quickstarts.py && ./scripts/replay-template-quickstarts.py
+
+$ dotnet build /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release --disable-build-servers -v q
+
+Welcome to .NET 10.0!
+---------------------
+SDK Version: 10.0.107
+
+----------------
+Installed an ASP.NET Core HTTPS development certificate.
+To trust the certificate, run 'dotnet dev-certs https --trust'
+Learn about HTTPS: https://aka.ms/dotnet-https
+
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+
+Build succeeded.
+
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Analyzer.cs(5141,31): warning CS8604: Possible null reference argument for parameter 'typeRef' in 'TypeInfo Analyzer.ResolveType(TypeReference typeRef)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9872,41): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9926,67): warning CS8604: Possible null reference argument for parameter 'fieldName' in 'string ILCompiler.GetFieldKey(Type type, string fieldName)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(9944,51): warning CS8604: Possible null reference argument for parameter 'name' in 'PropertyInfo? Type.GetProperty(string name)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12989,39): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(12999,43): warning CS8604: Possible null reference argument for parameter 'con' in 'void ILGenerator.Emit(OpCode opcode, ConstructorInfo con)'. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14098,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14099,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14150,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/ILCompiler/ILCompiler.cs(14151,13): warning CS8602: Dereference of a possibly null reference. [/private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj]
+    10 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.67
+$ dotnet pack /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Compiler/Compiler.csproj -c Release -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages --disable-build-servers -v q
+$ dotnet pack /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages --disable-build-servers -v q
+$ dotnet pack /private/tmp/nsharplang-gate-20260516T223937Z/templates/NSharpLang.Templates.csproj -c Release -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages --disable-build-servers -v q
+$ dotnet pack /private/tmp/nsharplang-gate-20260516T223937Z/src/NSharpLang.Cli/Cli.csproj -c Release -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages --disable-build-servers -v q
+$ dotnet new install NSharpLang.Templates --nuget-source /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages --force
+The following template packages will be installed:
+   NSharpLang.Templates
+
+Success: NSharpLang.Templates::1.0.0 installed the following templates:
+Template Name           Short Name      Language  Tags         
+----------------------  --------------  --------  -------------
+N# Class Library        nsharp-library  N#        Library/N#   
+N# Console Application  nsharp-console  N#        Console/N#   
+N# Test Project         nsharp-test     N#        Test/xUnit/N#
+N# Web API Application  nsharp-webapi   N#        Web/WebAPI/N#
+
+$ dotnet tool install -g NSharpLang.Cli --add-source /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/packages
+Skipping NuGet package signature verification.
+You can invoke the tool using the following command: nlc
+Tool 'nsharplang.cli' (version '0.1.0') was successfully installed.
+
+== Replaying quickstart:console ==
+$ dotnet new nsharp-console -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console
+The template "N# Console Application" was created successfully.
+
+$ cd /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console
+$ nlc build
+Building project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console...
+  Determining projects to restore...
+  Restored /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console/docs_console.g.csproj (in 49 ms).
+  Generating N# IL compilation stub...
+  Emitting N# IL assembly to obj/Debug/net10.0/docs_console.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/docs_console.dll
+  docs_console.g -> /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console/bin/Debug/net10.0/docs_console.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.72
+Build successful! (debug) [0.8s]
+$ nlc run
+Building project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console...
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Generating N# IL compilation stub...
+  Emitting N# IL assembly to obj/Debug/net10.0/docs_console.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/docs_console.dll
+  docs_console.g -> /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-console/bin/Debug/net10.0/docs_console.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.53
+Build successful! (debug) [0.6s]
+
+Running...
+
+Hello, N#!
+
+== Replaying quickstart:library ==
+$ dotnet new nsharp-library -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-library
+The template "N# Class Library" was created successfully.
+
+$ cd /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-library
+$ nlc build
+Building project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-library...
+  Determining projects to restore...
+  Restored /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-library/docs_library.g.csproj (in 49 ms).
+  Generating N# IL compilation stub...
+  Emitting N# IL assembly to obj/Debug/net10.0/docs_library.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/docs_library.dll
+  docs_library.g -> /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-library/bin/Debug/net10.0/docs_library.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.56
+Build successful! (debug) [0.7s]
+
+== Replaying quickstart:test ==
+$ dotnet new nsharp-test -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test
+The template "N# Test Project" was created successfully.
+
+$ cd /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test
+$ nlc build
+Building project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test...
+  Determining projects to restore...
+  Restored /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test/docs_test.g.csproj (in 50 ms).
+  Generating N# IL compilation stub...
+  Emitting N# IL assembly to obj/Debug/net10.0/docs_test.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/docs_test.dll
+  docs_test.g -> /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test/bin/Debug/net10.0/docs_test.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.56
+Build successful! (debug) [0.7s]
+$ nlc test
+Testing project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test...
+Found 1 test file(s)
+
+Test run for /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-test/bin/Debug/net10.0/docs_test.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.2 (arm64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 1 ms - docs_test.dll (net10.0)
+  Tests completed in 2.0s
+
+== Replaying quickstart:webapi ==
+$ dotnet new nsharp-webapi -o /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi
+The template "N# Web API Application" was created successfully.
+
+$ cd /var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi
+$ nlc build
+Building project in /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi...
+  Determining projects to restore...
+  Restored /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/docs_webapi.g.csproj (in 462 ms).
+  Generating N# IL compilation stub...
+/private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/obj/Debug/net10.0/nsharp/__NSharpIlStub.g.cs(25,19): warning CS8618: Non-nullable field 'Summary' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the field as nullable. [/private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/docs_webapi.g.csproj]
+  Emitting N# IL assembly to obj/Debug/net10.0/docs_webapi.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/docs_webapi.dll
+  docs_webapi.g -> /private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/bin/Debug/net10.0/docs_webapi.dll
+
+Build succeeded.
+
+/private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/obj/Debug/net10.0/nsharp/__NSharpIlStub.g.cs(25,19): warning CS8618: Non-nullable field 'Summary' must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring the field as nullable. [/private/var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-template-quickstarts-m1v1lrw7/docs-webapi/docs_webapi.g.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.74
+Build successful! (debug) [1.9s]
+$ bash -lc 'set -e; ASPNETCORE_URLS=http://127.0.0.1:5050 nlc run > /tmp/nsharp-webapi-quickstart.log 2>&1 & pid=$!; for i in $(seq 1 40); do if curl -fsS http://127.0.0.1:5050/api/weather >/tmp/nsharp-webapi-quickstart-response.txt 2>/dev/null; then kill $pid; wait $pid 2>/dev/null || true; cat /tmp/nsharp-webapi-quickstart-response.txt; exit 0; fi; if ! kill -0 $pid 2>/dev/null; then cat /tmp/nsharp-webapi-quickstart.log; exit 1; fi; sleep 0.5; done; cat /tmp/nsharp-webapi-quickstart.log; kill $pid 2>/dev/null || true; exit 1'
+["Sunny","Cloudy","Rainy"]
+Replayed 4 template quickstarts successfully.
+
+# end_utc=2026-05-16T22:51:45Z
+# exit_code=0

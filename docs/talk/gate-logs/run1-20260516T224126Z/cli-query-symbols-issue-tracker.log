@@ -1,0 +1,89 @@
+# run_id=run1-20260516T224126Z
+# command_name=cli-query-symbols-issue-tracker
+# start_utc=2026-05-16T22:51:18Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=bash -lc dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query symbols --project examples/17-issue-tracker/backend --json | python3 -m json.tool | sed -n "1,80p"
+
+{
+    "schemaVersion": 1,
+    "command": "symbols",
+    "ok": true,
+    "projectRoot": "/private/tmp/nsharplang-gate-20260516T223937Z/examples/17-issue-tracker/backend",
+    "results": [
+        {
+            "name": "Routes",
+            "kind": "class",
+            "file": "Endpoints.nl",
+            "line": 14,
+            "column": 1,
+            "members": [
+                {
+                    "name": "Map",
+                    "kind": "function",
+                    "file": "Endpoints.nl",
+                    "line": 27,
+                    "column": 5,
+                    "typeName": "void",
+                    "parameters": [
+                        {
+                            "name": "app",
+                            "type": "WebApplication",
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                {
+                    "name": "HandleList",
+                    "kind": "function",
+                    "file": "Endpoints.nl",
+                    "line": 38,
+                    "column": 5,
+                    "typeName": "Task",
+                    "parameters": [
+                        {
+                            "name": "context",
+                            "type": "HttpContext",
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                {
+                    "name": "HandleCreate",
+                    "kind": "function",
+                    "file": "Endpoints.nl",
+                    "line": 45,
+                    "column": 5,
+                    "typeName": "Task",
+                    "parameters": [
+                        {
+                            "name": "context",
+                            "type": "HttpContext",
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                {
+                    "name": "ToResponse",
+                    "kind": "function",
+                    "file": "Endpoints.nl",
+                    "line": 74,
+                    "column": 5,
+                    "typeName": "IssueResponse",
+                    "parameters": [
+                        {
+                            "name": "issue",
+                            "type": "Issue",
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                {
+                    "name": "PriorityName",
+                    "kind": "function",
+                    "file": "Endpoints.nl",
+                    "line": 86,
+                    "column": 5,
+                    "typeName": "string",
+
+# end_utc=2026-05-16T22:51:19Z
+# exit_code=0

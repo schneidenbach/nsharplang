@@ -1,0 +1,53 @@
+Running headless VS Code smoke tests
+====================================
+
+1. Building language server
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Handlers/DidChangeWatchedFilesHandler.cs(102,35): warning CS8601: Possible null reference assignment. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Program.cs(98,34): warning CS8604: Possible null reference argument for parameter 'left' in 'bool DocumentUri.operator !=(DocumentUri left, DocumentUri right)'. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Program.cs(98,53): warning CS8625: Cannot convert null literal to non-nullable reference type. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+
+Build succeeded.
+
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Handlers/DidChangeWatchedFilesHandler.cs(102,35): warning CS8601: Possible null reference assignment. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Program.cs(98,34): warning CS8604: Possible null reference argument for parameter 'left' in 'bool DocumentUri.operator !=(DocumentUri left, DocumentUri right)'. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/Program.cs(98,53): warning CS8625: Cannot convert null literal to non-nullable reference type. [/Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/LanguageServer.csproj]
+    3 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.02
+
+2. Compiling VS Code extension and test harness
+
+> nsharp@0.6.0 compile
+> node ./node_modules/typescript/lib/tsc.js -p ./
+
+
+3. Executing headless VS Code smoke tests
+
+> nsharp@0.6.0 test:headless
+> node ./out/src/test/runTest.js
+
+- Resolving version...
+✔ Validated version: 1.120.0
+✔ Found existing install in /Users/spencer/code/nsharplang/editors/vscode/.vscode-test/vscode-darwin-arm64-1.120.0
+[90m[main 2026-05-16T22:07:00.233Z][0m StorageMainService: creating application shared storage
+[90m[main 2026-05-16T22:07:00.406Z][0m [shared storage] Creating shared storage database at ':memory:' (wasCreated: true)
+[90m[main 2026-05-16T22:07:00.406Z][0m [shared storage] Initializing fallback application storage (path: in-memory)
+[90m[main 2026-05-16T22:07:00.492Z][0m [shared storage] Fallback application storage initialized with 3 items
+[90m[main 2026-05-16T22:07:00.493Z][0m update#setState disabled
+[90m[main 2026-05-16T22:07:00.493Z][0m update#ctor - updates are disabled by the environment
+Started local extension host with pid 59853.
+Started initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-vscode-profile-bWVsxG/extensions
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+Completed initializing default profile extensions in extensions installation folder. file:///var/folders/c8/72qlgmvx05xb4gg89d2y63l80000gn/T/nsharp-vscode-profile-bWVsxG/extensions
+Loading development extension at /Users/spencer/code/nsharplang/editors/vscode
+[DefaultAccount] Authentication provider is not declared. { id: 'github', name: 'GitHub', enterprise: false }
+Settings Sync: Account status changed from uninitialized to unavailable
+N# language extension is now active
+Using N# Language Server at: /Users/spencer/code/nsharplang/src/NSharpLang.LanguageServer/bin/Release/net10.0/LanguageServer.dll
+N# Language Server started
+N# Test Controller registered
+[90m[main 2026-05-16T22:07:02.507Z][0m Extension host with pid 59853 exited with code: 0, signal: unknown.
+Exit code:   0
+
+Report: /Users/spencer/code/nsharplang/.hermes/visual-qa/t_bd0074d7-t_38c8dea4-20260516-170656/vscode-headless-report.json

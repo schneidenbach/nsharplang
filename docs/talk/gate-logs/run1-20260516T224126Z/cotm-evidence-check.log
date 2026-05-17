@@ -1,0 +1,17 @@
+# run_id=run1-20260516T224126Z
+# command_name=cotm-evidence-check
+# start_utc=2026-05-16T22:51:45Z
+# cwd=/tmp/nsharplang-gate-20260516T223937Z
+# command=bash -lc test -f docs/nsharp-conversion/ai-migration-recipe-library.md; test ! -f docs/nsharp-conversion/baseline-benchmark-20260514T213001Z/baseline-report.md; grep -R "Do not show raw COTM\|COTM remains internal\|No public COTM" -n docs/talk docs/nsharp-conversion docs/examples | sed -n "1,80p"
+
+docs/talk/release-notes.md:207:- Do not show raw COTM source/config/logs publicly.
+docs/talk/release-notes.md:215:- No public COTM demo claim. Evidence: `docs/talk/evidence-matrix.md` COTM redaction row and parent `t_d28776a7` redaction caveats.
+docs/talk/final-demo-script.md:299:- Do not show raw COTM source/config/logs.
+docs/talk/gate-logs/run1-20260516T224126Z/cotm-evidence-check.log:5:# command=bash -lc test -f docs/nsharp-conversion/ai-migration-recipe-library.md; test ! -f docs/nsharp-conversion/baseline-benchmark-20260514T213001Z/baseline-report.md; grep -R "Do not show raw COTM\|COTM remains internal\|No public COTM" -n docs/talk docs/nsharp-conversion docs/examples | sed -n "1,80p"
+docs/talk/fallback-plan.md:8:- Do not show raw COTM source/config/logs.
+docs/talk/fallback-plan.md:174:- Do not show raw COTM files.
+docs/talk/evidence-matrix.md:36:| COTM redaction scan | Filename/content signal scan only; no secret values printed | Broad scan found 5 sensitive-name hits and 123 sensitive-content file hits for auth/password/token/key/connection-like signals. | Do not show raw COTM files, screenshots, configs, docs, or logs publicly. Redacted subset required. |
+docs/talk/assets/README.md:115:- COTM remains internal-only; no COTM screenshots/logs are included.
+
+# end_utc=2026-05-16T22:51:45Z
+# exit_code=0

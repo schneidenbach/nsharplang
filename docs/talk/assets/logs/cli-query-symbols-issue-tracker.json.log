@@ -1,0 +1,891 @@
+$ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query symbols --project examples/17-issue-tracker/backend --json
+{
+  "schemaVersion": 1,
+  "command": "symbols",
+  "ok": true,
+  "projectRoot": "/Users/spencer/code/nsharplang/examples/17-issue-tracker/backend",
+  "results": [
+    {
+      "name": "Routes",
+      "kind": "class",
+      "file": "Endpoints.nl",
+      "line": 14,
+      "column": 1,
+      "members": [
+        {
+          "name": "Map",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 27,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "app",
+              "type": "WebApplication",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "HandleList",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 38,
+          "column": 5,
+          "typeName": "Task",
+          "parameters": [
+            {
+              "name": "context",
+              "type": "HttpContext",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "HandleCreate",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 45,
+          "column": 5,
+          "typeName": "Task",
+          "parameters": [
+            {
+              "name": "context",
+              "type": "HttpContext",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "ToResponse",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 74,
+          "column": 5,
+          "typeName": "IssueResponse",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "PriorityName",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 86,
+          "column": 5,
+          "typeName": "string",
+          "parameters": [
+            {
+              "name": "priority",
+              "type": "Priority",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "IsPriorityName",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 106,
+          "column": 5,
+          "typeName": "bool",
+          "parameters": [
+            {
+              "name": "priority",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "ParsePriority",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 110,
+          "column": 5,
+          "typeName": "Priority",
+          "parameters": [
+            {
+              "name": "priority",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "StatusType",
+          "kind": "function",
+          "file": "Endpoints.nl",
+          "line": 130,
+          "column": 5,
+          "typeName": "string",
+          "parameters": [
+            {
+              "name": "status",
+              "type": "IssueStatus",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CreateIssueRequest",
+      "kind": "record",
+      "file": "Endpoints.nl",
+      "line": 148,
+      "column": 1,
+      "members": [
+        {
+          "name": "Title",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 149,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Description",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 150,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Priority",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 151,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Tags",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 152,
+          "column": 5,
+          "typeName": "string[]"
+        }
+      ]
+    },
+    {
+      "name": "IssueStatusResponse",
+      "kind": "record",
+      "file": "Endpoints.nl",
+      "line": 155,
+      "column": 1,
+      "members": [
+        {
+          "name": "Type",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 156,
+          "column": 5,
+          "typeName": "string"
+        }
+      ]
+    },
+    {
+      "name": "IssueResponse",
+      "kind": "record",
+      "file": "Endpoints.nl",
+      "line": 159,
+      "column": 1,
+      "members": [
+        {
+          "name": "Id",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 160,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "Title",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 161,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Description",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 162,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Status",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 163,
+          "column": 5,
+          "typeName": "IssueStatusResponse"
+        },
+        {
+          "name": "Priority",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 164,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "CreatedAt",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 165,
+          "column": 5,
+          "typeName": "DateTime"
+        },
+        {
+          "name": "Tags",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 166,
+          "column": 5,
+          "typeName": "string[]"
+        }
+      ]
+    },
+    {
+      "name": "TransitionRequest",
+      "kind": "record",
+      "file": "Endpoints.nl",
+      "line": 169,
+      "column": 1,
+      "members": [
+        {
+          "name": "Status",
+          "kind": "property",
+          "file": "Endpoints.nl",
+          "line": 170,
+          "column": 5,
+          "typeName": "string"
+        }
+      ]
+    },
+    {
+      "name": "Workflow",
+      "kind": "class",
+      "file": "Workflow.nl",
+      "line": 10,
+      "column": 1,
+      "members": [
+        {
+          "name": "Transition",
+          "kind": "function",
+          "file": "Workflow.nl",
+          "line": 14,
+          "column": 12,
+          "typeName": "IssueStatus",
+          "modifiers": [
+            "static"
+          ],
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            },
+            {
+              "name": "to",
+              "type": "IssueStatus",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Priority",
+      "kind": "enum",
+      "file": "Models.nl",
+      "line": 10,
+      "column": 1,
+      "members": [
+        {
+          "name": "Low",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "Medium",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "High",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "Critical",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        }
+      ]
+    },
+    {
+      "name": "IssueStatus",
+      "kind": "union",
+      "file": "Models.nl",
+      "line": 20,
+      "column": 1,
+      "members": [
+        {
+          "name": "Open",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "InProgress",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "Closed",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        }
+      ]
+    },
+    {
+      "name": "IssueError",
+      "kind": "union",
+      "file": "Models.nl",
+      "line": 28,
+      "column": 1,
+      "members": [
+        {
+          "name": "NotFound",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "InvalidTransition",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        },
+        {
+          "name": "ValidationFailed",
+          "kind": "enumMember",
+          "file": "Models.nl",
+          "line": 0,
+          "column": 0
+        }
+      ]
+    },
+    {
+      "name": "Issue",
+      "kind": "record",
+      "file": "Models.nl",
+      "line": 35,
+      "column": 1,
+      "members": [
+        {
+          "name": "Id",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 36,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "Title",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 37,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Description",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 38,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Status",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 39,
+          "column": 5,
+          "typeName": "IssueStatus"
+        },
+        {
+          "name": "Priority",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 40,
+          "column": 5,
+          "typeName": "Priority"
+        },
+        {
+          "name": "CreatedAt",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 41,
+          "column": 5,
+          "typeName": "DateTime"
+        },
+        {
+          "name": "Tags",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 42,
+          "column": 5,
+          "typeName": "string[]"
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "kind": "record",
+      "file": "Models.nl",
+      "line": 45,
+      "column": 1,
+      "members": [
+        {
+          "name": "Id",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 46,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "Name",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 47,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "Email",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 48,
+          "column": 5,
+          "typeName": "string"
+        }
+      ]
+    },
+    {
+      "name": "Comment",
+      "kind": "record",
+      "file": "Models.nl",
+      "line": 51,
+      "column": 1,
+      "members": [
+        {
+          "name": "Id",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 52,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "IssueId",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 53,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "AuthorId",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 54,
+          "column": 5,
+          "typeName": "int"
+        },
+        {
+          "name": "Body",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 55,
+          "column": 5,
+          "typeName": "string"
+        },
+        {
+          "name": "CreatedAt",
+          "kind": "property",
+          "file": "Models.nl",
+          "line": 56,
+          "column": 5,
+          "typeName": "DateTime"
+        }
+      ]
+    },
+    {
+      "name": "FormatError",
+      "kind": "function",
+      "file": "Models.nl",
+      "line": 62,
+      "column": 1,
+      "typeName": "string",
+      "parameters": [
+        {
+          "name": "err",
+          "type": "IssueError",
+          "hasDefault": false
+        }
+      ]
+    },
+    {
+      "name": "IssueService",
+      "kind": "class",
+      "file": "Service.nl",
+      "line": 14,
+      "column": 1,
+      "members": [
+        {
+          "name": "CreateIssue",
+          "kind": "function",
+          "file": "Service.nl",
+          "line": 26,
+          "column": 5,
+          "typeName": "Issue",
+          "parameters": [
+            {
+              "name": "title",
+              "type": "string",
+              "hasDefault": false
+            },
+            {
+              "name": "description",
+              "type": "string",
+              "hasDefault": false
+            },
+            {
+              "name": "priority",
+              "type": "Priority",
+              "hasDefault": false
+            },
+            {
+              "name": "tags",
+              "type": "string[]",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "TransitionIssue",
+          "kind": "function",
+          "file": "Service.nl",
+          "line": 52,
+          "column": 5,
+          "typeName": "Issue",
+          "parameters": [
+            {
+              "name": "id",
+              "type": "int",
+              "hasDefault": false
+            },
+            {
+              "name": "newStatus",
+              "type": "IssueStatus",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "GetAll",
+          "kind": "function",
+          "file": "Service.nl",
+          "line": 68,
+          "column": 5,
+          "typeName": "List\u003CIssue\u003E",
+          "parameters": []
+        },
+        {
+          "name": "FindByPriority",
+          "kind": "function",
+          "file": "Service.nl",
+          "line": 72,
+          "column": 5,
+          "typeName": "List\u003CIssue\u003E",
+          "parameters": [
+            {
+              "name": "priority",
+              "type": "Priority",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "FindByTag",
+          "kind": "function",
+          "file": "Service.nl",
+          "line": 76,
+          "column": 5,
+          "typeName": "List\u003CIssue\u003E",
+          "parameters": [
+            {
+              "name": "tag",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "IssueStore",
+      "kind": "class",
+      "file": "Database.nl",
+      "line": 8,
+      "column": 1,
+      "members": [
+        {
+          "name": "GetAll",
+          "kind": "function",
+          "file": "Database.nl",
+          "line": 15,
+          "column": 5,
+          "typeName": "List\u003CIssue\u003E",
+          "parameters": []
+        },
+        {
+          "name": "Add",
+          "kind": "function",
+          "file": "Database.nl",
+          "line": 19,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "FindById",
+          "kind": "function",
+          "file": "Database.nl",
+          "line": 23,
+          "column": 5,
+          "typeName": "int",
+          "parameters": [
+            {
+              "name": "id",
+              "type": "int",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "GetAt",
+          "kind": "function",
+          "file": "Database.nl",
+          "line": 33,
+          "column": 5,
+          "typeName": "Issue",
+          "parameters": [
+            {
+              "name": "index",
+              "type": "int",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "Update",
+          "kind": "function",
+          "file": "Database.nl",
+          "line": 37,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "updated",
+              "type": "Issue",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "INotifier",
+      "kind": "interface",
+      "file": "Notifier.nl",
+      "line": 13,
+      "column": 1,
+      "members": [
+        {
+          "name": "Notify",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 14,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            },
+            {
+              "name": "message",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ConsoleNotifier",
+      "kind": "class",
+      "file": "Notifier.nl",
+      "line": 19,
+      "column": 1,
+      "members": [
+        {
+          "name": "Notify",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 20,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            },
+            {
+              "name": "message",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SlackNotifier",
+      "kind": "class",
+      "file": "Notifier.nl",
+      "line": 26,
+      "column": 1,
+      "members": [
+        {
+          "name": "Notify",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 33,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            },
+            {
+              "name": "message",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "NotifierHub",
+      "kind": "class",
+      "file": "Notifier.nl",
+      "line": 42,
+      "column": 1,
+      "members": [
+        {
+          "name": "Register",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 53,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "console",
+              "type": "ConsoleNotifier",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "Register",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 57,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "slack",
+              "type": "SlackNotifier",
+              "hasDefault": false
+            }
+          ]
+        },
+        {
+          "name": "Broadcast",
+          "kind": "function",
+          "file": "Notifier.nl",
+          "line": 62,
+          "column": 5,
+          "typeName": "void",
+          "parameters": [
+            {
+              "name": "issue",
+              "type": "Issue",
+              "hasDefault": false
+            },
+            {
+              "name": "message",
+              "type": "string",
+              "hasDefault": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

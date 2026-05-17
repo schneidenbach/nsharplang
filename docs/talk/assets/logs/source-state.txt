@@ -1,0 +1,12 @@
+$ git rev-parse HEAD
+e8b2084cdf0fa3bb602b239fee1a4a23b89766cc
+
+$ git status --short --branch
+## docs/template-quickstart-polish...origin/docs/template-quickstart-polish
+ M editors/vscode/test/suite/extension.test.ts
+?? .review-pr117/
+?? docs/talk/assets/
+?? docs/talk/final-demo-script.md
+?? editors/vscode/test/fixtures/simple/_diag_fix.nl
+?? examples/17-issue-tracker/.demo-artifacts/
+?? scripts/__pycache__/
