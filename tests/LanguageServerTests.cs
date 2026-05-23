@@ -2703,6 +2703,13 @@ func main(): void
         // String should have Length, ToUpper, Contains, etc.
         Assert.Contains(completions.Items, c => c.Label == "Length");
         Assert.Contains(completions.Items, c => c.Label == "ToUpper");
+
+        Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
+        Assert.Single(completions.Items.Where(c => c.Label == "EndsWith"));
+        Assert.Single(completions.Items.Where(c => c.Label == "CompareTo"));
+
+        var contains = Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
+        Assert.Contains("overload", contains.Detail);
     }
 
     [Fact]
@@ -2722,6 +2729,9 @@ func main(): void
         Assert.NotEmpty(completions.Items);
         Assert.Contains(completions.Items, c => c.Label == "WriteLine");
         Assert.Contains(completions.Items, c => c.Label == "Write");
+
+        Assert.Single(completions.Items.Where(c => c.Label == "WriteLine"));
+        Assert.Single(completions.Items.Where(c => c.Label == "Write"));
     }
 
     [Fact]

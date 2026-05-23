@@ -543,15 +543,29 @@ public class CompletionHandler : CompletionHandlerBase
                 MemberKind.Event => CompletionItemKind.Event,
                 _ => CompletionItemKind.Text
             },
-            Detail = member.Parameters != null
-                ? $"{member.Name}({member.Parameters}): {member.Type}"
-                : $"{member.Name}: {member.Type}",
+            Detail = GetMemberCompletionDetail(member),
             InsertText = member.Name,
             Documentation = !string.IsNullOrEmpty(member.Documentation)
                 ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
                 : null,
             AdditionalTextEdits = autoImportEdits
         }).ToList();
+    }
+
+    private static string GetMemberCompletionDetail(MemberCompletionItem member)
+    {
+        var detail = member.Parameters != null
+            ? $"{member.Name}({member.Parameters}): {member.Type}"
+            : $"{member.Name}: {member.Type}";
+
+        if (member.OverloadCount <= 1)
+        {
+            return detail;
+        }
+
+        var additionalOverloads = member.OverloadCount - 1;
+        var overloadLabel = additionalOverloads == 1 ? "overload" : "overloads";
+        return $"{detail} (+{additionalOverloads} {overloadLabel})";
     }
 
     /// <summary>

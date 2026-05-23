@@ -81,9 +81,13 @@ export async function run(): Promise<void> {
                     return labels.includes('ToUpper') ? value : undefined;
                 });
 
+            const duplicateLabels = findDuplicateLabels(completion.items);
+            assert.deepStrictEqual(duplicateLabels, [], `Duplicate completion labels: ${duplicateLabels.join(', ')}`);
+
             return {
                 count: completion.items.length,
-                sample: completion.items.slice(0, 10).map(item => normalizeLabel(item.label))
+                sample: completion.items.slice(0, 10).map(item => normalizeLabel(item.label)),
+                duplicateLabels
             };
         });
 
@@ -295,6 +299,19 @@ function findPosition(document: vscode.TextDocument, needle: string, offset = 0)
 
 function normalizeLabel(label: string | vscode.CompletionItemLabel): string {
     return typeof label === 'string' ? label : label.label;
+}
+
+function findDuplicateLabels(items: readonly vscode.CompletionItem[]): string[] {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+        const label = normalizeLabel(item.label);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+
+    return [...counts.entries()]
+        .filter(([, count]) => count > 1)
+        .map(([label]) => label)
+        .sort();
 }
 
 function stringifyHoverContent(content: vscode.MarkdownString | vscode.MarkedString): string {
