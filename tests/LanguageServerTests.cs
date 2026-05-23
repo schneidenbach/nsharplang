@@ -1334,6 +1334,54 @@ func main(): void
         Assert.Contains(sigHelp.Signatures, s => s.Label.Contains("Max"));
     }
 
+    [Fact]
+    public async Task SignatureHelp_StringInstanceMethod_ReturnsOverloadsAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message := ""hello""
+    message.Contains(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 21);
+
+        Assert.NotNull(sigHelp);
+        Assert.True(sigHelp.Signatures.Count() >= 2,
+            $"Expected string.Contains overloads, got {sigHelp.Signatures.Count()} signature(s)");
+        Assert.All(sigHelp.Signatures, signature => Assert.StartsWith("Contains(", signature.Label));
+        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: string"));
+        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: char"));
+        Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("comparisonType: StringComparison"));
+        Assert.Equal(0, sigHelp.ActiveParameter);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_StringInstanceMethod_SelectsArityCompatibleOverloadAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message := ""hello""
+    message.Substring(0, ";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 3, 25);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        Assert.Equal(1, sigHelp.ActiveParameter);
+
+        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
+        Assert.Contains("length: int", activeSignature.Label);
+    }
+
     #endregion
 
     #region Definition Tests
@@ -2703,6 +2751,13 @@ func main(): void
         // String should have Length, ToUpper, Contains, etc.
         Assert.Contains(completions.Items, c => c.Label == "Length");
         Assert.Contains(completions.Items, c => c.Label == "ToUpper");
+
+        Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
+        Assert.Single(completions.Items.Where(c => c.Label == "EndsWith"));
+        Assert.Single(completions.Items.Where(c => c.Label == "CompareTo"));
+
+        var contains = Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
+        Assert.Contains("overload", contains.Detail);
     }
 
     [Fact]
@@ -2722,6 +2777,9 @@ func main(): void
         Assert.NotEmpty(completions.Items);
         Assert.Contains(completions.Items, c => c.Label == "WriteLine");
         Assert.Contains(completions.Items, c => c.Label == "Write");
+
+        Assert.Single(completions.Items.Where(c => c.Label == "WriteLine"));
+        Assert.Single(completions.Items.Where(c => c.Label == "Write"));
     }
 
     [Fact]
