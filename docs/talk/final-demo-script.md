@@ -217,7 +217,7 @@ Evidence:
 - Reviewer browser screenshots from `t_94785070`: rendered app with API live and issue creation.
 
 Do not say:
-- Do not pretend this is pure N# all the way down. The demo includes a React/TypeScript frontend and an ASP.NET bridge where needed.
+- Do not pretend this is pure N# all the way down. The demo includes a React/TypeScript frontend, while the backend routes are normal N# ASP.NET Minimal API handlers.
 - Do not include `.demo-artifacts/backend.log` in slides without checking it for environment-specific noise.
 
 Fallback:

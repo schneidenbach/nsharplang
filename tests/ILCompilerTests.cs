@@ -1883,6 +1883,39 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_TargetTypedAspNetRequestDelegateLiftedLocalMappedOnWebApplication_MaterializesEndpoint()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+import NSharpLang.Tests
+
+class RouteProbe {
+    func Handle(context: HttpContext): Task {
+        return context.Response.WriteAsync(""ok"")
+    }
+
+    func Run(): int {
+        builder := WebApplication.CreateBuilder()
+        app := builder.Build()
+        healthHandler: RequestDelegate = context => context.Response.WriteAsync(""ok"")
+        listHandler: RequestDelegate = context => Handle(context)
+        app.MapGet(""/api/health"", healthHandler)
+        app.MapGet(""/api/issues"", listHandler)
+        return DelegateInteropProbe.MaterializeAspNetEndpoints(app)
+    }
+}
+
+func main(): int {
+    probe := new RouteProbe()
+    return probe.Run()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(2, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_TargetTypedAspNetFuncLambda_StillEmitsFuncDelegate()
     {
         var source = @"
