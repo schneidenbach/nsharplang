@@ -4,6 +4,7 @@
   "description": "Full language support for N# — a Go-inspired language for .NET. IntelliSense, diagnostics, formatting, tasks, and more.",
   "version": "0.6.0",
   "publisher": "nsharp",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/anthropics/NewCLILang"
