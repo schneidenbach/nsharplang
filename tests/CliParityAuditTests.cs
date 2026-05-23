@@ -500,8 +500,6 @@ func Main() {
 
         var exportedCliTypes = typeof(NSharpLang.Cli.CommandRegistry).Assembly.GetExportedTypes();
         Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("ConvertCommand") == true);
-        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("RemovedInternalMigrationTool") == true);
-        Assert.DoesNotContain(exportedCliTypes, type => type.FullName?.Contains("RemovedInternalMigrationResult") == true);
     }
 
     // ── Step 5: Error message suggestions ───────────────────────────────

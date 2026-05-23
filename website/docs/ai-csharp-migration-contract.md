@@ -21,7 +21,7 @@ nlc format --check --project .
 nlc test --project .
 ```
 
-There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass, record any migration prototype output as scratch evidence only, and still enforce the `check`/`idiom`/`fix`/format/test gates.
+There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass and still enforce the `check`/`idiom`/`fix`/format/test gates.
 
 ## What review-ready N# means
 

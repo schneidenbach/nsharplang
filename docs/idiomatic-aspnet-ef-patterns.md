@@ -5,7 +5,7 @@ Scope: ASP.NET Core controllers/minimal APIs, EF Core queries, DI, validation, t
 
 ## Assumptions
 
-- The SampleMigration migration corpus is an internal validation target, not a public converter demo. Review SampleMigration through the AI diagnostic migration loop: AI-authored `.nl`, `nlc query diagnostics --clusters`, `nlc check --json`, `nlc idiom`, reviewed `nlc fix --dry-run --json`, format, and tests.
+- Treat private migration corpora as internal validation targets, not public converter demos. Review migrations through the AI diagnostic loop: AI-authored `.nl`, `nlc query diagnostics --clusters`, `nlc check --json`, `nlc idiom`, reviewed `nlc fix --dry-run --json`, format, and tests.
 - N# stays "Go for .NET": terse syntax, Go-style casing for default visibility, direct .NET interop, no wrapper framework unless interop forces it.
 - These are source-style rules for migration implementers and reviewers. Do not invent new language features to satisfy this document unless called out in compiler/tooling follow-up.
 

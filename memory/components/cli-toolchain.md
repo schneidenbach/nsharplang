@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating converter output as final.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating initial migration output as final.
 
 ---
 
@@ -38,7 +38,7 @@ The executable toolchain is now IL-only:
 
 ### C# Source Migration
 
-There is no public `nlc convert` command in the canonical CLI contract. C#→N# migration is AI-driven: write idiomatic `.nl` directly, use `nlc check --json` diagnostic clusters as the edit queue, clear `nlc idiom` C# debt, apply reviewed `nlc fix` patches, format, and test. Prototype syntax-converter output, if present in a local branch, is scratch evidence only and must not be blessed as migrated N#.
+There is no public `nlc convert` command in the canonical CLI contract. C#→N# migration is AI-driven: write idiomatic `.nl` directly, use `nlc check --json` diagnostic clusters as the edit queue, clear `nlc idiom` C# debt, apply reviewed `nlc fix` patches, format, and test.
 
 ### Code Intelligence (`nlc query`)
 

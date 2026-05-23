@@ -1,20 +1,20 @@
 # N# Migration Refactoring Loop
 
 Status: prototype operations design
-Scope: LLM-assisted migration cleanup after a C# to N# conversion snapshot, especially SampleMigration-style ASP.NET Core / EF Core / xUnit / FluentValidation apps
+Scope: LLM-assisted migration cleanup after a C# to N# migration snapshot, especially ASP.NET Core / EF Core / xUnit / FluentValidation apps
 
 ## Why this exists
 
 Large migrations should not be one giant "fix everything" prompt. Treat them as a controlled loop: snapshot the repository, run the compiler and checks, cluster failures, choose the safest recipe, make idiomatic N# edits, test the affected slice, and repeat until the project is green. Then do a final idiom audit so the output is real N#, not transliterated C#.
 
-This document is an artifact for operators and future tooling. It assumes the converted N# snapshot already exists. If only C# input exists, stop and create a separate AI-assisted conversion/restoration plan before starting this loop.
+This document is an artifact for operators and future tooling. It assumes the migrated N# snapshot already exists. If only C# input exists, stop and create a separate AI-assisted migration/restoration plan before starting this loop.
 
 ## Non-goals
 
 - Do not rewrite unrelated dirty files.
 - Do not paper over unsupported compiler or language gaps with app-specific edits.
 - Do not mutate source automatically from a clustering/prototype tool unless the operator explicitly opts into that behavior.
-- Do not claim SampleMigration behavioral compatibility without the original SampleMigration source, tests, route contract, database assumptions, and secrets/test infrastructure.
+- Do not claim application behavioral compatibility without the original source, tests, route contract, database assumptions, and secrets/test infrastructure.
 
 ## Loop overview
 
@@ -226,9 +226,9 @@ Audit checklist:
 - Tests are idiomatic N# except for documented xUnit interop fixtures.
 - Remaining C#-isms are documented framework interop exceptions, not leftovers.
 
-## SampleMigration-style acceptance criteria
+## Application acceptance criteria
 
-A SampleMigration-style migration is acceptable when all applicable items are true:
+An application migration is acceptable when all applicable items are true:
 
 - `nlc check --project <project-dir> --json`, `nlc lint --project <project-dir> --json`, `nlc idiom --project <project-dir>`, `dotnet build`, and app-level `dotnet test` pass for migrated projects, with command output archived and exit codes recorded.
 - Controllers or minimal endpoints retain routes, status codes, request/response shapes, and validation behavior, verified by at least one concrete artifact per migrated API slice: original source/test reference, endpoint/integration test log, OpenAPI or route snapshot diff, golden request/response fixture comparison, or an explicit blocked note naming the missing prerequisite.
@@ -261,7 +261,7 @@ Include this in the final migration run handoff:
 - Recipes applied and files touched by each recipe.
 - Targeted tests run and why they were selected.
 - Full checks run, or explicit reasons they were not run.
-- SampleMigration acceptance criteria status: pass/fail/not applicable/blocked for each item.
+- Application acceptance criteria status: pass/fail/not applicable/blocked for each item.
 - Public API/route/data/validation changes requiring human review.
 - Remaining C#-ism exceptions and why they are acceptable interop.
 - Rollback point or patch bundle location.

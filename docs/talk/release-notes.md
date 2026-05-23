@@ -188,31 +188,12 @@ Caveat:
 - Do not claim semantic reference-count CodeLens click-through is visually proven. `t_bd0074d7` explicitly marks CodeLens/reference-count as partial/negative evidence.
 - Do not claim F5/debug is complete. `templates/README.md` states F5/debug is intentionally hidden until a real debugger-backed workflow exists.
 
-### 7. C# to N# migration is diagnostic-driven, not a magic converter
-
-Claim:
-- The migration story is an AI-assisted loop: capture diagnostics, cluster root causes, apply recipes, rerun checks/tests, and review behavior-affecting edits.
-
-Evidence artifacts:
-- `docs/migration-notes/migration-recipe-library.md`
-- Parent `t_d28776a7` handoff: baseline benchmark had 79 failure/debt groups, command coverage for `nlc check/lint/idiom/fix --dry-run/test`, and a high-confidence redaction scan.
-- Parent `t_0bf73bad` handoff: Entities green slice reached `nlc check` 0 errors, diagnostics clusters 0, and focused `dotnet build` 0 errors.
-- Parent `t_9beefea6` handoff: API green slice captured route snapshot and named the `NL103` method-attribute emission gap instead of hiding it.
-
-Public wording:
-> “Migration is evidence-driven: diagnostics, clusters, recipes, checks, tests, review. No public magic convert button.”
-
-Caveat:
-- The task-requested local path `docs/migration-notes/baseline-benchmark-20260514T213001Z/baseline-report.md` is not present in this checkout. Cite the task handoff and available recipe library unless that artifact is restored.
-- Do not show raw SampleMigration source/config/logs publicly.
-
 ## Explicit non-claims
 
 These are release-note guardrails, not footnotes:
 
-- No public `nlc convert` command. Evidence: `README.md:168`, `docs/migration-notes/migration-recipe-library.md:6`, and task `t_fca31d81` command `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- convert --help` returned `Unknown command: convert`.
+- No public `nlc convert` command. Evidence: `README.md:168` and task `t_fca31d81` command `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- convert --help` returned `Unknown command: convert`.
 - No “full product launch-green” claim unless `./scripts/test-all.sh` passes in the final environment or clean checkout. Evidence: `docs/talk/evidence-matrix.md` no-go gate and final rehearsal task dependency.
-- No public SampleMigration demo claim. Evidence: `docs/talk/evidence-matrix.md` SampleMigration redaction row and parent `t_d28776a7` redaction caveats.
 - No CodeLens/reference-count visual claim unless stronger evidence supersedes `t_bd0074d7`.
 - No public NuGet/package installation claim until the package artifacts/install logs task supplies evidence.
 

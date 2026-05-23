@@ -25,23 +25,13 @@ class Routes {
     }
 
     func Map(app: WebApplication) {
-        healthHandler: RequestDelegate = context => context.Response.WriteAsync("ok")
-        listHandler: RequestDelegate = context => HandleList(context)
         createHandler: RequestDelegate = context => HandleCreate(context)
 
-        app.MapGet("/api/health", healthHandler)
-        app.MapGet("/api/issues", listHandler)
+        app.MapGet("/api/health", () => "ok")
+        app.MapGet("/api/issues", () => service.GetAll().Select(issue => ToResponse(issue)).ToArray())
         app.MapPost("/api/issues", createHandler)
     }
 
-    // RequestDelegate handler implemented in N#; serializes the service response directly.
-    func HandleList(context: HttpContext): Task {
-        context.Response.ContentType = "application/json"
-        response := service.GetAll().Select(issue => ToResponse(issue)).ToList()
-        return context.Response.WriteAsJsonAsync(response, jsonOptions)
-    }
-
-    // Returns Task by calling WriteAsync — satisfies RequestDelegate signature.
     func HandleCreate(context: HttpContext): Task {
         reader := new StreamReader(context.Request.Body)
         body := reader.ReadToEndAsync().Result
@@ -68,7 +58,8 @@ class Routes {
         }
 
         context.Response.StatusCode = 201
-        return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions)
+        response := ToResponse(issue)
+        return context.Response.WriteAsJsonAsync(response)
     }
 
     func ToResponse(issue: Issue): IssueResponse {

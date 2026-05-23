@@ -366,7 +366,7 @@ Linter rules:
 
 ## Before/after examples
 
-### SampleMigration-style request DTO
+### API request DTO
 
 Before (copied C#-style migration input, not idiomatic N#):
 
@@ -550,11 +550,11 @@ The EF class stays EF-shaped; the API returns a record DTO.
 - Provides safe autofix for `Name = value` to `Name: value` only when parsed in initializer-entry context.
 - Provides non-autofix guidance for DTO class-to-record conversion.
 - Provides non-autofix warning when EF entity types leak through API boundaries.
-- Provides migration-tooling diagnostics for SampleMigration leftovers; these feed the AI diagnostic migration loop instead of blessing one-shot syntax conversion.
+- Provides migration-tooling diagnostics for C# leftovers; these feed the AI diagnostic migration loop instead of blessing one-shot syntax conversion.
 
 ### AI/prototype migration drafts
 
-- Initial migration drafts, whether AI-authored or produced by an internal prototype, should prefer N# records for C# DTO classes with only auto-properties.
+- Initial migration drafts should prefer N# records for C# DTO classes with only auto-properties.
 - Preserve classes when the C# type has behavior, constructors with invariants, mutable lifecycle, EF attributes/configuration, inheritance/proxies, or framework base classes.
 - Normalize object initializers to `new Type { Name: value }` and `with` expressions to `with { Name: value }` during the check/idiom/fix/format/test loop.
 - Emit or retain migration notes when unsure whether a class is an EF entity or DTO; do not treat prototype output as review-ready without the diagnostic loop.

@@ -15,7 +15,7 @@
 - N# remains null-aware, not null-free. The design doc explicitly says N# embraces .NET null and C# nullable reference types.
 - `T?` stays the spelling for nullable references and nullable values. `T` is non-null by default.
 - C# interop is a first-order product constraint. Any N# feature that cannot be represented to C# must either erase cleanly or emit normal C# nullable annotations.
-- SampleMigration artifacts are treated as migration symptoms, not user intent:
+- C# migration artifacts are treated as migration symptoms, not user intent:
   - `null!` / `default!`: suppresses definite assignment or nullable warnings instead of modeling state.
   - `x!.Y`: asserts not-null at the use site, often hiding missing flow narrowing.
   - `nullable.HasValue` / `nullable.Value`: C# value-nullable pattern that reads badly in N# and encourages unsafe `.Value`.
@@ -571,14 +571,13 @@ The C# -> N# converter should preserve nullable syntax but rewrite artifacts whe
 
 ### Task 8: Add migration artifact lints/code fixes
 
-**Objective:** Turn SampleMigration artifacts into actionable migration guidance.
+**Objective:** Turn C# migration artifacts into actionable migration guidance.
 
 **Files:**
-- Modify: `src/NSharpLang.Compiler/Parser.cs` if C# artifact syntax is accepted during conversion
+- Modify: `src/NSharpLang.Compiler/Parser.cs` if C# artifact syntax is accepted during migration cleanup
 - Modify: `src/NSharpLang.Compiler/Linter.cs`
 - Modify: `src/NSharpLang.Compiler/CodeFix.cs`
-- Modify: C# converter files if present
-- Test: `tests/LinterTests.cs`, `tests/CodeFixTests.cs`, converter tests
+- Test: `tests/LinterTests.cs`, `tests/CodeFixTests.cs`
 
 **Steps:**
 1. Detect `null!`, `default!`, and `x!.Y` if the parser/converter sees them.

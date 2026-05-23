@@ -10,7 +10,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 ## CLI and Migration
 
-- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, `nlc idiom`, reviewed `nlc fix --dry-run`, formatting, and tests. Migration prototype code, if present in a checkout, is scratch/internal and should not appear as a public migration promise.
+- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, `nlc idiom`, reviewed `nlc fix --dry-run`, formatting, and tests.
 - **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
 ## Language Semantics
@@ -35,4 +35,4 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 - Avoid absolute claims such as "perfect interop," "all features implemented," "production-ready," or "it just works" unless the exact scenario is backed by a fresh gate.
 - Prefer phrases like "designed for," "covered scenarios," "curated examples," and "verify with" when describing active surfaces.
-- Keep SampleMigration/internal migration artifacts private unless explicitly redacted and approved.
+- Keep private migration artifacts out of the repository unless explicitly redacted and approved.

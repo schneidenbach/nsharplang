@@ -122,7 +122,7 @@ Agent rules:
 - Treat `nlc fix --dry-run --json` as a patch planner. Apply `safe` fixes automatically only after inspecting the target diff; require human/agent review for `reviewNeeded`; record rationale for `suggestionOnly` waivers.
 - Re-run the loop after each cluster of changes. Passing tests with a poor idiom grade is not enough for an AI-assisted migration handoff.
 
-There is intentionally no `nlc convert` command in the public migration loop. If a migration prototype exists in a local build, treat it as non-contractual scratch output only; never mark migrated code done until diagnostics, idiom debt, formatting, and tests are clean.
+There is intentionally no `nlc convert` command in the public migration loop. Never mark migrated code done until diagnostics, idiom debt, formatting, and tests are clean.
 
 ## Migration Idiom Report
 
@@ -140,7 +140,7 @@ The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomati
 - idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`
 - migration cleanup signals: DTO-shaped classes that might become records, visibility/casing conflicts, and TODO/manual-review islands
 
-The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `schemaVersion` is currently `2`, `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, `findings[]` gives one machine-checkable item per migration-quality issue (`id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, `confidence`), and `recommendations[]` is ordered migration guidance. Because `snippet` contains source text, share reports outside the project only after redacting proprietary code. A redacted SampleMigration sample lives at `docs/examples/idiom-v2.sample.json`.
+The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `schemaVersion` is currently `2`, `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, `findings[]` gives one machine-checkable item per migration-quality issue (`id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, `confidence`), and `recommendations[]` is ordered migration guidance. Because `snippet` contains source text, share reports outside the project only after redacting proprietary code.
 
 ## Exit Codes
 

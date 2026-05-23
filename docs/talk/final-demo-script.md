@@ -5,7 +5,6 @@ Talk operator checklist:
 - Use repo-local commands (`dotnet run --project src/NSharpLang.Cli/Cli.csproj -- ...`) unless the final package-install task proves a clean `nlc` tool is installed.
 - Capture or refresh terminal/IDE/browser screenshots before the talk; do not depend on network, Docker, or a live GitHub API during the talk.
 - Keep `examples/17-issue-tracker/.demo-artifacts/` from a fresh `ISSUE_TRACKER_HOLD=0 ./scripts/demo.sh` run available for static fallback.
-- Never show raw SampleMigration source/config/log files. Use only redacted docs under `docs/migration-notes/` and task handoff summaries.
 - Do not say or imply there is a public `nlc convert` command.
 
 ## Evidence categories for the operator
@@ -26,13 +25,11 @@ Safe to demo live after same-day dry run:
 Experimental / caveated:
 - Full end-to-end launch-green status: requires `./scripts/test-all.sh` green in clean checkout. Evidence matrix originally marked this red from a VS Code integration timeout; later parent evidence in `t_3039dc17` says it passed after restore, so re-run before claiming.
 - CodeLens/reference-count click-through: visual evidence was partial/negative in `t_bd0074d7`; keep semantic CodeLens counts out of the live claim unless a stronger screenshot exists.
-- SampleMigration migration: source-grounded internal validation story only. Evidence: `docs/migration-notes/migration-recipe-library.md` and parent handoffs; the task-requested `baseline-report.md` path is not present in this checkout, so do not cite it as a local file until restored.
 - Public package availability: package/install artifacts are assigned to the separate package task; do not claim NuGet/public install is complete from this script alone.
 
 Do not say:
 - “N# is launch-green” unless the final rehearsal gate proves it.
 - “The full suite is green” unless `./scripts/test-all.sh` is green in the talk environment or clean checkout.
-- “SampleMigration compiles/runs end-to-end in N#” or “SampleMigration is safe to show publicly.”
 - “Run `nlc convert`” or “N# has a public one-shot C# converter.” The supported migration framing is AI-assisted diagnostic/idiom/fix/test iteration.
 - “CodeLens reference counts are visually proven” unless new visual proof exists beyond the partial evidence in `t_bd0074d7`.
 
@@ -279,29 +276,6 @@ Do not say:
 
 Fallback:
 - Use static screenshots/recordings. Do not open a live, dirty VS Code profile on stage if Copilot/keychain/sidebar noise is visible.
-
-### 10:00–11:15 — Migration story: AI-assisted, evidence-driven, not one-shot convert
-
-Show docs only, not raw customer/project files:
-```bash
-sed -n '1,80p' docs/migration-notes/migration-recipe-library.md
-```
-
-Safe-to-say wording:
-> “The migration story is not ‘press a magic convert button.’ The evidence says the honest loop is diagnostics, cluster root causes, apply one recipe, rerun checks/tests, and review behavior-changing edits.”
-
-Evidence:
-- `docs/migration-notes/migration-recipe-library.md` states the loop and recipe families.
-- Parent `t_d28776a7` handoff records a baseline benchmark with 79 failure/debt clusters and redaction audit, but the requested `baseline-report.md` file is not present in this checkout.
-- Parent `t_0bf73bad` handoff: Entities green slice had `nlc check` 0 errors, diagnostics clusters 0, and focused `dotnet build` 0 errors.
-
-Do not say:
-- Do not show raw SampleMigration source/config/logs.
-- Do not say SampleMigration is safe for public demo.
-- Do not say there is a public `nlc convert` command.
-
-Fallback:
-- Use a slide with the recipe loop and the artifact references from the recipe library.
 
 ### 11:15–12:00 — Close with the honest release posture
 

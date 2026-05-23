@@ -36,7 +36,7 @@ Proceed with a constrained pre-talk story only:
 - Safe: curated `nlc check` on `templates/nsharp-console`.
 - Safe: curated `nlc query symbols` JSON on `examples/17-issue-tracker/backend`.
 - Safe with caveat: VS Code diagnostics/hover/completions are smoke-tested; capture a real screenshot/clip before using visual claims.
-- Internal-only: SampleMigration is a large validation corpus, not public proof and not demo material.
+- Internal-only validation corpora are not public proof or demo material.
 
 Do not claim:
 
@@ -45,7 +45,7 @@ Do not claim:
 - full VS Code integration/zero-config debug/task polish;
 - safe semantic rename/references/definition on unsaved buffers;
 - CodeLens/reference-count correctness;
-- public SampleMigration migration success;
+- public migration success for private application corpora;
 - public installability/package publishing;
 - docs/site launch polish;
 - “perfect” or “seamless” C# interop.
@@ -108,21 +108,21 @@ DEFER:
 - Full VS Code integration claims until full `npm test`/`./scripts/test-all.sh` completes reliably and a real VS Code visual pass is captured.
 - Semantic refactor claims until open-buffer project snapshots exist or risky operations are disabled when snapshots are stale.
 
-### Migration / SampleMigration
+### Migration
 
 ACCEPT:
 
 - No public `nlc convert` command. The contract is AI-authored `.nl` plus `nlc check`, `nlc idiom`, `nlc fix --dry-run`, format, and tests.
-- SampleMigration as an internal validation target.
+- Private application corpora as internal validation targets only.
 
 REJECT:
 
-- Raw SampleMigration screenshots/files/configs/logs in public material.
-- “SampleMigration successfully migrated” or “real app migrated” as a public proof point based on inventory alone.
+- Raw private application screenshots/files/configs/logs in public material.
+- “Real app migrated” as a public proof point based on inventory alone.
 
 DEFER:
 
-- Public SampleMigration story until there is a redacted subset, security approval, and fresh `nlc check`/build/test/idiom evidence.
+- Public migration proof for private application corpora until there is a redacted subset, security approval, and fresh `nlc check`/build/test/idiom evidence.
 
 ### Docs / site
 
@@ -160,27 +160,27 @@ DEFER:
 
 Aspect: operations
 
-Codex initial position: full `test-all` timed out, full VS Code integration is not green, screenshots are absent, SampleMigration is inventory-only, package publishing is unverified.
+Codex initial position: full `test-all` timed out, full VS Code integration is not green, screenshots are absent, private application corpus evidence is inventory-only, package publishing is unverified.
 
 Debate result: DEFENDED as critical.
 
 Decision: do not say launch-ready/full-suite-green. Use only unit/main-build/VS Code-smoke/curated CLI demo language.
 
-### [CRITICAL] Raw SampleMigration is not public-demo safe
+### [CRITICAL] Raw private app material is not public-demo safe
 
 Aspect: security
 
-Codex initial position: SampleMigration has sensitive-name/content signals and explicit “do not show raw SampleMigration” guidance.
+Codex initial position: private app material has sensitive-name/content signals and explicit “do not show raw private app material” guidance.
 
 Debate result: DEFENDED as critical.
 
-Decision: keep SampleMigration internal until redacted, approved, and validated.
+Decision: keep private app material internal until redacted, approved, and validated.
 
-### [WARNING] SampleMigration inventory is not migration proof
+### [WARNING] Private app inventory is not migration proof
 
 Aspect: correctness
 
-Decision: defer public SampleMigration migration success claims until check/build/test/idiom evidence exists.
+Decision: defer public private-app migration success claims until check/build/test/idiom evidence exists.
 
 ### [CRITICAL] Project model story is internally inconsistent
 
@@ -276,7 +276,7 @@ Decision: defer install/publish claims until clean-machine install evidence exis
 4. Show `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- check --project templates/nsharp-console --text`.
 5. Show `dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query symbols --project examples/17-issue-tracker/backend --json`.
 6. If a real VS Code clip/screenshot is captured, show diagnostics/hover/completions only; otherwise show smoke test output.
-7. Say explicitly: “The full end-to-end suite and SampleMigration public demo are pre-talk gates, not proof points today.”
+7. Say explicitly: “The full end-to-end suite is a pre-talk gate, not a proof point today.”
 
 ## Immediate next gates before stronger claims
 
@@ -285,6 +285,6 @@ Decision: defer install/publish claims until clean-machine install evidence exis
 3. Fix VS Code tasks/debug/test workflow and visually verify in real VS Code.
 4. Merge/review/verify PR #106 or remove CodeLens/reference-count claims.
 5. Disable or replace unsafe LSP text fallbacks for rename/references when snapshots are stale.
-6. Produce redacted SampleMigration subset plus fresh validation logs.
+6. Produce an approved redacted private-app subset plus fresh validation logs before making any private-app migration proof claim.
 7. Keep docs/site stale-count, install/marketplace/debug, and production-ready wording under the claim audit; rerun docs build before launch.
 8. Run clean-machine package/template/CLI/VSIX install tests.

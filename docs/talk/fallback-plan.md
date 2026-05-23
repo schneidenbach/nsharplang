@@ -5,7 +5,6 @@ Goal: every demo beat has a no-live-dependency path. If network, Docker, VS Code
 Global fallback rules:
 - Prefer local static artifacts over live network calls.
 - Do not use public tunnels or public preview URLs.
-- Do not show raw SampleMigration source/config/logs.
 - Do not invent outputs. If an artifact is missing, downgrade the spoken claim.
 - Keep the no-public-`nlc convert` direction intact.
 
@@ -56,7 +55,6 @@ The optional `docs/talk/artifacts/` directory does not exist yet in this checkou
 | Issue tracker browser UI | Local server/browser | `./scripts/demo.sh` then open `http://localhost:5167` | Screenshot/recording from reviewer proof or final rehearsal | “This is the captured browser proof from the green demo run.” | “This is live” if static. |
 | Templates quickstart replay | Local package build, temp HOME/feed, .NET, webapi port | `python3 -m py_compile scripts/replay-template-quickstarts.py && ./scripts/replay-template-quickstarts.py` | Captured `template-replay.txt`; `templates/README.md`; task `t_f9f28953` | “The quickstart commands are replay-tested; here is the proof output.” | “Public install is final” unless package artifact task proves it. |
 | VS Code core features | VS Code UI, extension host, host profile cleanliness | `cd editors/vscode && npm run test:smoke`; visual screenshots | `.hermes/visual-qa/t_bd0074d7-20260516-024609/screenshots/` and `vscode-headless-report.json` | “Core IDE basics have smoke and visual evidence.” | “CodeLens reference counts are visually proven”; “F5 debugging is complete.” |
-| Migration story | None if using docs only | `sed -n '1,80p' docs/migration-notes/migration-recipe-library.md` | Slides from `migration-recipe-library.md`; handoffs `t_d28776a7`, `t_0bf73bad`, `t_9beefea6` | “Migration is diagnostic-driven and internally validated with redacted artifacts.” | “Raw SampleMigration is safe to show”; “SampleMigration compiles/runs end-to-end”; “use nlc convert.” |
 | Release posture close | None | Show `release-notes.md` and gate list | `docs/talk/release-notes.md`; `docs/talk/evidence-matrix.md` | “These are the evidence-backed claims and remaining gates.” | “Launch-green” unless final rehearsal and review gate approve it. |
 
 ## Failure-specific playbooks
@@ -136,7 +134,7 @@ No main talk beat should require Docker.
 Use:
 - Avoid Testcontainers-dependent integration tests.
 - For template quickstarts, use standalone replay evidence from `t_f9f28953`; it was accepted despite Docker blocking the integration test host.
-- For SampleMigration/test green-slice discussion, cite the blocker honestly from parent handoffs.
+- For migrated app green-slice discussion, cite the blocker honestly from parent handoffs.
 
 Say:
 > “Docker-dependent tests are not part of the live talk path. Where Docker was unavailable, the evidence labels it as an environment blocker rather than hiding it.”
@@ -157,22 +155,6 @@ Say:
 Do not say:
 - Do not present NuGet/public install as complete.
 
-### If SampleMigration baseline artifacts are missing
-
-Current state:
-- `docs/migration-notes/migration-recipe-library.md` exists.
-- The task-requested `docs/migration-notes/baseline-benchmark-20260514T213001Z/baseline-report.md` is not present in this checkout.
-
-Use:
-- The recipe library and task handoff summaries only.
-
-Say:
-> “The SampleMigration baseline is an internal evidence story. The local baseline report path is not present in this checkout, so I’m citing the recipe library and handoff summary rather than showing raw artifacts.”
-
-Do not say:
-- Do not cite a missing local file as if it is present.
-- Do not show raw SampleMigration files.
-
 ## Static talk order if everything live fails
 
 1. Show `docs/talk/release-notes.md` headline and explicit non-claims.
@@ -181,7 +163,6 @@ Do not say:
 4. Show issue-tracker browser screenshot/recording and `.demo-artifacts/*.json`.
 5. Show template quickstart command blocks plus captured replay output.
 6. Show VS Code screenshot set and headless report.
-7. Show migration recipe loop from `migration-recipe-library.md`.
-8. Close on remaining gates from `evidence-matrix.md`.
+7. Close on remaining gates from `evidence-matrix.md`.
 
 This static path keeps the talk credible because it swaps live drama for receipts rather than stronger claims.

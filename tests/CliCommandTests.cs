@@ -840,13 +840,13 @@ func Main() {
     [Fact]
     public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
     {
-        // hello-world Program.nl line 2: func Hi(): int {
+        // hello-world Program.nl line 3: func Hi(): int {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "2:6"
+            "--pos", "3:6"
         }));
 
         Assert.Equal(0, exitCode);
@@ -1156,25 +1156,6 @@ public class LegacyDto
             .Replace("\r\n", "\n");
         var expected = File.ReadAllText(goldenPath).Replace("\r\n", "\n");
         Assert.Equal(expected.TrimEnd(), normalized.TrimEnd());
-    }
-
-    [Fact]
-    public void IdiomCommand_SampleMigrationV2Sample_IsArchivedAndMachineCheckable()
-    {
-        var samplePath = Path.Combine(FindRepoRoot(), "docs", "examples", "idiom-v2.sample.json");
-        using var doc = JsonDocument.Parse(File.ReadAllText(samplePath));
-        var root = doc.RootElement;
-
-        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("idiom", root.GetProperty("command").GetString());
-        Assert.Equal("/redacted/sample-migration", root.GetProperty("projectRoot").GetString());
-        var finding = root.GetProperty("findings").EnumerateArray().First();
-        foreach (var field in new[] { "id", "category", "severity", "file", "snippet", "suggestion", "fixSafety", "docsUrl", "clusterKey", "confidence" })
-        {
-            Assert.True(finding.TryGetProperty(field, out _), $"SampleMigration idiom v2 sample missing finding field: {field}");
-        }
-
-        AssertIdiomFindingsContract(root);
     }
 
     [Fact]

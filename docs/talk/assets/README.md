@@ -4,7 +4,7 @@ Generated: 2026-05-16T22:14:14Z
 Source commit: `e8b2084cdf0fa3bb602b239fee1a4a23b89766cc`
 Workspace: `/Users/spencer/code/nsharplang`
 
-This manifest is the source of truth for launch-talk demo assets captured for task `t_38c8dea4`. Assets are intentionally scoped to toy/demo projects and generated logs. Do not use SampleMigration or other real application material in the talk unless a separate redaction review approves it.
+This manifest is the source of truth for launch-talk demo assets captured for task `t_38c8dea4`. Assets are intentionally scoped to toy/demo projects and generated logs. Do not use private application material in the talk unless a separate redaction review approves it.
 
 ## Reproduce the capture set
 
@@ -112,10 +112,10 @@ Keep experimental / do not oversell:
 - CodeLens/reference-count remains experimental. `vscode/07-codelens-program-references.png` does not visually prove semantic reference counts.
 - Full end-to-end launch-green status is not proven here; `./scripts/test-all.sh` was not run to completion in this task.
 - Packaging logs prove local install/template/build/run paths, not public distribution or NuGet availability.
-- SampleMigration remains internal-only; no SampleMigration screenshots/logs are included.
+- Private application corpora remain internal-only; no private application screenshots/logs are included.
 
 ## Redaction notes
 
 - Screenshots are from an isolated `VisualQaProject` toy workspace and were cropped to the VS Code window to remove desktop/browser background.
 - Logs were captured from generated demos and local commands. The only webhook-looking value is `https://hooks.slack.example/issues`, which is a dummy placeholder in demo output.
-- No raw SampleMigration files, credentials, tokens, `.env`, appsettings, or real customer/user data are included.
+- No raw private application files, credentials, tokens, `.env`, appsettings, or real customer/user data are included.
