@@ -43,6 +43,7 @@ public enum ErrorCode
     ConstantRequired = 310,
     InvalidModifier = 311,
     UnreachableStatement = 312,
+    InvalidExpressionStatement = 313,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -609,6 +610,9 @@ public static class ErrorSuggestions
             ErrorCode.UnreachableStatement
                 => "Remove unreachable code or restructure control flow",
 
+            ErrorCode.InvalidExpressionStatement
+                => "Use the value by assigning it, printing it, passing it to a call, or remove the expression",
+
             _ => null
         };
     }
@@ -906,6 +910,59 @@ public static class ErrorMessageBuilder
             HumanExplanation = humanExplanation,
             ContextualHint = contextualHint,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL401"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style no matching overload error
+    /// </summary>
+    public static CompilerError NoMatchingOverload(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, int actualArgumentCount, IReadOnlyList<string> argumentTypes, IReadOnlyList<string> candidateSignatures)
+    {
+        var argumentText = argumentTypes.Count == 0
+            ? "no arguments"
+            : string.Join(", ", argumentTypes.Select(type => $"`{type}`"));
+        var signatureText = candidateSignatures.Count == 0
+            ? "No callable overloads were found."
+            : "Available overloads:\n" + string.Join("\n", candidateSignatures.Select(signature => $"  - {signature}"));
+
+        var humanExplanation = $"I cannot find an overload of `{functionName}` that matches this call:";
+        var contextualHint =
+            $"This call passes {actualArgumentCount} argument(s): {argumentText}.\n" +
+            $"{signatureText}\n\n" +
+            "Check the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it.";
+
+        return new CompilerError(ErrorCode.NoMatchingOverload, $"No overload of '{functionName}' accepts {actualArgumentCount} argument(s) with these types", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL402"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style invalid expression statement error
+    /// </summary>
+    public static CompilerError InvalidExpressionStatement(string fileName, int line, int column, string sourceSnippet,
+        int length, string expressionDescription)
+    {
+        var humanExplanation = "This expression is written as a statement, but it does not do anything by itself:";
+        var contextualHint =
+            $"The expression `{expressionDescription}` produces a value or names a member, but the value is ignored.\n" +
+            "Only assignments, calls, increments, decrements, await expressions, and object construction can be used as statements.";
+
+        return new CompilerError(ErrorCode.InvalidExpressionStatement, "This expression statement has no effect", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL313"
         };
     }
 

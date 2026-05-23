@@ -155,6 +155,43 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_ReportsBadReflectionCallBeforeIlEmission()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: BadReflectionCall
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    greeting := "hello"
+    greeting.CompareTo()
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "BadReflectionCall.dll");
+            var result = compiler.CompileToIlAssembly("BadReflectionCall", outputPath);
+
+            Assert.False(result.Success);
+            Assert.Contains(result.Errors, error => error.Code == ErrorCode.NoMatchingOverload);
+            Assert.DoesNotContain(result.Errors, error => error.Message.Contains("Failed to emit IL assembly"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanRunAsyncExecutableProjectEntryPoint()
     {
         var tempDir = CreateTempDir();

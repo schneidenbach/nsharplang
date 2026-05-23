@@ -264,6 +264,55 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void ExpressionStatement_BareMemberAccess_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                greeting := ""hello""
+                greeting.CompareTo
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.InvalidExpressionStatement
+            && e.Message.Contains("no effect")
+            && e.ContextualHint?.Contains("Only assignments, calls") == true);
+    }
+
+    [Fact]
+    public void ExpressionStatement_NonSideEffectingValue_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                value := 41
+                value + 1
+            }
+        ");
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.InvalidExpressionStatement);
+    }
+
+    [Fact]
+    public void ExpressionStatement_SideEffectingForms_NoErrors()
+    {
+        AssertNoErrors(@"
+            class Worker {
+            }
+
+            func Touch(value: int) {
+            }
+
+            func Main() {
+                value := 1
+                value = 2
+                value++
+                Touch(value)
+                new Worker()
+            }
+        ");
+    }
+
+    [Fact]
     public void ClassDeclaration_Valid()
     {
         AssertNoErrors(@"
@@ -4309,6 +4358,83 @@ func Hello(): string {
                 n := Int32.Parse(""42"")
             }
         ");
+    }
+
+    [Fact]
+    public void BCL_StringMethodCall_WrongArity_ReportsNoMatchingOverload()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                greeting := ""hello""
+                greeting.CompareTo()
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.NoMatchingOverload
+            && e.Message.Contains("No overload of 'CompareTo' accepts 0 argument"));
+    }
+
+    [Fact]
+    public void BCL_MethodCall_WithImplicitNumericWidening_NoNoMatchingOverload()
+    {
+        var result = AnalyzeWithSource(@"
+            import System
+
+            func Main() {
+                tomorrow := DateTime.Now.AddDays(1)
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+    }
+
+    [Fact]
+    public void BCL_MethodCall_WithExpandedParams_NoNoMatchingOverload()
+    {
+        var result = AnalyzeWithSource(@"
+            import System
+
+            func Main() {
+                Console.WriteLine(""{0} {1}"", ""hello"", ""world"")
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+    }
+
+    [Fact]
+    public void BCL_MethodCall_WithOutArgument_NoNoMatchingOverload()
+    {
+        var result = AnalyzeWithSource(@"
+            import System
+
+            func Main() {
+                result := 0
+                if Int32.TryParse(""42"", out result) {
+                    print result
+                }
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+    }
+
+    [Fact]
+    public void NSharpExtensionMethod_OnInstance_PrefersExtensionOverStaticClrMember()
+    {
+        var result = AnalyzeWithSource(@"
+            func IsPositive(this n: int): bool {
+                return n > 0
+            }
+
+            func Main() {
+                value := 42
+                print value.IsPositive()
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
     }
 
     // ===================================================================

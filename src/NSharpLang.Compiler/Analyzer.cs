@@ -1140,7 +1140,7 @@ public class Analyzer : IDisposable
         switch (stmt)
         {
             case ExpressionStatement exprStmt:
-                AnalyzeExpression(exprStmt.Expression);
+                AnalyzeExpressionStatement(exprStmt);
                 break;
             case VariableDeclarationStatement varDecl:
                 AnalyzeVariableDeclaration(varDecl);
@@ -1222,6 +1222,101 @@ public class Analyzer : IDisposable
                 AnalyzeLocalFunction(localFunc);
                 break;
         }
+    }
+
+    private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
+    {
+        var errorsBefore = _errors.Count;
+        AnalyzeExpression(exprStmt.Expression);
+
+        if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
+        {
+            ReportInvalidExpressionStatement(exprStmt.Expression);
+        }
+    }
+
+    private static bool IsValidExpressionStatement(Expression expression)
+    {
+        return expression switch
+        {
+            AssignmentExpression => true,
+            CallExpression => true,
+            NewExpression => true,
+            AwaitExpression => true,
+            UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
+                or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } => true,
+            ParenthesizedExpression parenthesized => IsValidExpressionStatement(parenthesized.Inner),
+            CheckedExpression checkedExpression => IsValidExpressionStatement(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => IsValidExpressionStatement(uncheckedExpression.Expression),
+            _ => false
+        };
+    }
+
+    private void ReportInvalidExpressionStatement(Expression expression)
+    {
+        var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
+        var description = DescribeExpressionForDiagnostic(expression);
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.InvalidExpressionStatement(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                description));
+            return;
+        }
+
+        Error(
+            ErrorCode.InvalidExpressionStatement,
+            "This expression statement has no effect",
+            line,
+            column,
+            "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
+            length);
+    }
+
+    private (int Line, int Column, int Length) GetExpressionStatementDiagnosticSpan(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            ParenthesizedExpression parenthesized => GetExpressionStatementDiagnosticSpan(parenthesized.Inner),
+            CheckedExpression checkedExpression => GetExpressionStatementDiagnosticSpan(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => GetExpressionStatementDiagnosticSpan(uncheckedExpression.Expression),
+            _ => (expression.Line, expression.Column, GetExpressionLength(expression.Line, expression.Column))
+        };
+    }
+
+    private string DescribeExpressionForDiagnostic(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => identifier.Name,
+            MemberAccessExpression memberAccess => memberAccess.MemberName,
+            ParenthesizedExpression parenthesized => DescribeExpressionForDiagnostic(parenthesized.Inner),
+            CheckedExpression checkedExpression => DescribeExpressionForDiagnostic(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => DescribeExpressionForDiagnostic(uncheckedExpression.Expression),
+            BinaryExpression => "binary expression",
+            IndexAccessExpression => "index access",
+            MatchExpression => "match expression",
+            _ => expression.GetType().Name.Replace("Expression", "", StringComparison.Ordinal)
+        };
+    }
+
+    private int GetExpressionLength(int line, int column)
+    {
+        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+            return 1;
+
+        var sourceLine = _sourceLines[line - 1];
+        if (column <= 0 || column > sourceLine.Length)
+            return Math.Max(1, sourceLine.TrimEnd().Length);
+
+        return Math.Max(1, sourceLine.TrimEnd().Length - column + 1);
     }
 
     private void AnalyzeAssertStatement(AssertStatement assertStmt)
@@ -2502,7 +2597,12 @@ public class Analyzer : IDisposable
         TryRecordMemberBinding(objectType, member);
 
         // Resolve member on type
-        return ResolveMember(objectType, member.MemberName);
+        return ResolveMember(objectType, member.MemberName, includeStaticMembers: IsStaticMemberAccessTarget(member.Object));
+    }
+
+    private bool IsStaticMemberAccessTarget(Expression target)
+    {
+        return target is IdentifierExpression identifier && LookupSymbol(identifier.Name) == null;
     }
 
     private void TryRecordMemberBinding(TypeInfo objectType, MemberAccessExpression member)
@@ -2787,7 +2887,7 @@ public class Analyzer : IDisposable
         _ => "variable"
     };
 
-    private TypeInfo ResolveMember(TypeInfo objectType, string memberName)
+    private TypeInfo ResolveMember(TypeInfo objectType, string memberName, bool includeStaticMembers = true)
     {
         // Convert built-in simple types to reflection types for full CLR member resolution.
         // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
@@ -2805,17 +2905,21 @@ public class Analyzer : IDisposable
             var type = reflectionType.Type;
 
             // Try property
-            var property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+            var memberFlags = BindingFlags.Public | BindingFlags.Instance;
+            if (includeStaticMembers)
+                memberFlags |= BindingFlags.Static;
+
+            var property = type.GetProperty(memberName, memberFlags);
             if (property != null)
                 return ConvertReflectionType(property.PropertyType);
 
             // Try field
-            var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+            var field = type.GetField(memberName, memberFlags);
             if (field != null)
                 return ConvertReflectionType(field.FieldType);
 
             // Try methods (get all matching methods to handle overloads)
-            var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static)
+            var methods = type.GetMethods(memberFlags)
                 .Where(m => m.Name == memberName)
                 .ToArray();
 
@@ -3799,7 +3903,7 @@ public class Analyzer : IDisposable
             if (boundCall?.ReturnType != null)
                 return boundCall.ReturnType;
 
-            return ConvertReflectionType(methodInfo.Method.ReturnType);
+            return HandleUnboundReflectionCall(call, new[] { methodInfo.Method }, argTypes);
         }
 
         // Handle method group (overloaded methods)
@@ -3809,15 +3913,7 @@ public class Analyzer : IDisposable
             if (boundCall?.ReturnType != null)
                 return boundCall.ReturnType;
 
-            var compatibleMethods = methodGroup.Methods
-                .Where(m => GetCallParameterCount(m, call) == call.Arguments.Count)
-                .ToArray();
-
-            if (compatibleMethods.Length > 0)
-                return ConvertReflectionType(compatibleMethods[0].ReturnType);
-
-            if (methodGroup.Methods.Length > 0)
-                return ConvertReflectionType(methodGroup.Methods[0].ReturnType);
+            return HandleUnboundReflectionCall(call, methodGroup.Methods, argTypes);
         }
 
         // Handle newtype construction: UserId(42)
@@ -3861,6 +3957,171 @@ public class Analyzer : IDisposable
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
+    {
+        if (ShouldSuppressReflectionOverloadDiagnostic(call, candidateMethods, argTypes))
+            return GetFallbackReflectionReturnType(call, candidateMethods);
+
+        ReportNoMatchingReflectionOverload(call, candidateMethods, argTypes);
+        return BuiltInTypes.Unknown;
+    }
+
+    private static bool ShouldSuppressReflectionOverloadDiagnostic(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
+    {
+        if (candidateMethods.Count == 0)
+            return true;
+
+        var hasCompatibleArity = candidateMethods.Any(method =>
+            HasCompatibleReflectionArity(
+                method.GetParameters(),
+                IsExtensionMethodCall(method, call) ? 1 : 0,
+                call.Arguments.Count));
+
+        if (!hasCompatibleArity)
+            return false;
+
+        return argTypes.Any(BuiltInTypes.IsUnknown)
+            || call.Arguments.Any(argument => argument.Value is LambdaExpression);
+    }
+
+    private TypeInfo GetFallbackReflectionReturnType(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods)
+    {
+        var fallbackMethod = candidateMethods.FirstOrDefault(method =>
+            HasCompatibleReflectionArity(
+                method.GetParameters(),
+                IsExtensionMethodCall(method, call) ? 1 : 0,
+                call.Arguments.Count))
+            ?? candidateMethods.FirstOrDefault();
+
+        return fallbackMethod != null
+            ? ConvertReflectionType(fallbackMethod.ReturnType)
+            : BuiltInTypes.Unknown;
+    }
+
+    private void ReportNoMatchingReflectionOverload(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
+    {
+        if (candidateMethods.Count == 0)
+            return;
+
+        var functionName = GetCallTargetName(call) ?? candidateMethods[0].Name;
+        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
+        var candidateSignatures = candidateMethods
+            .Select(method => FormatReflectionMethodSignature(method, call))
+            .Distinct(StringComparer.Ordinal)
+            .Take(8)
+            .ToList();
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                functionName,
+                call.Arguments.Count,
+                argumentTypes,
+                candidateSignatures));
+            return;
+        }
+
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
+            line,
+            column,
+            "Check the argument count and types against the available overloads.",
+            length);
+    }
+
+    private static string? GetCallTargetName(CallExpression call)
+    {
+        return call.Callee switch
+        {
+            IdentifierExpression identifier => identifier.Name,
+            MemberAccessExpression memberAccess => memberAccess.MemberName,
+            _ => null
+        };
+    }
+
+    private (int Line, int Column, int Length) GetCallDiagnosticSpan(CallExpression call, string functionName)
+    {
+        return call.Callee switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            _ => (call.Line, call.Column, Math.Max(1, functionName.Length))
+        };
+    }
+
+    private static string FormatReflectionMethodSignature(MethodInfo method, CallExpression call)
+    {
+        var parameters = method.GetParameters().AsEnumerable();
+        if (call.Callee is MemberAccessExpression && HasExtensionAttribute(method))
+            parameters = parameters.Skip(1);
+
+        var formattedParameters = parameters.Select(FormatReflectionParameter);
+        return $"{method.Name}({string.Join(", ", formattedParameters)}): {FormatReflectionTypeName(method.ReturnType)}";
+    }
+
+    private static string FormatReflectionParameter(ParameterInfo parameter)
+    {
+        var modifier = parameter.IsOut
+            ? "out "
+            : parameter.ParameterType.IsByRef
+                ? "ref "
+                : IsParamsParameter(parameter)
+                    ? "params "
+                    : string.Empty;
+        var parameterType = parameter.ParameterType.IsByRef
+            ? parameter.ParameterType.GetElementType()!
+            : parameter.ParameterType;
+
+        return $"{modifier}{FormatReflectionTypeName(parameterType)} {parameter.Name}";
+    }
+
+    private static string FormatReflectionTypeName(Type type)
+    {
+        if (type.IsGenericParameter)
+            return type.Name;
+
+        if (type.IsArray)
+            return $"{FormatReflectionTypeName(type.GetElementType()!)}[]";
+
+        if (type.IsGenericType)
+        {
+            var name = type.Name;
+            var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
+            if (tickIndex >= 0)
+                name = name[..tickIndex];
+
+            return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatReflectionTypeName))}>";
+        }
+
+        return type.Name switch
+        {
+            "Boolean" => "bool",
+            "Byte" => "byte",
+            "SByte" => "sbyte",
+            "Int16" => "short",
+            "UInt16" => "ushort",
+            "Int32" => "int",
+            "UInt32" => "uint",
+            "Int64" => "long",
+            "UInt64" => "ulong",
+            "Single" => "float",
+            "Double" => "double",
+            "Decimal" => "decimal",
+            "Char" => "char",
+            "String" => "string",
+            "Object" => "object",
+            "Void" => "void",
+            _ => type.Name
+        };
     }
 
     private TypeInfo AnalyzeExpressionWithExpectedType(Expression expression, TypeInfo? expectedType)
@@ -4732,11 +4993,10 @@ public class Analyzer : IDisposable
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
-            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
-            if (parameter == null)
+            var parameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
+            if (parameterType == null)
                 return null;
 
-            var parameterType = parameter.ParameterType;
             if (call.Arguments[i].Value is LambdaExpression lambda)
             {
                 var delegateType = ApplyReflectionBindings(parameterType, bindings);
@@ -4797,11 +5057,11 @@ public class Analyzer : IDisposable
             if (call.Arguments[i].Value is not LambdaExpression lambda)
                 continue;
 
-            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
-            if (parameter == null)
+            var parameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
+            if (parameterType == null)
                 return null;
 
-            var delegateType = ApplyReflectionBindings(parameter.ParameterType, workingBindings);
+            var delegateType = ApplyReflectionBindings(parameterType, workingBindings);
             if (!IsDelegateType(delegateType))
                 return null;
 
@@ -4809,14 +5069,14 @@ public class Analyzer : IDisposable
             FunctionTypeInfo? expectedSignature;
             if (hasTypeInfoOverrides)
                 expectedSignature = CreateDelegateSignatureFromOpenType(
-                    parameter.ParameterType, workingTypeInfoBindings, workingBindings);
+                    parameterType, workingTypeInfoBindings, workingBindings);
             else
                 expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
 
             var lambdaType = AnalyzeLambda(lambda, expectedSignature);
             var lambdaDelegateType = TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
-                TryMatchReflectionParameter(parameter.ParameterType, lambdaDelegateType, workingBindings);
+                TryMatchReflectionParameter(parameterType, lambdaDelegateType, workingBindings);
 
             var lambdaReturnClrType = lambdaType.ReturnType != null
                 ? (TryConvertTypeInfoToClrType(lambdaType.ReturnType)
@@ -4858,13 +5118,9 @@ public class Analyzer : IDisposable
 
         for (int i = 0; i < call.Arguments.Count; i++)
         {
-            var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, i);
-            if (parameter == null)
+            var rawParameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
+            if (rawParameterType == null)
                 return null;
-
-            var rawParameterType = parameter.ParameterType.IsArray && IsParamsParameter(parameter) && i >= parameters.Length - parameterOffset - 1
-                ? parameter.ParameterType.GetElementType()!
-                : parameter.ParameterType;
 
             if (call.Arguments[i].Value is LambdaExpression lambda && IsDelegateType(rawParameterType))
             {
@@ -4872,10 +5128,10 @@ public class Analyzer : IDisposable
                 if (hasTypeInfoOverrides)
                 {
                     // Use the open parameter type with TypeInfo overrides for correct N# types
-                    var openParameter = GetReflectionParameterForArgument(openParameters, openParamOffset, i);
-                    expectedSignature = openParameter != null
+                    var openParameterType = GetReflectionParameterTypeForArgument(openParameters, openParamOffset, i, call.Arguments.Count);
+                    expectedSignature = openParameterType != null
                         ? CreateDelegateSignatureFromOpenType(
-                            openParameter.ParameterType, workingTypeInfoBindings, workingBindings)
+                            openParameterType, workingTypeInfoBindings, workingBindings)
                         : CreateFunctionTypeInfoFromDelegate(rawParameterType);
                 }
                 else
@@ -4942,6 +5198,32 @@ public class Analyzer : IDisposable
         return IsParamsParameter(effectiveParameters[^1]) ? effectiveParameters[^1] : null;
     }
 
+    private static Type? GetReflectionParameterTypeForArgument(
+        ParameterInfo[] parameters,
+        int parameterOffset,
+        int argumentIndex,
+        int argumentCount)
+    {
+        var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, argumentIndex);
+        if (parameter == null)
+            return null;
+
+        var parameterType = parameter.ParameterType.IsByRef
+            ? parameter.ParameterType.GetElementType()!
+            : parameter.ParameterType;
+
+        var effectiveParameterCount = parameters.Length - parameterOffset;
+        var paramsParameterIndex = effectiveParameterCount - 1;
+        var useExpandedParamsForm = argumentCount > effectiveParameterCount
+            && argumentIndex >= paramsParameterIndex
+            && IsParamsParameter(parameter)
+            && parameterType.IsArray;
+
+        return useExpandedParamsForm
+            ? parameterType.GetElementType()!
+            : parameterType;
+    }
+
     private static bool IsParamsParameter(ParameterInfo parameter)
     {
         try
@@ -4957,21 +5239,48 @@ public class Analyzer : IDisposable
         return call.Callee is MemberAccessExpression && HasExtensionAttribute(method);
     }
 
-    private static int GetCallParameterCount(MethodInfo method, CallExpression call)
-    {
-        var parameters = method.GetParameters();
-        return Math.Max(0, parameters.Length - (IsExtensionMethodCall(method, call) ? 1 : 0));
-    }
-
     private static int GetReflectionMatchScore(Type parameterType, Type argumentType)
     {
         if (parameterType == argumentType)
             return 8;
 
+        if (IsImplicitNumericConversion(argumentType, parameterType))
+            return 6;
+
         if (parameterType.IsAssignableFrom(argumentType))
             return 4;
 
         return 2;
+    }
+
+    private static bool IsImplicitNumericConversion(Type sourceType, Type targetType)
+    {
+        if (sourceType == targetType)
+            return true;
+
+        var sourceName = GetNumericTypeFullName(sourceType);
+        var targetName = GetNumericTypeFullName(targetType);
+
+        return (sourceName, targetName) switch
+        {
+            ("System.Byte", "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.SByte", "System.Int16" or "System.Int32" or "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.Int16", "System.Int32" or "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.UInt16", "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.Int32", "System.Int64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.UInt32", "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.Int64", "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.UInt64", "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.Char", "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double" or "System.Decimal") => true,
+            ("System.Single", "System.Double") => true,
+            _ => false
+        };
+    }
+
+    private static string? GetNumericTypeFullName(Type type)
+    {
+        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+        return underlyingType.FullName;
     }
 
     private Type ApplyReflectionBindings(Type type, Dictionary<Type, Type> bindings)
@@ -5017,7 +5326,8 @@ public class Analyzer : IDisposable
         }
 
         if (!parameterType.ContainsGenericParameters)
-            return parameterType.IsAssignableFrom(argumentType);
+            return parameterType.IsAssignableFrom(argumentType)
+                || IsImplicitNumericConversion(argumentType, parameterType);
 
         if (parameterType.IsArray)
         {
