@@ -438,7 +438,7 @@ enum Status {
 }
 ```
 
-N# has native string enums. No more `const string` workarounds.
+N# has native string enums, so status names stay typed instead of copied as `const string` sets.
 
 ## 17. Records
 

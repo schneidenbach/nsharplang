@@ -1,6 +1,8 @@
 namespace TaskCli.Services
 
+import System
 import System.Collections.Generic
+import System.Linq
 import System.Text
 import TaskCli.Models
 
@@ -79,27 +81,18 @@ class Formatter {
             return "-"
         }
 
-        sb := new StringBuilder()
-        for i := 0; i < tags.Count; i++ {
-            if i > 0 {
-                sb.Append(" ")
-            }
-
-            sb.Append($"#{tags[i]}")
-        }
-
-        return sb.ToString()
+        return String.Join(" ", tags.Select(tag => $"#{tag}"))
     }
 
     // Print a command result with appropriate formatting
     static func PrintResult(result: CommandResult) {
-        output := match result {
+        message := match result {
             CommandResult.Success { message } => message,
             CommandResult.Error { message } => $"Error: {message}",
             _ => "Unknown result"
         }
 
-        print output
+        print message
     }
 
     // Print task statistics

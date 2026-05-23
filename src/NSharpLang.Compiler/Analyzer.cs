@@ -2159,6 +2159,7 @@ public class Analyzer : IDisposable
         {
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression floatLiteral => GetFloatLiteralType(floatLiteral.Value),
+            CharLiteralExpression => BuiltInTypes.Char,
             StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
             InterpolatedStringExpression interpolated => AnalyzeInterpolatedString(interpolated),
             BoolLiteralExpression => BuiltInTypes.Bool,
@@ -7228,6 +7229,7 @@ public class Analyzer : IDisposable
             // Literals are always valid
             IntLiteralExpression => true,
             FloatLiteralExpression => true,
+            CharLiteralExpression => true,
             BoolLiteralExpression => true,
             StringLiteralExpression => true,
             NullLiteralExpression => true,

@@ -62,6 +62,141 @@ func Greeting(): string {
     }
 
     [Fact]
+    public void MultiFileCompiler_CanRunRepeatedBlockLocalWithNamespaceQualifiedType()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RepeatedLocalIlProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), """
+namespace RepeatedLocal.Models
+
+record Item {
+    Name: string
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Services.nl"), """
+namespace RepeatedLocal.Services
+
+import System.Collections.Generic
+import System.Linq
+import RepeatedLocal.Models
+
+class ItemService {
+    items: List<Item>
+
+    constructor() {
+        items = new List<Item>()
+        items.Add(new Item { Name: "first" })
+        items.Add(new Item { Name: "second" })
+    }
+
+    func Filter(firstPass: bool, name: string): List<Item> {
+        result := items.ToList()
+
+        if firstPass {
+            filtered := new List<Item>()
+            for item in result {
+                filtered.Add(item)
+            }
+
+            result = filtered
+        }
+
+        normalized := name.ToLower()
+        if normalized.Length > 0 {
+            filtered := new List<Item>()
+            for item in result {
+                if item.Name == normalized {
+                    filtered.Add(item)
+                }
+            }
+
+            result = filtered
+        }
+
+        return result
+    }
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import RepeatedLocal.Services
+
+func main() {
+    service := new ItemService()
+    print service.Filter(false, "SECOND").Count
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "RepeatedLocalIlProject.dll");
+            var result = compiler.CompileToIlAssembly("RepeatedLocalIlProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("1", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_CanRunAsyncExecutableProjectEntryPoint()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AsyncMainIlProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import System.Threading.Tasks
+
+async func main() {
+    await Task.CompletedTask
+    print "async entrypoint works"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "AsyncMainIlProject.dll");
+            var result = compiler.CompileToIlAssembly("AsyncMainIlProject", outputPath);
+
+            Assert.True(result.Success);
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("async entrypoint works", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_EmitsIlAssemblyWithSdkCompatibleVersion()
     {
         var tempDir = CreateTempDir();
@@ -919,6 +1054,7 @@ class Program {
                 new[] { sourcePath });
 
             Assert.Contains("using System;", stub);
+            Assert.Contains("#pragma warning disable CS0649, CS8618", stub);
             Assert.DoesNotContain("internal static class __NSharpIlStub", stub);
             Assert.Contains("public static void Main()", stub);
             Assert.Contains("DateTime", stub);
@@ -961,6 +1097,50 @@ class NotifierHub {
 
             Assert.Contains("interface INotifier", stub);
             Assert.Contains("List<INotifier>", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CompilationStubEmitter_ParsesCharLiteralBodiesAndEmitsReferencedProjectTypes()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Services.nl");
+            File.WriteAllText(sourcePath, """
+namespace TaskCli.Services
+
+class TaskStore {
+    func Load(line: string): string[] {
+        return line.Split('|')
+    }
+}
+
+class TaskService {
+    store: TaskStore
+
+    constructor(taskStore: TaskStore) {
+        store = taskStore
+    }
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                new ProjectConfig
+                {
+                    Name = "TaskCli",
+                    OutputType = "exe",
+                    TargetFramework = "net10.0"
+                },
+                new[] { sourcePath });
+
+            Assert.Contains("class TaskStore", stub);
+            Assert.Contains("internal TaskStore store;", stub);
+            Assert.Contains("public TaskService(TaskStore taskStore)", stub);
         }
         finally
         {

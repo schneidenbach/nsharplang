@@ -38,6 +38,7 @@ public partial class ILCompiler
     // Context for current method being compiled
     private ILGenerator? _currentIL;
     private Dictionary<string, LocalBuilder>? _locals;
+    private Dictionary<string, Type>? _patternBindingTypeHints;
     private Dictionary<string, int>? _parameters;
     private Dictionary<string, Type>? _parameterTypes;
     private HashSet<string>? _byRefParameters;
@@ -48,6 +49,10 @@ public partial class ILCompiler
     private Type? _currentAsyncResultType;
     private bool _currentAsyncReturnsValueTask;
     private Type? _currentGeneratorReturnType;
+    private Label? _currentReturnLabel;
+    private LocalBuilder? _currentReturnLocal;
+    private bool _usesStructuredReturn;
+    private int _exceptionBlockDepth;
     private Type? _currentYieldElementType;
     private LocalBuilder? _currentYieldListLocal;
     private Label? _currentYieldBreakLabel;
@@ -57,6 +62,7 @@ public partial class ILCompiler
     private TypeBuilder? _programType;
     private TypeBuilder? _testType;
     private ModuleBuilder? _moduleBuilder;
+    private MethodBuilder? _entryPointWrapper;
     private Dictionary<string, MethodBuilder> _methods = new();
     private Dictionary<string, ConstructorBuilder> _constructors = new();
     private Dictionary<string, TypeBuilder> _types = new();
@@ -1052,6 +1058,7 @@ public partial class ILCompiler
         {
             IntLiteralExpression intLiteral => ParseIntLiteralValue(intLiteral.Value),
             FloatLiteralExpression floatLiteral => ParseFloatingLiteralObject(floatLiteral.Value),
+            CharLiteralExpression charLiteral => ParseCharLiteralValue(charLiteral.Value),
             StringLiteralExpression stringLiteral => stringLiteral.Value.Trim('"'),
             BoolLiteralExpression boolLiteral => boolLiteral.Value,
             NullLiteralExpression => null,
@@ -1092,6 +1099,10 @@ public partial class ILCompiler
         _currentAsyncResultType = null;
         _currentAsyncReturnsValueTask = false;
         _currentGeneratorReturnType = null;
+        _currentReturnLabel = null;
+        _currentReturnLocal = null;
+        _usesStructuredReturn = false;
+        _exceptionBlockDepth = 0;
         _currentYieldElementType = null;
         _currentYieldListLocal = null;
         _currentYieldBreakLabel = null;
@@ -1110,6 +1121,20 @@ public partial class ILCompiler
         _liftedIdentifiers = liftLocalsIntoBoxes ? new HashSet<string>() : null;
         _liftedClosureFields = null;
         _currentHasThis = false;
+    }
+
+    private void InitializeStructuredReturnContext(Type bodyReturnType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        _currentReturnLabel = _currentIL.DefineLabel();
+        var returnLocalType = _currentAsyncReturnType ?? (bodyReturnType == typeof(void) ? null : bodyReturnType);
+        _currentReturnLocal = returnLocalType != null ? _currentIL.DeclareLocal(returnLocalType) : null;
+        _usesStructuredReturn = false;
+        _exceptionBlockDepth = 0;
     }
 
     private Type CreateStrongBoxType(Type valueType)
@@ -1795,6 +1820,25 @@ public partial class ILCompiler
             : strongBoxType;
     }
 
+    private bool IsLiftedStorageType(Type storageType, Type valueType)
+    {
+        if (_liftedStorageValueTypes.TryGetValue(storageType, out var liftedValueType))
+        {
+            return AreTypeIdentitiesEquivalent(liftedValueType, valueType);
+        }
+
+        try
+        {
+            return storageType.IsGenericType
+                && storageType.GetGenericTypeDefinition() == typeof(System.Runtime.CompilerServices.StrongBox<>)
+                && AreTypeIdentitiesEquivalent(storageType.GetGenericArguments()[0], valueType);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private bool IsLiftedIdentifier(string name)
     {
         return _liftedIdentifiers?.Contains(name) == true;
@@ -1847,7 +1891,7 @@ public partial class ILCompiler
             throw new InvalidOperationException("Initializer was required but not provided");
         }
 
-        if (local.LocalType != valueType)
+        if (IsLiftedStorageType(local.LocalType, valueType))
         {
             var storageConstructor = GetStrongBoxConstructor(valueType);
             try
@@ -1860,6 +1904,11 @@ public partial class ILCompiler
                     $"Could not box lifted local of type {GetTypeKey(valueType)} into storage type {GetTypeKey(local.LocalType)} using constructor {storageConstructor.DeclaringType?.FullName ?? storageConstructor.ToString()}",
                     ex);
             }
+        }
+        else if (!AreTypeIdentitiesEquivalent(local.LocalType, valueType))
+        {
+            throw new InvalidOperationException(
+                $"Cannot initialize local of type {GetTypeKey(local.LocalType)} with value of type {GetTypeKey(valueType)}");
         }
 
         _currentIL.Emit(OpCodes.Stloc, local);
@@ -2314,6 +2363,7 @@ public partial class ILCompiler
         {
             IntLiteralExpression intLiteral => (ParseIntLiteralValue(intLiteral.Value), typeof(int)),
             FloatLiteralExpression floatLiteral => EvaluateFloatingLiteralArgument(floatLiteral.Value),
+            CharLiteralExpression charLiteral => (ParseCharLiteralValue(charLiteral.Value), typeof(char)),
             StringLiteralExpression stringLiteral => (stringLiteral.Value.Trim('"'), typeof(string)),
             BoolLiteralExpression boolLiteral => (boolLiteral.Value, typeof(bool)),
             UnaryExpression unary => EvaluateAttributeUnaryArgument(unary),
@@ -5741,6 +5791,8 @@ public partial class ILCompiler
             EmitTestBodies();
         }
 
+        EnsureRuntimeEntryPointWrapper();
+
         foreach (var enumType in _enumTypes.Values.OfType<EnumBuilder>())
         {
             enumType.CreateType();
@@ -5783,7 +5835,7 @@ public partial class ILCompiler
 
     private void SaveAssembly(PersistedAssemblyBuilder assemblyBuilder)
     {
-        var entryPoint = GetEntryPointMethod();
+        var entryPoint = _entryPointWrapper ?? GetEntryPointMethod();
         if (string.Equals(_projectConfig?.OutputType, "exe", StringComparison.OrdinalIgnoreCase)
             && entryPoint != null)
         {
@@ -5854,6 +5906,74 @@ public partial class ILCompiler
         }
 
         return candidates.Count == 1 ? candidates[0].Value : null;
+    }
+
+    private void EnsureRuntimeEntryPointWrapper()
+    {
+        if (!string.Equals(_projectConfig?.OutputType, "exe", StringComparison.OrdinalIgnoreCase)
+            || _programType == null
+            || _entryPointWrapper != null)
+        {
+            return;
+        }
+
+        var entryPoint = GetEntryPointMethod();
+        if (entryPoint == null || !TryUnwrapAsyncReturnType(entryPoint.ReturnType, out var resultType, out _))
+        {
+            return;
+        }
+
+        var wrapperReturnType = resultType == typeof(int) || resultType == typeof(uint)
+            ? resultType
+            : typeof(void);
+        var parameterTypes = GetEntryPointParameterTypes(entryPoint);
+
+        var wrapper = _programType.DefineMethod(
+            "__NSharpEntryPoint",
+            MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
+            wrapperReturnType,
+            parameterTypes);
+
+        var il = wrapper.GetILGenerator();
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            il.Emit(OpCodes.Ldarg, i);
+        }
+
+        il.Emit(OpCodes.Call, entryPoint);
+
+        var savedIl = _currentIL;
+        _currentIL = il;
+        try
+        {
+            EmitAwaiterGetResult(entryPoint.ReturnType);
+        }
+        finally
+        {
+            _currentIL = savedIl;
+        }
+
+        if (wrapperReturnType == typeof(void) && resultType != null)
+        {
+            il.Emit(OpCodes.Pop);
+        }
+
+        il.Emit(OpCodes.Ret);
+        _entryPointWrapper = wrapper;
+    }
+
+    private static Type[] GetEntryPointParameterTypes(MethodBuilder entryPoint)
+    {
+        try
+        {
+            return entryPoint.GetParameters()
+                .Select(parameter => parameter.ParameterType)
+                .ToArray();
+        }
+        catch (NotSupportedException)
+        {
+            return Type.EmptyTypes;
+        }
     }
 
     /// <summary>
@@ -5951,6 +6071,7 @@ public partial class ILCompiler
 
         InitializeBodyContext(bodyReturnType, ContainsNestedFunction(function.Body)
             || (function.ExpressionBody != null && ContainsNestedFunction(function.ExpressionBody)));
+        InitializeStructuredReturnContext(bodyReturnType);
         if (function.Modifiers.HasFlag(Modifiers.Generator))
         {
             if (!TryGetSequenceElementType(returnType, out var yieldElementType, out _))
@@ -6004,7 +6125,11 @@ public partial class ILCompiler
         }
 
         // Ensure function ends with a return
-        if (_currentGeneratorReturnType != null)
+        if (_usesStructuredReturn)
+        {
+            EmitStructuredReturnTarget();
+        }
+        else if (_currentGeneratorReturnType != null)
         {
             _currentIL.MarkLabel(_currentYieldBreakLabel!.Value);
             EmitGeneratorReturnValue(_currentGeneratorReturnType, _currentYieldListLocal!);
@@ -6775,6 +6900,12 @@ public partial class ILCompiler
             }
 
             EmitWrapCurrentAsyncReturn();
+            if (_exceptionBlockDepth > 0)
+            {
+                EmitStructuredReturnValueOnStack();
+                return;
+            }
+
             _currentIL.Emit(OpCodes.Ret);
             return;
         }
@@ -6790,7 +6921,30 @@ public partial class ILCompiler
                 EmitExpressionWithExpectedType(ret.Value, _currentReturnType ?? GetExpressionType(ret.Value));
             }
         }
+
+        if (_exceptionBlockDepth > 0)
+        {
+            EmitStructuredReturnValueOnStack();
+            return;
+        }
+
         _currentIL.Emit(OpCodes.Ret);
+    }
+
+    private void EmitStructuredReturnValueOnStack()
+    {
+        if (_currentIL == null || _currentReturnLabel == null)
+        {
+            throw new InvalidOperationException("No structured return context");
+        }
+
+        _usesStructuredReturn = true;
+        if (_currentReturnLocal != null)
+        {
+            _currentIL.Emit(OpCodes.Stloc, _currentReturnLocal);
+        }
+
+        _currentIL.Emit(OpCodes.Leave, _currentReturnLabel.Value);
     }
 
     /// <summary>
@@ -7447,6 +7601,7 @@ public partial class ILCompiler
 
         // Begin exception block
         _currentIL.BeginExceptionBlock();
+        _exceptionBlockDepth++;
 
         // Emit the try block
         EmitStatement(tryStmt.TryBlock);
@@ -7504,6 +7659,7 @@ public partial class ILCompiler
 
         // End exception block
         _currentIL.EndExceptionBlock();
+        _exceptionBlockDepth--;
     }
 
     /// <summary>
@@ -7687,6 +7843,10 @@ public partial class ILCompiler
 
             case FloatLiteralExpression floatLit:
                 EmitFloatLiteral(floatLit);
+                break;
+
+            case CharLiteralExpression charLit:
+                EmitCharLiteral(charLit);
                 break;
 
             case StringLiteralExpression strLit:
@@ -8018,6 +8178,48 @@ public partial class ILCompiler
         // Remove quotes from string value
         var value = strLit.Value.Trim('"');
         _currentIL.Emit(OpCodes.Ldstr, value);
+    }
+
+    private void EmitCharLiteral(CharLiteralExpression charLit)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        _currentIL.Emit(OpCodes.Ldc_I4, ParseCharLiteralValue(charLit.Value));
+    }
+
+    private static char ParseCharLiteralValue(string text)
+    {
+        if (text.Length < 3 || text[0] != '\'' || text[^1] != '\'')
+        {
+            throw new FormatException($"Invalid char literal: {text}");
+        }
+
+        var body = text[1..^1];
+        if (body.Length == 1)
+        {
+            return body[0];
+        }
+
+        if (body.Length == 2 && body[0] == '\\')
+        {
+            return body[1] switch
+            {
+                '\'' => '\'',
+                '"' => '"',
+                '\\' => '\\',
+                '0' => '\0',
+                'a' => '\a',
+                'b' => '\b',
+                'f' => '\f',
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                'v' => '\v',
+                _ => throw new FormatException($"Invalid char escape sequence: {text}")
+            };
+        }
+
+        throw new FormatException($"Invalid char literal: {text}");
     }
 
     private void EmitDefaultValue(Type targetType)
@@ -11353,6 +11555,7 @@ public partial class ILCompiler
             FloatLiteralExpression floatLiteral when IsDecimalLiteral(floatLiteral.Value) => typeof(decimal),
             FloatLiteralExpression floatLiteral when IsSingleLiteral(floatLiteral.Value) => typeof(float),
             FloatLiteralExpression => typeof(double),
+            CharLiteralExpression => typeof(char),
             StringLiteralExpression => typeof(string),
             InterpolatedStringExpression => typeof(string),
             BoolLiteralExpression => typeof(bool),
@@ -11416,10 +11619,11 @@ public partial class ILCompiler
             return typeof(object);
         }
 
-        var resultType = GetExpressionType(match.Cases[0].Expression);
+        var matchValueType = GetExpressionType(match.Value);
+        var resultType = GetMatchCaseExpressionType(match.Cases[0], matchValueType);
         foreach (var matchCase in match.Cases.Skip(1))
         {
-            var caseType = GetExpressionType(matchCase.Expression);
+            var caseType = GetMatchCaseExpressionType(matchCase, matchValueType);
             if (caseType == resultType)
             {
                 continue;
@@ -11442,11 +11646,197 @@ public partial class ILCompiler
         return resultType;
     }
 
+    private Type GetMatchCaseExpressionType(MatchCase matchCase, Type matchValueType)
+    {
+        var savedPatternBindingTypes = _patternBindingTypeHints;
+        _patternBindingTypeHints = savedPatternBindingTypes != null
+            ? new Dictionary<string, Type>(savedPatternBindingTypes)
+            : new Dictionary<string, Type>();
+
+        AddPatternBindingTypeHints(matchCase.Pattern, matchValueType);
+
+        try
+        {
+            return GetExpressionType(matchCase.Expression);
+        }
+        finally
+        {
+            _patternBindingTypeHints = savedPatternBindingTypes;
+        }
+    }
+
+    private void AddPatternBindingTypeHints(Pattern pattern, Type valueType)
+    {
+        switch (pattern)
+        {
+            case IdentifierPattern identifierPattern:
+                if (identifierPattern.Name != "_"
+                    && !identifierPattern.Name.Contains('.')
+                    && !TryResolvePatternType(identifierPattern.Name, out _))
+                {
+                    AddPatternBindingTypeHint(identifierPattern.Name, valueType);
+                }
+                break;
+
+            case TypePattern typePattern:
+                if (typePattern.BindingName != null)
+                {
+                    AddPatternBindingTypeHint(typePattern.BindingName, ResolveType(typePattern.Type));
+                }
+                break;
+
+            case UnionCasePattern unionCasePattern:
+                if (TryResolveDeclaredProjectType(unionCasePattern.CaseName, treatStringEnumAsString: false, out var caseType)
+                    && unionCasePattern.Properties != null)
+                {
+                    AddPropertyPatternBindingTypeHints(caseType, unionCasePattern.Properties);
+                }
+                break;
+
+            case ObjectPattern objectPattern:
+                AddPropertyPatternBindingTypeHints(valueType, objectPattern.Properties);
+                break;
+
+            case PositionalPattern positionalPattern:
+                AddPositionalPatternBindingTypeHints(valueType, positionalPattern);
+                break;
+
+            case ListPattern listPattern:
+                AddListPatternBindingTypeHints(valueType, listPattern);
+                break;
+
+            case SlicePattern slicePattern when slicePattern.BindingName != null:
+                AddPatternBindingTypeHint(slicePattern.BindingName, valueType);
+                break;
+
+            case AndPattern andPattern:
+                AddPatternBindingTypeHints(andPattern.Left, valueType);
+                AddPatternBindingTypeHints(andPattern.Right, valueType);
+                break;
+        }
+    }
+
+    private void AddPropertyPatternBindingTypeHints(Type targetType, IReadOnlyList<PropertyPattern> properties)
+    {
+        foreach (var property in properties)
+        {
+            if (!TryGetPatternMemberType(targetType, property.Name, out var memberType))
+            {
+                continue;
+            }
+
+            if (property.Pattern != null)
+            {
+                AddPatternBindingTypeHints(property.Pattern, memberType);
+            }
+            else
+            {
+                AddPatternBindingTypeHint(property.BindingName ?? property.Name, memberType);
+            }
+        }
+    }
+
+    private void AddPositionalPatternBindingTypeHints(Type targetType, PositionalPattern positionalPattern)
+    {
+        if (TryResolveDeconstructMethod(targetType, positionalPattern.Patterns.Count, out _, out var elementTypes))
+        {
+            for (var i = 0; i < positionalPattern.Patterns.Count; i++)
+            {
+                AddPatternBindingTypeHints(positionalPattern.Patterns[i], elementTypes[i]);
+            }
+
+            return;
+        }
+
+        for (var i = 0; i < positionalPattern.Patterns.Count; i++)
+        {
+            if (TryGetPatternMemberType(targetType, $"Item{i + 1}", out var elementType))
+            {
+                AddPatternBindingTypeHints(positionalPattern.Patterns[i], elementType);
+            }
+        }
+    }
+
+    private void AddListPatternBindingTypeHints(Type valueType, ListPattern listPattern)
+    {
+        var elementType = valueType.IsArray
+            ? valueType.GetElementType() ?? typeof(object)
+            : TryGetListPatternShape(valueType, out var shape) && shape != null
+                ? shape.ElementType
+                : typeof(object);
+
+        foreach (var elementPattern in listPattern.Elements)
+        {
+            if (elementPattern is SlicePattern slicePattern && slicePattern.BindingName != null)
+            {
+                AddPatternBindingTypeHint(slicePattern.BindingName, elementType.MakeArrayType());
+                continue;
+            }
+
+            AddPatternBindingTypeHints(elementPattern, elementType);
+        }
+    }
+
+    private void AddPatternBindingTypeHint(string name, Type type)
+    {
+        _patternBindingTypeHints ??= new Dictionary<string, Type>();
+        _patternBindingTypeHints[name] = type;
+    }
+
+    private bool TryGetPatternMemberType(Type targetType, string memberName, out Type memberType)
+    {
+        if (targetType is TypeBuilder typeBuilder)
+        {
+            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
+            {
+                memberType = fieldBuilder.FieldType;
+                return true;
+            }
+
+            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberName}"), out var getterMethod))
+            {
+                memberType = getterMethod.ReturnType;
+                return true;
+            }
+
+            memberType = typeof(object);
+            return false;
+        }
+
+        var property = ResolveRuntimeProperty(
+            targetType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (property != null)
+        {
+            memberType = property.PropertyType;
+            return true;
+        }
+
+        var field = ResolveRuntimeField(
+            targetType,
+            memberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field != null)
+        {
+            memberType = field.FieldType;
+            return true;
+        }
+
+        memberType = typeof(object);
+        return false;
+    }
+
     /// <summary>
     /// Get the type of an identifier
     /// </summary>
     private Type GetIdentifierType(IdentifierExpression ident)
     {
+        if (_patternBindingTypeHints != null && _patternBindingTypeHints.TryGetValue(ident.Name, out var patternBindingType))
+        {
+            return patternBindingType;
+        }
+
         if (_locals != null && _locals.TryGetValue(ident.Name, out var local))
         {
             return IsLiftedIdentifier(ident.Name) ? GetStrongBoxValueType(local.LocalType) : local.LocalType;
@@ -13963,6 +14353,7 @@ public partial class ILCompiler
 
         InitializeBodyContext(bodyReturnType, ContainsNestedFunction(funcDecl.Body)
             || (funcDecl.ExpressionBody != null && ContainsNestedFunction(funcDecl.ExpressionBody)));
+        InitializeStructuredReturnContext(bodyReturnType);
         _currentHasThis = !methodBuilder.IsStatic;
         if (funcDecl.Modifiers.HasFlag(Modifiers.Generator))
         {
@@ -14022,7 +14413,11 @@ public partial class ILCompiler
         }
 
         // Ensure method ends with a return
-        if (_currentGeneratorReturnType != null)
+        if (_usesStructuredReturn)
+        {
+            EmitStructuredReturnTarget();
+        }
+        else if (_currentGeneratorReturnType != null)
         {
             _currentIL.MarkLabel(_currentYieldBreakLabel!.Value);
             EmitGeneratorReturnValue(_currentGeneratorReturnType, _currentYieldListLocal!);
@@ -14041,6 +14436,22 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
+    }
+
+    private void EmitStructuredReturnTarget()
+    {
+        if (_currentIL == null || _currentReturnLabel == null)
+        {
+            throw new InvalidOperationException("No structured return context");
+        }
+
+        _currentIL.MarkLabel(_currentReturnLabel.Value);
+        if (_currentReturnLocal != null)
+        {
+            _currentIL.Emit(OpCodes.Ldloc, _currentReturnLocal);
+        }
+
+        _currentIL.Emit(OpCodes.Ret);
     }
 
     /// <summary>

@@ -164,7 +164,7 @@ When you run `nlc build`:
 3. The compiler emits IL directly for the project assembly
 4. The .NET toolchain builds and runs with the emitted assembly and runtime assets
 
-You do not need to manage generated C# or any secondary source tree.
+You do not need to manage generated source or any secondary source tree.
 
 ## Next Steps
 

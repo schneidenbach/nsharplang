@@ -5,14 +5,14 @@ Scope: LLM-assisted migration cleanup after a C# to N# conversion snapshot, espe
 
 ## Why this exists
 
-Large migrations should not be one giant "fix everything" prompt. Treat them as a controlled loop: snapshot the repository, run the compiler and checks, cluster failures, choose the safest recipe, make idiomatic N# edits, test the affected slice, and repeat until the project is green. Then do a final idiom audit so the output is not just compiling C# with fewer braces.
+Large migrations should not be one giant "fix everything" prompt. Treat them as a controlled loop: snapshot the repository, run the compiler and checks, cluster failures, choose the safest recipe, make idiomatic N# edits, test the affected slice, and repeat until the project is green. Then do a final idiom audit so the output is real N#, not transliterated C#.
 
 This document is an artifact for operators and future tooling. It assumes the converted N# snapshot already exists. If only C# input exists, stop and create a separate AI-assisted conversion/restoration plan before starting this loop.
 
 ## Non-goals
 
 - Do not rewrite unrelated dirty files.
-- Do not paper over unsupported compiler or language gaps with app-specific hacks.
+- Do not paper over unsupported compiler or language gaps with app-specific edits.
 - Do not mutate source automatically from a clustering/prototype tool unless the operator explicitly opts into that behavior.
 - Do not claim SampleMigration behavioral compatibility without the original SampleMigration source, tests, route contract, database assumptions, and secrets/test infrastructure.
 
@@ -82,7 +82,7 @@ Record the command, exit code, and diagnostic JSON/text path for every iteration
 
 ## Phase 2: diagnostic clustering
 
-Cluster diagnostics before editing. The point is to avoid whack-a-mole fixes and identify recipe families that remove whole classes of errors safely.
+Cluster diagnostics before editing. The point is to avoid one-off fixes and identify recipe families that remove whole classes of errors safely.
 
 Cluster dimensions:
 
@@ -156,7 +156,7 @@ After each recipe, run the narrowest check that proves the recipe worked.
 Examples:
 
 - Syntax normalization: `nlc check --project <project-dir> --json`.
-- Imports/type names: `nlc check --project <project-dir> --json` plus focused build if generated C# changed.
+- Imports/type names: `nlc check --project <project-dir> --json` plus focused build if emitted sources changed.
 - ASP.NET result typing: affected controller/minimal API tests.
 - EF query rewrite: affected service tests, integration tests if database infrastructure exists.
 - Validation rewrite: validator tests plus endpoint validation tests.

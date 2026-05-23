@@ -398,7 +398,7 @@ print e
         var expected = @"func Test() {
     try {
         print ""trying""
-    } catch (Exception e) {
+    } catch e: Exception {
         print e
     }
 }";
@@ -1887,8 +1887,7 @@ func Describe(s: Shape): string {
     [Fact]
     public void FormatSafe_CatchWithExceptionType_ProducesValidOutput()
     {
-        // Regression: Tripoli bug-071 — formatter omitted parentheses
-        // around catch clause exception type
+        // Regression: typed catch clauses should format to canonical N# syntax.
         var source = @"func Test() {
     try {
         print ""trying""
@@ -1900,7 +1899,7 @@ func Describe(s: Shape): string {
         var formatter = new Formatter();
         var result = formatter.FormatSafe(source, ast, null, "test.nl");
         Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
-        Assert.Contains("catch (Exception ex)", result.Text);
+        Assert.Contains("catch ex: Exception", result.Text);
     }
 
     [Fact]
@@ -1947,8 +1946,8 @@ func Describe(s: Shape): string {
         var formatter = new Formatter();
         var result = formatter.FormatSafe(source, ast, null, "test.nl");
         Assert.True(result.Success, $"FormatSafe failed: {string.Join("; ", result.Warnings)}");
-        Assert.Contains("catch (HttpException ex)", result.Text);
-        Assert.Contains("catch (Exception ex)", result.Text);
+        Assert.Contains("catch ex: HttpException", result.Text);
+        Assert.Contains("catch ex: Exception", result.Text);
         // Verify idempotence
         var ast2 = Parse(result.Text);
         var result2 = formatter.FormatSafe(result.Text, ast2, null, "test.nl");

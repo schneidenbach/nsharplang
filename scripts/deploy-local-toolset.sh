@@ -151,6 +151,20 @@ verify_tool_file() {
     fi
 }
 
+remove_local_package() {
+    local package_id="$1"
+    local normalized_id
+    normalized_id="$(lowercase "$package_id")"
+
+    if [[ "$DRY_RUN" -eq 0 ]]; then
+        rm -f "$LOCAL_FEED"/"$package_id".*.nupkg
+        rm -rf "$HOME/.nuget/packages/$normalized_id"
+    else
+        echo "+ rm -f $LOCAL_FEED/$package_id.*.nupkg"
+        echo "+ rm -rf $HOME/.nuget/packages/$normalized_id"
+    fi
+}
+
 ensure_vscode_dependencies() {
     local tsc_path="$VSCODE_EXT_DIR/node_modules/.bin/tsc"
 
@@ -224,6 +238,11 @@ run mkdir -p "$LOCAL_FEED"
 ensure_nuget_source
 
 log "Packing published artifacts into the local feed"
+remove_local_package NSharpLang.Sdk
+remove_local_package NSharpLang.Templates
+remove_local_package NSharpLang.Compiler
+remove_local_package NSharpLang.Cli
+remove_local_package NSharpLang.LanguageServer
 run_in_dir "$PROJECT_ROOT" dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
 run_in_dir "$PROJECT_ROOT" dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o "$LOCAL_FEED" -v q
 run_in_dir "$PROJECT_ROOT" dotnet pack templates/NSharpLang.Templates.csproj -c Release -o "$LOCAL_FEED" -v q

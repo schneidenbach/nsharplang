@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- Output path for generated C# files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
+    <!-- Output path for generated source files (now that IntermediateOutputPath is set by Microsoft.NET.Sdk) -->
     <NSharpOutputPath Condition="'$(NSharpOutputPath)' == ''">$(IntermediateOutputPath)nsharp/</NSharpOutputPath>
   </PropertyGroup>
 
@@ -108,9 +108,7 @@
 
   <Target Name="GenerateNSharpIlStub"
           BeforeTargets="CoreCompile"
-          Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')"
-          Inputs="$(NSharpProjectFile)"
-          Outputs="$(NSharpOutputPath)__NSharpIlStub.g.cs">
+          Condition="'$(EnableNSharpCompilation)' == 'true' And ('@(NSharpCompile)' != '' Or '@(NSharpTestFiles)' != '')">
 
     <Message Importance="High" Text="Generating N# IL compilation stub..." />
 

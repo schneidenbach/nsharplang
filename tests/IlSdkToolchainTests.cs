@@ -289,6 +289,143 @@ class NotifierHub {
     }
 
     [Fact]
+    public void DotnetBuild_RegeneratesCompilationStubAfterNSharpSourceChanges()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            CreateSdkProject(tempDir, "StubRegenerationBuild", """
+name: StubRegenerationBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+namespace StubRegenerationBuild
+
+class TaskService {
+    func Count(): int {
+        return 1
+    }
+}
+
+func main() {
+    service := new TaskService()
+    print service.Count()
+}
+""");
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                tempDir,
+                $"build \"{Path.Combine(tempDir, "StubRegenerationBuild.csproj")}\" -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var stubPath = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp", "__NSharpIlStub.g.cs");
+            Assert.DoesNotContain("class TaskStore", File.ReadAllText(stubPath));
+
+            File.WriteAllText(sourcePath, """
+namespace StubRegenerationBuild
+
+class TaskStore {
+}
+
+class TaskService {
+    store: TaskStore
+
+    constructor(taskStore: TaskStore) {
+        store = taskStore
+    }
+
+    func Count(): int {
+        return 2
+    }
+}
+
+func main() {
+    service := new TaskService(new TaskStore())
+    print service.Count()
+}
+""");
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                tempDir,
+                $"build \"{Path.Combine(tempDir, "StubRegenerationBuild.csproj")}\" --no-restore -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var regeneratedStub = File.ReadAllText(stubPath);
+            Assert.Contains("class TaskStore", regeneratedStub);
+            Assert.Contains("TaskService(TaskStore taskStore)", regeneratedStub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DotnetBuild_PackedSdkStubCompilerParsesCharLiteralSources()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            CreateSdkProject(tempDir, "StubCharLiteralBuild", """
+name: StubCharLiteralBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            Directory.CreateDirectory(Path.Combine(tempDir, "Services"));
+            File.WriteAllText(Path.Combine(tempDir, "Services", "Store.nl"), """
+namespace StubCharLiteralBuild.Services
+
+class TaskStore {
+    func Load(line: string): string[] {
+        return line.Split('|')
+    }
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Services", "TaskService.nl"), """
+namespace StubCharLiteralBuild.Services
+
+class TaskService {
+    store: TaskStore
+
+    constructor(taskStore: TaskStore) {
+        store = taskStore
+    }
+
+    func Count(line: string): int {
+        return store.Load(line).Length
+    }
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+namespace StubCharLiteralBuild
+
+func main() {
+    service := new TaskService(new TaskStore())
+    print service.Count("one|two|three")
+}
+""");
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                tempDir,
+                $"build \"{Path.Combine(tempDir, "StubCharLiteralBuild.csproj")}\" -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var stubPath = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp", "__NSharpIlStub.g.cs");
+            var stub = File.ReadAllText(stubPath);
+            Assert.Contains("class TaskStore", stub);
+            Assert.Contains("TaskService(TaskStore taskStore)", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void DotnetBuild_IlProjectSupportsImplicitControllerBaseIdentifierCalls()
     {
         var tempDir = CreateTempDir();

@@ -62,6 +62,32 @@ public class AnalyzerTests
         Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
     }
 
+    [Fact]
+    public void CharLiteral_HasCharType()
+    {
+        AssertNoErrors(@"
+            func Delimiter(): char {
+                return '|'
+            }
+        ");
+    }
+
+    [Fact]
+    public void TryCatch_AllBranchesReturn_SatisfiesReturnAnalysis()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func ParseId(s: string): int {
+                try {
+                    return Int32.Parse(s)
+                } catch ex: FormatException {
+                    return -1
+                }
+            }
+        ");
+    }
+
     /// <summary>
     /// Analyze source code with full source context so the rich error path (ErrorMessageBuilder) is taken,
     /// populating ContextualHint with conversion suggestions.

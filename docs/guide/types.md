@@ -368,9 +368,9 @@ func findUser(id: int): Option<User> {
 }
 ```
 
-### How Unions Compile to C#
+### CLR Shape of Unions
 
-N# unions compile to C# class hierarchies:
+N# unions emit CLR class hierarchies:
 
 ```n#
 union Result<T> {
@@ -484,7 +484,7 @@ class FileReader {
     func Read(): string { ... }
 }
 
-// Generated C#
+// C# shape
 class FileReader : IReader
 {
     public string Read() { ... }
@@ -561,7 +561,7 @@ public readonly struct Status : IEquatable<Status>
 }
 ```
 
-Numeric enums compile directly to C# enums:
+Numeric enums emit CLR enums:
 
 ```csharp
 public enum Priority

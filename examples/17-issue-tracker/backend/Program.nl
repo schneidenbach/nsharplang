@@ -28,7 +28,7 @@ func main(args: string[]) {
 
     routes.Map(app)
 
-    // SPA fallback — unmatched routes serve index.html for client-side routing
+    // SPA route handling: unmatched routes serve index.html for client-side routing.
     app.MapFallbackToFile("index.html")
 
     if app.Environment.IsDevelopment() {

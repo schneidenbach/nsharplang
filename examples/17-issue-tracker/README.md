@@ -89,7 +89,7 @@ Each backend file showcases specific N# features. This is not C# with a differen
 - Request DTOs are N# records.
 - The frontend and backend share a boring JSON contract on purpose: the language is new; the deployment model is ordinary .NET.
 
-### `Program.nl` — Static files and SPA fallback
+### `Program.nl` — Static Files and SPA Routes
 
 - ASP.NET serves the built frontend from `wwwroot/`.
 - `/api/*` is handled by Minimal API routes.

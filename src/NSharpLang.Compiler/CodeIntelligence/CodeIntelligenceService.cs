@@ -2352,6 +2352,7 @@ public class CodeIntelligenceService
             ParenthesizedExpression paren => ResolveTypeInfoFromExpression(paren.Inner, semanticModel, snapshot, currentUnit),
             IntLiteralExpression => new SimpleTypeInfo("int"),
             FloatLiteralExpression => new SimpleTypeInfo("double"),
+            CharLiteralExpression => new SimpleTypeInfo("char"),
             StringLiteralExpression => new SimpleTypeInfo("string"),
             InterpolatedStringExpression => new SimpleTypeInfo("string"),
             BoolLiteralExpression => new SimpleTypeInfo("bool"),

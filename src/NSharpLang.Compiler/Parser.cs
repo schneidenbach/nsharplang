@@ -2237,6 +2237,7 @@ public class Parser
             TokenType.Identifier or
             TokenType.IntLiteral or
             TokenType.FloatLiteral or
+            TokenType.CharLiteral or
             TokenType.StringLiteral or
             TokenType.InterpolatedRawStringLiteral or
             TokenType.True or
@@ -2354,14 +2355,29 @@ public class Parser
                 Advance();
                 if (!Check(TokenType.RightParen))
                 {
-                    exceptionType = ParseTypeReference();
-
-                    if (Check(TokenType.Identifier))
+                    if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon)
                     {
                         varName = Advance().Value;
+                        Advance(); // consume ':'
+                        exceptionType = ParseTypeReference();
+                    }
+                    else
+                    {
+                        exceptionType = ParseTypeReference();
+
+                        if (Check(TokenType.Identifier))
+                        {
+                            varName = Advance().Value;
+                        }
                     }
                 }
                 Consume(TokenType.RightParen, "Expected ')'");
+            }
+            else if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon)
+            {
+                varName = Advance().Value;
+                Advance(); // consume ':'
+                exceptionType = ParseTypeReference();
             }
 
             var catchBlock = ParseBlock();
@@ -2684,7 +2700,7 @@ public class Parser
         }
 
         // Literal pattern
-        if (Check(TokenType.IntLiteral) || Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) ||
+        if (Check(TokenType.IntLiteral) || Check(TokenType.CharLiteral) || Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral) ||
             Check(TokenType.True) || Check(TokenType.False) || Check(TokenType.Null))
         {
             var literal = ParsePrimaryExpression();
@@ -3598,6 +3614,9 @@ public class Parser
 
         if (Check(TokenType.FloatLiteral))
             return new FloatLiteralExpression(Advance().Value, line, column);
+
+        if (Check(TokenType.CharLiteral))
+            return new CharLiteralExpression(Advance().Value, line, column);
 
         if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
         {

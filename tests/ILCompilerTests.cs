@@ -3156,6 +3156,61 @@ func main(ok: bool): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteUnionMatchBindingWithOuterVariableCollision()
+    {
+        var source = @"
+union CommandResult {
+    Success { message: string }
+    Error { message: string }
+}
+
+func make(ok: bool): CommandResult {
+    if ok {
+        return new CommandResult.Success { message: ""done"" }
+    }
+    return new CommandResult.Error { message: ""failed"" }
+}
+
+func main(ok: bool): string {
+    result := make(ok)
+    message := match result {
+        CommandResult.Success { message } => message,
+        CommandResult.Error { message } => $""Error: {message}""
+    }
+    return message
+}";
+
+        var result = CompileAndInvoke(source, "main", false);
+        Assert.Equal("Error: failed", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_InfersUnionMatchBindingTypeForSubsequentMethodCalls()
+    {
+        var source = @"
+union CommandResult {
+    Success { message: string }
+    Error { message: string }
+}
+
+func make(): CommandResult {
+    return new CommandResult.Success { message: ""done writing tests"" }
+}
+
+func main(): bool {
+    result := make()
+    text := match result {
+        CommandResult.Success { message } => message,
+        CommandResult.Error { message } => message
+    }
+    return text.Contains(""tests"")
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteUnionCaseConstructionAndFieldRead()
     {
         var source = @"
@@ -3370,6 +3425,57 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteExistingOutVariableOnClrMethod()
+    {
+        var source = @"
+func main(): int {
+    value := 0
+    if int.TryParse(""42"", out value) {
+        return value
+    }
+    return 0
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteCharLiteralStringSplit()
+    {
+        var source = @"
+func main(): int {
+    parts := ""one|two|three"".Split('|')
+    return parts.Length
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(3, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_TryCatchAllBranchesReturn()
+    {
+        var source = @"
+import System
+
+func parseId(s: string): int {
+    try {
+        return Int32.Parse(s)
+    } catch ex: FormatException {
+        return -1
+    }
+}
+
+func main(): int {
+    return parseId(""not-a-number"")
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(-1, Assert.IsType<int>(result));
     }
 
     [Fact]
@@ -3642,6 +3748,63 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(313, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteRepeatedBlockLocalAfterLinqToListOnUserType()
+    {
+        var source = @"
+import System.Collections.Generic
+import System.Linq
+
+record Item {
+    Name: string
+}
+
+class Service {
+    items: List<Item>
+
+    constructor() {
+        items = new List<Item>()
+        items.Add(new Item { Name: ""first"" })
+        items.Add(new Item { Name: ""second"" })
+    }
+
+    func Filter(firstPass: bool, name: string): List<Item> {
+        result := items.ToList()
+
+        if firstPass {
+            filtered := new List<Item>()
+            for item in result {
+                filtered.Add(item)
+            }
+
+            result = filtered
+        }
+
+        normalized := name.ToLower()
+        if normalized.Length > 0 {
+            filtered := new List<Item>()
+            for item in result {
+                if item.Name == normalized {
+                    filtered.Add(item)
+                }
+            }
+
+            result = filtered
+        }
+
+        return result
+    }
+}
+
+func main(): int {
+    service := new Service()
+    return service.Filter(false, ""SECOND"").Count
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(1, Assert.IsType<int>(result));
     }
 
     [Fact]
