@@ -36,7 +36,33 @@ MAX_JOBS=${TEST_ALL_JOBS:-$DEFAULT_JOBS}
 if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
     MAX_JOBS=1
 fi
-DOTNET_STABLE_FLAGS="--disable-build-servers"
+
+is_enabled() {
+    case "$1" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ -z "${NLC_MSBUILD_SINGLE_NODE+x}" ]; then
+    if [ -n "${CODEX_SANDBOX:-}" ]; then
+        NLC_MSBUILD_SINGLE_NODE=1
+    else
+        NLC_MSBUILD_SINGLE_NODE=0
+    fi
+fi
+
+DOTNET_STABLE_FLAGS="--disable-build-servers -nr:false"
+if is_enabled "$NLC_MSBUILD_SINGLE_NODE"; then
+    # Some coding-agent sandboxes allow file writes but deny local IPC socket
+    # binds. Force MSBuild into the in-process, single-node path there.
+    DOTNET_STABLE_FLAGS="$DOTNET_STABLE_FLAGS -m:1 -p:BuildInParallel=false"
+    export DOTNET_CLI_USE_MSBUILD_SERVER=0
+    export DOTNET_CLI_RUN_MSBUILD_OUTOFPROC=0
+    export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=0
+    export MSBUILDDISABLENODEREUSE=1
+    unset MSBUILDNOINPROCNODE
+fi
 
 # Parse arguments
 CLEAN_BUILD=0
