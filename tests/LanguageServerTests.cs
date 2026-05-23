@@ -3480,6 +3480,84 @@ func createUser(name: string): User
     }
 
     [Fact]
+    public void SemanticTokens_DoesNotClassifyInterpolatedStringAsSingleStringToken()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_interpolated_str.nl";
+        var source = """
+func main() {
+    name := "Spencer"
+    print $"Hello, {name}!"
+}
+""";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+
+        var interpolatedToken = doc.Tokens!.First(t =>
+            t.Type == NSharpLang.Compiler.TokenType.StringLiteral
+            && t.Value.StartsWith("$\"", StringComparison.Ordinal));
+
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            interpolatedToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+
+        Assert.Null(classification);
+
+        var embeddedNameToken = SemanticTokensHandler.GetInterpolatedStringExpressionTokens(interpolatedToken)
+            .Single(t => t.Type == NSharpLang.Compiler.TokenType.Identifier && t.Value == "name");
+        Assert.Equal(3, embeddedNameToken.Line);
+        Assert.Equal(21, embeddedNameToken.Column);
+
+        classification = harness.SemanticTokensHandler.ClassifyToken(
+            embeddedNameToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+
+        Assert.NotNull(classification);
+        Assert.Equal(8, classification!.Value.TokenType); // variable
+    }
+
+    [Fact]
+    public void SemanticTokens_DoesNotClassifyInterpolatedRawStringAsSingleStringToken()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_interpolated_raw_str.nl";
+        var source = "func main() {\n    name := \"Spencer\"\n    print $\"\"\"Hello, {name}!\"\"\"\n}\n";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+
+        var interpolatedToken = doc.Tokens!.First(t =>
+            t.Type == NSharpLang.Compiler.TokenType.InterpolatedRawStringLiteral);
+
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            interpolatedToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+
+        Assert.Null(classification);
+
+        var embeddedNameToken = SemanticTokensHandler.GetInterpolatedStringExpressionTokens(interpolatedToken)
+            .Single(t => t.Type == NSharpLang.Compiler.TokenType.Identifier && t.Value == "name");
+        Assert.Equal(3, embeddedNameToken.Line);
+        Assert.Equal(23, embeddedNameToken.Column);
+
+        classification = harness.SemanticTokensHandler.ClassifyToken(
+            embeddedNameToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+
+        Assert.NotNull(classification);
+        Assert.Equal(8, classification!.Value.TokenType); // variable
+    }
+
+    [Fact]
     public void SemanticTokens_ClassifiesTypeNames()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
