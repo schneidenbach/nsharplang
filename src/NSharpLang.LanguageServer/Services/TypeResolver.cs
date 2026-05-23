@@ -543,6 +543,7 @@ public class TypeResolver
                     Kind = MemberKind.Method,
                     Type = FormatTypeName(method.ReturnType),
                     Parameters = paramString,
+                    ParameterCount = parameters.Length,
                     IsStatic = method.IsStatic,
                     Documentation = _xmlDocReader.GetMethodDocumentation(method)
                 });
@@ -579,13 +580,48 @@ public class TypeResolver
             _logger.LogError(ex, "Error getting members for type {Type}", type.FullName);
         }
 
-        // Filter by access mode
+        // Filter by access mode before collapsing overloads so static and instance members do not
+        // affect each other's displayed overload count.
         if (mode == MemberAccessMode.StaticOnly)
-            return items.Where(i => i.IsStatic).ToList();
+            return CollapseOverloadsForCompletion(items.Where(i => i.IsStatic));
         if (mode == MemberAccessMode.InstanceOnly)
-            return items.Where(i => !i.IsStatic).ToList();
+            return CollapseOverloadsForCompletion(items.Where(i => !i.IsStatic));
 
-        return items;
+        return CollapseOverloadsForCompletion(items);
+    }
+
+    private static List<MemberCompletionItem> CollapseOverloadsForCompletion(IEnumerable<MemberCompletionItem> members)
+    {
+        var collapsed = new List<MemberCompletionItem>();
+
+        foreach (var group in members.GroupBy(member => (member.Name, member.Kind, member.IsStatic)))
+        {
+            if (group.Key.Kind != MemberKind.Method)
+            {
+                collapsed.Add(group.First());
+                continue;
+            }
+
+            var overloads = group.ToList();
+            var representative = overloads
+                .OrderBy(member => member.ParameterCount)
+                .ThenBy(member => member.Parameters ?? string.Empty, StringComparer.Ordinal)
+                .First();
+
+            collapsed.Add(new MemberCompletionItem
+            {
+                Name = representative.Name,
+                Kind = representative.Kind,
+                Type = representative.Type,
+                Parameters = representative.Parameters,
+                ParameterCount = representative.ParameterCount,
+                IsStatic = representative.IsStatic,
+                Documentation = representative.Documentation,
+                OverloadCount = overloads.Count
+            });
+        }
+
+        return collapsed;
     }
 
     /// <summary>
@@ -692,8 +728,10 @@ public class MemberCompletionItem
     public required MemberKind Kind { get; init; }
     public required string Type { get; init; }
     public string? Parameters { get; init; }
+    public int ParameterCount { get; init; }
     public bool IsStatic { get; init; }
     public string? Documentation { get; init; }
+    public int OverloadCount { get; init; } = 1;
 }
 
 /// <summary>

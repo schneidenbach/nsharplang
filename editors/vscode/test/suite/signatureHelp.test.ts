@@ -130,6 +130,37 @@ suite('Signature Help', () => {
         );
     });
 
+    test('string instance method exposes overload set', async function () {
+        this.timeout(60_000);
+        const { doc, cleanup } = await createTempNlFile(`
+func Main() {
+    name := "Spencer"
+    name.Contains(
+}
+`, '_signature_instance_overloads.nl');
+
+        try {
+            const parenPos = positionOf(doc, 'name.Contains(', { at: 'end' });
+            const sigHelp = await getSignatureHelp(doc, parenPos);
+
+            assert.ok(sigHelp, 'Signature help should be returned for string.Contains()');
+            assert.ok(sigHelp!.signatures.length >= 2,
+                `Expected string.Contains overloads, got ${sigHelp!.signatures.length} signature(s)`);
+
+            const labels = sigHelp!.signatures.map(signature => signature.label);
+            assert.ok(labels.every(label => label.startsWith('Contains(')),
+                `Expected only Contains signatures. Got: ${labels.join(' | ')}`);
+            assert.ok(labels.some(label => label.includes('value: string')),
+                `Expected string overload. Got: ${labels.join(' | ')}`);
+            assert.ok(labels.some(label => label.includes('value: char')),
+                `Expected char overload. Got: ${labels.join(' | ')}`);
+            assert.ok(labels.some(label => label.includes('comparisonType: StringComparison')),
+                `Expected comparison overload. Got: ${labels.join(' | ')}`);
+        } finally {
+            cleanup();
+        }
+    });
+
     // ================================================================
     // EDGE CASES
     // ================================================================
