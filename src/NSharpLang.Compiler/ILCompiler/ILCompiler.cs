@@ -6916,6 +6916,27 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
+        var savedLocals = new Dictionary<string, LocalBuilder>(_locals);
+        var savedLocalFunctionDeclarations = _localFunctionDeclarations != null
+            ? new Dictionary<string, FunctionDeclaration>(_localFunctionDeclarations)
+            : null;
+
+        try
+        {
+            EmitBlockCore(block, savedLocals);
+        }
+        finally
+        {
+            _locals = savedLocals;
+            _localFunctionDeclarations = savedLocalFunctionDeclarations;
+        }
+    }
+
+    private void EmitBlockCore(BlockStatement block, IReadOnlyDictionary<string, LocalBuilder> outerLocals)
+    {
+        if (_currentIL == null || _locals == null)
+            throw new InvalidOperationException("No IL generator context");
+
         var localFunctions = block.Statements
             .OfType<LocalFunctionStatement>()
             .ToList();
@@ -6928,11 +6949,21 @@ public partial class ILCompiler
 
         if (_liftLocalsIntoBoxes)
         {
+            var predeclaredNames = new HashSet<string>();
             foreach (var statement in block.Statements)
             {
                 switch (statement)
                 {
-                    case VariableDeclarationStatement variableDeclaration when !_locals.ContainsKey(variableDeclaration.Name):
+                    case VariableDeclarationStatement variableDeclaration:
+                        if (!predeclaredNames.Add(variableDeclaration.Name))
+                            break;
+
+                        if (outerLocals.ContainsKey(variableDeclaration.Name))
+                            _locals.Remove(variableDeclaration.Name);
+
+                        if (_locals.ContainsKey(variableDeclaration.Name))
+                            break;
+
                         var variableType = variableDeclaration.Type != null
                             ? ResolveType(variableDeclaration.Type, _currentGenericParameters)
                             : variableDeclaration.Initializer != null
@@ -6949,10 +6980,16 @@ public partial class ILCompiler
                         for (int i = 0; i < tupleDeconstruction.Names.Count; i++)
                         {
                             var name = tupleDeconstruction.Names[i];
-                            if (name == "_" || _locals.ContainsKey(name))
+                            if (name == "_" || !predeclaredNames.Add(name))
                             {
                                 continue;
                             }
+
+                            if (outerLocals.ContainsKey(name))
+                                _locals.Remove(name);
+
+                            if (_locals.ContainsKey(name))
+                                continue;
 
                             if (!TryGetTupleDeconstructionElementType(tupleDeconstruction, i, out var elementType))
                             {
@@ -7001,6 +7038,7 @@ public partial class ILCompiler
             EmitLocalFunctionInitialization(localFunction);
         }
 
+        var declaredNames = new HashSet<string>();
         foreach (var statement in block.Statements)
         {
             if (statement is LocalFunctionStatement localFunction)
@@ -7008,8 +7046,45 @@ public partial class ILCompiler
                 continue;
             }
 
+            if (!_liftLocalsIntoBoxes)
+                ShadowOuterLocalsForBlockDeclaration(statement, outerLocals, declaredNames);
             EmitStatement(statement);
         }
+    }
+
+    private void ShadowOuterLocalsForBlockDeclaration(
+        Statement statement,
+        IReadOnlyDictionary<string, LocalBuilder> outerLocals,
+        HashSet<string> declaredNames)
+    {
+        if (_locals == null)
+            return;
+
+        switch (statement)
+        {
+            case VariableDeclarationStatement variableDeclaration:
+                ShadowOuterLocalForBlockDeclaration(variableDeclaration.Name, outerLocals, declaredNames);
+                break;
+
+            case TupleDeconstructionStatement tupleDeconstruction:
+                foreach (var name in tupleDeconstruction.Names)
+                {
+                    ShadowOuterLocalForBlockDeclaration(name, outerLocals, declaredNames);
+                }
+                break;
+        }
+    }
+
+    private void ShadowOuterLocalForBlockDeclaration(
+        string name,
+        IReadOnlyDictionary<string, LocalBuilder> outerLocals,
+        HashSet<string> declaredNames)
+    {
+        if (_locals == null || name == "_" || !declaredNames.Add(name))
+            return;
+
+        if (outerLocals.ContainsKey(name))
+            _locals.Remove(name);
     }
 
     private Type GetLocalFunctionDelegateType(FunctionDeclaration function)

@@ -8,7 +8,6 @@ import System.Text.Json
 import System.Threading.Tasks
 import Microsoft.AspNetCore.Builder
 import Microsoft.AspNetCore.Http
-import System
 import "Models"
 import "Service"
 
@@ -78,7 +77,23 @@ class Routes {
     }
 
     func PriorityName(priority: Priority): string {
-        return priority.ToString()
+        if priority == Priority.Low {
+            return "Low"
+        }
+
+        if priority == Priority.Medium {
+            return "Medium"
+        }
+
+        if priority == Priority.High {
+            return "High"
+        }
+
+        if priority == Priority.Critical {
+            return "Critical"
+        }
+
+        return "Unknown"
     }
 
     func IsPriorityName(priority: string): bool {
@@ -86,7 +101,23 @@ class Routes {
     }
 
     func ParsePriority(priority: string): Priority {
-        return Enum.Parse<Priority>(priority)
+        if priority == "Low" {
+            return Priority.Low
+        }
+
+        if priority == "Medium" {
+            return Priority.Medium
+        }
+
+        if priority == "High" {
+            return Priority.High
+        }
+
+        if priority == "Critical" {
+            return Priority.Critical
+        }
+
+        throw new Exception("Invalid priority")
     }
 
     func StatusType(status: IssueStatus): string {

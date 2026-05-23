@@ -366,6 +366,7 @@ public partial class ILCompiler
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
         var savedByRefParameters = _byRefParameters;
+        var savedInferredLocalTypes = _inferredLocalTypes;
         var savedCurrentReturnType = _currentReturnType;
         var savedCurrentAsyncReturnType = _currentAsyncReturnType;
         var savedCurrentAsyncResultType = _currentAsyncResultType;
@@ -395,6 +396,7 @@ public partial class ILCompiler
 
         InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
             || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
+        _inferredLocalTypes = null;
         _currentHasThis = false;
         _expectedExpressionType = null;
 
@@ -472,6 +474,7 @@ public partial class ILCompiler
         _parameters = savedParameters;
         _parameterTypes = savedParameterTypes;
         _byRefParameters = savedByRefParameters;
+        _inferredLocalTypes = savedInferredLocalTypes;
         _currentReturnType = savedCurrentReturnType;
         _currentAsyncReturnType = savedCurrentAsyncReturnType;
         _currentAsyncResultType = savedCurrentAsyncResultType;
