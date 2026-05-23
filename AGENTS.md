@@ -33,7 +33,7 @@ The memory/README.md is the table of contents for your documentation - if you ne
 
 ## IMPORTANT!!!!!
 
-The source code for Roslyn is on this computer and available for you to peruse. Use those patterns for research and then implement your shit. /Users/claude/repos/roslyn
+The source code for Roslyn is on this computer and available for you to peruse. Use those patterns for research and then implement your shit. ~/repos/roslyn
 
 ## IDE Tooling Verification (MANDATORY)
 

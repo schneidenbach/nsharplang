@@ -10,6 +10,10 @@ import {
     getDiagnostics
 } from './helpers';
 
+function documentationText(documentation: string | vscode.MarkdownString | undefined): string | undefined {
+    return typeof documentation === 'string' ? documentation : documentation?.value;
+}
+
 /**
  * Signature Help tests with parameter validation.
  *
@@ -156,6 +160,19 @@ func Main() {
                 `Expected char overload. Got: ${labels.join(' | ')}`);
             assert.ok(labels.some(label => label.includes('comparisonType: StringComparison')),
                 `Expected comparison overload. Got: ${labels.join(' | ')}`);
+
+            const stringOverload = sigHelp!.signatures.find(signature =>
+                signature.label.includes('value: string') &&
+                !signature.label.includes('comparisonType'));
+            assert.ok(stringOverload, `Expected single-parameter string overload. Got: ${labels.join(' | ')}`);
+
+            const documentation = documentationText(stringOverload!.documentation);
+            const parameterDocumentation = documentationText(stringOverload!.parameters[0]?.documentation);
+
+            assert.ok(documentation?.includes('specified substring'),
+                `Expected string.Contains signature documentation. Got: ${documentation ?? '<none>'}`);
+            assert.ok(parameterDocumentation?.includes('string to seek'),
+                `Expected string.Contains parameter documentation. Got: ${parameterDocumentation ?? '<none>'}`);
         } finally {
             cleanup();
         }

@@ -467,7 +467,10 @@ public class CompletionHandler : CompletionHandlerBase
                     Label = member.Name,
                     Kind = GetCompletionItemKindFromSymbol(member.Kind),
                     Detail = detail,
-                    InsertText = member.Name
+                    InsertText = member.Name,
+                    Documentation = !string.IsNullOrEmpty(member.Documentation)
+                        ? new MarkupContent { Kind = MarkupKind.Markdown, Value = member.Documentation }
+                        : null
                 });
             }
         }

@@ -148,6 +148,23 @@ public class LanguageServerTests
         _examplesDir = FindExamplesDir();
     }
 
+    private static string? GetDocumentationText(StringOrMarkupContent? documentation)
+    {
+        if (documentation == null)
+        {
+            return null;
+        }
+
+        if (documentation.HasMarkupContent)
+        {
+            return documentation.MarkupContent?.Value;
+        }
+
+        return documentation.HasString
+            ? documentation.String
+            : documentation.ToString();
+    }
+
     private static Type CreateConflictingClrPersonType()
     {
         var assemblyName = new System.Reflection.AssemblyName("NSharpLang.Tests.DynamicCompletionCollision");
@@ -327,6 +344,7 @@ public class LanguageServerTests
             SignatureHelpHandler = new SignatureHelpHandler(
                 DocumentManager,
                 TypeResolver,
+                XmlDocReader,
                 NullLogger<SignatureHelpHandler>.Instance
             );
 
@@ -761,6 +779,32 @@ func main(): void
 
         Assert.Contains(completions.Items, c => c.Label == "greet");
         Assert.Contains(completions.Items, c => c.Label == "main");
+    }
+
+    [Fact]
+    public async Task Completion_LocalFunction_IncludesLeadingDocumentationAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/docs.nl";
+
+        var source = @"// Greets someone by name.
+// Returns the composed greeting.
+func greet(name: string): string
+    return name
+
+func main(): void
+    ";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 6, 4);
+
+        var greet = Assert.Single(completions.Items.Where(c => c.Label == "greet"));
+        var documentation = GetDocumentationText(greet.Documentation);
+
+        Assert.NotNull(documentation);
+        Assert.Contains("Greets someone by name.", documentation);
+        Assert.Contains("Returns the composed greeting.", documentation);
     }
 
     [Fact]
@@ -1221,6 +1265,33 @@ func main(): void
     }
 
     [Fact]
+    public async Task SignatureHelp_NSharpFunction_IncludesLeadingDocumentationAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/docs-signature.nl";
+
+        var source = @"// Greets someone by name.
+// Returns the composed greeting.
+func greet(name: string): string
+    return name
+
+func main(): void
+    greet(";
+
+        harness.OpenDocument(uri, source);
+
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, 6, 10);
+
+        Assert.NotNull(sigHelp);
+        var sig = Assert.Single(sigHelp.Signatures);
+        var documentation = GetDocumentationText(sig.Documentation);
+
+        Assert.NotNull(documentation);
+        Assert.Contains("Greets someone by name.", documentation);
+        Assert.Contains("Returns the composed greeting.", documentation);
+    }
+
+    [Fact]
     public async Task SignatureHelp_NSharpFunction_ActiveParameterAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -1357,6 +1428,17 @@ func main(): void
         Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("value: char"));
         Assert.Contains(sigHelp.Signatures, signature => signature.Label.Contains("comparisonType: StringComparison"));
         Assert.Equal(0, sigHelp.ActiveParameter);
+
+        var stringOverload = sigHelp.Signatures.First(signature =>
+            signature.Label.Contains("value: string") &&
+            !signature.Label.Contains("comparisonType"));
+        var documentation = GetDocumentationText(stringOverload.Documentation);
+        var parameterDocumentation = GetDocumentationText(stringOverload.Parameters!.First().Documentation);
+
+        Assert.NotNull(documentation);
+        Assert.Contains("specified substring", documentation);
+        Assert.NotNull(parameterDocumentation);
+        Assert.Contains("string to seek", parameterDocumentation);
     }
 
     [Fact]
@@ -2758,6 +2840,10 @@ func main(): void
 
         var contains = Assert.Single(completions.Items.Where(c => c.Label == "Contains"));
         Assert.Contains("overload", contains.Detail);
+
+        var documentation = GetDocumentationText(contains.Documentation);
+        Assert.NotNull(documentation);
+        Assert.Contains("Returns a value indicating whether a specified", documentation);
     }
 
     [Fact]

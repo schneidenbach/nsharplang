@@ -12,6 +12,10 @@ import {
     getDiagnostics
 } from './helpers';
 
+function documentationText(documentation: string | vscode.MarkdownString | undefined): string | undefined {
+    return typeof documentation === 'string' ? documentation : documentation?.value;
+}
+
 /**
  * Completion tests with kind and content validation.
  *
@@ -120,6 +124,31 @@ suite('Completions', () => {
         const labels = completions.items.map(i => completionLabel(i));
         assert.ok(labels.includes('Make') || labels.includes('GetDescription'),
             `Expected "Make" or "GetDescription" in completions. Got: ${labels.slice(0, 20).join(', ')}`);
+    });
+
+    test('member completions include documentation', async function () {
+        this.timeout(60_000);
+        const { doc, cleanup } = await createTempNlFile(`
+func Main() {
+    name := "Spencer"
+    name.
+}
+`, '_completion_docs.nl');
+
+        try {
+            await getDiagnostics(doc);
+            const dotPos = positionOf(doc, 'name.', { at: 'end' });
+            const completions = await getCompletions(doc, dotPos);
+            const contains = completions.items.find(item => completionLabel(item) === 'Contains');
+
+            assert.ok(contains, 'Expected Contains completion for string member access');
+            const documentation = documentationText(contains!.documentation);
+            assert.ok(documentation?.includes('Returns a value indicating whether a specified'),
+                `Expected Contains completion documentation. Got: ${documentation ?? '<none>'}`);
+        } finally {
+            await closeAllEditors();
+            cleanup();
+        }
     });
 
     // ================================================================

@@ -25,12 +25,18 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 {
     private readonly DocumentManager _documentManager;
     private readonly TypeResolver _typeResolver;
+    private readonly XmlDocReader _xmlDocReader;
     private readonly ILogger<SignatureHelpHandler> _logger;
 
-    public SignatureHelpHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<SignatureHelpHandler> logger)
+    public SignatureHelpHandler(
+        DocumentManager documentManager,
+        TypeResolver typeResolver,
+        XmlDocReader xmlDocReader,
+        ILogger<SignatureHelpHandler> logger)
     {
         _documentManager = documentManager;
         _typeResolver = typeResolver;
+        _xmlDocReader = xmlDocReader;
         _logger = logger;
     }
 
@@ -168,9 +174,11 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         // First, check top-level function declarations in the AST
         if (doc.CompilationUnit != null)
         {
+            Models.SymbolInfo? symbolInfo = null;
+            doc.SymbolsInfo?.TryGetValue(functionName, out symbolInfo);
             foreach (var funcDecl in FindTopLevelFunctions(doc.CompilationUnit, functionName))
             {
-                signatures.Add(BuildSignatureFromDeclaration(funcDecl));
+                signatures.Add(BuildSignatureFromDeclaration(funcDecl, symbolInfo?.Documentation));
             }
         }
 
@@ -234,13 +242,16 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         {
             var parameters = ctor.GetParameters();
             var paramInfos = new List<ParameterInformation>();
+            var documentation = _xmlDocReader.GetConstructorDocumentationInfo(ctor);
 
             foreach (var param in parameters)
             {
                 var paramType = FormatTypeName(param.ParameterType);
                 paramInfos.Add(new ParameterInformation
                 {
-                    Label = $"{param.Name}: {paramType}"
+                    Label = $"{param.Name}: {paramType}",
+                    Documentation = CreateDocumentationMarkup(
+                        documentation?.GetParameterDocumentation(param.Name))
                 });
             }
 
@@ -250,6 +261,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             signatures.Add(new SignatureInformation
             {
                 Label = label,
+                Documentation = CreateDocumentationMarkup(documentation?.Summary),
                 Parameters = new Container<ParameterInformation>(paramInfos)
             });
         }
@@ -440,6 +452,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         {
             var parameters = method.GetParameters();
             var paramInfos = new List<ParameterInformation>();
+            var documentation = _xmlDocReader.GetMethodDocumentationInfo(method);
 
             foreach (var param in parameters)
             {
@@ -449,7 +462,8 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 paramInfos.Add(new ParameterInformation
                 {
                     Label = paramLabel,
-                    Documentation = null
+                    Documentation = CreateDocumentationMarkup(
+                        documentation?.GetParameterDocumentation(param.Name))
                 });
             }
 
@@ -460,7 +474,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             signatures.Add(new SignatureInformation
             {
                 Label = label,
-                Documentation = null,
+                Documentation = CreateDocumentationMarkup(documentation?.Summary),
                 Parameters = new Container<ParameterInformation>(paramInfos)
             });
         }
@@ -506,7 +520,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     /// <summary>
     /// Build a SignatureInformation from an N# FunctionDeclaration AST node.
     /// </summary>
-    private SignatureInformation BuildSignatureFromDeclaration(FunctionDeclaration funcDecl)
+    private SignatureInformation BuildSignatureFromDeclaration(FunctionDeclaration funcDecl, string? documentation = null)
     {
         var paramInfos = new List<ParameterInformation>();
 
@@ -530,6 +544,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return new SignatureInformation
         {
             Label = label,
+            Documentation = CreateDocumentationMarkup(documentation),
             Parameters = new Container<ParameterInformation>(paramInfos)
         };
     }
@@ -557,8 +572,20 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return new SignatureInformation
         {
             Label = label,
+            Documentation = CreateDocumentationMarkup(symbolInfo.Documentation),
             Parameters = new Container<ParameterInformation>(paramInfos)
         };
+    }
+
+    private static MarkupContent? CreateDocumentationMarkup(string? documentation)
+    {
+        return string.IsNullOrWhiteSpace(documentation)
+            ? null
+            : new MarkupContent
+            {
+                Kind = MarkupKind.Markdown,
+                Value = documentation
+            };
     }
 
     /// <summary>
