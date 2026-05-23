@@ -1,4 +1,7 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { waitForLanguageServer, openDocument, closeAllEditors, sleep } from './helpers';
 
@@ -72,18 +75,47 @@ suite('Extension Activation', () => {
             const execution = task!.execution as vscode.ShellExecution;
             assert.strictEqual(execution.command, configuredPath);
             assert.deepStrictEqual(execution.args, [taskName]);
+
+            const dotnetToolsDirectory = path.join(os.homedir(), '.dotnet', 'tools');
+            if (fs.existsSync(dotnetToolsDirectory)) {
+                assert.ok(
+                    execution.options?.env?.PATH?.split(path.delimiter).includes(dotnetToolsDirectory),
+                    `${taskName} task PATH should include the .NET tools directory for nlc`
+                );
+            }
         }
     });
 
-    test('debug entry points are hidden until real N# debugging exists', async () => {
+    test('debug entry points are contributed for N# F5 and breakpoints', async () => {
         const ext = vscode.extensions.getExtension('nsharp.nsharp');
         assert.ok(ext, 'N# extension should be installed');
 
         const contributes = ext!.packageJSON.contributes ?? {};
         const commandIds = (contributes.commands ?? []).map((command: { command: string }) => command.command);
+        const debuggerTypes = (contributes.debuggers ?? []).map((debuggerContribution: { type: string }) => debuggerContribution.type);
+        const nsharpDebugger = (contributes.debuggers ?? []).find(
+            (debuggerContribution: { type: string }) => debuggerContribution.type === 'nsharp'
+        );
 
-        assert.ok(!commandIds.includes('nsharp.generateDebugConfig'), 'debug config command should not be contributed');
-        assert.ok(!contributes.breakpoints, 'N# breakpoint contribution should be hidden');
+        assert.ok(commandIds.includes('nsharp.runProject'), 'run command should be contributed');
+        assert.ok(commandIds.includes('nsharp.debugProject'), 'debug command should be contributed');
+        assert.ok(debuggerTypes.includes('nsharp'), 'N# debugger contribution should be present so F5 does not search Marketplace');
+        assert.ok(nsharpDebugger?.languages?.includes('nsharp'), 'N# debugger should be associated with the nsharp language');
+        assert.ok(contributes.breakpoints?.some((entry: { language: string }) => entry.language === 'nsharp'), 'N# breakpoints should be enabled');
+        assert.ok(
+            nsharpDebugger?.initialConfigurations?.some((configuration: { type: string; request: string }) =>
+                configuration.type === 'nsharp' && configuration.request === 'launch'),
+            'N# debugger should contribute a launch configuration'
+        );
+    });
+
+    test('nsharp debug build task exports a debugger-ready C# bundle', async () => {
+        const tasks = await vscode.tasks.fetchTasks({ type: 'nsharp' });
+        const debugBuildTask = tasks.find(task => task.name === 'debug build');
+
+        assert.ok(debugBuildTask, 'Expected nsharp debug build task to be provided');
+        assert.ok(debugBuildTask!.execution instanceof vscode.CustomExecution, 'debug build should use CustomExecution');
+        assert.strictEqual(debugBuildTask!.group, vscode.TaskGroup.Build);
     });
 
     test('Test Explorer only exposes the real nlc-backed Run profile', async () => {

@@ -1,10 +1,13 @@
 # Build outputs
+.nlc/
+.nsharp/
 bin/
 obj/
 *.g.cs
 *.g.csproj
 
 # Debug/test files
+.context/
 debug_*.cs
 debug_*.ns
 test-output.log

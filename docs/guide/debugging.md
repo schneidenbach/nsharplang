@@ -1,35 +1,52 @@
 # Debugging N# Code
 
-## Current status
+The VS Code extension supports project-level run and debug for executable N# projects.
 
-N# debugging is not exposed in the VS Code extension yet.
+## Requirements
 
-The extension intentionally does not contribute an N# debug command, breakpoint language contribution, debug test profile, or zero-config F5 configuration. Pressing F5 in a fresh N# workspace should not be treated as a supported N# workflow until a real debugger-backed `.nl` source experience exists and is visually verified.
+- Install the N# VS Code extension.
+- Install the Microsoft C# extension (`ms-dotnettools.csharp`). N# uses its CoreCLR debugger for .NET process debugging.
+- Open a folder that contains `project.yml`.
 
-## Supported VS Code workflow today
+## Run
 
-Use the N# tasks and test explorer paths instead:
+Use **N#: Run Project** from the command palette, or run the `nsharp: run` task. This executes `nlc run` in the project folder and uses the normal IL backend.
 
-1. Create or open a template-generated project with `project.yml`.
-2. Use **Terminal: Run Build Task** / `nsharp: build` to run `nlc build`.
-3. Use **Tasks: Run Task** / `nsharp: run` to run `nlc run`.
-4. Use **Tasks: Run Task** / `nsharp: test` or the N# Test Explorer run profile to run `nlc test`.
+## Debug
 
-The task provider honors the `nsharp.cli.path` VS Code setting. Leave it empty to use `nlc` from `PATH`, or set it to an absolute path to a repo-local/compiler-built `nlc` executable.
+Press F5 in a `.nl` file, or use **N#: Debug Project** from the command palette.
 
-## Why debugging is hidden
+For debugging, the extension:
 
-Earlier docs described zero-config CoreCLR debugging, but the extension did not have enough validated behavior to make that a professional first-five-minutes promise for fresh projects. Until N# can provide a real debugger-backed workflow for `.nl` files, the safer product behavior is to hide F5/debug entry points rather than advertise a path that may not work.
+1. Exports a temporary C# debug bundle to `.nsharp/debug`.
+2. Builds that exported project with `dotnet build`.
+3. Starts a CoreCLR debug session against the generated Debug assembly.
 
-## What must exist before this page becomes a how-to
+The exported C# contains `#line` mappings back to the original `.nl` files, so breakpoints set in `.nl` files can bind through the generated PDB.
 
-Before restoring a debugging quick start, capture evidence for all of the following:
+The generated files are build artifacts. Do not edit them; edit the `.nl` sources and debug again.
 
-- Fresh `dotnet new nsharp-console` project opens in VS Code without manual generated C# or custom `.csproj` edits.
-- F5 launches through a supported debug adapter with the same minimal `project.yml`/minimal `.csproj` story as the CLI.
-- Breakpoints in `.nl` files bind and hit in real VS Code.
-- Step over/into/out and call stack behavior stay in user-visible `.nl` source as much as the runtime permits.
-- Variable inspection and debug console behavior are documented with honest limitations.
-- `./scripts/reload-vscode-extension.sh`, `./scripts/test-vscode-headless.sh`, `./scripts/test-all.sh`, and real VS Code screenshots/recordings back the claim.
+## Launch Configuration
 
-Until then, use `nlc build`, `nlc run`, `nlc test`, diagnostics, hover, completions, and code actions as the supported IDE story.
+You usually do not need a `launch.json`. If you want one, create a configuration like this:
+
+```json
+{
+  "type": "nsharp",
+  "request": "launch",
+  "name": "Launch N# Project",
+  "project": "${workspaceFolder}",
+  "args": [],
+  "cwd": "${workspaceFolder}",
+  "console": "integratedTerminal",
+  "stopAtEntry": false
+}
+```
+
+Project configuration still belongs in `project.yml`; do not add build settings to a hand-authored `.csproj`.
+
+## Limits
+
+Libraries are not directly launchable. Open or configure an executable project that references the library.
+
+The debug path depends on the C# export surface. If a project uses a new N# feature before the C# exporter supports it, `nlc run` can still work while F5 fails during the temporary debug export.
