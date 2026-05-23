@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_FEED="${NSHARP_LOCAL_FEED:-$HOME/.nuget/local-feed}"
 NUGET_SOURCE_NAME="${NSHARP_LOCAL_SOURCE_NAME:-nsharp-local}"
+DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
 VSCODE_EXT_DIR="$PROJECT_ROOT/editors/vscode"
 SAMPLE_PROJECT="${NSHARP_VSCODE_SAMPLE_PROJECT:-$PROJECT_ROOT/examples/01-hello-world}"
 
@@ -31,6 +32,7 @@ Options:
 Environment overrides:
   NSHARP_LOCAL_FEED           Local NuGet feed path
   NSHARP_LOCAL_SOURCE_NAME    NuGet source name to register
+  DOTNET_TOOLS_DIR            Directory expected to contain dotnet global tools
   NSHARP_VSCODE_SAMPLE_PROJECT  Workspace to open after extension install
 EOF
 }
@@ -92,6 +94,10 @@ read_package_version() {
     sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n 1
 }
 
+lowercase() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 ensure_nuget_source() {
     if [[ "$DRY_RUN" -eq 0 ]]; then
         dotnet nuget remove source "$NUGET_SOURCE_NAME" >/dev/null 2>&1 || true
@@ -100,6 +106,20 @@ ensure_nuget_source() {
     fi
 
     run dotnet nuget add source "$LOCAL_FEED" --name "$NUGET_SOURCE_NAME"
+}
+
+clear_tool_cache() {
+    local package_id="$1"
+    local normalized_id
+    normalized_id="$(lowercase "$package_id")"
+    local package_cache_dir="$HOME/.nuget/packages/$normalized_id"
+    local tool_store_dir="$DOTNET_TOOLS_DIR/.store/$normalized_id"
+
+    if [[ "$DRY_RUN" -eq 0 ]]; then
+        rm -rf "$package_cache_dir" "$tool_store_dir"
+    else
+        echo "+ rm -rf $package_cache_dir $tool_store_dir"
+    fi
 }
 
 reinstall_tool() {
@@ -112,7 +132,23 @@ reinstall_tool() {
         echo "+ dotnet tool uninstall -g $package_id || true"
     fi
 
-    run dotnet tool install -g "$package_id" --version "$version" --add-source "$LOCAL_FEED"
+    clear_tool_cache "$package_id"
+    run dotnet tool install -g "$package_id" --version "$version" --add-source "$LOCAL_FEED" --no-http-cache
+}
+
+verify_tool_file() {
+    local command_name="$1"
+    local tool_path="$DOTNET_TOOLS_DIR/$command_name"
+
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "+ test -x $tool_path"
+        return 0
+    fi
+
+    if [[ ! -x "$tool_path" ]]; then
+        echo "Error: expected tool at $tool_path" >&2
+        exit 1
+    fi
 }
 
 ensure_vscode_dependencies() {
@@ -173,6 +209,7 @@ echo "Deploying Local N# Toolset"
 echo "========================================"
 echo "Project root: $PROJECT_ROOT"
 echo "Local feed:   $LOCAL_FEED"
+echo "Tool path:    $DOTNET_TOOLS_DIR"
 echo "CLI version:  $CLI_VERSION"
 echo "LSP version:  $LSP_VERSION"
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then
@@ -203,6 +240,8 @@ fi
 run dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force
 reinstall_tool NSharpLang.Cli "$CLI_VERSION"
 reinstall_tool NSharpLang.LanguageServer "$LSP_VERSION"
+verify_tool_file nlc
+verify_tool_file nsharp-lsp
 
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then
     log "Building and installing the VS Code extension"
@@ -232,6 +271,9 @@ echo "Local deploy complete."
 echo "Commands:"
 echo "  - CLI: nlc"
 echo "  - LSP: nsharp-lsp"
+if [[ ":$PATH:" != *":$DOTNET_TOOLS_DIR:"* ]]; then
+    echo "  - PATH: add $DOTNET_TOOLS_DIR, or run ./scripts/setup-local.sh to install the shell bootstrap"
+fi
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then
     if [[ "$RESTART_VSCODE" -eq 1 ]]; then
         echo "  - VS Code reopened with: $SAMPLE_PROJECT"

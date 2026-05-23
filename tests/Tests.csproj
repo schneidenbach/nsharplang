@@ -10,7 +10,7 @@
     <ParallelizeTestCollections>false</ParallelizeTestCollections>
     <ParallelizeAssembly>false</ParallelizeAssembly>
     <!-- Exclude sub-projects that have their own .csproj, and fixture build artifacts -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**;fixtures/**/obj/**;fixtures/**/bin/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**;NSharpLang.IntegrationTests/**;NSharpLang.CSharpInteropTests/**;fixtures/**/obj/**;fixtures/**/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Exclude sub-projects — they have their own .csproj files -->

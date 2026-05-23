@@ -10,6 +10,7 @@ nlc doctor
 ```
 
 For contributor source builds, clone the repo and run `./scripts/setup-local.sh`; public users should use the one-line installer.
+The local setup script installs the repo-built `nlc` and `nsharp-lsp` tools from the local feed and adds `~/.dotnet/tools` to future shells through `~/.nsharp/env`.
 
 ## Create Your First Project
 
@@ -29,14 +30,12 @@ MyApp/
 
 ## Build and Run
 
-If `nlc` is installed on your PATH:
-
 ```bash
 nlc build
 nlc run
 ```
 
-From a source checkout, use the repo-local CLI:
+From a source checkout, `./scripts/setup-local.sh` makes `nlc` the normal path. For compiler debugging before reinstalling the local tool, run the CLI project directly:
 
 ```bash
 dotnet run --project /path/to/nsharplang/src/NSharpLang.Cli/Cli.csproj -- build

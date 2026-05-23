@@ -1,16 +1,25 @@
-# Using N# with `dotnet build`
+# Using N# with `nlc` and `dotnet build`
 
-The primary N# workflow is an MSBuild SDK project: `project.yml` holds N# settings, a minimal `.csproj` opts into `NSharpLang.Sdk`, and the standard `dotnet` commands do the rest.
+The primary N# workflow goes through `nlc`: `project.yml` holds N# settings, `nlc build`/`nlc run` generate the minimal MSBuild entry point when needed, and the SDK handles the .NET build pipeline underneath. Direct `dotnet build` remains supported for SDK interop, CI experiments, and host tooling that requires a `.csproj`.
 
 ## Recommended Workflow
 
-For local repo development, set up the SDK and templates once:
+For local repo development, set up the full local toolchain once:
 
 ```bash
 ./scripts/setup-local.sh
 ```
 
-Then create a project:
+This installs the repo-built `nlc` and `nsharp-lsp` tools from the local feed, installs templates, and makes `~/.dotnet/tools` available to future shells. Then create a project through the N# CLI:
+
+```bash
+nlc new MyApp
+cd MyApp
+nlc build
+nlc run
+```
+
+Fresh `nlc new` projects are `.csproj`-free. If you need to exercise direct SDK/MSBuild behavior, create a minimal project manually:
 
 ```bash
 mkdir MyApp
@@ -64,9 +73,19 @@ For local development against this repo, add:
 </configuration>
 ```
 
-Replace `PATH_TO_REPO` with the absolute path to this repository, or generate a working project with `dotnet new nsharp-console` after running `./scripts/setup-local.sh`.
+Replace `PATH_TO_REPO` with the absolute path to this repository, or use `nlc new MyApp` for the normal csproj-free project path after running `./scripts/setup-local.sh`.
 
 ## Build, Run, and Test
+
+Use the N# CLI for the normal project workflow:
+
+```bash
+nlc build
+nlc run
+nlc test
+```
+
+For direct SDK/MSBuild validation against a minimal `.csproj`:
 
 ```bash
 dotnet build
@@ -88,14 +107,14 @@ Hello from N#!
 4. The compiler emits the project assembly directly via the IL backend during the build.
 5. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
 
-## Why This Is the Preferred Path
+## Why `nlc` Is The Preferred Path
 
-- Minimal `.csproj`: the N# configuration lives in `project.yml`.
-- Standard commands: `dotnet build`, `dotnet run`, and `dotnet test` work as expected.
-- Better project ergonomics: multi-file projects, solutions, CI, and IDEs all fit the normal .NET model.
-- Fewer moving parts: no temporary project generation is required for the common case.
+- It is the N# product surface: `nlc check`, `nlc query`, `nlc fix`, formatting, tests, and package commands share one workflow.
+- Fresh projects stay `.csproj`-free; N# configuration lives in `project.yml`.
+- The generated `*.g.csproj` is an implementation detail, not user configuration.
+- Direct `dotnet build`, `dotnet run`, and `dotnet test` still work when a host tool needs SDK-level entry points.
 
-The direct `nlc` workflow is still useful for single-file experiments and compiler debugging, but it is not the main project story.
+Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.yml path instead.
 
 ## Relevant Source Layout
 
