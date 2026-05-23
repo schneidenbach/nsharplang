@@ -35,19 +35,6 @@ The memory/README.md is the table of contents for your documentation - if you ne
 
 The source code for Roslyn is on this computer and available for you to peruse. Use those patterns for research and then implement your shit. /Users/claude/repos/roslyn
 
-## Adversarial Review with Codex
-
-ALWAYS: When making significant design decisions, implementing new features, or debating architecture, use the Codex adversarial review skill (`codex-review` or `codex-code-review`) to get a second opinion from OpenAI Codex. Argue with it. Don't just accept its output — challenge its assumptions and defend your decisions, or change course if it makes a better argument. This applies to:
-- New language features or syntax decisions
-- Compiler architecture changes
-- LSP/IDE tooling design
-- Build system or SDK changes
-- Any change where "should we do it this way?" is a real question
-
-At minimum, ALL code changes should go through Codex cursorily (`codex-code-review`). Bigger changes (new features, architecture, design decisions) get the full adversarial debate (`codex-review`).
-
-If Codex is unavailable (auth expired), document what you would have asked and why.
-
 ## IDE Tooling Verification (MANDATORY)
 
 ALWAYS: After making ANY changes to the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE:
