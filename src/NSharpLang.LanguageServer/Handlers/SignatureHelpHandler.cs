@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Models;
@@ -12,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using CompilerTypeInfo = NSharpLang.Compiler.TypeInfo;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -61,7 +63,9 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            var activeParameter = CountCommas(beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1));
+            var argumentText = beforeCursor.Substring(beforeCursor.LastIndexOf('(') + 1);
+            var activeParameter = CountCommas(argumentText);
+            var argumentCount = GetArgumentCount(argumentText);
 
             // Constructor call (new TypeName(...)) — look up constructors for the type
             if (callInfo.Value.IsConstructor)
@@ -72,12 +76,10 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                     _logger.LogDebug("Found N# constructor for {Type} with {Count} signature(s)",
                         callInfo.Value.MethodName, ctorSignatures.Count);
 
-                    return Task.FromResult<SignatureHelp?>(new SignatureHelp
-                    {
-                        Signatures = new Container<SignatureInformation>(ctorSignatures),
-                        ActiveSignature = 0,
-                        ActiveParameter = activeParameter
-                    });
+                    return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
+                        ctorSignatures,
+                        activeParameter,
+                        argumentCount));
                 }
 
                 // Fall back to reflection for .NET types
@@ -87,12 +89,10 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                     var reflectionCtors = BuildReflectionConstructorSignatures(ctorType);
                     if (reflectionCtors != null && reflectionCtors.Count > 0)
                     {
-                        return Task.FromResult<SignatureHelp?>(new SignatureHelp
-                        {
-                            Signatures = new Container<SignatureInformation>(reflectionCtors),
-                            ActiveSignature = 0,
-                            ActiveParameter = activeParameter
-                        });
+                        return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
+                            reflectionCtors,
+                            activeParameter,
+                            argumentCount));
                     }
                 }
 
@@ -108,47 +108,36 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                     _logger.LogDebug("Found N# function: {Name} with {Count} signature(s)",
                         callInfo.Value.MethodName, nsharpSignatures.Count);
 
-                    return Task.FromResult<SignatureHelp?>(new SignatureHelp
-                    {
-                        Signatures = new Container<SignatureInformation>(nsharpSignatures),
-                        ActiveSignature = 0,
-                        ActiveParameter = activeParameter
-                    });
+                    return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
+                        nsharpSignatures,
+                        activeParameter,
+                        argumentCount));
                 }
 
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            // Dot-qualified call — try N# type members first, then fall back to .NET reflection
+            // Dot-qualified call — resolve the receiver as a value first, then as a type.
             var typeName = callInfo.Value.TypeName;
             var methodName = callInfo.Value.MethodName;
 
             _logger.LogDebug("Method call: {Type}.{Method}", typeName, methodName);
 
-            var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, typeName, methodName);
-            if (nsharpMemberSignatures.Count > 0)
-            {
-                return Task.FromResult<SignatureHelp?>(new SignatureHelp
-                {
-                    Signatures = new Container<SignatureInformation>(nsharpMemberSignatures),
-                    ActiveSignature = 0,
-                    ActiveParameter = activeParameter
-                });
-            }
-
-            // Fall back to .NET type resolution via reflection
-            var signatures = BuildReflectionSignatures(typeName, methodName);
-            if (signatures == null || signatures.Count == 0)
+            var signatures = ResolveMemberSignatures(
+                doc,
+                typeName,
+                methodName,
+                request.Position.Line,
+                request.Position.Character);
+            if (signatures.Count == 0)
             {
                 return Task.FromResult<SignatureHelp?>(null);
             }
 
-            return Task.FromResult<SignatureHelp?>(new SignatureHelp
-            {
-                Signatures = new Container<SignatureInformation>(signatures),
-                ActiveSignature = 0, // TODO: Choose best overload
-                ActiveParameter = activeParameter
-            });
+            return Task.FromResult<SignatureHelp?>(CreateSignatureHelp(
+                signatures,
+                activeParameter,
+                argumentCount));
         }
         catch (Exception ex)
         {
@@ -305,25 +294,145 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     }
 
     /// <summary>
-    /// Build signatures for .NET types via reflection (existing behavior).
+    /// Resolve signature help for a dot-qualified call. Simple identifiers are
+    /// checked as in-scope values before type names so `message.Contains(` uses
+    /// string instance overloads while `String.Format(` uses static overloads.
     /// </summary>
-    private List<SignatureInformation>? BuildReflectionSignatures(string typeName, string methodName)
+    private List<SignatureInformation> ResolveMemberSignatures(
+        DocumentState doc,
+        string receiverName,
+        string methodName,
+        int lspLine,
+        int lspCharacter)
     {
-        var type = _typeResolver.ResolveType(typeName);
-        if (type == null)
+        if (TryLookupReceiverTypeInfo(doc, receiverName, lspLine, lspCharacter, out var receiverTypeInfo))
         {
-            _logger.LogDebug("Could not resolve type: {Type}", typeName);
-            return null;
+            var nsharpTypeName = GetNSharpTypeName(doc, receiverTypeInfo);
+            if (nsharpTypeName != null)
+            {
+                var nsharpInstanceSignatures = BuildNSharpMemberSignatures(doc, nsharpTypeName, methodName);
+                if (nsharpInstanceSignatures.Count > 0)
+                {
+                    _logger.LogDebug("Resolved receiver '{Receiver}' as N# type '{Type}'",
+                        receiverName, nsharpTypeName);
+                    return nsharpInstanceSignatures;
+                }
+            }
+
+            var clrReceiverType = ResolveClrType(receiverTypeInfo);
+            if (clrReceiverType != null)
+            {
+                var instanceSignatures = BuildReflectionSignatures(
+                    clrReceiverType,
+                    methodName,
+                    MemberAccessMode.InstanceOnly);
+                if (instanceSignatures.Count > 0)
+                {
+                    _logger.LogDebug("Resolved receiver '{Receiver}' as CLR instance type '{Type}'",
+                        receiverName, clrReceiverType.FullName);
+                    return instanceSignatures;
+                }
+            }
         }
 
-        var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
+        // Direct N# type access, e.g. Person.Create(
+        var nsharpMemberSignatures = BuildNSharpMemberSignatures(doc, receiverName, methodName);
+        if (nsharpMemberSignatures.Count > 0)
+        {
+            return nsharpMemberSignatures;
+        }
+
+        // Static .NET type access, e.g. Console.WriteLine( or System.String.Format(
+        var staticType = _typeResolver.ResolveType(receiverName);
+        if (staticType == null)
+        {
+            _logger.LogDebug("Could not resolve receiver: {Receiver}", receiverName);
+            return new List<SignatureInformation>();
+        }
+
+        return BuildReflectionSignatures(staticType, methodName, MemberAccessMode.StaticOnly);
+    }
+
+    private bool TryLookupReceiverTypeInfo(
+        DocumentState doc,
+        string receiverName,
+        int lspLine,
+        int lspCharacter,
+        out CompilerTypeInfo receiverTypeInfo)
+    {
+        receiverTypeInfo = null!;
+
+        if (doc.SemanticModel == null || !IsValidIdentifier(receiverName))
+        {
+            return false;
+        }
+
+        // SemanticModel stores source positions as 1-based coordinates.
+        var typeInfo = doc.SemanticModel.LookupIdentifierAtPosition(receiverName, lspLine + 1, lspCharacter + 1)
+                       ?? doc.SemanticModel.LookupIdentifier(receiverName);
+
+        if (typeInfo == null)
+        {
+            return false;
+        }
+
+        receiverTypeInfo = typeInfo;
+        return true;
+    }
+
+    private Type? ResolveClrType(CompilerTypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            ReflectionTypeInfo reflectionType => reflectionType.Type,
+            _ => _typeResolver.ResolveType(typeInfo.ToString())
+        };
+    }
+
+    private static string? GetNSharpTypeName(DocumentState doc, CompilerTypeInfo typeInfo)
+    {
+        var typeName = typeInfo switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Name,
+            StructTypeInfo structType => structType.Declaration.Name,
+            RecordTypeInfo recordType => recordType.Declaration.Name,
+            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Name,
+            _ => typeInfo.ToString()
+        };
+
+        if (doc.SymbolsInfo?.TryGetValue(typeName, out var symbolInfo) == true &&
+            symbolInfo.Kind is Models.SymbolKind.Class or Models.SymbolKind.Struct
+                or Models.SymbolKind.Record or Models.SymbolKind.Interface)
+        {
+            return typeName;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Build signatures for .NET types via reflection.
+    /// </summary>
+    private List<SignatureInformation> BuildReflectionSignatures(Type type, string methodName, MemberAccessMode mode)
+    {
+        var bindingFlags = BindingFlags.Public;
+        bindingFlags |= mode switch
+        {
+            MemberAccessMode.StaticOnly => BindingFlags.Static,
+            MemberAccessMode.InstanceOnly => BindingFlags.Instance,
+            _ => BindingFlags.Static | BindingFlags.Instance
+        };
+
+        var methods = type.GetMethods(bindingFlags)
             .Where(m => m.Name == methodName && !m.IsSpecialName)
+            .OrderBy(m => m.GetParameters().Length)
+            .ThenBy(m => string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName)))
             .ToList();
 
         if (!methods.Any())
         {
             _logger.LogDebug("No methods found with name: {Method}", methodName);
-            return null;
+            return new List<SignatureInformation>();
         }
 
         var signatures = new List<SignatureInformation>();
@@ -357,6 +466,41 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         }
 
         return signatures;
+    }
+
+    private SignatureHelp CreateSignatureHelp(
+        List<SignatureInformation> signatures,
+        int activeParameter,
+        int argumentCount)
+    {
+        return new SignatureHelp
+        {
+            Signatures = new Container<SignatureInformation>(signatures),
+            ActiveSignature = SelectActiveSignature(signatures, argumentCount),
+            ActiveParameter = activeParameter
+        };
+    }
+
+    private static int SelectActiveSignature(List<SignatureInformation> signatures, int argumentCount)
+    {
+        if (signatures.Count == 0)
+        {
+            return 0;
+        }
+
+        var exactArity = signatures.FindIndex(signature => GetParameterCount(signature) == argumentCount);
+        if (exactArity >= 0)
+        {
+            return exactArity;
+        }
+
+        var canStillAcceptArguments = signatures.FindIndex(signature => GetParameterCount(signature) > argumentCount);
+        return canStillAcceptArguments >= 0 ? canStillAcceptArguments : 0;
+    }
+
+    private static int GetParameterCount(SignatureInformation signature)
+    {
+        return signature.Parameters?.Count() ?? 0;
     }
 
     /// <summary>
@@ -540,6 +684,16 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         return count;
     }
 
+    private int GetArgumentCount(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return CountCommas(text) + 1;
+    }
+
     /// <summary>
     /// Format a parameter label with modifier prefix if applicable.
     /// </summary>
@@ -589,11 +743,19 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         // Use simple names for common types
         return type.Name switch
         {
+            "SByte" => "sbyte",
+            "Byte" => "byte",
+            "Int16" => "short",
+            "UInt16" => "ushort",
             "Int32" => "int",
+            "UInt32" => "uint",
             "Int64" => "long",
+            "UInt64" => "ulong",
             "Single" => "float",
             "Double" => "double",
+            "Decimal" => "decimal",
             "Boolean" => "bool",
+            "Char" => "char",
             "String" => "string",
             "Void" => "void",
             "Object" => "object",
