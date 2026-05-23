@@ -89,6 +89,14 @@ dotnet publish "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" \
   /p:GenerateDependencyFile=true
 NLC=(dotnet "$CLI_PUBLISH_DIR/Cli.dll")
 
+step "Packing local N# SDK for backend restore"
+LOCAL_FEED="$HOME/.nuget/local-feed"
+GLOBAL_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+mkdir -p "$LOCAL_FEED"
+dotnet pack "$REPO_ROOT/src/NSharpLang.Sdk/NSharpLang.Sdk.csproj" \
+  --disable-build-servers -m:1 -c Debug -o "$LOCAL_FEED" -v q
+rm -rf "$GLOBAL_PACKAGES/nsharplang.sdk/0.1.0"
+
 step "Building React frontend into backend/wwwroot"
 npm --prefix "$FRONTEND" run build
 

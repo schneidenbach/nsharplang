@@ -15,14 +15,16 @@ public partial class ILCompiler
     /// <summary>
     /// Emit IL for a lambda expression
     /// </summary>
-    private void EmitLambda(LambdaExpression lambda)
+    private void EmitLambda(LambdaExpression lambda, Type? contextualDelegateType = null)
     {
         if (_currentIL == null || _programType == null || _moduleBuilder == null)
             throw new InvalidOperationException("No IL generator context");
 
-        if (_expectedExpressionType != null && TryGetExpressionTreeDelegateType(_expectedExpressionType, out var expressionDelegateType))
+        contextualDelegateType ??= _expectedExpressionType;
+
+        if (contextualDelegateType != null && TryGetExpressionTreeDelegateType(contextualDelegateType, out var expressionDelegateType))
         {
-            EmitExpressionTreeLambda(lambda, _expectedExpressionType, expressionDelegateType);
+            EmitExpressionTreeLambda(lambda, contextualDelegateType, expressionDelegateType);
             return;
         }
 
@@ -32,12 +34,12 @@ public partial class ILCompiler
         if (capturedVariables.Count == 0)
         {
             // Simple lambda - no closures needed
-            EmitSimpleLambda(lambda);
+            EmitSimpleLambda(lambda, contextualDelegateType);
         }
         else
         {
             // Lambda with closures - need to create a display class
-            EmitClosureLambda(lambda, capturedVariables);
+            EmitClosureLambda(lambda, capturedVariables, contextualDelegateType);
         }
     }
 
@@ -341,7 +343,7 @@ public partial class ILCompiler
     /// <summary>
     /// Emit a simple lambda (no closures) as a static method with a delegate
     /// </summary>
-    private void EmitSimpleLambda(LambdaExpression lambda)
+    private void EmitSimpleLambda(LambdaExpression lambda, Type? contextualDelegateType)
     {
         if (_currentIL == null || _programType == null)
             throw new InvalidOperationException("No IL generator context");
@@ -484,7 +486,7 @@ public partial class ILCompiler
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
 
-        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, savedExpectedExpressionType);
+        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
 
         // Emit delegate creation: ldnull, ldftn, newobj
         _currentIL.Emit(OpCodes.Ldnull);
@@ -495,7 +497,7 @@ public partial class ILCompiler
     /// <summary>
     /// Emit a lambda with closures using a display class
     /// </summary>
-    private void EmitClosureLambda(LambdaExpression lambda, HashSet<string> capturedVariables)
+    private void EmitClosureLambda(LambdaExpression lambda, HashSet<string> capturedVariables, Type? contextualDelegateType)
     {
         if (_currentIL == null || _programType == null || _moduleBuilder == null)
             throw new InvalidOperationException("No IL generator context");
@@ -719,7 +721,7 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stfld, closureFields[varName]);
         }
 
-        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, savedExpectedExpressionType);
+        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
 
         // The closure instance is already on the stack
         _currentIL.Emit(OpCodes.Ldftn, lambdaMethod);
