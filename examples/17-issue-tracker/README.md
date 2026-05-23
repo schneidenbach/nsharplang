@@ -13,7 +13,7 @@ The script does the whole path:
 
 1. installs root and frontend npm dependencies
 2. builds the React app into `backend/wwwroot/`
-3. runs `nlc restore` (or the local compiler fallback in `scripts/nlc-local.sh`) and `dotnet build` for the N# backend
+3. packs the local N# SDK for this repo, runs `nlc restore`, and runs `dotnet build` for the N# backend
 4. runs `nlc test` through the same local-aware wrapper
 5. starts ASP.NET on `http://localhost:5167`
 6. curls `/api/health` and `/api/issues`, then creates an issue through the N# API

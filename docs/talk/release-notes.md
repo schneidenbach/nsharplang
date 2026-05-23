@@ -131,7 +131,7 @@ Public wording:
 > “The flagship app is not a snippet. It is a browser app backed by an N# ASP.NET Minimal API, and the demo script proves build, test, health, list, create, and contract checks.”
 
 Caveat:
-- The app includes normal web-stack pieces: React/TypeScript frontend and a small ASP.NET bridge where current N#/.NET interop needs it. Do not present it as pure N# from browser to runtime.
+- The app includes normal web-stack pieces: React/TypeScript frontend plus an N# ASP.NET Minimal API backend. Do not present it as pure N# from browser to runtime.
 
 ### 5. Template quickstarts are replay-tested
 

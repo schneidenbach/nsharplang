@@ -5026,7 +5026,7 @@ public partial class ILCompiler
         {
             if (expression is LambdaExpression)
             {
-                EmitExpression(expression);
+                EmitLambda((LambdaExpression)expression, _expectedExpressionType);
                 return;
             }
 
