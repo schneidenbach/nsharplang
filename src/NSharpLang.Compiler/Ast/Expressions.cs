@@ -11,6 +11,7 @@ public abstract record Expression(int Line, int Column) : AstNode(Line, Column);
 // Literals
 public record IntLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
 public record FloatLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
+public record CharLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
 public record StringLiteralExpression(string Value, int Line, int Column) : Expression(Line, Column);
 
 // Interpolated string: $"Hello, {name}!"

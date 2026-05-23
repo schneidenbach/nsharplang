@@ -1291,12 +1291,14 @@ internal class LintVisitor
                     // Check for direct type comparisons (e.g., comparing int literal)
                     if (checkedExpr is IntLiteralExpression ||
                         checkedExpr is FloatLiteralExpression ||
+                        checkedExpr is CharLiteralExpression ||
                         checkedExpr is BoolLiteralExpression)
                     {
                         var typeName = checkedExpr switch
                         {
                             IntLiteralExpression => "int",
                             FloatLiteralExpression => "float",
+                            CharLiteralExpression => "char",
                             BoolLiteralExpression => "bool",
                             _ => "value type"
                         };
@@ -2310,6 +2312,7 @@ internal class LintVisitor
             (SimpleTypeReference { Name: "int" }, IntLiteralExpression) => (true, "int"),
             (SimpleTypeReference { Name: "string" }, StringLiteralExpression) => (true, "string"),
             (SimpleTypeReference { Name: "bool" }, BoolLiteralExpression) => (true, "bool"),
+            (SimpleTypeReference { Name: "char" }, CharLiteralExpression) => (true, "char"),
             (SimpleTypeReference { Name: "float" }, FloatLiteralExpression) => (true, "float"),
             (SimpleTypeReference { Name: "double" }, FloatLiteralExpression) => (true, "double"),
             _ => (false, (string?)null)
@@ -2391,6 +2394,7 @@ internal class LintVisitor
             NewExpression => true,
             IntLiteralExpression => true,
             FloatLiteralExpression => true,
+            CharLiteralExpression => true,
             BoolLiteralExpression => true,
             ArrayLiteralExpression => true,
             _ => false

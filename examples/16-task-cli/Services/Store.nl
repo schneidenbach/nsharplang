@@ -32,8 +32,7 @@ class TaskStore {
         for line in lines {
             trimmed := line.Trim()
             if trimmed.Length > 0 {
-                pipeDelim := "|"
-                parts := trimmed.Split(pipeDelim)
+                parts := trimmed.Split('|')
                 if parts.Length >= 7 {
                     task := ParseLine(parts)
                     tasks.Add(task)
@@ -68,8 +67,7 @@ class TaskStore {
     func ParseLine(parts: string[]): TaskItem {
         tags := new List<string>()
         if parts[4].Length > 0 {
-            commaDelim := ","
-            tagParts := parts[4].Split(commaDelim)
+            tagParts := parts[4].Split(',')
             for tag in tagParts {
                 if tag.Trim().Length > 0 {
                     tags.Add(tag.Trim())

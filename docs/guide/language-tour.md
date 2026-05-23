@@ -272,7 +272,7 @@ func main() {
 
 ### String Enums
 
-String enums map enum members to string values — no more `const string` hacks.
+String enums map enum members to string values, so status names stay typed instead of copied as `const string` sets.
 
 ```n#
 enum Status {

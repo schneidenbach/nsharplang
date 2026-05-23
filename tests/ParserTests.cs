@@ -5107,6 +5107,44 @@ Hello, {person.Name}!
     }
 
     [Fact]
+    public void TestCharLiteralExpression()
+    {
+        var source = @"
+            func Main() {
+                delimiter := '|'
+            }
+        ";
+
+        var cu = Parse(source);
+        var mainFunc = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var varDecl = Assert.IsType<VariableDeclarationStatement>(mainFunc.Body!.Statements[0]);
+        var charLiteral = Assert.IsType<CharLiteralExpression>(varDecl.Initializer);
+        Assert.Equal("'|'", charLiteral.Value);
+    }
+
+    [Fact]
+    public void TestCatchClauseNSharpParameterSyntax()
+    {
+        var source = @"
+            func Parse(): int {
+                try {
+                    return 1
+                } catch ex: FormatException {
+                    return -1
+                }
+            }
+        ";
+
+        var cu = Parse(source);
+        var func = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var tryStmt = Assert.IsType<TryStatement>(func.Body!.Statements[0]);
+        var catchClause = Assert.Single(tryStmt.CatchClauses);
+        var exceptionType = Assert.IsType<SimpleTypeReference>(catchClause.ExceptionType);
+        Assert.Equal("FormatException", exceptionType.Name);
+        Assert.Equal("ex", catchClause.VariableName);
+    }
+
+    [Fact]
     public void TestGenericMethodCallWithSingleTypeArgument()
     {
         var source = @"

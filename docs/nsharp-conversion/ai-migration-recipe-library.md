@@ -247,7 +247,7 @@ Tests/gates:
 
 Use when:
 
-- Migrated code contains `null!`, `default!`, unsafe `.Value`, or nullable flow hacks.
+- Migrated code contains `null!`, `default!`, unsafe `.Value`, or nullable-flow suppressions.
 - Compiler warnings are suppressed instead of modeled.
 - COTM idiom report flags high-severity nullability findings.
 
@@ -500,7 +500,7 @@ Use a reviewer gate when a recipe affects:
 - Public routes, status codes, auth, validation, or serialized DTO contracts.
 - EF tracking, schema, transaction boundaries, or query semantics.
 - Nullability choices that can reject or accept different user input.
-- Any compiler/tooling workaround that might hide an N# backend gap.
+- Any compiler/tooling limitation that might hide an N# backend gap.
 
 The COTM API green slice used Codex review and got `CONCEPT_LOOKS_SOUND`; keep that pattern for future migration slices. A reviewer should receive the artifact IDs, exact commands, route/test evidence, and a list of known gaps such as the `NL103` method attribute emission blocker.
 

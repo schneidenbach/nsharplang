@@ -94,6 +94,15 @@ handle_success() {
 cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
 CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
+LOCAL_FEED="$HOME/.nuget/local-feed"
+NUGET_PACKAGE_CACHE="$HOME/.nuget/packages"
+
+remove_nuget_package_cache() {
+    local package_id="$1"
+    local normalized_id
+    normalized_id=$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')
+    rm -rf "$NUGET_PACKAGE_CACHE/$normalized_id"
+}
 
 section "Step 1: Clean Previous Build Artifacts"
 if [ "$CLEAN_BUILD" = "1" ]; then
@@ -120,6 +129,7 @@ fi
 
 section "Step 3: Run Unit Tests"
 echo "Running all unit tests..."
+dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate --no-cache -v q
 TEST_OUTPUT=$(mktemp)
 if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
     TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
@@ -199,7 +209,12 @@ fi
 
 section "Step 4: Pack and Install MSBuild SDK"
 echo "Packing SDK to local NuGet feed..."
-if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o ~/.nuget/local-feed -v q; then
+mkdir -p "$LOCAL_FEED"
+rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
+remove_nuget_package_cache NSharpLang.Sdk
+dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate --no-cache -v q
+dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q
+if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
     handle_success "SDK packed"
 else
     handle_error "SDK pack"
@@ -207,7 +222,9 @@ fi
 
 section "Step 4b: Pack N# Templates"
 echo "Packing templates to local NuGet feed..."
-if dotnet pack $DOTNET_STABLE_FLAGS templates/NSharpLang.Templates.csproj -o ~/.nuget/local-feed -v q; then
+rm -f "$LOCAL_FEED"/NSharpLang.Templates.*.nupkg
+remove_nuget_package_cache NSharpLang.Templates
+if dotnet pack $DOTNET_STABLE_FLAGS templates/NSharpLang.Templates.csproj -o "$LOCAL_FEED" -v q; then
     handle_success "Templates packed"
 else
     handle_error "Templates pack"
@@ -220,6 +237,10 @@ handle_success "NuGet global-packages cache cleared"
 section "Step 4c: C# Interop Tests"
 echo "Running C# interop tests..."
 INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
+
+if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate --no-cache -v q; then
+    handle_error "C# interop restore"
+fi
 
 INTEROP_OUTPUT=$(mktemp)
 if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo > "$INTEROP_OUTPUT" 2>&1; then
@@ -236,7 +257,7 @@ rm -f "$INTEROP_OUTPUT"
 
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local feed..."
-if dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force > /dev/null 2>&1; then
+if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
     handle_success "Template package installed"
 else
     handle_error "Template installation"
@@ -252,19 +273,16 @@ fi
 section "Step 6: Test Template Creation"
 TEMP_DIR=$(mktemp -d)
 echo "Creating test project in $TEMP_DIR..."
-cd "$TEMP_DIR"
-if dotnet new nsharp-console -o TestConsoleApp > /dev/null 2>&1; then
+if dotnet new nsharp-console -o "$TEMP_DIR/TestConsoleApp" > /dev/null 2>&1; then
     handle_success "Template created test project"
 else
     handle_error "Template creation"
-    cd "$REPO_ROOT"
 fi
 
-if dotnet new nsharp-webapi -o TestWebApiApp > /dev/null 2>&1; then
+if dotnet new nsharp-webapi -o "$TEMP_DIR/TestWebApiApp" > /dev/null 2>&1; then
     handle_success "Web API template created test project"
 else
     handle_error "Web API template creation"
-    cd "$REPO_ROOT"
 fi
 
 if [ -f "$TEMP_DIR/TestConsoleApp/project.yml" ]; then

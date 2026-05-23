@@ -303,6 +303,11 @@ public class Lexer
             return ReadString(startLine, startColumn);
         }
 
+        if (ch == '\'')
+        {
+            return ReadCharLiteral(startLine, startColumn);
+        }
+
         // Numbers
         if (char.IsDigit(ch))
         {
@@ -513,23 +518,23 @@ public class Lexer
         var singleChar = ch;
         Advance();
 
-	        return singleChar switch
-	        {
-	            '(' => new Token(TokenType.LeftParen, "(", startLine, startColumn, _fileName),
-	            ')' => new Token(TokenType.RightParen, ")", startLine, startColumn, _fileName),
-	            '{' => new Token(TokenType.LeftBrace, "{", startLine, startColumn, _fileName),
-	            '}' => new Token(TokenType.RightBrace, "}", startLine, startColumn, _fileName),
-	            '[' => new Token(TokenType.LeftBracket, "[", startLine, startColumn, _fileName),
-	            ']' => new Token(TokenType.RightBracket, "]", startLine, startColumn, _fileName),
-	            ';' => new Token(TokenType.Semicolon, ";", startLine, startColumn, _fileName),
-	            ',' => new Token(TokenType.Comma, ",", startLine, startColumn, _fileName),
-	            '%' => new Token(TokenType.Percent, "%", startLine, startColumn, _fileName),
-	            '^' => new Token(TokenType.BitwiseXor, "^", startLine, startColumn, _fileName),
-	            '~' => new Token(TokenType.BitwiseNot, "~", startLine, startColumn, _fileName),
-	            // Don't throw here: this lexer is used for error-recovery scenarios where we still want to produce tokens.
-	            _ => new Token(TokenType.Unknown, singleChar.ToString(), startLine, startColumn, _fileName)
-	        };
-	    }
+        return singleChar switch
+        {
+            '(' => new Token(TokenType.LeftParen, "(", startLine, startColumn, _fileName),
+            ')' => new Token(TokenType.RightParen, ")", startLine, startColumn, _fileName),
+            '{' => new Token(TokenType.LeftBrace, "{", startLine, startColumn, _fileName),
+            '}' => new Token(TokenType.RightBrace, "}", startLine, startColumn, _fileName),
+            '[' => new Token(TokenType.LeftBracket, "[", startLine, startColumn, _fileName),
+            ']' => new Token(TokenType.RightBracket, "]", startLine, startColumn, _fileName),
+            ';' => new Token(TokenType.Semicolon, ";", startLine, startColumn, _fileName),
+            ',' => new Token(TokenType.Comma, ",", startLine, startColumn, _fileName),
+            '%' => new Token(TokenType.Percent, "%", startLine, startColumn, _fileName),
+            '^' => new Token(TokenType.BitwiseXor, "^", startLine, startColumn, _fileName),
+            '~' => new Token(TokenType.BitwiseNot, "~", startLine, startColumn, _fileName),
+            // Don't throw here: this lexer is used for error-recovery scenarios where we still want to produce tokens.
+            _ => new Token(TokenType.Unknown, singleChar.ToString(), startLine, startColumn, _fileName)
+        };
+    }
 
     private Token ReadIdentifier(int startLine, int startColumn)
     {
@@ -833,6 +838,42 @@ public class Lexer
         Advance(); // consume closing quote
 
         return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+    }
+
+    private Token ReadCharLiteral(int startLine, int startColumn)
+    {
+        var sb = new StringBuilder();
+        sb.Append('\'');
+        Advance(); // consume opening quote
+
+        if (IsAtEnd() || IsAtLineBreak())
+        {
+            return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        }
+
+        if (Peek() == '\\')
+        {
+            sb.Append('\\');
+            Advance();
+            if (!IsAtEnd() && !IsAtLineBreak())
+            {
+                sb.Append(Peek());
+                Advance();
+            }
+        }
+        else
+        {
+            sb.Append(Peek());
+            Advance();
+        }
+
+        if (!IsAtEnd() && Peek() == '\'')
+        {
+            sb.Append('\'');
+            Advance();
+        }
+
+        return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName);
     }
 
     private Token ReadTripleQuoteString(int startLine, int startColumn)

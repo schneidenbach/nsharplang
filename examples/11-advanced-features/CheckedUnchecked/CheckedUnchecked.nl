@@ -1,8 +1,7 @@
 // Checked and Unchecked Expressions Example
 // Demonstrates overflow checking control in arithmetic operations
-//
-// NOTE: This example demonstrates the syntax and transpilation.
-// To see overflow exceptions at runtime, compile and run the generated C# code.
+
+import System
 
 // Helper function with checked arithmetic
 func SafeAdd(x: int, y: int): int {
@@ -49,11 +48,14 @@ func Main() {
     print $"unchecked({a} * {b}) = {uncheckedResult}"
     print ""
 
-    // Example 5: Checked context (would throw at runtime)
-    print "5. Checked Context (would throw OverflowException at runtime):"
-    print "Syntax: checked(int.MaxValue + 1)"
-    print "This compiles but throws OverflowException when executed"
-    // checkedResult := checked(max + 1)  // Uncomment to see exception at runtime
+    // Example 5: Checked context catches overflow at runtime
+    print "5. Checked Context (catches OverflowException):"
+    try {
+        checkedResult := checked(max + 1)
+        print $"checked(MaxValue + 1) = {checkedResult}"
+    } catch ex: OverflowException {
+        print $"checked(MaxValue + 1) threw {ex.GetType().Name}"
+    }
     print ""
 
     // Example 6: Safe operations in checked context
@@ -86,5 +88,4 @@ func Main() {
     print "- unchecked(): Wraps around on arithmetic overflow (default .NET behavior)"
     print "- Use checked() for critical calculations where overflow must be detected"
     print "- Use unchecked() when wrap-around behavior is desired"
-    print "- To test overflow exceptions, compile this example and run the C# directly"
 }

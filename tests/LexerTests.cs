@@ -447,6 +447,24 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestCharLiteral()
+    {
+        var source = "'|'";
+        var tokens = Tokenize(source);
+        Assert.Equal(TokenType.CharLiteral, tokens[0].Type);
+        Assert.Equal("'|'", tokens[0].Value);
+    }
+
+    [Fact]
+    public void TestEscapedCharLiteral()
+    {
+        var source = "'\\n'";
+        var tokens = Tokenize(source);
+        Assert.Equal(TokenType.CharLiteral, tokens[0].Type);
+        Assert.Equal("'\\n'", tokens[0].Value);
+    }
+
+    [Fact]
     public void TestUnterminatedMultiLineComment()
     {
         var source = "/* unterminated";

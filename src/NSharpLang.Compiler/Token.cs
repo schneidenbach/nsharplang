@@ -6,6 +6,7 @@ public enum TokenType
     Identifier,
     IntLiteral,
     FloatLiteral,
+    CharLiteral,
     StringLiteral,
     TripleQuoteStringLiteral,
     InterpolatedRawStringLiteral,

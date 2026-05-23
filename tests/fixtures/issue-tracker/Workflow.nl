@@ -45,8 +45,8 @@ class Workflow {
 
     // can only reopen from closed
 
-    // camelCase → private helper for status labels.
-    // Exhaustive match — no wildcard fallback.
+    // camelCase private helper for status labels.
+    // Exhaustive match with no wildcard branch.
     static func describe(status: IssueStatus): string {
         return match status {
             IssueStatus.Open => "Open",

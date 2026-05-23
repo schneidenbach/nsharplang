@@ -4701,6 +4701,18 @@ func Test() {
     }
 
     [Fact]
+    public void TestCharLiteralTranspilation()
+    {
+        var source = @"
+func Test() {
+    delimiter := '|'
+}
+        ";
+        var result = Transpile(source);
+        Assert.Contains("var delimiter = '|'", result);
+    }
+
+    [Fact]
     public void TestIntParseTranspilation()
     {
         // Bug 001: int.Parse should transpile as-is (C# resolves int to System.Int32)
@@ -4726,6 +4738,30 @@ func Main() {
         ";
         var result = Transpile(source);
         Assert.Contains("int.TryParse(\"123\", out var result)", result);
+    }
+
+    [Fact]
+    public void TestUnionMatchBindingAvoidsOuterVariableCollision()
+    {
+        var source = @"
+union CommandResult {
+    Success { message: string }
+    Error { message: string }
+}
+
+func Test(result: CommandResult) {
+    message := match result {
+        CommandResult.Success { message } => message,
+        CommandResult.Error { message } => $""Error: {message}""
+    }
+}
+        ";
+
+        var result = Transpile(source);
+        Assert.Contains("var message =", result);
+        Assert.Contains("message: var __nsharp_message_", result);
+        Assert.DoesNotContain("message: var message", result);
+        Assert.Contains("=> __nsharp_message_", result);
     }
 
     [Fact]

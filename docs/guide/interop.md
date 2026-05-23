@@ -18,7 +18,7 @@ N# follows a **"C# first"** interop philosophy:
 > **C# consumers should not know they're using N#-compiled code.**
 
 This means:
-- N# types compile to idiomatic C# types
+- N# types emit ordinary C#-friendly CLR shapes
 - No special runtime support needed
 - C# consumers get ordinary CLR-visible types in covered scenarios
 - No leaky abstractions
@@ -128,7 +128,7 @@ class AppDbContext : DbContext {
 
 ## C# Consuming N# Code
 
-N# compiles to C# code that is indistinguishable from hand-written C#.
+N# emits CLR-visible types that are indistinguishable from hand-written C# to consumers.
 
 ### Example 1: Simple Class
 
@@ -140,7 +140,7 @@ class Calculator {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public class Calculator
 {
@@ -174,7 +174,7 @@ func divide(a: int, b: int): Result<int> {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public abstract class Result<T>
 {
@@ -234,7 +234,7 @@ func processReader(reader: IReader): string {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 internal interface IReader
 {
@@ -279,7 +279,7 @@ record Person {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public record Person
 {

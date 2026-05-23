@@ -1253,14 +1253,19 @@ public class Formatter
                     sb.Append(" catch");
                     if (catchClause.ExceptionType != null)
                     {
-                        sb.Append(" (");
-                        sb.Append(FormatTypeReference(catchClause.ExceptionType));
                         if (catchClause.VariableName != null)
                         {
                             sb.Append(" ");
                             sb.Append(catchClause.VariableName);
+                            sb.Append(": ");
+                            sb.Append(FormatTypeReference(catchClause.ExceptionType));
                         }
-                        sb.Append(")");
+                        else
+                        {
+                            sb.Append(" (");
+                            sb.Append(FormatTypeReference(catchClause.ExceptionType));
+                            sb.Append(")");
+                        }
                     }
                     sb.AppendLine(" {");
                     _indent++;
@@ -1442,6 +1447,9 @@ public class Formatter
                 break;
             case FloatLiteralExpression floatLit:
                 sb.Append(floatLit.Value);
+                break;
+            case CharLiteralExpression charLit:
+                sb.Append(charLit.Value);
                 break;
             case StringLiteralExpression strLit:
                 sb.Append(strLit.Value);

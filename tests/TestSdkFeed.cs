@@ -40,7 +40,7 @@ internal static class TestSdkFeed
 
     public static void WriteVersionedSdkProject(string projectDir, string projectName)
     {
-        File.WriteAllText(Path.Combine(projectDir, $"{projectName}.csproj"), $"<Project Sdk=\"NSharpLang.Sdk/{Version}\" />\n");
+        File.WriteAllText(Path.Combine(projectDir, $"{projectName}.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
         WriteSdkResolutionFiles(projectDir);
     }
 

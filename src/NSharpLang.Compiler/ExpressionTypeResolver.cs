@@ -32,6 +32,7 @@ public class ExpressionTypeResolver
             CallExpression call => ResolveCallType(call),
             IntLiteralExpression => typeof(int),
             FloatLiteralExpression => typeof(double),
+            CharLiteralExpression => typeof(char),
             StringLiteralExpression => typeof(string),
             InterpolatedStringExpression => typeof(string),
             BoolLiteralExpression => typeof(bool),

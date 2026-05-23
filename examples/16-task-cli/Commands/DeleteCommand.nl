@@ -26,13 +26,11 @@ class DeleteCommand {
 
     // Parse a string to int, returns -1 on failure
     static func ParseId(s: string): int {
-        result := -1
-        try {
-            result = Int32.Parse(s)
-        } catch {
-            result = -1
+        result := 0
+        if Int32.TryParse(s, out result) {
+            return result
         }
 
-        return result
+        return -1
     }
 }

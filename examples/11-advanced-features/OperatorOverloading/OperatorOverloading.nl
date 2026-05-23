@@ -58,8 +58,8 @@ class Program {
     static func Main() {
         print "=== Operator Overloading Syntax Demo ==="
         print "This example demonstrates operator overload declarations."
-        print "The generated C# code includes proper operator methods."
+        print "Operators are emitted for natural .NET interop."
         print ""
-        print "Check the transpiled C# output to see the generated operators!"
+        print "Use the operators directly from N# or from other .NET languages."
     }
 }

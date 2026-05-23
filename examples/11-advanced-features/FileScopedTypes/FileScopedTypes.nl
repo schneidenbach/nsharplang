@@ -101,8 +101,8 @@ func Main() {
     print "Testing valid username:"
     service.StoreUser("alice_cooper", "alice@example.com")
     email := service.GetUserEmail("alice_cooper")
-    fallback := "not found"
-    print $"Retrieved email: {email ?? fallback}"
+    missingEmail := "not found"
+    print $"Retrieved email: {email ?? missingEmail}"
     print ""
 
     // Test invalid username (too short)

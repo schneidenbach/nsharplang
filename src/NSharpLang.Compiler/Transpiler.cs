@@ -25,6 +25,10 @@ public class Transpiler
     private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
     private readonly HashSet<string> _newtypeNames = new(); // Track newtype names for constructor call transpilation
     private readonly HashSet<string> _stringEnumNames = new(); // Track string enum names for pattern matching transpilation
+    private readonly Stack<Dictionary<string, string>> _patternBindingAliases = new();
+    private Dictionary<string, string>? _activePatternBindingAliases;
+    private readonly Stack<HashSet<string>> _reservedPatternBindingNames = new();
+    private int _patternBindingAliasCounter;
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null, HashSet<string>? externalStringEnumNames = null)
     {
@@ -542,6 +546,7 @@ public class Transpiler
             NewExpression newExpr when newExpr.Type != null => TranspileTypeReference(newExpr.Type),
             IntLiteralExpression => "int",
             FloatLiteralExpression => "double",
+            CharLiteralExpression => "char",
             StringLiteralExpression => "string",
             BoolLiteralExpression => "bool",
             ArrayLiteralExpression arr => InferArrayFieldType(arr),
@@ -558,6 +563,7 @@ public class Transpiler
         {
             IntLiteralExpression => "int",
             FloatLiteralExpression => "double",
+            CharLiteralExpression => "char",
             StringLiteralExpression => "string",
             BoolLiteralExpression => "bool",
             _ => "dynamic"
@@ -783,19 +789,146 @@ public class Transpiler
             }
         }
 
+        var reservedPatternNames = CollectReservedPatternBindingNames(func);
+        _reservedPatternBindingNames.Push(reservedPatternNames);
+        try
+        {
+            if (func.Body != null)
+            {
+                WriteLine();
+                TranspileBlockStatement(func.Body);
+            }
+            else if (func.ExpressionBody != null)
+            {
+                // Expression-bodied method
+                WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
+            }
+            else
+            {
+                WriteLine(";");
+            }
+        }
+        finally
+        {
+            _reservedPatternBindingNames.Pop();
+        }
+    }
+
+    private static HashSet<string> CollectReservedPatternBindingNames(FunctionDeclaration func)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var parameter in func.Parameters)
+        {
+            names.Add(parameter.Name);
+        }
+
         if (func.Body != null)
         {
-            WriteLine();
-            TranspileBlockStatement(func.Body);
+            AddReservedPatternBindingNames(func.Body, names);
         }
-        else if (func.ExpressionBody != null)
+
+        return names;
+    }
+
+    private static HashSet<string> CollectReservedPatternBindingNames(ConstructorDeclaration ctor)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var parameter in ctor.Parameters)
         {
-            // Expression-bodied method
-            WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
+            names.Add(parameter.Name);
         }
-        else
+
+        AddReservedPatternBindingNames(ctor.Body, names);
+        return names;
+    }
+
+    private static void AddReservedPatternBindingNames(Statement statement, HashSet<string> names)
+    {
+        switch (statement)
         {
-            WriteLine(";");
+            case VariableDeclarationStatement variable:
+                names.Add(variable.Name);
+                break;
+            case TupleDeconstructionStatement tuple:
+                foreach (var name in tuple.Names)
+                {
+                    if (name != "_")
+                    {
+                        names.Add(name);
+                    }
+                }
+                break;
+            case BlockStatement block:
+                foreach (var child in block.Statements)
+                {
+                    AddReservedPatternBindingNames(child, names);
+                }
+                break;
+            case IfStatement ifStatement:
+                AddReservedPatternBindingNames(ifStatement.ThenStatement, names);
+                if (ifStatement.ElseStatement != null)
+                {
+                    AddReservedPatternBindingNames(ifStatement.ElseStatement, names);
+                }
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    AddReservedPatternBindingNames(forStatement.Initializer, names);
+                }
+                AddReservedPatternBindingNames(forStatement.Body, names);
+                break;
+            case ForeachStatement foreachStatement:
+                names.Add(foreachStatement.VariableName);
+                AddReservedPatternBindingNames(foreachStatement.Body, names);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                names.Add(awaitForEachStatement.VariableName);
+                AddReservedPatternBindingNames(awaitForEachStatement.Body, names);
+                break;
+            case WhileStatement whileStatement:
+                AddReservedPatternBindingNames(whileStatement.Body, names);
+                break;
+            case TryStatement tryStatement:
+                AddReservedPatternBindingNames(tryStatement.TryBlock, names);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    if (!string.IsNullOrEmpty(catchClause.VariableName))
+                    {
+                        names.Add(catchClause.VariableName);
+                    }
+                    AddReservedPatternBindingNames(catchClause.Block, names);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    AddReservedPatternBindingNames(tryStatement.FinallyBlock, names);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration != null)
+                {
+                    AddReservedPatternBindingNames(usingStatement.Declaration, names);
+                }
+                if (usingStatement.Body != null)
+                {
+                    AddReservedPatternBindingNames(usingStatement.Body, names);
+                }
+                break;
+            case LockStatement lockStatement:
+                AddReservedPatternBindingNames(lockStatement.Body, names);
+                break;
+            case SwitchStatement switchStatement:
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var child in switchCase.Statements)
+                    {
+                        AddReservedPatternBindingNames(child, names);
+                    }
+                }
+                break;
+            case AssertThrowsStatement assertThrows:
+                AddReservedPatternBindingNames(assertThrows.Body, names);
+                break;
         }
     }
 
@@ -1540,7 +1673,16 @@ public class Transpiler
             WriteLine($"{modifiers}{ctorName}({parameters})");
         }
 
-        TranspileBlockStatement(ctor.Body);
+        var reservedPatternNames = CollectReservedPatternBindingNames(ctor);
+        _reservedPatternBindingNames.Push(reservedPatternNames);
+        try
+        {
+            TranspileBlockStatement(ctor.Body);
+        }
+        finally
+        {
+            _reservedPatternBindingNames.Pop();
+        }
     }
 
     private string TranspileConstructorInitializer(Expression initializer)
@@ -2102,15 +2244,24 @@ public class Transpiler
             }
         }
 
-        if (func.Body != null)
+        var reservedPatternNames = CollectReservedPatternBindingNames(func);
+        _reservedPatternBindingNames.Push(reservedPatternNames);
+        try
         {
-            WriteLine();
-            TranspileBlockStatement(func.Body);
+            if (func.Body != null)
+            {
+                WriteLine();
+                TranspileBlockStatement(func.Body);
+            }
+            else if (func.ExpressionBody != null)
+            {
+                // Expression-bodied local function
+                WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
+            }
         }
-        else if (func.ExpressionBody != null)
+        finally
         {
-            // Expression-bodied local function
-            WriteLine($" => {TranspileExpression(func.ExpressionBody)};");
+            _reservedPatternBindingNames.Pop();
         }
     }
 
@@ -2422,11 +2573,12 @@ public class Transpiler
         {
             IntLiteralExpression intLit => intLit.Value,
             FloatLiteralExpression floatLit => floatLit.Value,
+            CharLiteralExpression charLit => charLit.Value,
             StringLiteralExpression strLit => strLit.Value, // Value already includes quotes
             InterpolatedStringExpression interpolated => TranspileInterpolatedString(interpolated),
             BoolLiteralExpression boolLit => boolLit.Value ? "true" : "false",
             NullLiteralExpression => "null",
-            IdentifierExpression ident => ident.Name,
+            IdentifierExpression ident => TranspileIdentifierExpression(ident),
             BinaryExpression binary => TranspileBinaryExpression(binary),
             UnaryExpression unary => TranspileUnaryExpression(unary),
             MemberAccessExpression member => TranspileMemberAccess(member),
@@ -2558,6 +2710,19 @@ public class Transpiler
         };
 
         return $"({left} {op} {right})";
+    }
+
+    private string TranspileIdentifierExpression(IdentifierExpression ident)
+    {
+        foreach (var aliases in _patternBindingAliases)
+        {
+            if (aliases.TryGetValue(ident.Name, out var alias))
+            {
+                return alias;
+            }
+        }
+
+        return ident.Name;
     }
 
     private string TranspileRangeExpression(RangeExpression range)
@@ -2710,6 +2875,7 @@ public class Transpiler
             // Literals - int literals might have L suffix for long
             IntLiteralExpression lit => lit.Value.EndsWith("L") || lit.Value.EndsWith("l") ? "long" : "int",
             FloatLiteralExpression lit => lit.Value.EndsWith("f") || lit.Value.EndsWith("F") ? "float" : "double",
+            CharLiteralExpression => "char",
             StringLiteralExpression => "string",
             InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
@@ -2899,8 +3065,31 @@ public class Transpiler
 
         var caseStrings = match.Cases.Select((c, idx) =>
         {
+            var aliases = new Dictionary<string, string>();
+            _activePatternBindingAliases = aliases;
             var pattern = TranspilePattern(c.Pattern);
-            var expression = TranspileExpression(c.Expression);
+            _activePatternBindingAliases = null;
+
+            string expression;
+            string? userGuard = null;
+            if (aliases.Count > 0)
+            {
+                _patternBindingAliases.Push(aliases);
+                try
+                {
+                    expression = TranspileExpression(c.Expression);
+                    userGuard = c.Guard != null ? TranspileExpression(c.Guard) : null;
+                }
+                finally
+                {
+                    _patternBindingAliases.Pop();
+                }
+            }
+            else
+            {
+                expression = TranspileExpression(c.Expression);
+                userGuard = c.Guard != null ? TranspileExpression(c.Guard) : null;
+            }
 
             // String enum members are static readonly fields (not constants), so they
             // can't be used as C# constant patterns. Transform to when-guard patterns.
@@ -2910,12 +3099,11 @@ public class Transpiler
             {
                 var varName = $"_se{idx}";
                 var enumGuard = BuildStringEnumGuard(c.Pattern, varName);
-                var userGuard = c.Guard != null ? TranspileExpression(c.Guard) : null;
                 var fullGuard = userGuard != null ? $"{enumGuard} && {userGuard}" : enumGuard;
                 return $"var {varName} when {fullGuard} => {expression}";
             }
 
-            var guard = c.Guard != null ? $" when {TranspileExpression(c.Guard)}" : "";
+            var guard = userGuard != null ? $" when {userGuard}" : "";
             return $"{pattern}{guard} => {expression}";
         }).ToList();
 
@@ -3007,7 +3195,7 @@ public class Transpiler
             return pattern.Name;
 
         // Simple identifier - needs var prefix to capture the variable
-        return $"var {pattern.Name}";
+        return $"var {GetPatternBindingAlias(pattern.Name)}";
     }
 
     private string TranspileUnionCasePattern(UnionCasePattern pattern)
@@ -3041,9 +3229,43 @@ public class Transpiler
             {
                 // Simple binding: { Name } or { Name: var name }
                 var binding = p.BindingName ?? p.Name;
-                return $"{p.Name}: var {binding}";
+                return $"{p.Name}: var {GetPatternBindingAlias(binding)}";
             }
         }));
+    }
+
+    private string GetPatternBindingAlias(string binding)
+    {
+        if (_activePatternBindingAliases == null)
+        {
+            return binding;
+        }
+
+        if (!IsReservedPatternBindingName(binding))
+        {
+            return binding;
+        }
+
+        if (!_activePatternBindingAliases.TryGetValue(binding, out var alias))
+        {
+            alias = $"__nsharp_{binding}_{_patternBindingAliasCounter++}";
+            _activePatternBindingAliases[binding] = alias;
+        }
+
+        return alias;
+    }
+
+    private bool IsReservedPatternBindingName(string binding)
+    {
+        foreach (var names in _reservedPatternBindingNames)
+        {
+            if (names.Contains(binding))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private string TranspileRelationalPattern(RelationalPattern pattern)
@@ -3089,7 +3311,7 @@ public class Transpiler
         // C# 11 slice pattern: .. or .. var name
         if (pattern.BindingName != null)
         {
-            return $".. var {pattern.BindingName}";
+            return $".. var {GetPatternBindingAlias(pattern.BindingName)}";
         }
         return "..";
     }
@@ -3100,7 +3322,7 @@ public class Transpiler
         var typeName = TranspileTypeReference(pattern.Type);
         if (pattern.BindingName != null)
         {
-            return $"{typeName} {pattern.BindingName}";
+            return $"{typeName} {GetPatternBindingAlias(pattern.BindingName)}";
         }
         // Type pattern without binding (just type check)
         return typeName;
@@ -3459,6 +3681,7 @@ public class Transpiler
             // Specific literal types
             IntLiteralExpression => "int",
             FloatLiteralExpression => "double",
+            CharLiteralExpression => "char",
             StringLiteralExpression => "string",
             InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
