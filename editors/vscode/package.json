@@ -14,7 +14,8 @@
   "categories": [
     "Programming Languages",
     "Linters",
-    "Formatters"
+    "Formatters",
+    "Debuggers"
   ],
   "icon": "icon.png",
   "keywords": [
@@ -28,10 +29,25 @@
   "activationEvents": [
     "onLanguage:nsharp",
     "onTaskType:nsharp",
+    "onCommand:nsharp.runProject",
+    "onCommand:nsharp.debugProject",
+    "onDebugInitialConfigurations:nsharp",
+    "onDebugResolve:nsharp",
     "workspaceContains:project.yml"
   ],
   "contributes": {
-    "commands": [],
+    "commands": [
+      {
+        "command": "nsharp.runProject",
+        "title": "N#: Run Project",
+        "category": "N#"
+      },
+      {
+        "command": "nsharp.debugProject",
+        "title": "N#: Debug Project",
+        "category": "N#"
+      }
+    ],
     "languages": [
       {
         "id": "nsharp",
@@ -61,6 +77,85 @@
         "language": "nsharp",
         "scopeName": "source.nsharp",
         "path": "./syntaxes/nsharp.tmLanguage.json"
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "nsharp"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "nsharp",
+        "label": "N# (.NET)",
+        "languages": [
+          "nsharp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [],
+            "properties": {
+              "project": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "N# project directory containing project.yml."
+              },
+              "args": {
+                "type": "array",
+                "default": [],
+                "description": "Command-line arguments passed to the debugged program."
+              },
+              "cwd": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "Working directory for the debugged program."
+              },
+              "console": {
+                "type": "string",
+                "enum": [
+                  "internalConsole",
+                  "integratedTerminal",
+                  "externalTerminal"
+                ],
+                "default": "integratedTerminal",
+                "description": "Where program output is displayed."
+              },
+              "stopAtEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Stop at the program entry point."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "nsharp",
+            "request": "launch",
+            "name": "Launch N# Project",
+            "project": "${workspaceFolder}",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "N#: Launch Project",
+            "description": "Debug the current N# executable project.",
+            "body": {
+              "type": "nsharp",
+              "request": "launch",
+              "name": "Launch N# Project",
+              "project": "${workspaceFolder}",
+              "args": [],
+              "cwd": "${workspaceFolder}",
+              "console": "integratedTerminal",
+              "stopAtEntry": false
+            }
+          }
+        ]
       }
     ],
     "configuration": {
