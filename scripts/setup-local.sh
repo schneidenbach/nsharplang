@@ -1,42 +1,251 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Change to project root (parent of scripts directory)
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
+NSHARP_ENV_DIR="${NSHARP_ENV_DIR:-$HOME/.nsharp}"
+NSHARP_ENV_FILE="$NSHARP_ENV_DIR/env"
 
-echo "🚀 Setting up N# for local development..."
+DRY_RUN=0
+WITH_VSCODE=0
+RESTART_VSCODE=1
+UPDATE_PATH=1
+
+usage() {
+    cat <<EOF
+Usage: ./scripts/setup-local.sh [options]
+
+Contributor bootstrap for the local N# toolchain. Builds packages from this
+checkout, refreshes the local NuGet feed, installs the nlc and nsharp-lsp dotnet
+tools from that feed, installs the templates, and makes nlc available on PATH
+for future shells.
+
+Options:
+  --with-vscode        Also package/install the VS Code extension
+  --skip-vscode        Do not package/install the VS Code extension (default)
+  --no-restart-vscode  Install VS Code extension without reopening VS Code
+  --no-path-update     Do not update shell profile files
+  --dry-run            Print the steps without making changes
+  --help, -h           Show this help text
+
+Environment overrides:
+  NSHARP_LOCAL_FEED          Local NuGet feed path
+  NSHARP_LOCAL_SOURCE_NAME   NuGet source name to register
+  DOTNET_TOOLS_DIR           Directory expected to contain dotnet global tools
+  NSHARP_ENV_DIR             Directory for the N# shell env file
+EOF
+}
+
+log() {
+    echo
+    echo "==> $1"
+}
+
+print_command() {
+    printf '+'
+    for arg in "$@"; do
+        printf ' %q' "$arg"
+    done
+    printf '\n'
+}
+
+path_contains() {
+    case ":$PATH:" in
+        *":$1:"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+profile_candidates() {
+    local shell_name
+    shell_name="$(basename "${SHELL:-}")"
+    local profiles=()
+
+    case "$shell_name" in
+        zsh)
+            profiles+=("$HOME/.zshrc")
+            ;;
+        bash)
+            profiles+=("$HOME/.bashrc")
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                profiles+=("$HOME/.bash_profile")
+            fi
+            ;;
+    esac
+
+    for candidate in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+        if [[ -f "$candidate" ]]; then
+            local already_listed=0
+            for profile in "${profiles[@]}"; do
+                if [[ "$profile" == "$candidate" ]]; then
+                    already_listed=1
+                    break
+                fi
+            done
+            if [[ "$already_listed" -eq 0 ]]; then
+                profiles+=("$candidate")
+            fi
+        fi
+    done
+
+    if [[ "${#profiles[@]}" -eq 0 ]]; then
+        profiles+=("$HOME/.profile")
+    fi
+
+    printf '%s\n' "${profiles[@]}"
+}
+
+ensure_profile_sources_env() {
+    local profile="$1"
+    local source_line
+    if [[ "$NSHARP_ENV_FILE" == "$HOME/.nsharp/env" ]]; then
+        source_line='[ -f "$HOME/.nsharp/env" ] && . "$HOME/.nsharp/env"'
+    else
+        source_line="[ -f \"$NSHARP_ENV_FILE\" ] && . \"$NSHARP_ENV_FILE\""
+    fi
+
+    if [[ -f "$profile" ]] && grep -Fq "$source_line" "$profile"; then
+        echo "Profile already sources N# env: $profile"
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "+ append N# PATH bootstrap to $profile"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$profile")"
+    {
+        echo
+        echo "# N# toolchain"
+        echo "$source_line"
+    } >> "$profile"
+
+    echo "Updated shell profile: $profile"
+}
+
+ensure_dotnet_tools_path() {
+    if ! path_contains "$DOTNET_TOOLS_DIR"; then
+        export PATH="$DOTNET_TOOLS_DIR:$PATH"
+    fi
+
+    if [[ "$UPDATE_PATH" -eq 0 ]]; then
+        echo "Skipping shell profile PATH update (--no-path-update)."
+        return 0
+    fi
+
+    log "Ensuring nlc is on PATH for future shells"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "+ mkdir -p $NSHARP_ENV_DIR"
+        echo "+ write $NSHARP_ENV_FILE"
+    else
+        mkdir -p "$NSHARP_ENV_DIR"
+        cat > "$NSHARP_ENV_FILE" <<EOF
+# Added by N# local setup.
+export PATH="$DOTNET_TOOLS_DIR:\$PATH"
+EOF
+        echo "Wrote: $NSHARP_ENV_FILE"
+    fi
+
+    while IFS= read -r profile; do
+        [[ -n "$profile" ]] || continue
+        ensure_profile_sources_env "$profile"
+    done < <(profile_candidates)
+}
+
+verify_local_toolchain() {
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        if [[ "$WITH_VSCODE" -eq 1 ]]; then
+            echo "+ nlc doctor --require-vscode"
+        else
+            echo "+ nlc doctor --skip-vscode"
+        fi
+        return 0
+    fi
+
+    log "Verifying local N# toolchain"
+    if ! command -v nlc >/dev/null 2>&1; then
+        echo "Error: nlc was installed but is not on PATH. Source $NSHARP_ENV_FILE or add $DOTNET_TOOLS_DIR to PATH." >&2
+        exit 1
+    fi
+
+    nlc --version
+    if [[ "$WITH_VSCODE" -eq 1 ]]; then
+        nlc doctor --require-vscode
+    else
+        nlc doctor --skip-vscode
+    fi
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=1
+            ;;
+        --with-vscode)
+            WITH_VSCODE=1
+            ;;
+        --skip-vscode)
+            WITH_VSCODE=0
+            ;;
+        --no-restart-vscode)
+            RESTART_VSCODE=0
+            ;;
+        --no-path-update)
+            UPDATE_PATH=0
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+deploy_args=()
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    deploy_args+=(--dry-run)
+fi
+if [[ "$WITH_VSCODE" -eq 0 ]]; then
+    deploy_args+=(--skip-vscode)
+fi
+if [[ "$RESTART_VSCODE" -eq 0 ]]; then
+    deploy_args+=(--no-restart-vscode)
+fi
+
+echo "========================================"
+echo "Setting up local N# toolchain"
+echo "========================================"
+echo "Project root:      $PROJECT_ROOT"
+echo "Dotnet tools path: $DOTNET_TOOLS_DIR"
+echo "VS Code install:   $([[ "$WITH_VSCODE" -eq 1 ]] && echo yes || echo no)"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Mode:              dry-run"
+fi
+
+log "Deploying local packages, templates, CLI, and language server"
+print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
+"$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
+
+ensure_dotnet_tools_path
+verify_local_toolchain
+
 echo
-
-# 1. Create local NuGet feed
-echo "📦 Creating local NuGet feed at ~/.nuget/local-feed..."
-mkdir -p ~/.nuget/local-feed
-
-# Add the local feed to global NuGet config
-echo "📝 Adding local feed to NuGet sources..."
-dotnet nuget remove source nsharp-local 2>/dev/null || true
-dotnet nuget add source ~/.nuget/local-feed --name nsharp-local
-
-# 2. Build and pack SDK to local feed
-echo "🔨 Building and packing SDK..."
-# Build the build tasks first
-dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
-# Pack the SDK
-dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o ~/.nuget/local-feed -v q
-
-# 3. Pack and install templates from the local feed
-echo "📝 Packing and installing dotnet new templates..."
-dotnet pack templates/NSharpLang.Templates.csproj -o ~/.nuget/local-feed -v q
-dotnet new uninstall templates/nsharp-console/ > /dev/null 2>&1 || true
-dotnet new uninstall templates/nsharp-webapi/ > /dev/null 2>&1 || true
-dotnet new install NSharpLang.Templates --add-source ~/.nuget/local-feed --force
-
+echo "Local N# setup complete."
+echo "For this terminal, setup has exported: $DOTNET_TOOLS_DIR"
+if [[ "$UPDATE_PATH" -eq 1 ]]; then
+    echo "For new terminals, restart your shell or run: source $NSHARP_ENV_FILE"
+else
+    echo "For new terminals, add $DOTNET_TOOLS_DIR to PATH or rerun without --no-path-update."
+fi
 echo
-echo "✅ Setup complete!"
-echo
-echo "Now you can:"
-echo "  dotnet new nsharp-console -o MyApp"
+echo "Try:"
+echo "  nlc new MyApp"
 echo "  cd MyApp"
-echo "  dotnet build"
-echo "  dotnet run"
-echo
-echo "It just works! 🎉"
+echo "  nlc run"

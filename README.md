@@ -14,12 +14,12 @@ cd nsharplang
 ./scripts/setup-local.sh
 ```
 
-This local setup path is for contributors and private-feed consumers. Public package availability should be verified before using the NuGet/template commands outside this repo.
+This local setup path is for contributors and private-feed consumers. It builds the local packages, refreshes the local NuGet feed, installs `nlc` and `nsharp-lsp` as dotnet tools from that feed, installs the templates, and bootstraps `~/.dotnet/tools` onto PATH for future shells.
 
 ### 2. Create Project
 
 ```bash
-dotnet new nsharp-console -o MyApp
+nlc new MyApp
 cd MyApp
 ```
 
@@ -38,7 +38,7 @@ nlc build
 nlc run
 ```
 
-For repo-local CLI testing, use:
+For compiler debugging before reinstalling the local tool, you can still run the CLI project directly:
 
 ```bash
 dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build
@@ -113,14 +113,10 @@ bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh 
 
 This installs templates, the `nlc` CLI, the language server, and a reusable `NuGet.config` under `~/.nsharp/` for the private feed path.
 
-### From Templates
+### From The N# CLI
 
 ```bash
-# Install templates from the configured package source
-dotnet new install NSharpLang.Templates
-
-# Create a new console app
-dotnet new nsharp-console -o MyApp
+nlc new MyApp
 cd MyApp
 
 # Build and run
@@ -128,7 +124,7 @@ nlc build
 nlc run
 ```
 
-`dotnet new nsharp-*` writes `project.yml`, `.nl` source, `global.json`, and `NuGet.config`; it does not write a user-authored `.csproj`. Use `nlc build`, `nlc run`, and `nlc test` for the fresh-project path.
+`nlc new` writes `project.yml`, `.nl` source, `global.json`, and `NuGet.config`; it does not write a user-authored `.csproj`. The `dotnet new nsharp-*` templates remain installed for .NET ecosystem interop, but `nlc new`, `nlc build`, `nlc run`, and `nlc test` are the first-class project path.
 
 The SDK (`NSharpLang.Sdk`) is restored from the configured package source when you build.
 
@@ -147,22 +143,22 @@ Do not hard-code test totals in docs; they move quickly. Use the current `dotnet
 
 ```bash
 # Compile a project or single file
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build [file]
+nlc build [file]
 
 # Build and run
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run [file]
+nlc run [file]
 
 # Fast check without building
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- check --text
+nlc check --text
 
 # Code intelligence for humans, editors, and agents
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help
+nlc query help
 
 # Export C# for inspection or migration review
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- export csharp --project . --output ./nsharp-csharp
+nlc export csharp --project . --output ./nsharp-csharp
 
 # Build with detailed output/timings for debugging
-dotnet run --project src/NSharpLang.Cli/Cli.csproj -- build --verbose --timings
+nlc build --verbose --timings
 ```
 
 There is intentionally no public `nlc convert` command. C#→N# migration should be AI-assisted and diagnostic-driven: author idiomatic `.nl`, run `nlc check`, `nlc idiom`, `nlc fix --dry-run`, `nlc format --check`, and tests, then iterate.

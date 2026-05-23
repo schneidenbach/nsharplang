@@ -676,19 +676,21 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 - `results[].ok`
 - `results[].response`
 
-## Local Install
+## Local Contributor Install
 
-Use [scripts/install-local-nlc.sh](/Users/spencer/repos/nsharplang/scripts/install-local-nlc.sh) to make the current repo’s CLI the global `nlc` in one step.
+Use [scripts/setup-local.sh](/Users/spencer/Repos/nsharplang/scripts/setup-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local NuGet feed, installs templates, installs `NSharpLang.Cli` and `NSharpLang.LanguageServer` as dotnet tools from that feed, and writes `~/.nsharp/env` so future shells put `~/.dotnet/tools` on PATH.
 
 ```bash
-./scripts/install-local-nlc.sh
+./scripts/setup-local.sh
 ```
 
 The script:
-- builds and packs the local CLI
-- clears stale dotnet-tool caches for `NSharpLang.Cli`
-- reinstalls the global tool from the repo package
-- verifies the installed `nlc`
+- delegates package/tool refresh to `scripts/deploy-local-toolset.sh`
+- clears stale same-version dotnet-tool caches for `NSharpLang.Cli` and `NSharpLang.LanguageServer`
+- verifies `nlc doctor --skip-vscode` by default
+- supports `--with-vscode` when the local VS Code extension should also be packaged and installed
+
+Use [scripts/install-local-nlc.sh](/Users/spencer/Repos/nsharplang/scripts/install-local-nlc.sh) only for a CLI-only reinstall while debugging packaging.
 
 ---
 
