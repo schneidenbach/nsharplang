@@ -149,7 +149,7 @@ func main() {
 
 You get:
 - Syntax highlighting
-- IntelliSense (autocomplete)
+- IntelliSense (autocomplete, signature help, and overload browsing)
 - Real-time error diagnostics
 - Format on save
 
