@@ -1865,6 +1865,512 @@ func main(args: string[]): bool {
     }
 
     [Fact]
+    public void ILCompiler_CanInferAspNetRequestDelegateForMapGetLambda()
+    {
+        var source = @"
+import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+
+func main(args: string[]): bool {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+    app.MapGet(""/api/health"", context => context.Response.WriteAsync(""ok""))
+    return app != null
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        var result = CompileAndInvoke(source, config, "main", new object[] { Array.Empty<string>() });
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanInferAspNetRequestDelegateForMapPostBlockLambda()
+    {
+        var source = @"
+import System.IO
+import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+
+func main(args: string[]): bool {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+    app.MapPost(""/api/issues"", context => {
+        reader := new StreamReader(context.Request.Body)
+        body := reader.ReadToEndAsync().Result
+
+        if body == """" {
+            context.Response.StatusCode = 400
+            return context.Response.WriteAsync(""Invalid request body"")
+        }
+
+        context.Response.StatusCode = 201
+        return context.Response.WriteAsync(body)
+    })
+    return app != null
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        var result = CompileAndInvoke(source, config, "main", new object[] { Array.Empty<string>() });
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanInferAspNetRequestDelegateForMethodGroup()
+    {
+        var source = @"
+import System.Threading.Tasks
+import Microsoft.AspNetCore.Builder
+import Microsoft.AspNetCore.Http
+
+class Routes {
+    func Map(app: WebApplication) {
+        app.MapGet(""/api/issues"", HandleList)
+    }
+
+    func HandleList(context: HttpContext): Task {
+        return context.Response.WriteAsync(""ok"")
+    }
+}
+
+func main(args: string[]): bool {
+    builder := WebApplication.CreateBuilder(args)
+    app := builder.Build()
+    routes := new Routes()
+    routes.Map(app)
+    return app != null
+}";
+
+        var config = new ProjectConfig
+        {
+            Sdk = "Microsoft.NET.Sdk.Web",
+            Dependencies = [new Reference { Framework = "Microsoft.AspNetCore.App" }]
+        };
+
+        var result = CompileAndInvoke(source, config, "main", new object[] { Array.Empty<string>() });
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupPreservesVirtualDispatch()
+    {
+        var source = @"
+import System
+
+class Base {
+    virtual func Value(): string {
+        return ""base""
+    }
+
+    func Get(): Func<string> {
+        return Value
+    }
+}
+
+class Derived : Base {
+    override func Value(): string {
+        return ""derived""
+    }
+}
+
+func main(): string {
+    item: Base = new Derived()
+    getValue := item.Get()
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("derived", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupCanUseInheritedInstanceMethod()
+    {
+        var source = @"
+import System
+
+class Base {
+    func Value(): string {
+        return ""base""
+    }
+}
+
+class Derived : Base {
+    func Get(): Func<string> {
+        return Value
+    }
+}
+
+func main(): string {
+    item := new Derived()
+    getValue := item.Get()
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("base", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupBoxesStructReceiverForDelegate()
+    {
+        var source = @"
+import System
+
+struct Counter {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func GetValue(): int {
+        return Value
+    }
+
+    func Get(): Func<int> {
+        return GetValue
+    }
+}
+
+func main(): int {
+    counter := new Counter(7)
+    getValue := counter.Get()
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupAllowsGenericTypeParameters()
+    {
+        var source = @"
+import System
+
+class Box<T> {
+    value: T
+
+    constructor(value: T) {
+        this.value = value
+    }
+
+    func Value(): T {
+        return value
+    }
+
+    func Getter(): Func<T> {
+        return Value
+    }
+}
+
+func main(): string {
+    box := new Box<string>(""ok"")
+    getValue := box.Getter()
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("ok", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRejectsNumericParameterConversion()
+    {
+        var source = @"
+import System
+
+func AcceptLong(value: long) {
+}
+
+func main(): bool {
+    action: Action<int> = AcceptLong
+    return action != null
+}";
+
+        var error = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("AcceptLong", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRejectsRefParameterMismatch()
+    {
+        var source = @"
+import System
+
+func Bump(ref value: int) {
+    value = value + 1
+}
+
+func main(): bool {
+    action: Action<int> = Bump
+    return action != null
+}";
+
+        var error = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("Bump", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRejectsExpressionTreeTarget()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func Handler() {
+}
+
+func main(): bool {
+    RuntimeDelegateOverloadHelpers.AcceptExpression(Handler)
+    return true
+}";
+
+        var error = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("AcceptExpression", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RuntimeExtensionReceiverRejectsNumericConversion()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): long {
+    value := 1
+    return value.ExtensionLong()
+}";
+
+        var error = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("ExtensionLong", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RuntimeMethodGroupOverloadPrefersExactParameterMatch()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func AcceptObject(value: object) {
+}
+
+func main(): int {
+    return RuntimeDelegateOverloadHelpers.UseMethodGroup(AcceptObject)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_RuntimeMethodGroupBindsGenericDelegateReturnType()
+    {
+        var source = @"
+import System.Linq
+
+func Convert(value: int): string {
+    return value.ToString()
+}
+
+func main(): string {
+    values := [1, 2]
+    texts := values.Select(Convert).ToArray()
+    return texts[0]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("1", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_LocalFunctionMethodGroupCanMaterializeForSystemDelegate()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): string {
+    func Handle(value: int): string {
+        return value.ToString()
+    }
+
+    return DelegateInteropProbe.CaptureDelegate(Handle)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.False(string.IsNullOrWhiteSpace(Assert.IsType<string>(result)));
+    }
+
+    [Fact]
+    public void ILCompiler_RuntimeLambdaRejectsConcreteObjectReturnForNonObjectDelegate()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    lazy := new Lazy<string>(() => new object())
+    return 0
+}";
+
+        var error = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("Lazy", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_BlockLambdaReturnInferenceRestoresNestedLocalTypes()
+    {
+        var source = @"
+import System
+
+func main(): string {
+    lazy := new Lazy<string>(() => {
+        x := ""outer""
+        if false {
+            x := 1
+            return x.ToString()
+        }
+
+        return x
+    })
+
+    return lazy.Value
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("outer", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_BlockLambdaReturnInferenceHandlesErrorTupleResultTypes()
+    {
+        var source = @"
+import System
+
+class Issue {
+    Title: string
+}
+
+class IssueService {
+    func CreateIssue(): Issue {
+        return new Issue { Title: ""created"" }
+    }
+}
+
+class Routes {
+    service: IssueService
+
+    constructor(service: IssueService) {
+        this.service = service
+    }
+
+    func Handler(): Func<string> {
+        return () => {
+            issue, err := service.CreateIssue()
+            if err != null {
+                return err.Message
+            }
+
+            return issue.Title
+        }
+    }
+}
+
+func main(): string {
+    handler := new Routes(new IssueService()).Handler()
+    return handler()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("created", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRespectsCapturedLocalFunctionShadowing()
+    {
+        var source = @"
+import System
+
+func Handle(): string {
+    return ""outer""
+}
+
+func main(): string {
+    value := ""inner""
+
+    func Handle(): string {
+        return value
+    }
+
+    getValue: Func<string> = Handle
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("inner", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRespectsDirectLocalFunctionShadowing()
+    {
+        var source = @"
+import System
+
+func Handle(): string {
+    return ""outer""
+}
+
+func main(): string {
+    func Handle(): string {
+        return ""inner""
+    }
+
+    getValue: Func<string> = Handle
+    return getValue()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("inner", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ContextualMethodGroupRespectsInstanceMemberShadowing()
+    {
+        var source = @"
+import System
+
+func Handle(): string {
+    return ""outer""
+}
+
+class Routes {
+    func Handle(): string {
+        return ""inner""
+    }
+
+    func Run(): string {
+        getValue: Func<string> = Handle
+        return getValue()
+    }
+}
+
+func main(): string {
+    routes := new Routes()
+    return routes.Run()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("inner", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanBindRuntimeExpressionTreeLambdaForGenericFluentChains()
     {
         var source = @"

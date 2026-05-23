@@ -360,7 +360,7 @@ public partial class ILCompiler
         }
     }
 
-    private static bool CanBindRuntimeExtensionTarget(MethodInfo method, Type receiverType)
+    private bool CanBindRuntimeExtensionTarget(MethodInfo method, Type receiverType)
     {
         try
         {
@@ -371,13 +371,69 @@ public partial class ILCompiler
             }
 
             var receiverParameterType = parameters[0].ParameterType;
-            return receiverParameterType.ContainsGenericParameters
-                || receiverParameterType.IsAssignableFrom(receiverType);
+            return IsRuntimeExtensionReceiverCompatible(receiverParameterType, receiverType);
         }
         catch
         {
             return true;
         }
+    }
+
+    private bool IsRuntimeExtensionReceiverCompatible(Type parameterType, Type receiverType)
+    {
+        parameterType = GetByRefElementType(parameterType);
+        receiverType = GetByRefElementType(receiverType);
+
+        if (parameterType == receiverType || AreTypeIdentitiesEquivalent(parameterType, receiverType))
+        {
+            return true;
+        }
+
+        if (parameterType.IsGenericParameter)
+        {
+            return true;
+        }
+
+        if (parameterType.ContainsGenericParameters)
+        {
+            if (parameterType.IsArray && receiverType.IsArray)
+            {
+                return IsRuntimeExtensionReceiverCompatible(parameterType.GetElementType()!, receiverType.GetElementType()!);
+            }
+
+            if (parameterType.IsGenericType)
+            {
+                try
+                {
+                    return FindConstructedGenericMatch(parameterType, receiverType) != null;
+                }
+                catch (NotSupportedException)
+                {
+                    return true;
+                }
+            }
+
+            return true;
+        }
+
+        try
+        {
+            if (parameterType.IsAssignableFrom(receiverType))
+            {
+                return true;
+            }
+        }
+        catch (NotSupportedException)
+        {
+            if (parameterType.IsInterface
+                && receiverType is TypeBuilder
+                && GetInterfacesSafe(receiverType).Any(i => AreTypeIdentitiesEquivalent(i, parameterType)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private BoundRuntimeConstructorCall? BindRuntimeConstructorCall(Type declaringType, IReadOnlyList<Argument> arguments)
@@ -674,6 +730,13 @@ public partial class ILCompiler
                         break;
                     }
 
+                    if (supplied.Argument.Value is IdentifierExpression methodGroupIdentifier
+                        && TryResolveContextualMethodGroup(methodGroupIdentifier, expectedType, genericBindings, out var methodGroupTarget))
+                    {
+                        score += methodGroupTarget.Score;
+                        break;
+                    }
+
                     var argumentType = GetExpressionTypeForBinding(supplied.Argument.Value, expectedType);
                     if (!AreMethodArgumentTypesCompatible(expectedType, argumentType, genericBindings))
                     {
@@ -707,6 +770,13 @@ public partial class ILCompiler
                             }
 
                             score += lambdaScore;
+                            continue;
+                        }
+
+                        if (paramsArgument.Value is IdentifierExpression methodGroupIdentifier
+                            && TryResolveContextualMethodGroup(methodGroupIdentifier, paramsBound.ElementType, genericBindings, out var methodGroupTarget))
+                        {
+                            score += methodGroupTarget.Score;
                             continue;
                         }
 
@@ -836,6 +906,7 @@ public partial class ILCompiler
     {
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedInferredLocalTypes = _inferredLocalTypes;
         var savedByRefParameters = _byRefParameters;
         var savedExpectedExpressionType = _expectedExpressionType;
 
@@ -845,6 +916,7 @@ public partial class ILCompiler
         _parameterTypes = savedParameterTypes != null
             ? new Dictionary<string, Type>(savedParameterTypes, StringComparer.Ordinal)
             : new Dictionary<string, Type>(StringComparer.Ordinal);
+        _inferredLocalTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
         _byRefParameters = savedByRefParameters != null
             ? new HashSet<string>(savedByRefParameters, StringComparer.Ordinal)
             : new HashSet<string>(StringComparer.Ordinal);
@@ -885,6 +957,7 @@ public partial class ILCompiler
         {
             _parameters = savedParameters;
             _parameterTypes = savedParameterTypes;
+            _inferredLocalTypes = savedInferredLocalTypes;
             _byRefParameters = savedByRefParameters;
             _expectedExpressionType = savedExpectedExpressionType;
         }

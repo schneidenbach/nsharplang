@@ -31,7 +31,7 @@ let names := ["a", "b"]      // string[]
 
 ### Limitations
 - **Property type inference**: NOT supported (C# limitation - properties need explicit types)
-- **Lambda inference**: Limited (parameters inferred as `Unknown` without context)
+- **Lambda inference**: Lambdas and method-group identifiers receive contextual parameter/return types from selected delegate parameters, including CLR delegates such as ASP.NET Core `RequestDelegate`. Lambdas still infer `Unknown` when no contextual type exists.
 - **Generic inference**: Limited (type parameters not fully inferred)
 
 ## Duck Interfaces (Structural Typing)

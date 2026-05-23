@@ -1362,6 +1362,7 @@ public partial class ILCompiler
             candidateMethod,
             allArguments,
             IsExtensionMethod: false,
+            TargetType: null,
             candidateTypeArguments);
     }
 }

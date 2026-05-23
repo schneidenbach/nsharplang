@@ -25,41 +25,43 @@ class Routes {
     }
 
     func Map(app: WebApplication) {
-        createHandler: RequestDelegate = context => HandleCreate(context)
+        app.MapGet("/api/health", context => context.Response.WriteAsync("ok"))
+        app.MapGet("/api/issues", HandleList)
+        app.MapPost("/api/issues", context => {
+            reader := new StreamReader(context.Request.Body)
+            body := reader.ReadToEndAsync().Result
+            request := JsonSerializer.Deserialize<CreateIssueRequest>(body, jsonOptions)
 
-        app.MapGet("/api/health", () => "ok")
-        app.MapGet("/api/issues", () => service.GetAll().Select(issue => ToResponse(issue)).ToArray())
-        app.MapPost("/api/issues", createHandler)
+            if request == null {
+                context.Response.StatusCode = 400
+                return context.Response.WriteAsync("Invalid request body")
+            }
+
+            if !IsPriorityName(request.Priority) {
+                context.Response.StatusCode = 400
+                return context.Response.WriteAsync("Invalid priority")
+            }
+
+            priority := ParsePriority(request.Priority)
+
+            // Error tuples at the call site — Go-style error handling
+            issue, err := service.CreateIssue(request.Title, request.Description, priority, request.Tags)
+
+            if err != null {
+                context.Response.StatusCode = 400
+                return context.Response.WriteAsync(err.Message)
+            }
+
+            context.Response.StatusCode = 201
+            return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions)
+        })
     }
 
-    func HandleCreate(context: HttpContext): Task {
-        reader := new StreamReader(context.Request.Body)
-        body := reader.ReadToEndAsync().Result
-        request := JsonSerializer.Deserialize<CreateIssueRequest>(body, jsonOptions)
-
-        if request == null {
-            context.Response.StatusCode = 400
-            return context.Response.WriteAsync("Invalid request body")
-        }
-
-        if !IsPriorityName(request.Priority) {
-            context.Response.StatusCode = 400
-            return context.Response.WriteAsync("Invalid priority")
-        }
-
-        priority := ParsePriority(request.Priority)
-
-        // Error tuples at the call site — Go-style error handling
-        issue, err := service.CreateIssue(request.Title, request.Description, priority, request.Tags)
-
-        if err != null {
-            context.Response.StatusCode = 400
-            return context.Response.WriteAsync(err.Message)
-        }
-
-        context.Response.StatusCode = 201
-        response := ToResponse(issue)
-        return context.Response.WriteAsJsonAsync(response)
+    // RequestDelegate handler implemented in N#; serializes the service response directly.
+    func HandleList(context: HttpContext): Task {
+        context.Response.ContentType = "application/json"
+        response := service.GetAll().Select(issue => ToResponse(issue)).ToList()
+        return context.Response.WriteAsJsonAsync(response, jsonOptions)
     }
 
     func ToResponse(issue: Issue): IssueResponse {

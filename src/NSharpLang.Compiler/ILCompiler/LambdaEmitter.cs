@@ -895,9 +895,55 @@ public partial class ILCompiler
                 break;
 
             case BlockStatement block:
-                foreach (var child in block.Statements)
+                var savedInferredLocalTypes = _inferredLocalTypes != null
+                    ? new Dictionary<string, Type>(_inferredLocalTypes)
+                    : null;
+                try
                 {
-                    CollectLambdaReturnTypes(child, ref returnTypes);
+                    foreach (var child in block.Statements)
+                    {
+                        CollectLambdaReturnTypes(child, ref returnTypes);
+                    }
+                }
+                finally
+                {
+                    if (_inferredLocalTypes != null && savedInferredLocalTypes != null)
+                    {
+                        _inferredLocalTypes.Clear();
+                        foreach (var (name, type) in savedInferredLocalTypes)
+                        {
+                            _inferredLocalTypes[name] = type;
+                        }
+                    }
+                }
+                break;
+
+            case VariableDeclarationStatement variableDeclaration:
+                if (_inferredLocalTypes != null)
+                {
+                    _inferredLocalTypes[variableDeclaration.Name] = variableDeclaration.Type != null
+                        ? ResolveType(variableDeclaration.Type, _currentGenericParameters)
+                        : variableDeclaration.Initializer != null
+                            ? GetExpressionType(variableDeclaration.Initializer)
+                            : typeof(object);
+                }
+                break;
+
+            case TupleDeconstructionStatement tupleDeconstruction:
+                if (_inferredLocalTypes != null)
+                {
+                    for (int i = 0; i < tupleDeconstruction.Names.Count; i++)
+                    {
+                        var name = tupleDeconstruction.Names[i];
+                        if (name == "_")
+                        {
+                            continue;
+                        }
+
+                        _inferredLocalTypes[name] = TryGetTupleDeconstructionElementType(tupleDeconstruction, i, out var elementType)
+                            ? elementType
+                            : typeof(object);
+                    }
                 }
                 break;
 

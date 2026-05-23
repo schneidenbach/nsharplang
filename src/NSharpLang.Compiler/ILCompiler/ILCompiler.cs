@@ -41,6 +41,7 @@ public partial class ILCompiler
     private Dictionary<string, Type>? _patternBindingTypeHints;
     private Dictionary<string, int>? _parameters;
     private Dictionary<string, Type>? _parameterTypes;
+    private Dictionary<string, Type>? _inferredLocalTypes;
     private HashSet<string>? _byRefParameters;
     private GenericTypeParameterBuilder[]? _currentGenericParameters;
     private Type? _currentReturnType;
@@ -167,11 +168,24 @@ public partial class ILCompiler
         MethodInfo Method,
         IReadOnlyList<BoundCallArgument> Arguments,
         bool IsExtensionMethod,
+        Type? TargetType,
         IReadOnlyList<Type>? TypeArguments);
     private sealed record BoundDeclaredConstructorCall(
         ConstructorDeclaration Declaration,
         ConstructorInfo Constructor,
         IReadOnlyList<BoundCallArgument> Arguments);
+    private enum MethodGroupReceiverKind
+    {
+        None,
+        ImplicitThis,
+        LocalFunction
+    }
+
+    private sealed record ContextualMethodGroupTarget(
+        MethodInfo Method,
+        Type DelegateType,
+        MethodGroupReceiverKind ReceiverKind,
+        int Score);
 
     public ILCompiler(CompilationUnit compilationUnit, string assemblyName, string outputPath, ProjectConfig? projectConfig = null)
     {
@@ -1601,7 +1615,15 @@ public partial class ILCompiler
         }
         catch (NotSupportedException)
         {
-            return signatureType;
+            try
+            {
+                actualArguments = closedType.GetGenericArguments();
+                return SubstituteGenericSignatureTypeByPosition(signatureType, actualArguments);
+            }
+            catch (NotSupportedException)
+            {
+                return signatureType;
+            }
         }
 
         var substitutions = new Dictionary<(string Name, int Position), Type>();
@@ -1611,6 +1633,60 @@ public partial class ILCompiler
         }
 
         return SubstituteGenericSignatureType(signatureType, substitutions);
+    }
+
+    private static Type SubstituteGenericSignatureTypeByPosition(Type signatureType, IReadOnlyList<Type> actualArguments)
+    {
+        if (signatureType.IsGenericParameter && !IsMethodGenericParameter(signatureType))
+        {
+            var position = signatureType.GenericParameterPosition;
+            if (position >= 0 && position < actualArguments.Count)
+            {
+                return actualArguments[position];
+            }
+        }
+
+        if (signatureType.IsByRef)
+        {
+            return SubstituteGenericSignatureTypeByPosition(signatureType.GetElementType()!, actualArguments).MakeByRefType();
+        }
+
+        if (signatureType.IsArray)
+        {
+            return SubstituteGenericSignatureTypeByPosition(signatureType.GetElementType()!, actualArguments).MakeArrayType();
+        }
+
+        if (!signatureType.IsGenericType)
+        {
+            return signatureType;
+        }
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = signatureType.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return signatureType;
+        }
+
+        var substitutedArguments = signatureType.GetGenericArguments()
+            .Select(argument => SubstituteGenericSignatureTypeByPosition(argument, actualArguments))
+            .ToArray();
+        return genericDefinition.MakeGenericType(substitutedArguments);
+    }
+
+    private static bool IsMethodGenericParameter(Type type)
+    {
+        try
+        {
+            return type.DeclaringMethod != null;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private static Type SubstituteGenericSignatureType(
@@ -2725,9 +2801,13 @@ public partial class ILCompiler
         }
 
         var typeKey = type.FullName?.Replace('+', '.') ?? type.Name;
+        var unqualifiedGenericTypeKey = typeKey.Contains('`')
+            ? typeKey[..typeKey.IndexOf('`')]
+            : typeKey;
         foreach (var entry in _typeKeys)
         {
-            if (entry.Value == typeKey && entry.Key is TypeBuilder candidateBuilder)
+            if ((entry.Value == typeKey || entry.Value == unqualifiedGenericTypeKey)
+                && entry.Key is TypeBuilder candidateBuilder)
             {
                 typeBuilder = candidateBuilder;
                 return true;
@@ -3149,20 +3229,578 @@ public partial class ILCompiler
             }
         }
 
-        if (expression is IdentifierExpression ident
-            && typeof(Delegate).IsAssignableFrom(expectedType)
-            && _localFunctionDeclarations != null
-            && _localFunctionDeclarations.TryGetValue(ident.Name, out var localFunctionDeclaration)
-            && localFunctionDeclaration.TypeParameters is not { Count: > 0 })
+        if (expression is IdentifierExpression methodGroupIdentifier
+            && TryResolveContextualMethodGroup(methodGroupIdentifier, expectedType, out var methodGroupTarget))
         {
-            var delegateType = GetLocalFunctionDelegateType(localFunctionDeclaration);
-            if (IsParameterTypeCompatible(expectedType, delegateType))
-            {
-                return delegateType;
-            }
+            return methodGroupTarget.DelegateType;
+        }
+
+        if (expression is IdentifierExpression localFunctionIdentifier
+            && (expectedType == typeof(Delegate) || expectedType == typeof(MulticastDelegate))
+            && TryGetNaturalLocalFunctionDelegateType(localFunctionIdentifier, out var naturalDelegateType))
+        {
+            return naturalDelegateType;
         }
 
         return GetExpressionType(expression);
+    }
+
+    private bool TryGetNaturalLocalFunctionDelegateType(IdentifierExpression identifier, out Type delegateType)
+    {
+        delegateType = typeof(object);
+
+        if (_localFunctionDeclarations == null
+            || !_localFunctionDeclarations.TryGetValue(identifier.Name, out var localFunctionDeclaration)
+            || localFunctionDeclaration.TypeParameters is { Count: > 0 })
+        {
+            return false;
+        }
+
+        delegateType = GetLocalFunctionDelegateType(localFunctionDeclaration);
+        return true;
+    }
+
+    private bool TryResolveContextualMethodGroup(
+        IdentifierExpression identifier,
+        Type expectedType,
+        out ContextualMethodGroupTarget target)
+    {
+        return TryResolveContextualMethodGroup(identifier, expectedType, genericBindings: null, out target);
+    }
+
+    private bool TryResolveContextualMethodGroup(
+        IdentifierExpression identifier,
+        Type expectedType,
+        Dictionary<string, Type>? genericBindings,
+        out ContextualMethodGroupTarget target)
+    {
+        target = null!;
+
+        if (_locals?.ContainsKey(identifier.Name) == true
+            || _parameters?.ContainsKey(identifier.Name) == true
+            || _closureFields?.ContainsKey(identifier.Name) == true)
+        {
+            return false;
+        }
+
+        if (!TryGetContextualDelegateSignature(
+                expectedType,
+                out var delegateType,
+                out var delegateParameterTypes,
+                out var delegateParameterIsOut,
+                out var delegateReturnType))
+        {
+            return false;
+        }
+
+        bool TrySelectBest(
+            IReadOnlyList<(MethodInfo Method, MethodGroupReceiverKind ReceiverKind)> candidates,
+            out ContextualMethodGroupTarget selected)
+        {
+            selected = null!;
+            ContextualMethodGroupTarget? bestTarget = null;
+            Dictionary<string, Type>? bestBindings = null;
+            var bestScore = -1;
+            var ambiguous = false;
+            var seenMethods = new HashSet<MethodInfo>();
+
+            foreach (var (method, receiverKind) in candidates)
+            {
+                var candidateBindings = genericBindings != null
+                    ? new Dictionary<string, Type>(genericBindings)
+                    : null;
+
+                if (!seenMethods.Add(method)
+                    || !TryGetMethodGroupDelegateMatchScore(method, delegateParameterTypes, delegateParameterIsOut, delegateReturnType, candidateBindings, out var score))
+                {
+                    continue;
+                }
+
+                if (score > bestScore)
+                {
+                    var closedDelegateType = candidateBindings != null
+                        ? ApplyRuntimeGenericBindings(delegateType, candidateBindings)
+                        : delegateType;
+                    bestTarget = new ContextualMethodGroupTarget(method, closedDelegateType, receiverKind, score);
+                    bestBindings = candidateBindings;
+                    bestScore = score;
+                    ambiguous = false;
+                }
+                else if (score == bestScore)
+                {
+                    ambiguous = true;
+                }
+            }
+
+            if (bestTarget == null || ambiguous)
+            {
+                return false;
+            }
+
+            if (genericBindings != null && bestBindings != null)
+            {
+                genericBindings.Clear();
+                foreach (var (name, type) in bestBindings)
+                {
+                    genericBindings[name] = type;
+                }
+            }
+
+            selected = bestTarget;
+            return true;
+        }
+
+        var localCandidates = new List<(MethodInfo Method, MethodGroupReceiverKind ReceiverKind)>();
+        if (_localFunctionDeclarations != null
+            && _localFunctionDeclarations.TryGetValue(identifier.Name, out var localFunctionDeclaration))
+        {
+            if (localFunctionDeclaration.TypeParameters is not { Count: > 0 }
+                && _genericLocalFunctionBuilders.TryGetValue(localFunctionDeclaration, out var localFunctionBuilder)
+                && _genericLocalFunctionCaptures.TryGetValue(localFunctionDeclaration, out var localFunctionCaptures)
+                && localFunctionCaptures.Count == 0)
+            {
+                localCandidates.Add((
+                    localFunctionBuilder,
+                    localFunctionBuilder.IsStatic ? MethodGroupReceiverKind.None : MethodGroupReceiverKind.LocalFunction));
+            }
+
+            if (TrySelectBest(localCandidates, out target))
+                return true;
+
+            return false;
+        }
+
+        var currentTypeCandidates = new List<(MethodInfo Method, MethodGroupReceiverKind ReceiverKind)>();
+        var hasCurrentTypeName = false;
+        if (_currentTypeBuilder != null
+            && _declaredMethodOverloads.TryGetValue(GetMethodKey(_currentTypeBuilder, identifier.Name), out var currentTypeOverloads))
+        {
+            hasCurrentTypeName = true;
+            foreach (var overload in currentTypeOverloads)
+            {
+                if (overload.Declaration.TypeParameters is { Count: > 0 } || !overload.Builder.IsStatic)
+                {
+                    continue;
+                }
+
+                currentTypeCandidates.Add((
+                    RetargetMethodGroupCandidateToCurrentGenericType(_currentTypeBuilder, overload.Builder),
+                    MethodGroupReceiverKind.None));
+            }
+        }
+
+        if (TryGetImplicitInstanceOwnerTypeBuilder(out var implicitOwnerTypeBuilder)
+            && TryGetImplicitInstanceMethodGroupCandidates(implicitOwnerTypeBuilder, identifier.Name, out var implicitInstanceOverloads))
+        {
+            hasCurrentTypeName = true;
+            foreach (var overload in implicitInstanceOverloads)
+            {
+                currentTypeCandidates.Add((overload, MethodGroupReceiverKind.ImplicitThis));
+            }
+        }
+
+        if (hasCurrentTypeName)
+        {
+            if (TrySelectBest(currentTypeCandidates, out target))
+                return true;
+
+            return false;
+        }
+
+        var topLevelCandidates = new List<(MethodInfo Method, MethodGroupReceiverKind ReceiverKind)>();
+        if (_declaredMethodOverloads.TryGetValue(identifier.Name, out var topLevelOverloads))
+        {
+            foreach (var overload in topLevelOverloads)
+            {
+                if (overload.Declaration.TypeParameters is not { Count: > 0 } && overload.Builder.IsStatic)
+                {
+                    topLevelCandidates.Add((overload.Builder, MethodGroupReceiverKind.None));
+                }
+            }
+
+            if (TrySelectBest(topLevelCandidates, out target))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool TryGetImplicitInstanceMethodGroupCandidates(
+        Type ownerType,
+        string methodName,
+        out List<MethodInfo> candidates)
+    {
+        candidates = new List<MethodInfo>();
+        var hiddenSignatures = new HashSet<string>();
+
+        for (var currentType = ownerType; currentType != null && currentType != typeof(object); currentType = currentType.BaseType)
+        {
+            var levelSignatures = new HashSet<string>();
+
+            if (currentType is TypeBuilder currentTypeBuilder)
+            {
+                if (_declaredMethodOverloads.TryGetValue(GetMethodKey(currentTypeBuilder, methodName), out var declaredOverloads))
+                {
+                    foreach (var overload in declaredOverloads)
+                    {
+                        if (overload.Declaration.TypeParameters is { Count: > 0 } || overload.Builder.IsStatic)
+                        {
+                            continue;
+                        }
+
+                        var method = RetargetMethodGroupCandidateToCurrentGenericType(currentTypeBuilder, overload.Builder);
+                        var signatureKey = GetMethodGroupSignatureKey(method);
+                        levelSignatures.Add(signatureKey);
+
+                        if (!hiddenSignatures.Contains(signatureKey))
+                        {
+                            candidates.Add(method);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                var bindingFlags = BindingFlags.Public
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly;
+
+                foreach (var method in GetRuntimeMethodCandidates(currentType, bindingFlags))
+                {
+                    if (method.Name != methodName
+                        || method.IsSpecialName
+                        || method.ContainsGenericParameters)
+                    {
+                        continue;
+                    }
+
+                    var signatureKey = GetMethodGroupSignatureKey(method);
+                    levelSignatures.Add(signatureKey);
+
+                    if (!hiddenSignatures.Contains(signatureKey))
+                    {
+                        candidates.Add(method);
+                    }
+                }
+            }
+
+            foreach (var signature in levelSignatures)
+            {
+                hiddenSignatures.Add(signature);
+            }
+        }
+
+        return candidates.Count > 0;
+    }
+
+    private MethodInfo RetargetMethodGroupCandidateToCurrentGenericType(TypeBuilder declaringType, MethodInfo method)
+    {
+        var typeGenericParameters = GetTypeGenericParameters(declaringType);
+        if (typeGenericParameters is not { Length: > 0 })
+        {
+            return method;
+        }
+
+        try
+        {
+            var constructedType = declaringType.MakeGenericType(typeGenericParameters);
+            return TypeBuilder.GetMethod(constructedType, method);
+        }
+        catch (ArgumentException)
+        {
+            return method;
+        }
+        catch (NotSupportedException)
+        {
+            return method;
+        }
+    }
+
+    private string GetMethodGroupSignatureKey(MethodInfo method)
+    {
+        try
+        {
+            var parameters = method.GetParameters()
+                .Select(parameter =>
+                {
+                    var modifier = parameter.ParameterType.IsByRef
+                        ? parameter.IsOut ? "out " : "ref "
+                        : string.Empty;
+                    return modifier + GetTypeKey(GetByRefElementType(parameter.ParameterType));
+                });
+            return $"{method.Name}({string.Join(",", parameters)})";
+        }
+        catch (NotSupportedException)
+        {
+            return method.Name;
+        }
+    }
+
+    private bool TryGetContextualDelegateSignature(
+        Type expectedType,
+        out Type delegateType,
+        out Type[] parameterTypes,
+        out bool[] parameterIsOut,
+        out Type returnType)
+    {
+        expectedType = GetByRefElementType(expectedType);
+        if (TryGetExpressionTreeDelegateType(expectedType, out _))
+        {
+            delegateType = typeof(void);
+            parameterTypes = Array.Empty<Type>();
+            parameterIsOut = Array.Empty<bool>();
+            returnType = typeof(void);
+            return false;
+        }
+
+        delegateType = expectedType;
+        parameterTypes = Array.Empty<Type>();
+        parameterIsOut = Array.Empty<bool>();
+        returnType = typeof(void);
+
+        if (!IsDelegateLikeType(delegateType)
+            || !TryGetDelegateInvokeMethod(delegateType, out var invokeMethod)
+            || invokeMethod == null)
+        {
+            return false;
+        }
+
+        var invokeParameters = invokeMethod.GetParameters();
+        parameterTypes = GetDelegateInvokeParameterTypes(delegateType, invokeMethod);
+        parameterIsOut = invokeParameters.Select(parameter => parameter.IsOut).ToArray();
+        returnType = GetDelegateInvokeReturnType(delegateType, invokeMethod);
+        return true;
+    }
+
+    private bool TryGetMethodGroupDelegateMatchScore(
+        MethodInfo method,
+        IReadOnlyList<Type> delegateParameterTypes,
+        IReadOnlyList<bool> delegateParameterIsOut,
+        Type delegateReturnType,
+        Dictionary<string, Type>? genericBindings,
+        out int score)
+    {
+        score = 0;
+
+        if (HasUnboundMethodGenericParameters(method))
+        {
+            return false;
+        }
+
+        ParameterInfo[] methodParameters;
+        try
+        {
+            methodParameters = method.GetParameters();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        if (methodParameters.Length != delegateParameterTypes.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < methodParameters.Length; i++)
+        {
+            var rawMethodParameterType = methodParameters[i].ParameterType;
+            var rawDelegateParameterType = delegateParameterTypes[i];
+            if (rawMethodParameterType.IsByRef != rawDelegateParameterType.IsByRef
+                || (rawMethodParameterType.IsByRef
+                    && i < delegateParameterIsOut.Count
+                    && methodParameters[i].IsOut != delegateParameterIsOut[i]))
+            {
+                return false;
+            }
+
+            var methodParameterType = GetByRefElementType(rawMethodParameterType);
+            var delegateParameterType = GetByRefElementType(rawDelegateParameterType);
+            var matchScore = GetMethodGroupSignatureMatchScore(methodParameterType, delegateParameterType, genericBindings);
+            if (matchScore == 0)
+            {
+                return false;
+            }
+
+            score += matchScore;
+        }
+
+        var methodReturnType = GetByRefElementType(method.ReturnType);
+        if (delegateReturnType == typeof(void))
+        {
+            if (methodReturnType != typeof(void))
+            {
+                return false;
+            }
+
+            score += 8;
+            return true;
+        }
+
+        if (methodReturnType == typeof(void)
+            || GetMethodGroupSignatureMatchScore(delegateReturnType, methodReturnType, genericBindings) == 0)
+        {
+            return false;
+        }
+
+        score += GetMethodGroupSignatureMatchScore(delegateReturnType, methodReturnType, genericBindings);
+        return true;
+    }
+
+    private static bool HasUnboundMethodGenericParameters(MethodInfo method)
+    {
+        try
+        {
+            if (!method.IsGenericMethod)
+            {
+                return false;
+            }
+
+            if (method.IsGenericMethodDefinition)
+            {
+                return true;
+            }
+
+            return method.GetGenericArguments().Any(argument =>
+                argument.IsGenericParameter && argument.DeclaringMethod == method);
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
+    }
+
+    private int GetMethodGroupSignatureMatchScore(
+        Type targetType,
+        Type sourceType,
+        Dictionary<string, Type>? genericBindings = null)
+    {
+        targetType = GetByRefElementType(targetType);
+        sourceType = GetByRefElementType(sourceType);
+
+        if (genericBindings != null && (targetType.IsGenericParameter || targetType.ContainsGenericParameters))
+        {
+            var savedBindings = new Dictionary<string, Type>(genericBindings);
+            if (TryCollectGenericBindings(targetType, sourceType, genericBindings))
+            {
+                var score = GetMethodGroupSignatureMatchScore(
+                    ApplyRuntimeGenericBindings(targetType, genericBindings),
+                    sourceType);
+                if (score != 0)
+                {
+                    return score;
+                }
+            }
+
+            RestoreGenericBindings(genericBindings, savedBindings);
+            return 0;
+        }
+
+        if (genericBindings != null && (sourceType.IsGenericParameter || sourceType.ContainsGenericParameters))
+        {
+            var savedBindings = new Dictionary<string, Type>(genericBindings);
+            if (TryCollectGenericBindings(sourceType, targetType, genericBindings))
+            {
+                var score = GetMethodGroupSignatureMatchScore(
+                    targetType,
+                    ApplyRuntimeGenericBindings(sourceType, genericBindings));
+                if (score != 0)
+                {
+                    return score;
+                }
+            }
+
+            RestoreGenericBindings(genericBindings, savedBindings);
+            return 0;
+        }
+
+        if (targetType == sourceType || AreTypeIdentitiesEquivalent(targetType, sourceType))
+        {
+            return 8;
+        }
+
+        if (targetType.IsValueType || sourceType.IsValueType)
+        {
+            return 0;
+        }
+
+        return AreTypesAssignmentCompatible(targetType, sourceType) ? 4 : 0;
+    }
+
+    private static void RestoreGenericBindings(Dictionary<string, Type> bindings, Dictionary<string, Type> savedBindings)
+    {
+        bindings.Clear();
+        foreach (var (name, type) in savedBindings)
+        {
+            bindings[name] = type;
+        }
+    }
+
+    private bool TryEmitContextualMethodGroupDelegate(IdentifierExpression identifier, Type expectedType)
+    {
+        if (_currentIL == null || !TryResolveContextualMethodGroup(identifier, expectedType, out var target))
+        {
+            return false;
+        }
+
+        switch (target.ReceiverKind)
+        {
+            case MethodGroupReceiverKind.None:
+                _currentIL.Emit(OpCodes.Ldnull);
+                break;
+            case MethodGroupReceiverKind.ImplicitThis:
+                EmitLoadImplicitThisDelegateReceiver(target.Method);
+                break;
+            case MethodGroupReceiverKind.LocalFunction:
+                EmitGenericLocalFunctionReceiver(target.Method);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported method group receiver kind {target.ReceiverKind}");
+        }
+
+        if (target.ReceiverKind != MethodGroupReceiverKind.None
+            && target.Method.IsVirtual
+            && !target.Method.IsFinal)
+        {
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldvirtftn, target.Method);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldftn, target.Method);
+        }
+
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(target.DelegateType));
+        return true;
+    }
+
+    private void EmitLoadImplicitThisDelegateReceiver(MethodInfo targetMethod)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var receiverType = GetCapturedThisType() ?? _currentTypeBuilder ?? targetMethod.DeclaringType;
+        if (receiverType == null || !IsValueTypeLike(receiverType))
+        {
+            EmitLoadImplicitThisReference();
+            return;
+        }
+
+        if (GetCapturedThisField() is { } capturedThisField)
+        {
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            _currentIL.Emit(OpCodes.Ldfld, capturedThisField);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            _currentIL.Emit(OpCodes.Ldobj, receiverType);
+        }
+
+        _currentIL.Emit(OpCodes.Box, receiverType);
     }
 
     private bool ShouldPassParamsArgumentDirectly(Argument argument, Type parameterType)
@@ -3856,7 +4494,9 @@ public partial class ILCompiler
                 && overload.Declaration.TypeParameters is { Count: > 0 }
                 && candidateTypeArguments != null
                 ? ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments)
-                : candidateMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+                : candidateMethod.GetParameters()
+                    .Select(parameter => ResolveTargetGenericSignatureType(targetType, parameter.ParameterType))
+                    .ToArray();
 
             if (!TryBindDeclaredParameters(
                     overload.Declaration.Parameters,
@@ -3883,6 +4523,7 @@ public partial class ILCompiler
                     candidateMethod,
                     boundArguments,
                     implicitReceiver != null,
+                    targetType,
                     candidateTypeArguments);
                 bestScore = score;
                 bestUsesParams = usesParams;
@@ -5074,6 +5715,12 @@ public partial class ILCompiler
         _expectedExpressionType = GetByRefElementType(expectedType);
         try
         {
+            if (expression is IdentifierExpression methodGroupIdentifier
+                && TryEmitContextualMethodGroupDelegate(methodGroupIdentifier, _expectedExpressionType))
+            {
+                return;
+            }
+
             if (expression is LambdaExpression)
             {
                 EmitLambda((LambdaExpression)expression, _expectedExpressionType);
@@ -6299,7 +6946,6 @@ public partial class ILCompiler
                         break;
 
                     case TupleDeconstructionStatement tupleDeconstruction:
-                        var tupleType = GetExpressionType(tupleDeconstruction.Initializer);
                         for (int i = 0; i < tupleDeconstruction.Names.Count; i++)
                         {
                             var name = tupleDeconstruction.Names[i];
@@ -6308,16 +6954,15 @@ public partial class ILCompiler
                                 continue;
                             }
 
-                            var field = tupleType.GetField($"Item{i + 1}");
-                            if (field == null)
+                            if (!TryGetTupleDeconstructionElementType(tupleDeconstruction, i, out var elementType))
                             {
                                 continue;
                             }
 
-                            var tupleLocal = DeclareNamedLocal(name, field.FieldType);
-                            if (tupleLocal.LocalType != field.FieldType)
+                            var tupleLocal = DeclareNamedLocal(name, elementType);
+                            if (tupleLocal.LocalType != elementType)
                             {
-                                EmitInitializeNamedLocal(tupleLocal, field.FieldType, emitDefaultValue: true, initializer: null);
+                                EmitInitializeNamedLocal(tupleLocal, elementType, emitDefaultValue: true, initializer: null);
                             }
                         }
                         break;
@@ -6647,6 +7292,46 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Stloc, local);
             }
         }
+    }
+
+    private bool TryGetTupleDeconstructionElementType(
+        TupleDeconstructionStatement tupleDeconstruction,
+        int index,
+        out Type elementType)
+    {
+        if (IsErrorTupleDeconstruction(tupleDeconstruction))
+        {
+            if (index == 0)
+            {
+                elementType = GetExpressionType(tupleDeconstruction.Initializer);
+                return true;
+            }
+
+            if (index == 1)
+            {
+                elementType = typeof(Exception);
+                return true;
+            }
+        }
+
+        var tupleType = GetExpressionType(tupleDeconstruction.Initializer);
+        var field = ResolveRuntimeField(
+            tupleType,
+            $"Item{index + 1}",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field == null)
+        {
+            elementType = typeof(object);
+            return false;
+        }
+
+        elementType = field.FieldType;
+        return true;
+    }
+
+    private static bool IsErrorTupleDeconstruction(TupleDeconstructionStatement tupleDeconstruction)
+    {
+        return tupleDeconstruction.Names.Count == 2 && tupleDeconstruction.Names[1] == "err";
     }
 
     private void EmitErrorTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
@@ -11837,6 +12522,11 @@ public partial class ILCompiler
             return patternBindingType;
         }
 
+        if (_inferredLocalTypes != null && _inferredLocalTypes.TryGetValue(ident.Name, out var inferredLocalType))
+        {
+            return inferredLocalType;
+        }
+
         if (_locals != null && _locals.TryGetValue(ident.Name, out var local))
         {
             return IsLiftedIdentifier(ident.Name) ? GetStrongBoxValueType(local.LocalType) : local.LocalType;
@@ -12141,11 +12831,12 @@ public partial class ILCompiler
                     var boundStaticCall = BindDeclaredMethodCall(
                         GetMethodKey(staticTypeBuilder, memberAccess.MemberName),
                         call,
-                    predicate: overload => overload.Builder.IsStatic);
-                if (boundStaticCall != null)
-                {
-                    return GetBoundDeclaredMethodReturnType(boundStaticCall);
-                }
+                        targetType: staticType,
+                        predicate: overload => overload.Builder.IsStatic);
+                    if (boundStaticCall != null)
+                    {
+                        return GetBoundDeclaredMethodReturnType(boundStaticCall);
+                    }
 
                     if (_declaredMethodOverloads.ContainsKey(GetMethodKey(staticTypeBuilder, memberAccess.MemberName)))
                     {
@@ -12176,6 +12867,7 @@ public partial class ILCompiler
                 var boundInstanceCall = BindDeclaredMethodCall(
                     GetMethodKey(typeBuilder, memberAccess.MemberName),
                     call,
+                    targetType: objectType,
                     predicate: overload => !overload.Builder.IsStatic);
                 if (boundInstanceCall != null)
                 {
@@ -12339,21 +13031,105 @@ public partial class ILCompiler
     private Type GetBoundDeclaredMethodReturnType(BoundDeclaredMethodCall boundCall)
     {
         var declaredReturnType = boundCall.Declaration.ReturnType;
-        if (declaredReturnType == null
-            || boundCall.Declaration.TypeParameters is not { Count: > 0 }
-            || boundCall.TypeArguments == null
-            || boundCall.TypeArguments.Count != boundCall.Declaration.TypeParameters.Count)
+        if (declaredReturnType == null)
         {
-            return boundCall.Method.ReturnType;
+            return ResolveTargetGenericSignatureType(
+                boundCall.TargetType,
+                ResolveMethodOwnerGenericSignatureType(boundCall.Method, boundCall.Method.ReturnType));
         }
 
+        var substitutions = GetDeclaredMethodReturnTypeSubstitutions(boundCall);
+        if (substitutions.Count > 0)
+        {
+            return ResolveType(declaredReturnType, substitutions);
+        }
+
+        return ResolveTargetGenericSignatureType(
+            boundCall.TargetType,
+            ResolveMethodOwnerGenericSignatureType(boundCall.Method, boundCall.Method.ReturnType));
+    }
+
+    private Dictionary<string, Type> GetDeclaredMethodReturnTypeSubstitutions(BoundDeclaredMethodCall boundCall)
+    {
         var substitutions = new Dictionary<string, Type>(StringComparer.Ordinal);
-        for (int i = 0; i < boundCall.Declaration.TypeParameters.Count; i++)
+
+        TypeBuilder? ownerTypeBuilder = null;
+        Type? ownerType = boundCall.TargetType;
+        if (ownerType != null)
         {
-            substitutions[boundCall.Declaration.TypeParameters[i].Name] = boundCall.TypeArguments[i];
+            TryGetUserTypeDefinition(ownerType, out ownerTypeBuilder);
+        }
+        else if (boundCall.Method.DeclaringType != null
+            && TryGetUserTypeDefinition(boundCall.Method.DeclaringType, out var declaringTypeBuilder))
+        {
+            ownerTypeBuilder = declaringTypeBuilder;
+            ownerType = boundCall.Method.DeclaringType;
         }
 
-        return ResolveType(declaredReturnType, substitutions);
+        if (ownerTypeBuilder != null && GetTypeGenericParameters(ownerTypeBuilder) is { Length: > 0 } ownerParameters)
+        {
+            var ownerArguments = GetDeclaredOwnerTypeArguments(ownerType, ownerParameters);
+            for (int i = 0; i < ownerParameters.Length && i < ownerArguments.Length; i++)
+            {
+                substitutions[ownerParameters[i].Name] = ownerArguments[i];
+            }
+        }
+
+        if (boundCall.Declaration.TypeParameters is { Count: > 0 }
+            && boundCall.TypeArguments != null
+            && boundCall.TypeArguments.Count == boundCall.Declaration.TypeParameters.Count)
+        {
+            for (int i = 0; i < boundCall.Declaration.TypeParameters.Count; i++)
+            {
+                substitutions[boundCall.Declaration.TypeParameters[i].Name] = boundCall.TypeArguments[i];
+            }
+        }
+
+        return substitutions;
+    }
+
+    private static Type[] GetDeclaredOwnerTypeArguments(Type? ownerType, IReadOnlyList<Type> ownerParameters)
+    {
+        if (ownerType != null)
+        {
+            try
+            {
+                if (ownerType.IsGenericType && !ownerType.IsGenericTypeDefinition)
+                {
+                    return ownerType.GetGenericArguments();
+                }
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
+        return ownerParameters.ToArray();
+    }
+
+    private static Type ResolveTargetGenericSignatureType(Type? targetType, Type signatureType)
+    {
+        if (targetType != null
+            && targetType.IsGenericType
+            && !targetType.IsGenericTypeDefinition)
+        {
+            return ResolveGenericSignatureType(targetType, signatureType);
+        }
+
+        return signatureType;
+    }
+
+    private static Type ResolveMethodOwnerGenericSignatureType(MethodInfo method, Type signatureType)
+    {
+        var declaringType = method.DeclaringType;
+        if (declaringType != null
+            && declaringType.IsGenericType
+            && !declaringType.IsGenericTypeDefinition)
+        {
+            return ResolveGenericSignatureType(declaringType, signatureType);
+        }
+
+        return signatureType;
     }
 
     /// <summary>

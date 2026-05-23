@@ -3032,6 +3032,279 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void AspNetCore_MinimalApi_MapGet_InfersRequestDelegateLambda()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.AspNetCore.Http
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                app.MapGet(""/api/health"", context => context.Response.WriteAsync(""ok""))
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambda()
+    {
+        AssertNoErrors(@"
+            import System.IO
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.AspNetCore.Http
+
+            func Main(args: string[]) {
+                builder := WebApplication.CreateBuilder(args)
+                app := builder.Build()
+
+                app.MapPost(""/api/issues"", context => {
+                    reader := new StreamReader(context.Request.Body)
+                    body := reader.ReadToEndAsync().Result
+
+                    if body == """" {
+                        context.Response.StatusCode = 400
+                        return context.Response.WriteAsync(""Invalid request body"")
+                    }
+
+                    context.Response.StatusCode = 201
+                    return context.Response.WriteAsync(body)
+                })
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_MinimalApi_MapPost_InfersRequestDelegateBlockLambdaInsideInstanceMethod()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.AspNetCore.Http
+            import System.Text.Json
+
+            class Routes {
+                jsonOptions: JsonSerializerOptions
+
+                constructor() {
+                    jsonOptions = new JsonSerializerOptions()
+                }
+
+                func Map(app: WebApplication) {
+                    app.MapPost(""/api/issues"", context => {
+                        context.Response.StatusCode = 201
+                        return context.Response.WriteAsJsonAsync(1, jsonOptions)
+                    })
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup()
+    {
+        AssertNoErrors(@"
+            import System.Threading.Tasks
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.AspNetCore.Http
+
+            class Routes {
+                func Map(app: WebApplication) {
+                    app.MapGet(""/api/issues"", HandleList)
+                }
+
+                func HandleList(context: HttpContext): Task {
+                    return context.Response.WriteAsync(""ok"")
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_RejectsNumericParameterConversion()
+    {
+        var result = Analyze(@"
+            import System
+
+            func Use(action: Action<int>) {
+            }
+
+            func AcceptLong(value: long) {
+            }
+
+            func Main() {
+                Use(AcceptLong)
+            }
+        ");
+
+        Assert.True(result.HasErrors, "Expected method group binding to reject numeric parameter conversion.");
+        Assert.Contains(result.Errors, error => error.Message.Contains("AcceptLong"));
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_RejectsRefParameterMismatch()
+    {
+        var result = Analyze(@"
+            import System
+
+            func Use(action: Action<int>) {
+            }
+
+            func Bump(ref value: int) {
+                value = value + 1
+            }
+
+            func Main() {
+                Use(Bump)
+            }
+        ");
+
+        Assert.True(result.HasErrors, "Expected method group binding to reject ref/by-value parameter mismatch.");
+        Assert.Contains(result.Errors, error => error.Message.Contains("Bump"));
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_PrefersExactParameterOverContravariantMatch()
+    {
+        var config = new ProjectConfig
+        {
+            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
+        };
+
+        AssertNoErrors(@"
+            import System
+            import NSharpLang.Tests
+
+            func AcceptObject(value: object) {
+            }
+
+            func Main() {
+                result: int = RuntimeDelegateOverloadHelpers.UseMethodGroup(AcceptObject)
+            }
+        ", config);
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_PreservesSelectedNSharpOverload()
+    {
+        var config = new ProjectConfig
+        {
+            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
+        };
+
+        AssertNoErrors(@"
+            import System
+            import NSharpLang.Tests
+
+            func Handle(value: string) {
+            }
+
+            func Handle(value: int) {
+            }
+
+            func Main() {
+                result: string = RuntimeDelegateOverloadHelpers.UseMethodGroup(Handle)
+            }
+        ", config);
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_BindsGenericReturnTypeDuringReflectionInference()
+    {
+        AssertNoErrors(@"
+            import System.Linq
+
+            func Convert(value: int): string {
+                return value.ToString()
+            }
+
+            func Main() {
+                values := [1, 2]
+                texts := values.Select(Convert).ToArray()
+                first: string = texts[0]
+            }
+        ");
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_RejectsSingleFunctionMismatchDuringAnalysis()
+    {
+        var config = new ProjectConfig
+        {
+            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
+        };
+
+        var result = Analyze(@"
+            import System
+            import NSharpLang.Tests
+
+            func AcceptInt(value: int) {
+            }
+
+            func Main() {
+                RuntimeDelegateOverloadHelpers.UseMethodGroup(AcceptInt)
+            }
+        ", config);
+
+        Assert.True(result.HasErrors, "Expected incompatible single-function method group to be rejected during analysis.");
+        Assert.Contains(result.Errors, error => error.Message.Contains("AcceptInt"));
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_RejectsMixedNSharpClrReferenceMismatchDuringAnalysis()
+    {
+        var config = new ProjectConfig
+        {
+            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
+        };
+
+        var result = Analyze(@"
+            import System
+            import NSharpLang.Tests
+
+            class Customer {
+            }
+
+            func Handle(customer: Customer) {
+            }
+
+            func Main() {
+                RuntimeDelegateOverloadHelpers.UseMethodGroup(Handle)
+            }
+        ", config);
+
+        Assert.True(result.HasErrors, "Expected incompatible mixed N#/CLR method group to be rejected during analysis.");
+        Assert.Contains(result.Errors, error => error.Message.Contains("Handle") || error.Message.Contains("UseMethodGroup"));
+    }
+
+    [Fact]
+    public void MethodGroupToClrDelegate_RejectsAmbiguousOverloadTie()
+    {
+        var config = new ProjectConfig
+        {
+            Dependencies = [new Reference { Dll = typeof(RuntimeDelegateOverloadHelpers).Assembly.Location }]
+        };
+
+        var result = Analyze(@"
+            import System
+            import NSharpLang.Tests
+
+            func Handle(value: RuntimeDelegateBase) {
+            }
+
+            func Handle(value: IRuntimeDelegateFace) {
+            }
+
+            func Main() {
+                RuntimeDelegateOverloadHelpers.UseDerived(Handle)
+            }
+        ", config);
+
+        Assert.True(result.HasErrors, "Expected tied method group overloads to be rejected as ambiguous.");
+        Assert.Contains(result.Errors, error => error.Message.Contains("UseDerived"));
+    }
+
+    [Fact]
     public void AspNetCore_ChainedConfiguration()
     {
         AssertNoErrors(@"

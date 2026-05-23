@@ -214,6 +214,15 @@ let func: Func<int, int> = x => x * 2
 let result := func(10)
 ```
 
+CLR delegate parameters provide contextual typing for untyped lambdas and method-group identifiers:
+
+```
+app.MapGet("/api/health", context => context.Response.WriteAsync("ok"))
+app.MapGet("/api/issues", HandleList)
+```
+
+Here overload resolution can select ASP.NET Core's `RequestDelegate` overload, so `context` is inferred as `HttpContext` and `HandleList(context: HttpContext): Task` can be passed without an explicit `RequestDelegate` local.
+
 ### Events (Future Feature)
 Currently not supported. Use C# interop for now.
 

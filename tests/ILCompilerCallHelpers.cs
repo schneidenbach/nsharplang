@@ -86,6 +86,47 @@ public static class ILCompilerCallHelpers
     }
 }
 
+public static class RuntimeDelegateOverloadHelpers
+{
+    public static string UseMethodGroup(Action<string> action)
+    {
+        return "string";
+    }
+
+    public static int UseMethodGroup(Action<object> action)
+    {
+        return 42;
+    }
+
+    public static void AcceptExpression(Expression<Action> expression)
+    {
+    }
+
+    public static void UseDerived(Action<RuntimeDelegateDerived> action)
+    {
+    }
+}
+
+public class RuntimeDelegateBase
+{
+}
+
+public interface IRuntimeDelegateFace
+{
+}
+
+public sealed class RuntimeDelegateDerived : RuntimeDelegateBase, IRuntimeDelegateFace
+{
+}
+
+public static class RuntimeNumericReceiverExtensions
+{
+    public static long ExtensionLong(this long value)
+    {
+        return value;
+    }
+}
+
 public static class RuntimeCoverageMetadata
 {
     public const int DefaultCode = 19;
