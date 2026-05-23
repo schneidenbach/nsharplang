@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -160,24 +161,27 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         {
             if (cancellationToken.IsCancellationRequested) break;
 
+            if (IsInterpolatedStringLiteral(token))
+            {
+                foreach (var embeddedToken in GetInterpolatedStringExpressionTokens(token))
+                {
+                    var embeddedClassification = ClassifyToken(
+                        embeddedToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+                    if (embeddedClassification == null) continue;
+
+                    var (embeddedTokenType, embeddedModifiers) = embeddedClassification.Value;
+                    PushSemanticToken(builder, embeddedToken, embeddedTokenType, embeddedModifiers);
+                }
+
+                continue;
+            }
+
             var classification = ClassifyToken(token, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
             if (classification == null) continue;
 
             var (tokenType, modifiers) = classification.Value;
 
-            // Token positions: LSP uses 0-based, compiler tokens use 1-based
-            var line = token.Line - 1;
-            var col = token.Column - 1;
-            var length = token.Value.Length;
-
-            if (line < 0 || col < 0 || length <= 0) continue;
-
-            // LSP semantic tokens must not span multiple lines.
-            // Skip multiline tokens (comments, triple-quoted strings) entirely —
-            // TextMate grammar handles their highlighting adequately.
-            if (token.Value.Contains('\n')) continue;
-
-            builder.Push(line, col, length, tokenType, modifiers);
+            PushSemanticToken(builder, token, tokenType, modifiers);
         }
 
         return Task.CompletedTask;
@@ -208,8 +212,14 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
             return (13, 0); // comment
         }
 
-        // String literals
-        if (token.Type is TokenType.StringLiteral or TokenType.TripleQuoteStringLiteral or TokenType.InterpolatedRawStringLiteral)
+        // String literals. Interpolated strings are intentionally left to the
+        // TextMate grammar so expression holes keep normal code colors.
+        if (IsInterpolatedStringLiteral(token))
+        {
+            return null;
+        }
+
+        if (token.Type is TokenType.StringLiteral or TokenType.TripleQuoteStringLiteral)
         {
             return (14, 0); // string
         }
@@ -234,6 +244,230 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
         // Skip delimiters, whitespace, EOF, etc.
         return null;
+    }
+
+    private static bool IsInterpolatedStringLiteral(Token token)
+    {
+        return token.Type == TokenType.InterpolatedRawStringLiteral
+            || (token.Type == TokenType.StringLiteral
+                && token.Value.StartsWith("$\"", StringComparison.Ordinal));
+    }
+
+    private static void PushSemanticToken(SemanticTokensBuilder builder, Token token, int tokenType, int modifiers)
+    {
+        // Token positions: LSP uses 0-based, compiler tokens use 1-based.
+        var line = token.Line - 1;
+        var col = token.Column - 1;
+        var length = token.Value.Length;
+
+        if (line < 0 || col < 0 || length <= 0) return;
+
+        // LSP semantic tokens must not span multiple lines. Skip multiline
+        // tokens entirely; TextMate grammar handles their highlighting.
+        if (token.Value.Contains('\n')) return;
+
+        builder.Push(line, col, length, tokenType, modifiers);
+    }
+
+    internal static IReadOnlyList<Token> GetInterpolatedStringExpressionTokens(Token token)
+    {
+        if (!IsInterpolatedStringLiteral(token))
+        {
+            return Array.Empty<Token>();
+        }
+
+        var value = token.Value;
+        var isRaw = token.Type == TokenType.InterpolatedRawStringLiteral;
+        var start = isRaw ? 4 : 2; // $"""...""" or $"..."
+        var end = isRaw ? value.Length - 3 : value.Length - 1;
+        if (end < start || !value.EndsWith(isRaw ? "\"\"\"" : "\"", StringComparison.Ordinal))
+        {
+            end = value.Length;
+        }
+
+        var embeddedTokens = new List<Token>();
+        var currentLine = token.Line;
+        var currentColumn = token.Column + start;
+        var i = start;
+
+        void AdvancePosition(char ch)
+        {
+            if (ch == '\n')
+            {
+                currentLine++;
+                currentColumn = 1;
+            }
+            else
+            {
+                currentColumn++;
+            }
+        }
+
+        while (i < end)
+        {
+            var ch = value[i];
+
+            if (!isRaw && ch == '\\' && i + 1 < end)
+            {
+                AdvancePosition(ch);
+                i++;
+                AdvancePosition(value[i]);
+                i++;
+                continue;
+            }
+
+            if (ch == '{' && i + 1 < end && value[i + 1] == '{')
+            {
+                AdvancePosition(value[i]);
+                i++;
+                AdvancePosition(value[i]);
+                i++;
+                continue;
+            }
+
+            if (ch == '}' && i + 1 < end && value[i + 1] == '}')
+            {
+                AdvancePosition(value[i]);
+                i++;
+                AdvancePosition(value[i]);
+                i++;
+                continue;
+            }
+
+            if (ch == '{')
+            {
+                if (isRaw && IsRawStringLiteralBrace(value, start, end, i))
+                {
+                    AdvancePosition(ch);
+                    i++;
+                    continue;
+                }
+
+                AdvancePosition(ch);
+                i++;
+
+                var expressionLine = currentLine;
+                var expressionColumn = currentColumn;
+                var expression = new StringBuilder();
+                var braceDepth = 1;
+                var inNestedString = false;
+
+                while (i < end && braceDepth > 0)
+                {
+                    ch = value[i];
+
+                    if (inNestedString)
+                    {
+                        expression.Append(ch);
+                        if (ch == '\\' && i + 1 < end)
+                        {
+                            AdvancePosition(ch);
+                            i++;
+                            ch = value[i];
+                            expression.Append(ch);
+                        }
+                        else if (ch == '"')
+                        {
+                            inNestedString = false;
+                        }
+                    }
+                    else
+                    {
+                        if (ch == '"')
+                        {
+                            inNestedString = true;
+                            expression.Append(ch);
+                        }
+                        else if (ch == '{')
+                        {
+                            braceDepth++;
+                            expression.Append(ch);
+                        }
+                        else if (ch == '}')
+                        {
+                            braceDepth--;
+                            if (braceDepth == 0)
+                            {
+                                break;
+                            }
+
+                            expression.Append(ch);
+                        }
+                        else
+                        {
+                            expression.Append(ch);
+                        }
+                    }
+
+                    AdvancePosition(ch);
+                    i++;
+                }
+
+                AddEmbeddedExpressionTokens(
+                    embeddedTokens,
+                    expression.ToString(),
+                    expressionLine,
+                    expressionColumn,
+                    token.FileName);
+
+                if (i < end && value[i] == '}')
+                {
+                    AdvancePosition(value[i]);
+                    i++;
+                }
+
+                continue;
+            }
+
+            AdvancePosition(ch);
+            i++;
+        }
+
+        return embeddedTokens;
+    }
+
+    private static bool IsRawStringLiteralBrace(string value, int start, int end, int braceIndex)
+    {
+        var previous = braceIndex - 1;
+        while (previous >= start && char.IsWhiteSpace(value[previous]))
+        {
+            previous--;
+        }
+
+        var close = value.IndexOf('}', braceIndex + 1);
+        return (previous >= start && value[previous] == ':')
+            || close < 0
+            || close >= end
+            || value.Substring(braceIndex + 1, close - braceIndex - 1).IndexOfAny(new[] { '\r', '\n' }) >= 0;
+    }
+
+    private static void AddEmbeddedExpressionTokens(
+        List<Token> destination,
+        string expression,
+        int expressionLine,
+        int expressionColumn,
+        string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return;
+        }
+
+        var lexer = new Lexer(expression, fileName);
+        foreach (var token in lexer.Tokenize())
+        {
+            if (token.Type == TokenType.Eof)
+            {
+                continue;
+            }
+
+            var line = token.Line + expressionLine - 1;
+            var column = token.Line == 1
+                ? token.Column + expressionColumn - 1
+                : token.Column;
+
+            destination.Add(new Token(token.Type, token.Value, line, column, fileName));
+        }
     }
 
     private (int TokenType, int Modifiers)? ClassifyIdentifier(
