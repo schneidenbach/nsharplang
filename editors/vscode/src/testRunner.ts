@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
+import { findContainingProjectRoot, getNlcEnvironment, getNlcPath } from './toolchain';
 
 interface TestResultJson {
     schemaVersion: number;
@@ -49,7 +50,6 @@ export class NSharpTestRunner {
             run.enqueued(item);
         }
 
-        // Determine workspace root
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             for (const item of testsToRun) {
@@ -59,17 +59,15 @@ export class NSharpTestRunner {
             return;
         }
 
-        const cwd = workspaceFolder.uri.fsPath;
-
-        // Build the filter from test descriptions
-        const filter = this.buildFilter(testsToRun, request);
-
         // Mark tests as started
         for (const item of testsToRun) {
             run.started(item);
         }
 
-        await this.runNormal(run, testsToRun, cwd, filter, token);
+        for (const [projectRoot, projectTests] of this.groupTestsByProjectRoot(testsToRun, workspaceFolder)) {
+            const filter = this.buildFilter(projectTests, request);
+            await this.runNormal(run, projectTests, projectRoot, filter, token);
+        }
 
         run.end();
     }
@@ -81,7 +79,7 @@ export class NSharpTestRunner {
         filter: string | undefined,
         token: vscode.CancellationToken
     ): Promise<void> {
-        const nlcPath = vscode.workspace.getConfiguration('nsharp').get<string>('cli.path') || 'nlc';
+        const nlcPath = getNlcPath();
         const args = ['test', '--json'];
         if (filter) {
             args.push('--filter', filter);
@@ -89,8 +87,13 @@ export class NSharpTestRunner {
 
         return new Promise<void>((resolve) => {
             let stdout = '';
+            let stderr = '';
+            let settled = false;
 
-            const proc = cp.spawn(nlcPath, args, { cwd });
+            const proc = cp.spawn(nlcPath, args, {
+                cwd,
+                env: getNlcEnvironment()
+            });
 
             token.onCancellationRequested(() => {
                 proc.kill();
@@ -101,24 +104,62 @@ export class NSharpTestRunner {
             });
 
             proc.stderr.on('data', (data: Buffer) => {
-                // Emit stderr as test output
-                run.appendOutput(data.toString().replace(/\n/g, '\r\n'));
+                const text = data.toString();
+                stderr += text;
+                run.appendOutput(text.replace(/\n/g, '\r\n'));
             });
 
-            proc.on('close', () => {
+            proc.on('close', (code) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+
+                if (code !== 0 && stdout.trim().length === 0) {
+                    const message = stderr.trim() || `nlc test exited with code ${code ?? 1}`;
+                    this.reportErrored(run, testsToRun, message);
+                    resolve();
+                    return;
+                }
+
                 this.parseAndReportResults(run, testsToRun, stdout);
                 resolve();
             });
 
             proc.on('error', (err) => {
-                for (const item of testsToRun) {
-                    run.errored(item, new vscode.TestMessage(
-                        `Failed to run nlc: ${err.message}. Is nlc installed and on PATH?`
-                    ));
+                if (settled) {
+                    return;
                 }
+                settled = true;
+
+                this.reportErrored(
+                    run,
+                    testsToRun,
+                    `Failed to run nlc: ${err.message}. Is nlc installed and on PATH?`
+                );
                 resolve();
             });
         });
+    }
+
+    private groupTestsByProjectRoot(
+        testsToRun: vscode.TestItem[],
+        workspaceFolder: vscode.WorkspaceFolder
+    ): Map<string, vscode.TestItem[]> {
+        const workspaceRoot = workspaceFolder.uri.fsPath;
+        const groups = new Map<string, vscode.TestItem[]>();
+
+        for (const item of testsToRun) {
+            const containingRoot = item.uri
+                ? findContainingProjectRoot(path.dirname(item.uri.fsPath), workspaceRoot)
+                : undefined;
+            const projectRoot = containingRoot ?? workspaceRoot;
+            const projectTests = groups.get(projectRoot) ?? [];
+            projectTests.push(item);
+            groups.set(projectRoot, projectTests);
+        }
+
+        return groups;
     }
 
 
@@ -188,18 +229,16 @@ export class NSharpTestRunner {
             json = JSON.parse(stdout);
         } catch {
             // If JSON parsing fails, mark all as errored
-            for (const item of testsToRun) {
-                run.errored(item, new vscode.TestMessage(
-                    `Failed to parse test output. Raw output:\n${stdout.substring(0, 500)}`
-                ));
-            }
+            this.reportErrored(
+                run,
+                testsToRun,
+                `Failed to parse test output. Raw output:\n${stdout.substring(0, 500)}`
+            );
             return;
         }
 
         if (json.error) {
-            for (const item of testsToRun) {
-                run.errored(item, new vscode.TestMessage(json.error));
-            }
+            this.reportErrored(run, testsToRun, json.error);
             return;
         }
 
@@ -268,6 +307,12 @@ export class NSharpTestRunner {
         if (result.nsharpDescription === item.label) return true;
         const methodName = result.name.split('.').pop() || result.name;
         return methodName === testDescriptionToMethodName(item.label);
+    }
+
+    private reportErrored(run: vscode.TestRun, testsToRun: vscode.TestItem[], message: string): void {
+        for (const item of testsToRun) {
+            run.errored(item, new vscode.TestMessage(message));
+        }
     }
 }
 

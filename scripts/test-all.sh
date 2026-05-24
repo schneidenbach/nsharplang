@@ -522,7 +522,7 @@ xargs -P "$MAX_JOBS" -I{} bash -lc '
     check_dir="${entry#*|}"
     result_file="$results_dir/$idx.result"
 
-    result=$(dotnet "$cli_dll" check "$check_dir/" 2>&1 || true)
+    result=$(dotnet "$cli_dll" check "$check_dir/" 2>/dev/null || true)
     errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['\''summary'\'']['\''errors'\''])" 2>/dev/null || echo "?")
     dir_name=$(echo "$check_dir" | sed "s|examples/||")
     printf "%s|%s|%s\n" "$errors" "$dir_name" "$check_dir" > "$result_file"

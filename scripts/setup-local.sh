@@ -57,6 +57,25 @@ path_contains() {
     esac
 }
 
+resolve_dotnet_root() {
+    python3 - "$1" <<'PY'
+import os
+import sys
+
+dotnet = os.path.realpath(sys.argv[1])
+dotnet_dir = os.path.dirname(dotnet)
+candidates = (
+    dotnet_dir,
+    os.path.join(os.path.dirname(dotnet_dir), "libexec"),
+    os.path.dirname(dotnet_dir),
+)
+for candidate in candidates:
+    if os.path.isfile(os.path.join(candidate, "dotnet")) and os.path.isdir(os.path.join(candidate, "shared")):
+        print(candidate)
+        break
+PY
+}
+
 profile_candidates() {
     local shell_name
     shell_name="$(basename "${SHELL:-}")"
@@ -130,6 +149,18 @@ ensure_dotnet_tools_path() {
         export PATH="$DOTNET_TOOLS_DIR:$PATH"
     fi
 
+    local dotnet_root=""
+    if command -v dotnet >/dev/null 2>&1; then
+        dotnet_root="$(resolve_dotnet_root "$(command -v dotnet)")"
+        if [[ -n "$dotnet_root" ]]; then
+            export DOTNET_ROOT="${DOTNET_ROOT:-$dotnet_root}"
+            case "$(uname -m)" in
+                arm64) export DOTNET_ROOT_ARM64="${DOTNET_ROOT_ARM64:-$DOTNET_ROOT}" ;;
+                x86_64) export DOTNET_ROOT_X64="${DOTNET_ROOT_X64:-$DOTNET_ROOT}" ;;
+            esac
+        fi
+    fi
+
     if [[ "$UPDATE_PATH" -eq 0 ]]; then
         echo "Skipping shell profile PATH update (--no-path-update)."
         return 0
@@ -139,12 +170,24 @@ ensure_dotnet_tools_path() {
     if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "+ mkdir -p $NSHARP_ENV_DIR"
         echo "+ write $NSHARP_ENV_FILE"
+        if [[ -n "$dotnet_root" ]]; then
+            echo "+ write DOTNET_ROOT=$DOTNET_ROOT to $NSHARP_ENV_FILE"
+        fi
     else
         mkdir -p "$NSHARP_ENV_DIR"
         cat > "$NSHARP_ENV_FILE" <<EOF
 # Added by N# local setup.
 export PATH="$DOTNET_TOOLS_DIR:\$PATH"
 EOF
+        if [[ -n "$dotnet_root" ]]; then
+            {
+                echo "export DOTNET_ROOT=\"${DOTNET_ROOT}\""
+                case "$(uname -m)" in
+                    arm64) echo "export DOTNET_ROOT_ARM64=\"\${DOTNET_ROOT_ARM64:-\$DOTNET_ROOT}\"" ;;
+                    x86_64) echo "export DOTNET_ROOT_X64=\"\${DOTNET_ROOT_X64:-\$DOTNET_ROOT}\"" ;;
+                esac
+            } >> "$NSHARP_ENV_FILE"
+        fi
         echo "Wrote: $NSHARP_ENV_FILE"
     fi
 

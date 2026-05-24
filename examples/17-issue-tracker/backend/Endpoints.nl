@@ -53,7 +53,10 @@ class Routes {
             }
 
             context.Response.StatusCode = 201
-            return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions)
+            context.Response.ContentType = "application/json"
+            payload := ToResponse(issue) as object
+            json := JsonSerializer.Serialize(payload, typeof(IssueResponse), jsonOptions)
+            return context.Response.WriteAsync(json)
         })
     }
 
@@ -61,7 +64,9 @@ class Routes {
     func HandleList(context: HttpContext): Task {
         context.Response.ContentType = "application/json"
         response := service.GetAll().Select(issue => ToResponse(issue)).ToList()
-        return context.Response.WriteAsJsonAsync(response, jsonOptions)
+        payload := response as object
+        json := JsonSerializer.Serialize(payload, typeof(System.Collections.Generic.List<IssueResponse>), jsonOptions)
+        return context.Response.WriteAsync(json)
     }
 
     func ToResponse(issue: Issue): IssueResponse {
