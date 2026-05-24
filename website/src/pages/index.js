@@ -3,6 +3,8 @@ import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import CodeBlock from '@theme/CodeBlock';
 
+const installCommand = 'curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"';
+
 const csharpCode = `using System;
 using System.Linq;
 
@@ -128,8 +130,8 @@ const toolingItems = [
   {
     icon: '\u26A1',
     title: 'VS Code Extension',
-    desc: 'VS Code/LSP support for syntax, diagnostics, hover/completions, and selected navigation/refactoring paths, pending full visual QA.',
-    code: 'code --install-extension nsharp',
+    desc: 'The public installer adds the N# VS Code extension when the code CLI is available, with the language server bundled for editor features.',
+    code: 'code --install-extension nsharp.nsharp',
   },
   {
     icon: '\uD83E\uDD16',
@@ -375,30 +377,22 @@ export default function Home() {
         <section className="section section--alt">
           <div className="section__header">
             <h2 className="section__title">Quick Start</h2>
-            <p className="section__subtitle">Use the repo/private-feed setup today; verify public package availability for external installs.</p>
+            <p className="section__subtitle">One copied command installs nlc, templates, SDK restore support, the language server, and VS Code tooling when VS Code is on PATH.</p>
           </div>
           <div className="quickstart">
             <div className="quickstart__block">
               <div className="quickstart__header">
-                <div className="quickstart__dots">
-                  <span className="quickstart__dot" />
-                  <span className="quickstart__dot" />
-                  <span className="quickstart__dot" />
-                </div>
-                <span className="quickstart__title">Terminal</span>
+                <span className="quickstart__title">Install</span>
               </div>
-              <pre className="quickstart__code">
-                <code>
-                  <span className="quickstart__line"><span className="quickstart__comment"># Install templates from your configured repo/private package source</span></span>
-                  <span className="quickstart__line"><span className="quickstart__prompt">$ </span>dotnet new install NSharpLang.Templates</span>
-                  <span className="quickstart__line">&nbsp;</span>
-                  <span className="quickstart__line"><span className="quickstart__comment"># Create a new console app</span></span>
-                  <span className="quickstart__line"><span className="quickstart__prompt">$ </span>dotnet new nsharp-console -o MyApp</span>
-                  <span className="quickstart__line">&nbsp;</span>
-                  <span className="quickstart__line"><span className="quickstart__comment"># Build and run</span></span>
-                  <span className="quickstart__line"><span className="quickstart__prompt">$ </span>cd MyApp && dotnet build && dotnet run</span>
-                </code>
-              </pre>
+              <div className="quickstart__codeblock">
+                <CodeBlock language="bash">{installCommand}</CodeBlock>
+              </div>
+              <div className="quickstart__followup">
+                <CodeBlock language="bash">{`nlc doctor
+nlc new MyApp
+cd MyApp
+nlc run`}</CodeBlock>
+              </div>
             </div>
           </div>
         </section>

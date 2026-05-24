@@ -74,6 +74,7 @@ fi
 
 echo "==> Running installer against local package feed"
 ./scripts/install.sh --source "$FEED" --skip-vscode
+. "$HOME/.nsharp/env"
 
 echo "==> Verifying CLI"
 nlc --version

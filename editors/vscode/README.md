@@ -65,24 +65,30 @@ The task provider respects the `nsharp.cli.path` setting. Leave it empty to use 
 ## 📦 Installation
 
 ### Prerequisites
-- **.NET 9.0 SDK** or later
-- **N# Compiler** from this repo or the configured private feed. Public `dotnet tool install -g nlc` availability is not a launch claim unless release evidence is current.
+- **.NET 10.0 SDK** or later
+- **N# toolchain** installed with the public installer or from this repo for contributor builds.
 
-### From VS Code Marketplace
-Marketplace/public distribution should be verified for the target release before this is advertised. For contributor testing, install a locally built VSIX.
+### Public Install
 
-### From VSIX
+The N# installer adds the VS Code extension when the `code` CLI is on PATH:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
+nlc doctor --require-vscode
+```
+
+### Contributor VSIX Install
 ```bash
 code --install-extension nsharp-0.6.0.vsix
 ```
 
 ## 🚀 Quick Start
 
-1. **Install the extension** from a locally built VSIX or a verified release package
-2. **Install the N# compiler** from this repo/private feed and ensure `nlc` is on `PATH` or set `nsharp.cli.path`
+1. **Install the N# toolchain and extension** with the public installer, or use `./scripts/setup-local.sh --with-vscode` from a source checkout
+2. **Ensure `nlc` is on `PATH`** or set `nsharp.cli.path`
 3. **Create a new N# project**:
    ```bash
-   dotnet new nsharp-console -n MyApp
+   nlc new MyApp
    cd MyApp
    ```
 4. **Open in VS Code**:

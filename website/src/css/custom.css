@@ -444,10 +444,6 @@ a:hover {
   justify-content: space-between;
 }
 
-.quickstart__dots {
-  display: none;
-}
-
 .quickstart__title {
   color: var(--ink-muted);
   font-size: 11px;
@@ -456,28 +452,23 @@ a:hover {
   text-transform: uppercase;
 }
 
-.quickstart__code {
-  background: var(--surface);
-  color: var(--ink-soft);
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 12px;
-  line-height: 1.6;
-  margin: 0;
-  overflow-x: auto;
+.quickstart__codeblock,
+.quickstart__followup {
   padding: 10px;
 }
 
-.quickstart__line {
-  display: block;
+.quickstart__followup {
+  border-top: 1px solid var(--line);
 }
 
-.quickstart__prompt {
-  color: var(--ink-muted);
-  user-select: none;
+.quickstart .theme-code-block {
+  margin: 0;
 }
 
-.quickstart__comment {
-  color: var(--ink-faint);
+.quickstart__codeblock pre,
+.quickstart__codeblock code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap !important;
 }
 
 .examples-page {
