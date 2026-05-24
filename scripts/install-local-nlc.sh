@@ -2,7 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/packages.sh"
+
+PROJECT_ROOT="$NSHARP_REPO_ROOT"
 ARTIFACTS_DIR="$PROJECT_ROOT/artifacts/nuget"
 PACKAGE_ID="NSharpLang.Cli"
 PACKAGE_CACHE_DIR="$HOME/.nuget/packages/nsharplang.cli"
@@ -10,26 +13,15 @@ TOOL_STORE_DIR="$HOME/.dotnet/tools/.store/nsharplang.cli"
 TOOL_PATH="$HOME/.dotnet/tools/nlc"
 
 read_version() {
-    sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$PROJECT_ROOT/src/NSharpLang.Cli/Cli.csproj" | head -n 1
+    nsharp_package_version "src/NSharpLang.Cli/Cli.csproj"
 }
 
 require_command() {
-    if ! command -v "$1" >/dev/null 2>&1; then
-        echo "Error: required command not found: $1" >&2
-        exit 1
-    fi
+    nsharp_require_command "$1"
 }
 
 resolve_dotnet_root() {
-    python3 - "$1" <<'PY'
-import os
-import sys
-
-dotnet = os.path.realpath(sys.argv[1])
-dotnet_dir = os.path.dirname(dotnet)
-candidate = os.path.join(os.path.dirname(dotnet_dir), "libexec")
-print(candidate if os.path.isdir(candidate) else dotnet_dir)
-PY
+    nsharp_resolve_dotnet_root "$1"
 }
 
 require_command dotnet

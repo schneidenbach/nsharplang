@@ -1,34 +1,24 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/packages.sh"
+
+cd "$NSHARP_REPO_ROOT"
 
 NUGET_SOURCE="https://api.nuget.org/v3/index.json"
 
-read_version() {
-  python3 - "$1" <<'PY'
-import re, sys
-text=open(sys.argv[1], encoding='utf-8').read()
-match=re.search(r'<Version>([^<]+)</Version>', text)
-if not match:
-    raise SystemExit(f'No <Version> in {sys.argv[1]}')
-print(match.group(1))
-PY
-}
-
 package_path() {
-  local id="$1"
-  local project="$2"
-  local version
-  version="$(read_version "$project")"
-  echo "artifacts/nuget/${id}.${version}.nupkg"
+    local id="$1"
+    local project="$2"
+    nsharp_package_artifact_path "$id" "$project" "artifacts/nuget"
 }
 
-PACKAGES=(
-  "$(package_path NSharpLang.Sdk src/NSharpLang.Sdk/NSharpLang.Sdk.csproj)"
-  "$(package_path NSharpLang.Templates templates/NSharpLang.Templates.csproj)"
-  "$(package_path NSharpLang.Compiler src/NSharpLang.Compiler/Compiler.csproj)"
-  "$(package_path NSharpLang.Cli src/NSharpLang.Cli/Cli.csproj)"
-  "$(package_path NSharpLang.LanguageServer src/NSharpLang.LanguageServer/LanguageServer.csproj)"
-)
+PACKAGES=()
+while IFS='|' read -r package_id _label project; do
+    PACKAGES+=("$(package_path "$package_id" "$project")")
+done < <(nsharp_each_package_spec)
 
 echo "================================"
 echo "Publishing N# NuGet Packages"

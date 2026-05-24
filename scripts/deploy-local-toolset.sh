@@ -2,11 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/packages.sh"
+source "$SCRIPT_DIR/lib/vscode-extension.sh"
+
+PROJECT_ROOT="$NSHARP_REPO_ROOT"
 LOCAL_FEED="${NSHARP_LOCAL_FEED:-$HOME/.nuget/local-feed}"
 NUGET_SOURCE_NAME="${NSHARP_LOCAL_SOURCE_NAME:-nsharp-local}"
 DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
-VSCODE_EXT_DIR="$PROJECT_ROOT/editors/vscode"
+VSCODE_EXT_DIR="$NSHARP_VSCODE_EXT_DIR"
 SAMPLE_PROJECT="${NSHARP_VSCODE_SAMPLE_PROJECT:-$PROJECT_ROOT/examples/01-hello-world}"
 
 DRY_RUN=0
@@ -37,67 +41,6 @@ Environment overrides:
 EOF
 }
 
-log() {
-    echo
-    echo "==> $1"
-}
-
-print_command() {
-    printf '+'
-    for arg in "$@"; do
-        printf ' %q' "$arg"
-    done
-    printf '\n'
-}
-
-run() {
-    print_command "$@"
-    if [[ "$DRY_RUN" -eq 0 ]]; then
-        "$@"
-    fi
-}
-
-run_in_dir() {
-    local dir="$1"
-    shift
-
-    printf '+ (cd %q &&' "$dir"
-    for arg in "$@"; do
-        printf ' %q' "$arg"
-    done
-    printf ')\n'
-
-    if [[ "$DRY_RUN" -eq 0 ]]; then
-        (
-            cd "$dir"
-            "$@"
-        )
-    fi
-}
-
-require_command() {
-    local cmd="$1"
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "Error: required command not found: $cmd" >&2
-        exit 1
-    fi
-}
-
-read_xml_value() {
-    local file="$1"
-    local tag="$2"
-    sed -n "s:.*<$tag>\\(.*\\)</$tag>.*:\\1:p" "$file" | head -n 1
-}
-
-read_package_version() {
-    local file="$1"
-    sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | head -n 1
-}
-
-lowercase() {
-    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-}
-
 ensure_nuget_source() {
     if [[ "$DRY_RUN" -eq 0 ]]; then
         dotnet nuget remove source "$NUGET_SOURCE_NAME" >/dev/null 2>&1 || true
@@ -105,13 +48,13 @@ ensure_nuget_source() {
         echo "+ dotnet nuget remove source $NUGET_SOURCE_NAME || true"
     fi
 
-    run dotnet nuget add source "$LOCAL_FEED" --name "$NUGET_SOURCE_NAME"
+    nsharp_run dotnet nuget add source "$LOCAL_FEED" --name "$NUGET_SOURCE_NAME"
 }
 
 clear_tool_cache() {
     local package_id="$1"
     local normalized_id
-    normalized_id="$(lowercase "$package_id")"
+    normalized_id="$(nsharp_lowercase "$package_id")"
     local package_cache_dir="$HOME/.nuget/packages/$normalized_id"
     local tool_store_dir="$DOTNET_TOOLS_DIR/.store/$normalized_id"
 
@@ -133,7 +76,7 @@ reinstall_tool() {
     fi
 
     clear_tool_cache "$package_id"
-    run dotnet tool install -g "$package_id" --version "$version" --add-source "$LOCAL_FEED" --no-http-cache
+    nsharp_run dotnet tool install -g "$package_id" --version "$version" --add-source "$LOCAL_FEED" --no-http-cache
 }
 
 verify_tool_file() {
@@ -154,7 +97,7 @@ verify_tool_file() {
 remove_local_package() {
     local package_id="$1"
     local normalized_id
-    normalized_id="$(lowercase "$package_id")"
+    normalized_id="$(nsharp_lowercase "$package_id")"
 
     if [[ "$DRY_RUN" -eq 0 ]]; then
         rm -f "$LOCAL_FEED"/"$package_id".*.nupkg
@@ -163,17 +106,6 @@ remove_local_package() {
         echo "+ rm -f $LOCAL_FEED/$package_id.*.nupkg"
         echo "+ rm -rf $HOME/.nuget/packages/$normalized_id"
     fi
-}
-
-ensure_vscode_dependencies() {
-    local tsc_path="$VSCODE_EXT_DIR/node_modules/.bin/tsc"
-
-    if [[ -d "$VSCODE_EXT_DIR/node_modules" && -x "$tsc_path" ]]; then
-        return
-    fi
-
-    log "Installing VS Code extension dependencies"
-    run_in_dir "$VSCODE_EXT_DIR" npm install
 }
 
 while [[ $# -gt 0 ]]; do
@@ -200,17 +132,17 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-require_command dotnet
+nsharp_require_command dotnet
 
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then
-    require_command npm
-    require_command npx
-    require_command code
+    nsharp_require_command npm
+    nsharp_require_command npx
+    nsharp_require_command code
 fi
 
-CLI_VERSION="$(read_xml_value "$PROJECT_ROOT/src/NSharpLang.Cli/Cli.csproj" Version)"
-LSP_VERSION="$(read_xml_value "$PROJECT_ROOT/src/NSharpLang.LanguageServer/LanguageServer.csproj" Version)"
-VSCODE_VERSION="$(read_package_version "$VSCODE_EXT_DIR/package.json")"
+CLI_VERSION="$(nsharp_package_version "src/NSharpLang.Cli/Cli.csproj")"
+LSP_VERSION="$(nsharp_package_version "src/NSharpLang.LanguageServer/LanguageServer.csproj")"
+VSCODE_VERSION="$(nsharp_vscode_package_version)"
 VSIX_FILE="$VSCODE_EXT_DIR/nsharp-$VSCODE_VERSION.vsix"
 
 if [[ -z "$CLI_VERSION" || -z "$LSP_VERSION" || -z "$VSCODE_VERSION" ]]; then
@@ -233,55 +165,43 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Mode:         dry-run"
 fi
 
-log "Preparing local feed"
-run mkdir -p "$LOCAL_FEED"
+nsharp_log "Preparing local feed"
+nsharp_run mkdir -p "$LOCAL_FEED"
 ensure_nuget_source
 
-log "Packing published artifacts into the local feed"
-remove_local_package NSharpLang.Sdk
-remove_local_package NSharpLang.Templates
-remove_local_package NSharpLang.Compiler
-remove_local_package NSharpLang.Cli
-remove_local_package NSharpLang.LanguageServer
-run_in_dir "$PROJECT_ROOT" dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
-run_in_dir "$PROJECT_ROOT" dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -c Release -o "$LOCAL_FEED" -v q
-run_in_dir "$PROJECT_ROOT" dotnet pack templates/NSharpLang.Templates.csproj -c Release -o "$LOCAL_FEED" -v q
-run_in_dir "$PROJECT_ROOT" dotnet pack src/NSharpLang.Compiler/Compiler.csproj -c Release -o "$LOCAL_FEED" -v q
-run_in_dir "$PROJECT_ROOT" dotnet pack src/NSharpLang.Cli/Cli.csproj -c Release -o "$LOCAL_FEED" -v q
-run_in_dir "$PROJECT_ROOT" dotnet pack src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -o "$LOCAL_FEED" -v q
+nsharp_log "Packing published artifacts into the local feed"
+while IFS='|' read -r package_id _label _project; do
+    remove_local_package "$package_id"
+done < <(nsharp_each_package_spec)
+nsharp_run_in_dir "$PROJECT_ROOT" dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
+while IFS='|' read -r _package_id _label project; do
+    nsharp_run_in_dir "$PROJECT_ROOT" dotnet pack "$project" -c Release -o "$LOCAL_FEED" -v q
+done < <(nsharp_each_package_spec)
 
-log "Refreshing templates and global dotnet tools"
+nsharp_log "Refreshing templates and global dotnet tools"
 if [[ "$DRY_RUN" -eq 0 ]]; then
     dotnet new uninstall NSharpLang.Templates >/dev/null 2>&1 || true
 else
     echo "+ dotnet new uninstall NSharpLang.Templates || true"
 fi
-run dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force
+nsharp_run dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force
 reinstall_tool NSharpLang.Cli "$CLI_VERSION"
 reinstall_tool NSharpLang.LanguageServer "$LSP_VERSION"
 verify_tool_file nlc
 verify_tool_file nsharp-lsp
 
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then
-    log "Building and installing the VS Code extension"
-    ensure_vscode_dependencies
-
-    run_in_dir "$VSCODE_EXT_DIR" npm run build-server
-    run_in_dir "$VSCODE_EXT_DIR" npm run compile
-    run_in_dir "$VSCODE_EXT_DIR" npx vsce package --allow-star-activation
+    nsharp_log "Building and installing the VS Code extension"
+    nsharp_build_vscode_extension_package
 
     if [[ "$RESTART_VSCODE" -eq 1 ]]; then
-        if [[ "$DRY_RUN" -eq 0 ]]; then
-            killall "Visual Studio Code" 2>/dev/null || killall "Code" 2>/dev/null || true
-        else
-            echo '+ killall "Visual Studio Code" || killall "Code" || true'
-        fi
+        nsharp_kill_vscode
     fi
 
-    run code --install-extension "$VSIX_FILE" --force
+    nsharp_run code --install-extension "$VSIX_FILE" --force
 
     if [[ "$RESTART_VSCODE" -eq 1 ]]; then
-        run code "$SAMPLE_PROJECT"
+        nsharp_run code "$SAMPLE_PROJECT"
     fi
 fi
 
@@ -290,7 +210,7 @@ echo "Local deploy complete."
 echo "Commands:"
 echo "  - CLI: nlc"
 echo "  - LSP: nsharp-lsp"
-if [[ ":$PATH:" != *":$DOTNET_TOOLS_DIR:"* ]]; then
+if ! nsharp_path_contains "$DOTNET_TOOLS_DIR"; then
     echo "  - PATH: add $DOTNET_TOOLS_DIR, or run ./scripts/setup-local.sh to install the shell bootstrap"
 fi
 if [[ "$SKIP_VSCODE" -eq 0 ]]; then

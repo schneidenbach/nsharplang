@@ -2,7 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+
+PROJECT_ROOT="$NSHARP_REPO_ROOT"
 DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
 NSHARP_ENV_DIR="${NSHARP_ENV_DIR:-$HOME/.nsharp}"
 NSHARP_ENV_FILE="$NSHARP_ENV_DIR/env"
@@ -35,26 +37,6 @@ Environment overrides:
   DOTNET_TOOLS_DIR           Directory expected to contain dotnet global tools
   NSHARP_ENV_DIR             Directory for the N# shell env file
 EOF
-}
-
-log() {
-    echo
-    echo "==> $1"
-}
-
-print_command() {
-    printf '+'
-    for arg in "$@"; do
-        printf ' %q' "$arg"
-    done
-    printf '\n'
-}
-
-path_contains() {
-    case ":$PATH:" in
-        *":$1:"*) return 0 ;;
-        *) return 1 ;;
-    esac
 }
 
 profile_candidates() {
@@ -126,7 +108,7 @@ ensure_profile_sources_env() {
 }
 
 ensure_dotnet_tools_path() {
-    if ! path_contains "$DOTNET_TOOLS_DIR"; then
+    if ! nsharp_path_contains "$DOTNET_TOOLS_DIR"; then
         export PATH="$DOTNET_TOOLS_DIR:$PATH"
     fi
 
@@ -135,7 +117,7 @@ ensure_dotnet_tools_path() {
         return 0
     fi
 
-    log "Ensuring nlc is on PATH for future shells"
+    nsharp_log "Ensuring nlc is on PATH for future shells"
     if [[ "$DRY_RUN" -eq 1 ]]; then
         echo "+ mkdir -p $NSHARP_ENV_DIR"
         echo "+ write $NSHARP_ENV_FILE"
@@ -164,7 +146,7 @@ verify_local_toolchain() {
         return 0
     fi
 
-    log "Verifying local N# toolchain"
+    nsharp_log "Verifying local N# toolchain"
     if ! command -v nlc >/dev/null 2>&1; then
         echo "Error: nlc was installed but is not on PATH. Source $NSHARP_ENV_FILE or add $DOTNET_TOOLS_DIR to PATH." >&2
         exit 1
@@ -229,8 +211,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Mode:              dry-run"
 fi
 
-log "Deploying local packages, templates, CLI, and language server"
-print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
+nsharp_log "Deploying local packages, templates, CLI, and language server"
+nsharp_print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
 "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
 
 ensure_dotnet_tools_path
