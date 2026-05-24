@@ -9,12 +9,13 @@ N# is in active development. The repository has a working compiler, SDK, CLI, te
 ### 1. One-Time Setup
 
 ```bash
-git clone <repo-url>
-cd nsharplang
-./scripts/setup-local.sh
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
+nlc doctor
 ```
 
-This local setup path is for contributors and private-feed consumers. It builds the local packages, refreshes the local NuGet feed, installs `nlc` and `nsharp-lsp` as dotnet tools from that feed, installs the templates, and bootstraps `~/.dotnet/tools` onto PATH for future shells.
+This public setup path installs `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the dotnet-tool PATH and .NET root settings, and it wires the same env file into future shells.
+
+Contributors working from source should clone the repo and run `./scripts/setup-local.sh`; that path builds packages from the checkout and installs them from the local feed.
 
 ### 2. Create Project
 
@@ -103,15 +104,13 @@ Process(new FileReader())
 
 ## Installation
 
-### One-Liner (Private Feed)
-
-Requires the [GitHub CLI](https://cli.github.com/) authenticated with access to this repository/package feed:
+### One-Liner
 
 ```bash
-bash <(gh api repos/schneidenbach/nsharplang/contents/scripts/setup-consumer.sh -H "Accept: application/vnd.github.raw")
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 ```
 
-This installs templates, the `nlc` CLI, the language server, and a reusable `NuGet.config` under `~/.nsharp/` for the private feed path.
+This installs templates, the `nlc` CLI, the language server, a reusable `NuGet.config` under `~/.nsharp/`, and the VS Code extension when the `code` CLI is available. The installer first tries the Marketplace extension ID `nsharp.nsharp`, then falls back to the latest GitHub Release asset named `nsharp.vsix`.
 
 ### From The N# CLI
 

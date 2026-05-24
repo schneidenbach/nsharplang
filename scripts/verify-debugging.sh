@@ -5,6 +5,10 @@ set -eo pipefail
 # Tests that #line directives are emitted correctly in generated C# files
 # and that PDB files contain references to .nl source files
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+cd "$NSHARP_REPO_ROOT"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'

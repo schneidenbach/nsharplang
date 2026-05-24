@@ -11,14 +11,14 @@ This guide takes you from zero to running N# code in under 5 minutes.
 
 - [.NET SDK 10.0+](https://dotnet.microsoft.com/download/dotnet/10.0) installed
 - macOS/Linux shell with `bash` for the one-line installer
-- Optionally, [VS Code](https://code.visualstudio.com/) with the `code` CLI on PATH
+- Optionally, [VS Code](https://code.visualstudio.com/) with the `code` CLI on PATH so the installer can add editor tooling
 
 ## Install N#
 
 Use the one public install command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 ```
 
 Then verify the installed toolchain:
@@ -28,7 +28,7 @@ nlc --version
 nlc doctor
 ```
 
-`nlc doctor` checks the CLI, SDK/template restore path, language server, and the VS Code extension when the `code` CLI is available.
+`nlc doctor` checks the CLI, SDK/template restore path, language server, and the VS Code extension when the `code` CLI is available. The installer also writes `~/.nsharp/env` and updates common shell profiles so new terminals can find `nlc` and the right .NET root.
 
 Windows gap: the canonical installer is bash-only in this release pass. Use WSL or translate the installer commands to PowerShell until a supported Windows installer exists.
 
@@ -147,14 +147,16 @@ func main() {
 
 ## VS Code Setup
 
-1. Open VS Code
-2. Go to Extensions (Cmd+Shift+X / Ctrl+Shift+X)
-3. Search for **"nsharp"**
-4. Click **Install**
+The installer runs `code --install-extension nsharp.nsharp` when the `code` CLI is on PATH. If `code` was not available during install, enable it from VS Code with **Shell Command: Install 'code' command in PATH**, then run:
+
+```bash
+code --install-extension nsharp.nsharp
+nlc doctor --require-vscode
+```
 
 You get:
 - Syntax highlighting
-- IntelliSense (autocomplete)
+- IntelliSense (autocomplete, signature help, and overload browsing)
 - Real-time error diagnostics
 - Format on save
 

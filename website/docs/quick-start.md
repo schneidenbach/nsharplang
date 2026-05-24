@@ -7,10 +7,10 @@ title: Quick Start
 
 **NO XML. NO BULLSHIT. JUST CODE.**
 
-## Install (Local Development)
+## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 nlc doctor
 ```
 

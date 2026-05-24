@@ -7,8 +7,10 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-cd "$(dirname "$0")/.."
-REPO_ROOT=$(pwd)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+cd "$NSHARP_REPO_ROOT"
+REPO_ROOT="$NSHARP_REPO_ROOT"
 
 echo "======================================="
 echo "N# VS Code Integration Tests"

@@ -7,7 +7,9 @@ echo "========================================="
 echo
 
 # Change to repo root
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+cd "$NSHARP_REPO_ROOT"
 
 if ! docker info > /dev/null 2>&1; then
     echo "ERROR: Docker is not running. Integration tests require Docker."

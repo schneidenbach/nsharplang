@@ -20,7 +20,7 @@ N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's
 
 ```bash
 # Install the public N# toolchain
-curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash && . "$HOME/.nsharp/env"
 
 # Verify CLI + SDK/templates + language server + VS Code extension when available
 nlc doctor
@@ -164,7 +164,7 @@ result := match value {
 
 ### VS Code Extension
 
-Use the N# VS Code extension from the repo/local package while the public distribution story is still being verified.
+The one-line installer installs `nsharp.nsharp` when the VS Code `code` CLI is available. If VS Code was installed after N#, run `code --install-extension nsharp.nsharp` and verify with `nlc doctor --require-vscode`.
 
 Features:
 - Syntax highlighting
@@ -173,7 +173,7 @@ Features:
 - Format on save
 - N# build/run/test tasks backed by `nlc build`, `nlc run`, and `nlc test`
 
-Set `nsharp.cli.path` if VS Code should use a specific `nlc` executable instead of `nlc` from `PATH`. F5/debugging is not exposed until there is a real N# debugger workflow.
+Set `nsharp.cli.path` if VS Code should use a specific `nlc` executable instead of `nlc` from `PATH`.
 
 ### MSBuild Integration
 

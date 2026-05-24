@@ -1,46 +1,29 @@
-#!/bin/bash
-# Build and package VS Code extension (without killing/reopening VS Code)
-# Use this if you want to manually reload the extension
+#!/usr/bin/env bash
+# Build and package VS Code extension without killing or reopening VS Code.
 
-set -e  # Exit on error
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-VSCODE_EXT_DIR="$PROJECT_ROOT/editors/vscode"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/vscode-extension.sh"
 
-echo "🔧 Building N# VS Code Extension"
-echo "================================"
+nsharp_require_command dotnet
+nsharp_require_command npm
+nsharp_require_command npx
+
+echo "Building N# VS Code Extension"
+echo "============================="
 echo ""
 
-# 1. Build Language Server
-echo "1️⃣  Building Language Server..."
-cd "$PROJECT_ROOT"
-dotnet build src/NSharpLang.LanguageServer/LanguageServer.csproj -c Release -v quiet
+echo "1. Building language server and packaging VSIX..."
+nsharp_build_vscode_extension_package
 
-# 2. Package VSIX
+VSIX_FILE="$(nsharp_latest_vscode_vsix)"
 echo ""
-echo "2️⃣  Packaging VSIX..."
-cd "$VSCODE_EXT_DIR"
-
-# Copy language server to extension
-echo "   - Copying language server..."
-mkdir -p server
-cp -f "$PROJECT_ROOT/src/NSharpLang.LanguageServer/bin/Release/net10.0"/* server/ 2>/dev/null || true
-
-# Compile TypeScript
-echo "   - Compiling TypeScript..."
-npm run compile
-
-# Package VSIX
-echo "   - Creating VSIX package..."
-npx vsce package --allow-star-activation
-
-VSIX_FILE=$(ls -t nsharp-*.vsix | head -1)
-echo ""
-echo "✅ Extension built: $VSCODE_EXT_DIR/$VSIX_FILE"
+echo "Extension built: $VSIX_FILE"
 echo ""
 echo "To install manually:"
-echo "   code --install-extension $VSCODE_EXT_DIR/$VSIX_FILE --force"
+echo "   code --install-extension $VSIX_FILE --force"
 echo ""
 echo "Or use the full reload script:"
 echo "   ./scripts/reload-vscode-extension.sh"
