@@ -59,6 +59,7 @@ public class EmitIlAssembly : Task
                 return false;
             }
 
+            EnsureReferenceAssemblyExists(TargetAssemblyPath, TargetReferenceAssemblyPath);
             Log.LogMessage(MessageImportance.High, $"Emitted N# IL assembly to {TargetAssemblyPath}");
             return true;
         }
@@ -67,6 +68,30 @@ public class EmitIlAssembly : Task
             Log.LogErrorFromException(ex, showStackTrace: true);
             return false;
         }
+    }
+
+    private static void EnsureReferenceAssemblyExists(string targetAssemblyPath, string? targetReferenceAssemblyPath)
+    {
+        if (string.IsNullOrWhiteSpace(targetReferenceAssemblyPath) || !File.Exists(targetAssemblyPath))
+        {
+            return;
+        }
+
+        var assemblyPath = Path.GetFullPath(targetAssemblyPath);
+        var referenceAssemblyPath = Path.GetFullPath(targetReferenceAssemblyPath);
+        if (string.Equals(assemblyPath, referenceAssemblyPath, StringComparison.OrdinalIgnoreCase)
+            || File.Exists(referenceAssemblyPath))
+        {
+            return;
+        }
+
+        var referenceAssemblyDirectory = Path.GetDirectoryName(referenceAssemblyPath);
+        if (!string.IsNullOrEmpty(referenceAssemblyDirectory))
+        {
+            Directory.CreateDirectory(referenceAssemblyDirectory);
+        }
+
+        File.Copy(assemblyPath, referenceAssemblyPath, overwrite: true);
     }
 
     private void LogCompilerDiagnostic(CompilerError error)

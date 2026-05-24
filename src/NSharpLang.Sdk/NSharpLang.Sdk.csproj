@@ -24,8 +24,8 @@
 
   <!-- Include the build tasks DLL and dependencies -->
   <ItemGroup>
-    <None Include="$(OutputPath)NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
-    <None Include="$(OutputPath)Compiler.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/NSharpLang.Build.Tasks.dll" Pack="true" PackagePath="tools/" />
+    <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/Compiler.dll" Pack="true" PackagePath="tools/" />
     <None Include="../NSharpLang.Build.Tasks/bin/$(Configuration)/net10.0/YamlDotNet.dll" Pack="true" PackagePath="tools/" />
   </ItemGroup>
 
@@ -34,7 +34,7 @@
     <ProjectReference Include="../NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj" PrivateAssets="All" />
   </ItemGroup>
 
-  <Target Name="BuildNSharpBuildTasksForPack" BeforeTargets="GenerateNuspec">
+  <Target Name="BuildNSharpBuildTasksForPack" BeforeTargets="GenerateNuspec" Condition="'$(NoBuild)' != 'true'">
     <MSBuild Projects="../NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj"
              Targets="Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)" />

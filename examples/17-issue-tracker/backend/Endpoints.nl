@@ -5,7 +5,6 @@ namespace IssueTracker
 import System.IO
 import System.Linq
 import System.Text.Json
-import System.Threading.Tasks
 import Microsoft.AspNetCore.Builder
 import Microsoft.AspNetCore.Http
 import "Models"
@@ -26,7 +25,7 @@ class Routes {
 
     func Map(app: WebApplication) {
         app.MapGet("/api/health", context => context.Response.WriteAsync("ok"))
-        app.MapGet("/api/issues", HandleList)
+        app.MapGet("/api/issues", () => service.GetAll().Select(issue => ToResponse(issue)).ToList())
         app.MapPost("/api/issues", context => {
             reader := new StreamReader(context.Request.Body)
             body := reader.ReadToEndAsync().Result
@@ -53,15 +52,8 @@ class Routes {
             }
 
             context.Response.StatusCode = 201
-            return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions)
+            return context.Response.WriteAsJsonAsync(ToResponse(issue), jsonOptions, context.RequestAborted)
         })
-    }
-
-    // RequestDelegate handler implemented in N#; serializes the service response directly.
-    func HandleList(context: HttpContext): Task {
-        context.Response.ContentType = "application/json"
-        response := service.GetAll().Select(issue => ToResponse(issue)).ToList()
-        return context.Response.WriteAsJsonAsync(response, jsonOptions)
     }
 
     func ToResponse(issue: Issue): IssueResponse {
