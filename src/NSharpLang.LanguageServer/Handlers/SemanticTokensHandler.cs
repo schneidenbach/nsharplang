@@ -57,7 +57,10 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         "readonly",       // 2
         "static",         // 3
         "async",          // 4
+        "catchResult",    // 5
     };
+
+    internal const int CatchResultModifierMask = 1 << 5;
 
     // Sets for quick keyword classification
     private static readonly HashSet<TokenType> KeywordTokenTypes = new()
@@ -156,6 +159,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         var parameterNames = BuildParameterNameSet(doc);
         var propertyNames = BuildPropertyNameSet(doc);
         var enumMemberNames = BuildEnumMemberNameSet(doc);
+        var catchResultBindings = BuildCatchResultBindingSet(doc);
 
         foreach (var token in doc.Tokens)
         {
@@ -166,7 +170,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
                 foreach (var embeddedToken in GetInterpolatedStringExpressionTokens(token))
                 {
                     var embeddedClassification = ClassifyToken(
-                        embeddedToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+                        embeddedToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
                     if (embeddedClassification == null) continue;
 
                     var (embeddedTokenType, embeddedModifiers) = embeddedClassification.Value;
@@ -176,7 +180,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
                 continue;
             }
 
-            var classification = ClassifyToken(token, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+            var classification = ClassifyToken(token, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
             if (classification == null) continue;
 
             var (tokenType, modifiers) = classification.Value;
@@ -198,7 +202,8 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         HashSet<string> functionNames,
         HashSet<string> parameterNames,
         HashSet<string> propertyNames,
-        HashSet<string> enumMemberNames)
+        HashSet<string> enumMemberNames,
+        HashSet<SemanticTokenLocation>? catchResultBindings = null)
     {
         // Keywords
         if (KeywordTokenTypes.Contains(token.Type))
@@ -239,7 +244,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         // Identifiers — the interesting part: classify using semantic information
         if (token.Type == TokenType.Identifier)
         {
-            return ClassifyIdentifier(token, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames);
+            return ClassifyIdentifier(token, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
         }
 
         // Skip delimiters, whitespace, EOF, etc.
@@ -477,9 +482,15 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         HashSet<string> functionNames,
         HashSet<string> parameterNames,
         HashSet<string> propertyNames,
-        HashSet<string> enumMemberNames)
+        HashSet<string> enumMemberNames,
+        HashSet<SemanticTokenLocation>? catchResultBindings)
     {
         var name = token.Value;
+
+        if (catchResultBindings?.Contains(new SemanticTokenLocation(token.Line, token.Column, token.Value)) == true)
+        {
+            return (8, CatchResultModifierMask); // variable.catchResult
+        }
 
         // Primitive type names (int, string, bool, etc.)
         if (PrimitiveTypeNames.Contains(name))
@@ -548,6 +559,369 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
 
         // Unclassified identifier — don't emit a token (let TextMate handle it)
         return null;
+    }
+
+    internal static HashSet<SemanticTokenLocation> BuildCatchResultBindingSet(DocumentState doc)
+    {
+        var bindings = new HashSet<SemanticTokenLocation>();
+        if (doc.CompilationUnit == null || doc.Tokens == null)
+        {
+            return bindings;
+        }
+
+        foreach (var declaration in doc.CompilationUnit.Declarations)
+        {
+            CollectFromDeclaration(declaration, doc.Tokens, bindings);
+        }
+
+        return bindings;
+    }
+
+    private static void CollectFromDeclaration(
+        Declaration declaration,
+        IReadOnlyList<Token> tokens,
+        HashSet<SemanticTokenLocation> bindings)
+    {
+        switch (declaration)
+        {
+            case FunctionDeclaration functionDeclaration:
+                CollectFromStatement(functionDeclaration.Body, tokens, bindings);
+                CollectFromExpression(functionDeclaration.ExpressionBody, tokens, bindings);
+                break;
+
+            case ClassDeclaration classDeclaration:
+                foreach (var member in classDeclaration.Members)
+                {
+                    CollectFromDeclaration(member, tokens, bindings);
+                }
+                break;
+
+            case StructDeclaration structDeclaration:
+                foreach (var member in structDeclaration.Members)
+                {
+                    CollectFromDeclaration(member, tokens, bindings);
+                }
+                break;
+
+            case RecordDeclaration recordDeclaration:
+                foreach (var member in recordDeclaration.Members)
+                {
+                    CollectFromDeclaration(member, tokens, bindings);
+                }
+                break;
+
+            case InterfaceDeclaration interfaceDeclaration:
+                foreach (var member in interfaceDeclaration.Members)
+                {
+                    CollectFromDeclaration(member, tokens, bindings);
+                }
+                break;
+
+            case FieldDeclaration fieldDeclaration:
+                CollectFromExpression(fieldDeclaration.Initializer, tokens, bindings);
+                break;
+
+            case PropertyDeclaration propertyDeclaration:
+                CollectFromStatement(propertyDeclaration.GetBody, tokens, bindings);
+                CollectFromStatement(propertyDeclaration.SetBody, tokens, bindings);
+                CollectFromExpression(propertyDeclaration.ExpressionBody, tokens, bindings);
+                break;
+
+            case ConstructorDeclaration constructorDeclaration:
+                CollectFromStatement(constructorDeclaration.Body, tokens, bindings);
+                CollectFromExpression(constructorDeclaration.Initializer, tokens, bindings);
+                break;
+
+            case IndexerDeclaration indexerDeclaration:
+                CollectFromStatement(indexerDeclaration.GetBody, tokens, bindings);
+                CollectFromStatement(indexerDeclaration.SetBody, tokens, bindings);
+                break;
+
+            case EnumDeclaration enumDeclaration:
+                foreach (var member in enumDeclaration.Members)
+                {
+                    CollectFromExpression(member.Value, tokens, bindings);
+                }
+                break;
+        }
+    }
+
+    private static void CollectFromStatement(
+        Statement? statement,
+        IReadOnlyList<Token> tokens,
+        HashSet<SemanticTokenLocation> bindings)
+    {
+        switch (statement)
+        {
+            case null:
+                return;
+
+            case BlockStatement block:
+                foreach (var child in block.Statements)
+                {
+                    CollectFromStatement(child, tokens, bindings);
+                }
+                break;
+
+            case ExpressionStatement expressionStatement:
+                CollectFromExpression(expressionStatement.Expression, tokens, bindings);
+                break;
+
+            case VariableDeclarationStatement variableDeclaration:
+                CollectFromExpression(variableDeclaration.Initializer, tokens, bindings);
+                break;
+
+            case TupleDeconstructionStatement tupleDeconstruction:
+                AddCatchResultBinding(tupleDeconstruction, tokens, bindings);
+                CollectFromExpression(tupleDeconstruction.Initializer, tokens, bindings);
+                break;
+
+            case ReturnStatement returnStatement:
+                CollectFromExpression(returnStatement.Value, tokens, bindings);
+                break;
+
+            case ThrowStatement throwStatement:
+                CollectFromExpression(throwStatement.Expression, tokens, bindings);
+                break;
+
+            case IfStatement ifStatement:
+                CollectFromExpression(ifStatement.Condition, tokens, bindings);
+                CollectFromStatement(ifStatement.ThenStatement, tokens, bindings);
+                CollectFromStatement(ifStatement.ElseStatement, tokens, bindings);
+                break;
+
+            case ForStatement forStatement:
+                CollectFromStatement(forStatement.Initializer, tokens, bindings);
+                CollectFromExpression(forStatement.Condition, tokens, bindings);
+                CollectFromExpression(forStatement.Iterator, tokens, bindings);
+                CollectFromStatement(forStatement.Body, tokens, bindings);
+                break;
+
+            case ForeachStatement foreachStatement:
+                CollectFromExpression(foreachStatement.Collection, tokens, bindings);
+                CollectFromStatement(foreachStatement.Body, tokens, bindings);
+                break;
+
+            case AwaitForEachStatement awaitForEachStatement:
+                CollectFromExpression(awaitForEachStatement.Collection, tokens, bindings);
+                CollectFromStatement(awaitForEachStatement.Body, tokens, bindings);
+                break;
+
+            case WhileStatement whileStatement:
+                CollectFromExpression(whileStatement.Condition, tokens, bindings);
+                CollectFromStatement(whileStatement.Body, tokens, bindings);
+                break;
+
+            case TryStatement tryStatement:
+                CollectFromStatement(tryStatement.TryBlock, tokens, bindings);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    CollectFromStatement(catchClause.Block, tokens, bindings);
+                }
+                CollectFromStatement(tryStatement.FinallyBlock, tokens, bindings);
+                break;
+
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration != null)
+                {
+                    CollectFromStatement(usingStatement.Declaration, tokens, bindings);
+                }
+                CollectFromStatement(usingStatement.Body, tokens, bindings);
+                break;
+
+            case LockStatement lockStatement:
+                CollectFromExpression(lockStatement.LockObject, tokens, bindings);
+                CollectFromStatement(lockStatement.Body, tokens, bindings);
+                break;
+
+            case SwitchStatement switchStatement:
+                CollectFromExpression(switchStatement.Value, tokens, bindings);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var child in switchCase.Statements)
+                    {
+                        CollectFromStatement(child, tokens, bindings);
+                    }
+                }
+                break;
+
+            case LocalFunctionStatement localFunction:
+                CollectFromStatement(localFunction.Function.Body, tokens, bindings);
+                break;
+
+            case PrintStatement printStatement:
+                CollectFromExpression(printStatement.Value, tokens, bindings);
+                break;
+
+            case AssertStatement assertStatement:
+                CollectFromExpression(assertStatement.Condition, tokens, bindings);
+                CollectFromExpression(assertStatement.Message, tokens, bindings);
+                break;
+
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectFromStatement(assertThrowsStatement.Body, tokens, bindings);
+                break;
+        }
+    }
+
+    private static void CollectFromExpression(
+        Expression? expression,
+        IReadOnlyList<Token> tokens,
+        HashSet<SemanticTokenLocation> bindings)
+    {
+        switch (expression)
+        {
+            case null:
+                return;
+
+            case BinaryExpression binary:
+                CollectFromExpression(binary.Left, tokens, bindings);
+                CollectFromExpression(binary.Right, tokens, bindings);
+                break;
+
+            case UnaryExpression unary:
+                CollectFromExpression(unary.Operand, tokens, bindings);
+                break;
+
+            case MemberAccessExpression memberAccess:
+                CollectFromExpression(memberAccess.Object, tokens, bindings);
+                break;
+
+            case IndexAccessExpression indexAccess:
+                CollectFromExpression(indexAccess.Object, tokens, bindings);
+                CollectFromExpression(indexAccess.Index, tokens, bindings);
+                break;
+
+            case CallExpression call:
+                CollectFromExpression(call.Callee, tokens, bindings);
+                foreach (var argument in call.Arguments)
+                {
+                    CollectFromExpression(argument.Value, tokens, bindings);
+                }
+                break;
+
+            case AssignmentExpression assignment:
+                CollectFromExpression(assignment.Target, tokens, bindings);
+                CollectFromExpression(assignment.Value, tokens, bindings);
+                break;
+
+            case LambdaExpression lambda:
+                CollectFromExpression(lambda.ExpressionBody, tokens, bindings);
+                CollectFromStatement(lambda.BlockBody, tokens, bindings);
+                break;
+
+            case TernaryExpression ternary:
+                CollectFromExpression(ternary.Condition, tokens, bindings);
+                CollectFromExpression(ternary.ThenExpression, tokens, bindings);
+                CollectFromExpression(ternary.ElseExpression, tokens, bindings);
+                break;
+
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectFromExpression(element, tokens, bindings);
+                }
+                break;
+
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectFromExpression(element.Value, tokens, bindings);
+                }
+                break;
+
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    CollectFromExpression(property.IndexExpression, tokens, bindings);
+                    CollectFromExpression(property.Value, tokens, bindings);
+                }
+                break;
+
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    CollectFromExpression(argument.Value, tokens, bindings);
+                }
+                CollectFromExpression(newExpression.Initializer, tokens, bindings);
+                break;
+
+            case CastExpression cast:
+                CollectFromExpression(cast.Expression, tokens, bindings);
+                break;
+
+            case IsExpression isExpression:
+                CollectFromExpression(isExpression.Expression, tokens, bindings);
+                break;
+
+            case MatchExpression match:
+                CollectFromExpression(match.Value, tokens, bindings);
+                foreach (var matchCase in match.Cases)
+                {
+                    CollectFromExpression(matchCase.Guard, tokens, bindings);
+                    CollectFromExpression(matchCase.Expression, tokens, bindings);
+                }
+                break;
+
+            case AwaitExpression awaitExpression:
+                CollectFromExpression(awaitExpression.Expression, tokens, bindings);
+                break;
+
+            case SpreadExpression spread:
+                CollectFromExpression(spread.Expression, tokens, bindings);
+                break;
+
+            case ParenthesizedExpression parenthesized:
+                CollectFromExpression(parenthesized.Inner, tokens, bindings);
+                break;
+        }
+    }
+
+    private static void AddCatchResultBinding(
+        TupleDeconstructionStatement tupleDeconstruction,
+        IReadOnlyList<Token> tokens,
+        HashSet<SemanticTokenLocation> bindings)
+    {
+        if (!IsCatchResultTupleDeconstruction(tupleDeconstruction))
+        {
+            return;
+        }
+
+        var catchResultIndex = tupleDeconstruction.Names.Count - 1;
+        var identifierIndex = 0;
+
+        foreach (var token in tokens)
+        {
+            if (token.Line < tupleDeconstruction.Line
+                || (token.Line == tupleDeconstruction.Line && token.Column < tupleDeconstruction.Column))
+            {
+                continue;
+            }
+
+            if (token.Type is TokenType.ColonAssign or TokenType.Assign)
+            {
+                return;
+            }
+
+            if (token.Type != TokenType.Identifier)
+            {
+                continue;
+            }
+
+            if (identifierIndex == catchResultIndex && token.Value == "err")
+            {
+                bindings.Add(new SemanticTokenLocation(token.Line, token.Column, token.Value));
+                return;
+            }
+
+            identifierIndex++;
+        }
+    }
+
+    private static bool IsCatchResultTupleDeconstruction(TupleDeconstructionStatement tupleDeconstruction)
+    {
+        return tupleDeconstruction.Names.Count >= 2
+            && tupleDeconstruction.Names[^1] == "err";
     }
 
     internal static HashSet<string> BuildTypeNameSet(DocumentState doc)
@@ -667,3 +1041,5 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
         return names;
     }
 }
+
+internal readonly record struct SemanticTokenLocation(int Line, int Column, string Name);

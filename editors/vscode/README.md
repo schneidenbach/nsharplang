@@ -17,6 +17,7 @@ N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completi
 - **Keyword coverage** - Core N# keywords including `package`, `union`, `match`, `test`
 - **Generic type parameters** - Nested generic syntax highlighting for cases like `Dictionary<string, List<int>>`
 - **Enhanced string interpolation** - Distinct highlighting for `$"..."` expressions
+- **Error tuple catch results** - `err` in `result, err := MightFail()` is marked with the `variable.catchResult` semantic token and uses a muted amber default
 - **Property type annotations** - `name: type` patterns
 - **Number literals** - Hexadecimal (`0xFF`), binary (`0b1010`), with type suffixes
 
@@ -175,6 +176,20 @@ Configure the extension via VS Code settings:
 
   // Custom path to nlc (leave empty to use nlc from PATH)
   "nsharp.cli.path": ""
+}
+```
+
+The extension contributes the `catchResult` semantic token modifier. To customize the default muted amber color for `err` in error tuples:
+
+```json
+{
+  "editor.semanticTokenColorCustomizations": {
+    "rules": {
+      "variable.catchResult:nsharp": {
+        "foreground": "#D19A66"
+      }
+    }
+  }
 }
 ```
 

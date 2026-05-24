@@ -175,6 +175,14 @@ The syntax highlighting uses standard TextMate scopes, which work with all VS Co
 | Operators | `keyword.operator.*.nsharp` |
 | Preprocessor | `meta.preprocessor.nsharp` |
 
+### Semantic Tokens
+
+The language server also contributes semantic tokens where TextMate cannot safely infer meaning from syntax alone.
+
+| Feature | Semantic token |
+|---------|----------------|
+| Error tuple catch result | `variable.catchResult` |
+
 ### Pattern Ordering
 
 Patterns are applied in this order for optimal matching:

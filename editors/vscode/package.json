@@ -80,6 +80,22 @@
         "path": "./syntaxes/nsharp.tmLanguage.json"
       }
     ],
+    "semanticTokenModifiers": [
+      {
+        "id": "catchResult",
+        "description": "N# tuple-deconstruction binding that receives a captured exception."
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "nsharp",
+        "scopes": {
+          "variable.catchResult": [
+            "variable.other.catch-result.nsharp"
+          ]
+        }
+      }
+    ],
     "breakpoints": [
       {
         "language": "nsharp"
@@ -190,8 +206,16 @@
       }
     },
     "configurationDefaults": {
+      "editor.semanticTokenColorCustomizations": {
+        "rules": {
+          "variable.catchResult:nsharp": {
+            "foreground": "#D19A66"
+          }
+        }
+      },
       "[nsharp]": {
-        "editor.formatOnSave": true
+        "editor.formatOnSave": true,
+        "editor.semanticHighlighting.enabled": true
       }
     },
     "taskDefinitions": [
