@@ -3740,6 +3740,92 @@ func main() {
         Assert.Contains("greet", functionNames);
     }
 
+    [Fact]
+    public void SemanticTokens_MarksCatchResultBinding()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_catch_result.nl";
+        var source = @"func MightFail(): int {
+    return 1
+}
+
+func main() {
+    result, err := MightFail()
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+        var catchResultBindings = SemanticTokensHandler.BuildCatchResultBindingSet(doc);
+
+        var errToken = doc.Tokens!.Single(t =>
+            t.Type == NSharpLang.Compiler.TokenType.Identifier
+            && t.Value == "err"
+            && t.Line == 6);
+
+        Assert.Contains(new SemanticTokenLocation(errToken.Line, errToken.Column, errToken.Value), catchResultBindings);
+
+        var classification = harness.SemanticTokensHandler.ClassifyToken(
+            errToken, doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
+
+        Assert.NotNull(classification);
+        Assert.Equal(8, classification!.Value.TokenType); // variable
+        Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, classification.Value.Modifiers);
+    }
+
+    [Fact]
+    public void SemanticTokens_MarksOnlyFinalErrInMultiValueCatchDeconstruction()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/semtokens_multi_catch_result.nl";
+        var source = @"func GetValues(): (int, int, int) {
+    return (1, 2, 3)
+}
+
+func main() {
+    err, value, other, err := GetValues()
+}
+";
+        harness.OpenDocument(uri, source);
+        var doc = harness.DocumentManager.GetDocument(uri);
+        Assert.NotNull(doc);
+
+        var typeNames = SemanticTokensHandler.BuildTypeNameSet(doc!);
+        var functionNames = SemanticTokensHandler.BuildFunctionNameSet(doc);
+        var parameterNames = SemanticTokensHandler.BuildParameterNameSet(doc);
+        var propertyNames = SemanticTokensHandler.BuildPropertyNameSet(doc);
+        var enumMemberNames = SemanticTokensHandler.BuildEnumMemberNameSet(doc);
+        var catchResultBindings = SemanticTokensHandler.BuildCatchResultBindingSet(doc);
+
+        var errTokens = doc.Tokens!
+            .Where(t => t.Type == NSharpLang.Compiler.TokenType.Identifier && t.Value == "err" && t.Line == 6)
+            .OrderBy(t => t.Column)
+            .ToList();
+
+        Assert.Equal(2, errTokens.Count);
+        Assert.DoesNotContain(new SemanticTokenLocation(errTokens[0].Line, errTokens[0].Column, errTokens[0].Value), catchResultBindings);
+        Assert.Contains(new SemanticTokenLocation(errTokens[1].Line, errTokens[1].Column, errTokens[1].Value), catchResultBindings);
+
+        var firstClassification = harness.SemanticTokensHandler.ClassifyToken(
+            errTokens[0], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
+        var finalClassification = harness.SemanticTokensHandler.ClassifyToken(
+            errTokens[1], doc, typeNames, functionNames, parameterNames, propertyNames, enumMemberNames, catchResultBindings);
+
+        Assert.NotNull(firstClassification);
+        Assert.Equal(8, firstClassification!.Value.TokenType); // variable
+        Assert.Equal(0, firstClassification.Value.Modifiers);
+
+        Assert.NotNull(finalClassification);
+        Assert.Equal(8, finalClassification!.Value.TokenType); // variable
+        Assert.Equal(SemanticTokensHandler.CatchResultModifierMask, finalClassification.Value.Modifiers);
+    }
+
     #endregion
 
     #region Workspace Symbol Tests
