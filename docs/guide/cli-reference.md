@@ -29,6 +29,7 @@ Updated: 2026-05-14
 | `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
 | `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
 | `nlc daemon <subcommand>` | Manage the background analysis daemon | `--project` | `nlc daemon status` |
+| `nlc tutorial` | Start the local interactive N# walkthrough | `--port`, `--workspace`, `--reset`, `--open`, `--dry-run` | `nlc tutorial --open` |
 | `nlc add <package>` | Add a NuGet dependency to `project.yml` | package spec | `nlc add Serilog@3.1.0` |
 | `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
@@ -65,6 +66,24 @@ Updated: 2026-05-14
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
 | `nlc query help` | Show query command help | `nlc query help` |
 
+## Tutorial Command
+
+`nlc tutorial` starts a loopback-only ASP.NET Core walkthrough for a first 15-minute N# tour. The browser app creates real lesson projects under the tutorial workspace and invokes the local `nlc` command for diagnostics, completions, hover, formatting, run, and test actions. The lessons cover hello world, values/functions, records/classes and visibility-by-casing, unions and pattern matching, duck interfaces, collections/LINQ, error capture, async/.NET interop, testing, and the normal `nlc` tooling loop.
+
+```bash
+nlc tutorial
+nlc tutorial --open
+nlc tutorial --port 5055
+nlc tutorial --workspace ./.nlc/tutorial --dry-run
+```
+
+Safety and state:
+
+- The host only accepts loopback hosts (`127.0.0.1`, `localhost`, or `::1`).
+- Lesson files are local N# projects. Open the workspace in VS Code to use the full extension while the browser tutorial is running.
+- `--reset` recreates the tutorial workspace. Without it, edits are preserved.
+- `--dry-run` materializes the workspaces and exits, which is useful for CI checks and package smoke tests.
+
 ## Examples
 
 ```bash
@@ -85,6 +104,10 @@ nlc watch test --filter "should add"
 # Installation verification
 nlc doctor
 nlc doctor --json --require-vscode
+
+# Local language walkthrough
+nlc tutorial
+nlc tutorial --workspace ./.nlc/tutorial --dry-run
 
 # Documentation and automation
 nlc doc --json
@@ -156,6 +179,7 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 | `doctor` | Required install checks passed | One or more required checks failed |
+| `tutorial` | Server stopped cleanly or dry-run succeeded | Startup, workspace, or tool invocation setup failed |
 
 ## JSON Examples
 

@@ -35,6 +35,7 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
+| `nlc tutorial` | Start a loopback-only interactive language walkthrough backed by `nlc query/run/test` | `nlc tutorial --open` |
 
 ### C# Source Migration
 
@@ -104,6 +105,19 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc daemon start` | Start background analysis daemon | `nlc daemon start` |
 | `nlc daemon stop` | Stop daemon | `nlc daemon stop` |
 | `nlc daemon status` | Show daemon info | `nlc daemon status` |
+
+### Guided Tutorial (`nlc tutorial`)
+
+`nlc tutorial` hosts a local ASP.NET Core walkthrough for a first 15-minute N# tour. It writes real lesson projects under a user-local workspace, serves a TypeScript browser app from embedded local assets, and backs the editor actions with the `nlc` command line:
+
+- diagnostics: `nlc query diagnostics`
+- IntelliSense-style suggestions: `nlc query completions --include-keywords`
+- hover: `nlc query hover`
+- execution: `nlc run`
+- formatting: `nlc format`
+- verification: `nlc test`
+
+The host is intentionally loopback-only (`127.0.0.1`, `localhost`, or `::1`). Use `--workspace <dir>` to choose where lesson projects live, `--reset` to recreate them, `--open` to launch a browser, and `--dry-run` to create/update the workspaces without starting the server.
 
 ---
 

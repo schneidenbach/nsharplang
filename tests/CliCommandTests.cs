@@ -1179,6 +1179,83 @@ public class LegacyDto
     }
 
     [Fact]
+    public void TutorialCommand_Help_IsSideEffectFree()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => TutorialCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Usage: nlc tutorial", stdout);
+        Assert.Contains("nlc query", stdout);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+    }
+
+    [Fact]
+    public void TutorialCommand_DryRun_CreatesVersionedLessonWorkspaces()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TutorialCommand.Execute(new[] { "--workspace", tempDir, "--dry-run" }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("N# tutorial workspace is ready.", stdout);
+
+            var lessonsRoot = Path.Combine(tempDir, "lessons");
+            Assert.True(Directory.Exists(lessonsRoot));
+
+            foreach (var lesson in TutorialCatalog.Lessons)
+            {
+                var lessonDir = Path.Combine(lessonsRoot, lesson.Id);
+                Assert.True(File.Exists(Path.Combine(lessonDir, "project.yml")), lesson.Id);
+                Assert.True(File.Exists(Path.Combine(lessonDir, "Program.nl")), lesson.Id);
+
+                var projectYml = File.ReadAllText(Path.Combine(lessonDir, "project.yml"));
+                Assert.Contains("targetFramework: net10.0", projectYml);
+                Assert.Contains("entry: Program.nl", projectYml);
+
+                if (lesson.HasTests)
+                    Assert.True(File.Exists(Path.Combine(lessonDir, "Program.tests.nl")), lesson.Id);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TutorialLessons_CoverRequiredLanguageAndToolingConcepts()
+    {
+        var concepts = TutorialCatalog.Lessons
+            .SelectMany(lesson => lesson.Concepts)
+            .Select(concept => concept.ToLowerInvariant())
+            .ToArray();
+
+        Assert.Contains("duck interface", concepts);
+        Assert.Contains("records", concepts);
+        Assert.Contains("unions", concepts);
+        Assert.Contains("testing", concepts);
+        Assert.Contains("nlc query", concepts);
+        Assert.Contains(TutorialCatalog.Lessons, lesson => lesson.CSharpContrast.Contains("C#", StringComparison.Ordinal));
+        Assert.True(TutorialCatalog.Lessons.Sum(lesson => lesson.Minutes) >= 15);
+    }
+
+    [Fact]
+    public void TutorialCommand_RejectsNonLoopbackHosts()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            TutorialCommand.Execute(new[] { "--host", "0.0.0.0", "--dry-run" }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("loopback", stderr);
+    }
+
+    [Fact]
     public void CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs()
     {
         var publicTopLevelCommands = CommandRegistry.TopLevelCommands.Select(command => command.Name).ToArray();
