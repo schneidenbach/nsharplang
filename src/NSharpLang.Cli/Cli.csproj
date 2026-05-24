@@ -38,8 +38,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Tutorial\Web\**\*"
-                      LogicalName="NSharpLang.Cli.Tutorial.Web.%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Tutorial\Web\index.html"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.index.html" />
+    <EmbeddedResource Include="Tutorial\Web\app.js"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.app.js" />
+    <EmbeddedResource Include="Tutorial\Web\styles.css"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.styles.css" />
+    <EmbeddedResource Include="Tutorial\Web\app.tsx"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.app.tsx" />
   </ItemGroup>
 
 </Project>
