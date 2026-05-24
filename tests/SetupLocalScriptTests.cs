@@ -30,6 +30,7 @@ public class SetupLocalScriptTests
             Assert.Contains("dotnet tool install -g NSharpLang.LanguageServer", result.Stdout);
             Assert.Contains("dotnet new install NSharpLang.Templates", result.Stdout);
             Assert.Contains(".nsharp/env", result.Stdout);
+            Assert.Contains("DOTNET_ROOT", result.Stdout);
             Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
             Assert.Contains("nlc new MyApp", result.Stdout);
         }

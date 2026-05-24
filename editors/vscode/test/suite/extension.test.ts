@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { waitForLanguageServer, openDocument, closeAllEditors, sleep } from './helpers';
+import { getNlcEnvironment, resolveDotnetRoot } from '../../src/toolchain';
 
 type CapturedTestRunProfile = {
     controllerId: string;
@@ -83,6 +84,37 @@ suite('Extension Activation', () => {
                     `${taskName} task PATH should include the .NET tools directory for nlc`
                 );
             }
+
+            const expectedDotnetRoot = resolveDotnetRoot();
+            if (expectedDotnetRoot) {
+                assert.strictEqual(
+                    execution.options?.env?.DOTNET_ROOT,
+                    expectedDotnetRoot,
+                    `${taskName} task should set DOTNET_ROOT so dotnet global tool apphosts can find the runtime`
+                );
+            }
+        }
+    });
+
+    test('nlc environment resolves the dotnet runtime root for apphost launches', () => {
+        const env = getNlcEnvironment();
+        const expectedDotnetRoot = resolveDotnetRoot();
+
+        assert.ok(expectedDotnetRoot, 'Expected to resolve a dotnet runtime root on the test machine');
+        assert.strictEqual(env.DOTNET_ROOT, expectedDotnetRoot);
+
+        const archRootVariable = process.arch === 'arm64'
+            ? 'DOTNET_ROOT_ARM64'
+            : process.arch === 'x64'
+                ? 'DOTNET_ROOT_X64'
+                : undefined;
+
+        if (archRootVariable) {
+            assert.strictEqual(
+                env[archRootVariable],
+                expectedDotnetRoot,
+                `${archRootVariable} should be set for architecture-specific apphost lookup`
+            );
         }
     });
 

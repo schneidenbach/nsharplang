@@ -1,6 +1,5 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as vscode from 'vscode';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import {
@@ -10,6 +9,7 @@ import {
     TransportKind
 } from 'vscode-languageclient/node';
 import { createTestController } from './testController';
+import { expandHome, findContainingProjectRoot, getNlcEnvironment, getNlcPath } from './toolchain';
 
 let client: LanguageClient;
 
@@ -25,44 +25,6 @@ type NSharpProjectInfo = {
     exportedProjectFile: string;
     programPath: string;
 };
-
-function getNlcPath(): string {
-    const configuredPath = vscode.workspace.getConfiguration('nsharp').get<string>('cli.path')?.trim();
-    if (configuredPath) {
-        return expandHome(configuredPath);
-    }
-
-    const dotnetToolPath = path.join(os.homedir(), '.dotnet', 'tools', process.platform === 'win32' ? 'nlc.exe' : 'nlc');
-    return fs.existsSync(dotnetToolPath) ? dotnetToolPath : 'nlc';
-}
-
-function getNlcEnvironment(): Record<string, string> {
-    const env: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-        if (typeof value === 'string') {
-            env[key] = value;
-        }
-    }
-
-    const dotnetToolsDirectory = path.join(os.homedir(), '.dotnet', 'tools');
-    if (fs.existsSync(dotnetToolsDirectory)) {
-        env.PATH = env.PATH
-            ? `${dotnetToolsDirectory}${path.delimiter}${env.PATH}`
-            : dotnetToolsDirectory;
-    }
-
-    return env;
-}
-
-function expandHome(value: string): string {
-    if (value === '~') {
-        return os.homedir();
-    }
-
-    return value.startsWith(`~${path.sep}`)
-        ? path.join(os.homedir(), value.slice(2))
-        : value;
-}
 
 function createNlcTask(
     workspaceFolder: vscode.WorkspaceFolder,
@@ -195,25 +157,6 @@ function resolveProjectRoot(workspaceFolder: vscode.WorkspaceFolder, config?: vs
 
 function expandWorkspaceFolder(value: string, workspaceFolder: vscode.WorkspaceFolder): string {
     return value.replace(/\$\{workspaceFolder\}/g, workspaceFolder.uri.fsPath);
-}
-
-function findContainingProjectRoot(startPath: string, workspaceRoot: string): string | undefined {
-    let current = path.resolve(startPath);
-    const root = path.resolve(workspaceRoot);
-
-    while (current.startsWith(root)) {
-        if (fs.existsSync(path.join(current, 'project.yml'))) {
-            return current;
-        }
-
-        const parent = path.dirname(current);
-        if (parent === current) {
-            break;
-        }
-        current = parent;
-    }
-
-    return undefined;
 }
 
 function readTopLevelProjectConfig(projectYmlPath: string, projectRoot: string): {
@@ -544,12 +487,17 @@ export function activate(context: vscode.ExtensionContext) {
 
     console.log(`Using N# Language Server at: ${serverPath}`);
 
+    const serverEnvironment = getNlcEnvironment();
+
     // Define the server options
     const serverOptions: ServerOptions = {
         run: {
             command: 'dotnet',
             args: [serverPath],
-            transport: TransportKind.stdio
+            transport: TransportKind.stdio,
+            options: {
+                env: serverEnvironment
+            }
         },
         debug: {
             command: 'dotnet',
@@ -557,7 +505,7 @@ export function activate(context: vscode.ExtensionContext) {
             transport: TransportKind.stdio,
             options: {
                 env: {
-                    ...process.env,
+                    ...serverEnvironment,
                     NSHARP_LSP_DEBUG: '1'
                 }
             }
