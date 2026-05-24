@@ -733,7 +733,7 @@ Options:
   --project <dir>       Project root directory (default: current directory)
   --backend <mode>      Compilation backend: il
   --filter <name>       Run only tests whose display name or fully-qualified name matches
-  --verbose             Show individual native test results
+  --verbose             Show individual test results
   --json                Output results as structured JSON (schemaVersion 1 envelope)
   --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
   --no-cache            Force clean rebuild before running tests (bypass incremental build)

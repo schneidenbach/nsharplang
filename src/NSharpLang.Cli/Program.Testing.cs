@@ -6,8 +6,11 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
+using Xunit;
+using Xunit.Abstractions;
 
 namespace NSharpLang.Cli;
 
@@ -71,7 +74,7 @@ partial class Program
 
         if (collectCoverage || coverageReport)
         {
-            const string message = "Coverage collection is not available in the native nlc test runner yet.";
+            const string message = "Coverage collection is not available in the xUnit-backed nlc test runner yet.";
             if (jsonOutput)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
@@ -109,7 +112,9 @@ partial class Program
                 return Error("Test build failed.");
             }
 
-            var testResults = RunNativeTests(outputPath, filter, verbose, timeoutMs);
+            var testResults = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
+                ? RunReflectionTests(outputPath, filter, verbose, timeoutMs)
+                : RunXunitTests(outputPath, filter, verbose, timeoutMs);
             var ok = testResults.All(result => result.Outcome is "passed" or "skipped");
 
             if (jsonOutput)
@@ -144,7 +149,199 @@ partial class Program
         }
     }
 
-    private static List<NativeTestResult> RunNativeTests(
+    private static List<NativeTestResult> RunXunitTests(
+        string assemblyPath,
+        string? filter,
+        bool verbose,
+        int? timeoutMs)
+    {
+        var assemblyDirectory = Path.GetDirectoryName(assemblyPath)
+            ?? throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.");
+
+        Assembly? resolveFromTestOutput(AssemblyLoadContext context, AssemblyName assemblyName)
+        {
+            var alreadyLoaded = context.Assemblies.FirstOrDefault(assembly =>
+                AssemblyName.ReferenceMatchesDefinition(assembly.GetName(), assemblyName));
+            if (alreadyLoaded != null)
+            {
+                return alreadyLoaded;
+            }
+
+            var candidatePath = Path.Combine(assemblyDirectory, $"{assemblyName.Name}.dll");
+            return File.Exists(candidatePath)
+                ? context.LoadFromAssemblyPath(candidatePath)
+                : null;
+        }
+
+        Assembly? resolveFromAppDomain(object? _, ResolveEventArgs args)
+        {
+            var assemblyName = new AssemblyName(args.Name);
+            return resolveFromTestOutput(AssemblyLoadContext.Default, assemblyName);
+        }
+
+        AssemblyLoadContext.Default.Resolving += resolveFromTestOutput;
+        AppDomain.CurrentDomain.AssemblyResolve += resolveFromAppDomain;
+        try
+        {
+            using var diagnosticSink = new NullMessageSink();
+            using var controller = new XunitFrontController(
+                AppDomainSupport.Denied,
+                assemblyPath,
+                configFileName: null,
+                shadowCopy: false,
+                shadowCopyFolder: null,
+                sourceInformationProvider: null,
+                diagnosticMessageSink: diagnosticSink);
+
+            using var discoverySink = new TestDiscoverySink(() => false);
+            var assemblyConfiguration = new TestAssemblyConfiguration
+            {
+                DiagnosticMessages = verbose,
+                InternalDiagnosticMessages = verbose,
+                PreEnumerateTheories = true,
+                ShadowCopy = false
+            };
+            var discoveryOptions = TestFrameworkOptions.ForDiscovery(assemblyConfiguration);
+            controller.Find(includeSourceInformation: false, discoverySink, discoveryOptions);
+            discoverySink.Finished.WaitOne();
+
+            var testCases = discoverySink.TestCases
+                .Where(testCase => MatchesXunitTestFilter(testCase, filter))
+                .ToArray();
+
+            using var executionSink = new XunitResultSink(verbose);
+            var executionOptions = TestFrameworkOptions.ForExecution(assemblyConfiguration);
+            controller.RunTests(testCases, executionSink, executionOptions);
+
+            if (!executionSink.WaitForCompletion(timeoutMs))
+            {
+                throw new TimeoutException("Test run timed out.");
+            }
+
+            return executionSink.Results;
+        }
+        finally
+        {
+            AssemblyLoadContext.Default.Resolving -= resolveFromTestOutput;
+            AppDomain.CurrentDomain.AssemblyResolve -= resolveFromAppDomain;
+        }
+    }
+
+    private sealed class XunitResultSink(bool verbose) : IMessageSink, IDisposable
+    {
+        private readonly ManualResetEventSlim _finished = new();
+        private readonly List<NativeTestResult> _results = new();
+
+        public List<NativeTestResult> Results => _results;
+
+        public bool OnMessage(IMessageSinkMessage message)
+        {
+            switch (message)
+            {
+                case ITestPassed passed:
+                    AddResult(passed, "passed", null);
+                    break;
+                case ITestSkipped skipped:
+                    AddResult(skipped, "skipped", skipped.Reason);
+                    break;
+                case ITestFailed failed:
+                    AddResult(failed, "failed", FormatXunitFailure(failed));
+                    break;
+                case IErrorMessage error:
+                    _results.Add(new NativeTestResult(
+                        "xunit.runner",
+                        "xUnit runner",
+                        "failed",
+                        "0.000s",
+                        FormatXunitFailure(error),
+                        "xUnit runner"));
+                    break;
+                case ITestAssemblyFinished:
+                    _finished.Set();
+                    break;
+            }
+
+            return true;
+        }
+
+        public bool WaitForCompletion(int? timeoutMs)
+        {
+            if (timeoutMs.HasValue)
+            {
+                return _finished.Wait(timeoutMs.Value);
+            }
+
+            _finished.Wait();
+            return true;
+        }
+
+        public void Dispose()
+        {
+            _finished.Dispose();
+        }
+
+        private void AddResult(ITestResultMessage message, string outcome, string? errorMessage)
+        {
+            var testCase = message.Test.TestCase;
+            var displayName = GetXunitDisplayName(message.Test);
+            var result = new NativeTestResult(
+                GetXunitFullyQualifiedName(testCase),
+                displayName,
+                outcome,
+                $"{message.ExecutionTime:F3}s",
+                errorMessage,
+                GetXunitDescription(testCase) ?? displayName);
+
+            _results.Add(result);
+
+            if (!verbose)
+            {
+                return;
+            }
+
+            var prefix = outcome switch
+            {
+                "passed" => "Passed",
+                "skipped" => "Skipped",
+                _ => "Failed"
+            };
+            Console.WriteLine(errorMessage == null
+                ? $"{prefix} {displayName} [{message.ExecutionTime * 1000:F0} ms]"
+                : $"{prefix} {displayName}: {errorMessage}");
+        }
+    }
+
+    private static string GetXunitDisplayName(ITest test)
+        => GetXunitDescription(test.TestCase) ?? test.DisplayName;
+
+    private static string? GetXunitDescription(ITestCase testCase)
+        => testCase.Traits.TryGetValue("NSharpDescription", out var descriptions)
+            ? descriptions.FirstOrDefault()
+            : null;
+
+    private static string GetXunitFullyQualifiedName(ITestCase testCase)
+        => $"{testCase.TestMethod.TestClass.Class.Name}.{testCase.TestMethod.Method.Name}";
+
+    private static string FormatXunitFailure(IFailureInformation failure)
+        => string.Join(Environment.NewLine, failure.Messages.Where(message => !string.IsNullOrWhiteSpace(message)));
+
+    private static bool MatchesXunitTestFilter(ITestCase testCase, string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+        {
+            return true;
+        }
+
+        var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
+        var fullyQualifiedName = GetXunitFullyQualifiedName(testCase);
+        return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(part =>
+                displayName.Contains(part, StringComparison.OrdinalIgnoreCase)
+                || testCase.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
+                || fullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<NativeTestResult> RunReflectionTests(
         string assemblyPath,
         string? filter,
         bool verbose,

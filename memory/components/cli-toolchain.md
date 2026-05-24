@@ -81,9 +81,9 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
 | `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
 | `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/17-issue-tracker/backend` |
-| `nlc test` | Run .tests.nl files with the native N# test runner | `nlc test` |
+| `nlc test` | Run .tests.nl files with the xUnit-backed N# test runner | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
-| `nlc test --verbose` | Show individual native test results | `nlc test --verbose` |
+| `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
 | `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
 | `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
@@ -491,7 +491,7 @@ nlc test --verbose
 ```
 
 - `--filter` matches both test display names and fully-qualified test names
-- `--verbose` shows individual native test results without changing the test pipeline
+- `--verbose` shows individual test results without changing the test pipeline
 
 ### `nlc build` — Release Builds and Verbose Output
 

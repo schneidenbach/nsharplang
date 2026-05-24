@@ -17,7 +17,7 @@ Updated: 2026-05-14
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
-| `nlc test` | Run `.tests.nl` suites through the native N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
+| `nlc test` | Run `.tests.nl` suites through the xUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
@@ -295,7 +295,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 |---------|----|------|----------|-------|
 | Run tests | `go test ./...` | `cargo test` | `5` | `nlc test` runs `.tests.nl` suites |
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
-| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual native test results |
+| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual test results |
 | Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
 | Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
