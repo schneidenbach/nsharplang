@@ -14,6 +14,7 @@ type Lesson = {
 
 type Catalog = {
   workspaceRoot: string;
+  sessionToken: string;
   estimatedMinutes: number;
   lessons: Lesson[];
 };
@@ -46,12 +47,19 @@ type CompletionItem = {
 function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [lessonId, setLessonId] = useState<string>("");
+  const [loadedLessonId, setLoadedLessonId] = useState<string>("");
+  const [sessionToken, setSessionToken] = useState("");
   const [code, setCode] = useState("");
   const [file, setFile] = useState("");
   const [toolResult, setToolResult] = useState<ToolResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [completions, setCompletions] = useState<Record<string, CompletionItem[]> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const codeRef = useRef("");
+  const lessonIdRef = useRef("");
+  const sessionTokenRef = useRef("");
+  const saveTimerRef = useRef<number | null>(null);
+  const savedCodeRef = useRef({ lessonId: "", code: "" });
 
   useEffect(() => {
     void loadCatalog();
@@ -63,6 +71,36 @@ function App() {
     }
   }, [lessonId]);
 
+  useEffect(() => {
+    codeRef.current = code;
+  }, [code]);
+
+  useEffect(() => {
+    lessonIdRef.current = lessonId;
+  }, [lessonId]);
+
+  useEffect(() => {
+    sessionTokenRef.current = sessionToken;
+  }, [sessionToken]);
+
+  useEffect(() => {
+    if (!lessonId || !sessionToken || loadedLessonId !== lessonId) {
+      return;
+    }
+
+    if (savedCodeRef.current.lessonId === lessonId && savedCodeRef.current.code === code) {
+      return;
+    }
+
+    clearSaveTimer();
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void saveLessonCode(lessonId, code);
+    }, 450);
+
+    return clearSaveTimer;
+  }, [code, lessonId, loadedLessonId, sessionToken]);
+
   const selectedLesson = useMemo(
     () => catalog?.lessons.find(lesson => lesson.id === lessonId) ?? null,
     [catalog, lessonId]
@@ -72,16 +110,80 @@ function App() {
     const response = await fetch("/api/lessons");
     const data = await response.json() as Catalog;
     setCatalog(data);
+    setSessionToken(data.sessionToken);
     setLessonId(data.lessons[0]?.id ?? "");
   }
 
   async function loadCode(id: string) {
+    setLoadedLessonId("");
     const response = await fetch(`/api/lessons/${id}/code`);
     const data = await response.json() as CodeResponse;
     setCode(data.code);
     setFile(data.file);
+    savedCodeRef.current = { lessonId: id, code: data.code };
+    setLoadedLessonId(id);
     setCompletions(null);
     setToolResult(null);
+  }
+
+  async function switchLesson(id: string) {
+    if (id === lessonId) return;
+    await saveCurrentCode();
+    setLessonId(id);
+  }
+
+  function clearSaveTimer() {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }
+
+  async function saveCurrentCode() {
+    const currentLessonId = lessonIdRef.current;
+    const currentCode = codeRef.current;
+    if (!currentLessonId || loadedLessonId !== currentLessonId) {
+      return;
+    }
+
+    if (savedCodeRef.current.lessonId === currentLessonId && savedCodeRef.current.code === currentCode) {
+      return;
+    }
+
+    clearSaveTimer();
+    await saveLessonCode(currentLessonId, currentCode);
+  }
+
+  async function saveLessonCode(id: string, nextCode: string) {
+    const token = sessionTokenRef.current;
+    if (!token) {
+      return;
+    }
+
+    const response = await fetch(`/api/lessons/${id}/code`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-nsharp-tutorial-token": token
+      },
+      body: JSON.stringify({ code: nextCode })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      setToolResult({
+        ok: false,
+        command: "save",
+        exitCode: response.status,
+        timedOut: false,
+        durationMs: 0,
+        stdout: "",
+        stderr: message
+      });
+      return;
+    }
+
+    savedCodeRef.current = { lessonId: id, code: nextCode };
   }
 
   async function runTool(path: string, body: object = { code }) {
@@ -90,13 +192,32 @@ function App() {
     try {
       const response = await fetch(`/api/lessons/${lessonId}/${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-nsharp-tutorial-token": sessionToken
+        },
         body: JSON.stringify(body)
       });
-      const result = await response.json() as ToolResult;
+      const payload = await response.json();
+      if (!response.ok) {
+        const result: ToolResult = {
+          ok: false,
+          command: path,
+          exitCode: response.status,
+          timedOut: false,
+          durationMs: 0,
+          stdout: "",
+          stderr: payload?.error ?? `Request failed with HTTP ${response.status}`
+        };
+        setToolResult(result);
+        return result;
+      }
+
+      const result = payload as ToolResult;
       setToolResult(result);
       if (result.code) {
         setCode(result.code);
+        savedCodeRef.current = { lessonId, code: result.code };
       }
       return result;
     } finally {
@@ -122,12 +243,13 @@ function App() {
 
     const start = editor.selectionStart;
     const end = editor.selectionEnd;
-    const next = code.slice(0, start) + name + code.slice(end);
+    const replaceStart = start === end ? currentPrefixStart(code, start) : start;
+    const next = code.slice(0, replaceStart) + name + code.slice(end);
     setCode(next);
     setCompletions(null);
     requestAnimationFrame(() => {
       editor.focus();
-      editor.selectionStart = editor.selectionEnd = start + name.length;
+      editor.selectionStart = editor.selectionEnd = replaceStart + name.length;
     });
   }
 
@@ -153,8 +275,11 @@ function App() {
           {catalog.lessons.map((lesson, index) => (
             <button
               key={lesson.id}
+              type="button"
               className={`lesson-button ${lesson.id === lessonId ? "active" : ""}`}
-              onClick={() => setLessonId(lesson.id)}
+              aria-current={lesson.id === lessonId ? "page" : undefined}
+              aria-label={`Lesson ${index + 1}: ${lesson.title}. ${lesson.summary}`}
+              onClick={() => void switchLesson(lesson.id)}
             >
               <span className="lesson-number">{index + 1}</span>
               <span>
@@ -176,12 +301,12 @@ function App() {
         </section>
         <section className="editor-pane">
           <div className="toolbar">
-            <button className="primary" onClick={() => runTool("run")} disabled={busy}>Run</button>
-            <button onClick={() => runTool("diagnostics")} disabled={busy}>Diagnostics</button>
-            <button onClick={askForCompletions} disabled={busy}>Completions</button>
-            <button onClick={askForHover} disabled={busy}>Hover</button>
-            <button onClick={() => runTool("format")} disabled={busy}>Format</button>
-            <button onClick={() => runTool("test")} disabled={busy || !selectedLesson.hasTests}>Test</button>
+            <button type="button" className="primary" onClick={() => void runTool("run")} disabled={busy}>Run</button>
+            <button type="button" onClick={() => void runTool("diagnostics")} disabled={busy}>Diagnostics</button>
+            <button type="button" onClick={() => void askForCompletions()} disabled={busy}>Completions</button>
+            <button type="button" onClick={() => void askForHover()} disabled={busy}>Hover</button>
+            <button type="button" onClick={() => void runTool("format")} disabled={busy}>Format</button>
+            <button type="button" onClick={() => void runTool("test")} disabled={busy || !selectedLesson.hasTests}>Test</button>
             <span className="tool-status">{busy ? "Running nlc..." : file}</span>
           </div>
           <div className="editor-wrap">
@@ -212,7 +337,7 @@ function CompletionPanel(props: { completions: Record<string, CompletionItem[]>;
         <div className="completion-group" key={group}>
           <div className="completion-group-title">{group}</div>
           {items.slice(0, 12).map(item => (
-            <button className="completion-item" key={`${group}-${item.name}`} onClick={() => props.onPick(item.name)}>
+            <button type="button" className="completion-item" key={`${group}-${item.name}`} onClick={() => props.onPick(item.name)}>
               <span>{item.name}</span>
               <span className="completion-kind">{item.kind}{item.type ? ` · ${item.type}` : ""}</span>
             </button>
@@ -244,6 +369,14 @@ function ToolOutput(props: { result: ToolResult | null }) {
       <pre className="output-body">{text || "(no output)"}</pre>
     </section>
   );
+}
+
+function currentPrefixStart(value: string, cursor: number) {
+  let index = cursor;
+  while (index > 0 && /[A-Za-z0-9_]/.test(value[index - 1])) {
+    index--;
+  }
+  return index;
 }
 
 function cursorPosition(editor: HTMLTextAreaElement | null) {

@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using Xunit;
@@ -1202,6 +1205,7 @@ public class LegacyDto
             Assert.Equal(0, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             Assert.Contains("N# tutorial workspace is ready.", stdout);
+            Assert.True(File.Exists(Path.Combine(tempDir, ".nsharp-tutorial-workspace")));
 
             var lessonsRoot = Path.Combine(tempDir, "lessons");
             Assert.True(Directory.Exists(lessonsRoot));
@@ -1219,6 +1223,242 @@ public class LegacyDto
                 if (lesson.HasTests)
                     Assert.True(File.Exists(Path.Combine(lessonDir, "Program.tests.nl")), lesson.Id);
             }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TutorialCommand_Reset_RefusesUnmarkedNonEmptyWorkspace()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-reset-unsafe-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var importantFile = Path.Combine(tempDir, "important.txt");
+        File.WriteAllText(importantFile, "do not delete");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TutorialCommand.Execute(new[] { "--workspace", tempDir, "--reset", "--dry-run" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains(".nsharp-tutorial-workspace", stderr);
+            Assert.True(File.Exists(importantFile));
+            Assert.Equal("do not delete", File.ReadAllText(importantFile));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TutorialCommand_Reset_OnlyRecreatesManagedTutorialFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-reset-managed-{Guid.NewGuid():N}");
+
+        try
+        {
+            var (initialExitCode, _, initialStderr) = CaptureConsole(() =>
+                TutorialCommand.Execute(new[] { "--workspace", tempDir, "--dry-run" }));
+            Assert.Equal(0, initialExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(initialStderr));
+
+            var keepFile = Path.Combine(tempDir, "keep.txt");
+            File.WriteAllText(keepFile, "preserve me");
+            var lesson = TutorialCatalog.Lessons[0];
+            var programPath = Path.Combine(tempDir, "lessons", lesson.Id, "Program.nl");
+            File.WriteAllText(programPath, "broken user edit");
+
+            var (resetExitCode, stdout, stderr) = CaptureConsole(() =>
+                TutorialCommand.Execute(new[] { "--workspace", tempDir, "--reset", "--dry-run" }));
+
+            Assert.Equal(0, resetExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("N# tutorial workspace is ready.", stdout);
+            Assert.True(File.Exists(keepFile));
+            Assert.Equal("preserve me", File.ReadAllText(keepFile));
+            Assert.Equal(lesson.StartingCode.Replace("\r\n", "\n").Replace("\r", "\n"), File.ReadAllText(programPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TutorialLessons_FormatAllMaterializedPrograms()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-format-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+
+            foreach (var lesson in TutorialCatalog.Lessons)
+            {
+                var lessonDir = Path.Combine(tempDir, "lessons", lesson.Id);
+                var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                    ExecuteProgram("format", "--project", lessonDir, "Program.nl"));
+
+                Assert.Equal(0, exitCode);
+                Assert.Contains("Formatted", stdout);
+                Assert.True(string.IsNullOrWhiteSpace(stderr), lesson.Id);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_RequiresSessionToken()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-token-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons[0];
+            var programPath = Path.Combine(tempDir, "lessons", lesson.Id, "Program.nl");
+            var originalCode = File.ReadAllText(programPath);
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                """{"code":"mutated without token"}""");
+
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Contains("session token", response.Body);
+            Assert.Equal(originalCode, File.ReadAllText(programPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_AcceptsValidSessionToken()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-token-ok-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons[0];
+            var nextCode = "package Tutorial\n\nfunc main() {\n    print \"saved\"\n}\n";
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                JsonSerializer.Serialize(new { code = nextCode }),
+                runtime.SessionToken);
+
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.Contains("saved", response.Body);
+            Assert.Equal(nextCode, File.ReadAllText(Path.Combine(tempDir, "lessons", lesson.Id, "Program.nl")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_RejectsCrossOriginRequest()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-origin-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons[0];
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                """{"code":"bad origin"}""",
+                runtime.SessionToken,
+                origin: "http://evil.example");
+
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Contains("same-origin", response.Body);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_RejectsNonJsonBody()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-content-type-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons[0];
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                """{"code":"bad content type"}""",
+                runtime.SessionToken,
+                "text/plain");
+
+            Assert.Equal(StatusCodes.Status415UnsupportedMediaType, response.StatusCode);
+            Assert.Contains("application/json", response.Body);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_RejectsOversizedBody()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-body-size-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons[0];
+            var oversizedCode = new string('x', 300_000);
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                JsonSerializer.Serialize(new { code = oversizedCode }),
+                runtime.SessionToken);
+
+            Assert.Equal(StatusCodes.Status413PayloadTooLarge, response.StatusCode);
+            Assert.Contains("too large", response.Body);
         }
         finally
         {
@@ -1351,6 +1591,47 @@ public class LegacyDto
             Console.SetError(originalError);
             Console.SetIn(originalIn);
         }
+    }
+
+    private static async Task<(int StatusCode, string Body)> InvokeTutorialRouterAsync(
+        TutorialRuntime runtime,
+        string method,
+        string path,
+        string? body = null,
+        string? sessionToken = null,
+        string contentType = "application/json",
+        string? origin = null)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = method;
+        context.Request.Path = path;
+        context.Request.Scheme = "http";
+        context.Request.Host = new HostString("127.0.0.1:5055");
+
+        if (origin != null)
+        {
+            context.Request.Headers["Origin"] = origin;
+        }
+
+        if (sessionToken != null)
+        {
+            context.Request.Headers["x-nsharp-tutorial-token"] = sessionToken;
+        }
+
+        if (body != null)
+        {
+            var bytes = Encoding.UTF8.GetBytes(body);
+            context.Request.Body = new MemoryStream(bytes);
+            context.Request.ContentLength = bytes.Length;
+            context.Request.ContentType = contentType;
+        }
+
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+        await TutorialRouter.HandleAsync(context, runtime);
+        responseBody.Position = 0;
+        using var reader = new StreamReader(responseBody, Encoding.UTF8);
+        return (context.Response.StatusCode, await reader.ReadToEndAsync());
     }
 
     public static IEnumerable<object[]> QueryJsonContractCases()

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -289,6 +290,9 @@ internal sealed record TutorialOptions(
 
 internal static class TutorialRouter
 {
+    private const string SessionTokenHeader = "x-nsharp-tutorial-token";
+    private const long MaxJsonBodyBytes = 256 * 1024;
+
     public static async Task HandleAsync(HttpContext context, TutorialRuntime runtime)
     {
         try
@@ -367,6 +371,11 @@ internal static class TutorialRouter
 
             await WriteNotFoundAsync(context, "Route not found.");
         }
+        catch (TutorialHttpException ex)
+        {
+            context.Response.StatusCode = ex.StatusCode;
+            await WriteJsonAsync(context, new { ok = false, error = ex.Message });
+        }
         catch (JsonException ex)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -381,6 +390,11 @@ internal static class TutorialRouter
 
     private static async Task HandleLessonPostAsync(HttpContext context, TutorialRuntime runtime, string lessonId, string action)
     {
+        if (!await ValidateMutatingRequestAsync(context, runtime))
+        {
+            return;
+        }
+
         var lesson = TutorialCatalog.Find(lessonId);
         if (lesson == null)
         {
@@ -452,8 +466,135 @@ internal static class TutorialRouter
     private static bool IsMethod(HttpContext context, string method)
         => string.Equals(context.Request.Method, method, StringComparison.OrdinalIgnoreCase);
 
+    private static async Task<bool> ValidateMutatingRequestAsync(HttpContext context, TutorialRuntime runtime)
+    {
+        if (!context.Request.Headers.TryGetValue(SessionTokenHeader, out var values) ||
+            values.Count != 1 ||
+            !TokenEquals(values[0], runtime.SessionToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = $"Missing or invalid tutorial session token. Include the {SessionTokenHeader} header from /api/lessons."
+            });
+            return false;
+        }
+
+        if (!IsAllowedOrigin(context))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = "Tutorial actions only accept same-origin requests."
+            });
+            return false;
+        }
+
+        if (!HasJsonContentType(context.Request.ContentType))
+        {
+            context.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = "Tutorial actions require an application/json request body."
+            });
+            return false;
+        }
+
+        if (context.Request.ContentLength > MaxJsonBodyBytes)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = $"Tutorial action request body is too large. Maximum size is {MaxJsonBodyBytes} bytes."
+            });
+            return false;
+        }
+
+        return true;
+    }
+
     private static async Task<T?> ReadJsonAsync<T>(HttpContext context)
-        => await JsonSerializer.DeserializeAsync<T>(context.Request.Body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    {
+        var bytes = await ReadBoundedBodyAsync(context);
+        if (bytes.Length == 0)
+        {
+            return default;
+        }
+
+        return JsonSerializer.Deserialize<T>(bytes, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    private static async Task<byte[]> ReadBoundedBodyAsync(HttpContext context)
+    {
+        using var body = new MemoryStream();
+        var buffer = new byte[8192];
+        long total = 0;
+
+        while (true)
+        {
+            var read = await context.Request.Body.ReadAsync(buffer);
+            if (read == 0)
+            {
+                break;
+            }
+
+            total += read;
+            if (total > MaxJsonBodyBytes)
+            {
+                throw new TutorialHttpException(
+                    StatusCodes.Status413PayloadTooLarge,
+                    $"Tutorial action request body is too large. Maximum size is {MaxJsonBodyBytes} bytes.");
+            }
+
+            body.Write(buffer, 0, read);
+        }
+
+        return body.ToArray();
+    }
+
+    private static bool IsAllowedOrigin(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue("Origin", out var values) || values.Count == 0)
+        {
+            return true;
+        }
+
+        if (values.Count != 1 || !Uri.TryCreate(values[0], UriKind.Absolute, out var origin))
+        {
+            return false;
+        }
+
+        return string.Equals(origin.Scheme, context.Request.Scheme, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(origin.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasJsonContentType(string? contentType)
+    {
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            return false;
+        }
+
+        var mediaType = contentType.Split(';', 2)[0].Trim();
+        return string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TokenEquals(string? actual, string expected)
+    {
+        if (string.IsNullOrEmpty(actual))
+        {
+            return false;
+        }
+
+        var actualBytes = Encoding.UTF8.GetBytes(actual);
+        var expectedBytes = Encoding.UTF8.GetBytes(expected);
+        return actualBytes.Length == expectedBytes.Length &&
+               CryptographicOperations.FixedTimeEquals(actualBytes, expectedBytes);
+    }
 
     private static async Task WriteAssetAsync(HttpContext context, string name, string contentType)
     {
@@ -480,10 +621,22 @@ internal static class TutorialRouter
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }
 
+internal sealed class TutorialHttpException : Exception
+{
+    public TutorialHttpException(int statusCode, string message)
+        : base(message)
+    {
+        StatusCode = statusCode;
+    }
+
+    public int StatusCode { get; }
+}
+
 internal sealed class TutorialRuntime
 {
     private const string ProgramFileName = "Program.nl";
     private const string TestFileName = "Program.tests.nl";
+    private const string WorkspaceMarkerFileName = ".nsharp-tutorial-workspace";
 
     public TutorialRuntime(string workspaceRoot)
     {
@@ -492,14 +645,19 @@ internal sealed class TutorialRuntime
 
     public string WorkspaceRoot { get; }
 
+    public string SessionToken { get; } = CreateSessionToken();
+
     public void Initialize(bool reset)
     {
-        if (reset && Directory.Exists(WorkspaceRoot))
+        ValidateWorkspaceTarget();
+
+        if (reset && Directory.Exists(WorkspaceRoot) && IsMarkedWorkspace())
         {
-            Directory.Delete(WorkspaceRoot, recursive: true);
+            ResetManagedWorkspace();
         }
 
         Directory.CreateDirectory(WorkspaceRoot);
+        WriteWorkspaceMarker();
         Directory.CreateDirectory(GetLessonsRoot());
         File.WriteAllText(Path.Combine(WorkspaceRoot, "README.md"), WorkspaceReadme());
 
@@ -516,6 +674,7 @@ internal sealed class TutorialRuntime
             schemaVersion = 1,
             ok = true,
             workspaceRoot = NormalizePath(WorkspaceRoot),
+            sessionToken = SessionToken,
             estimatedMinutes = TutorialCatalog.Lessons.Sum(lesson => lesson.Minutes),
             lessons = TutorialCatalog.Lessons.Select(lesson => new
             {
@@ -656,6 +815,51 @@ obj/
         }
     }
 
+    private void ValidateWorkspaceTarget()
+    {
+        var workspace = CanonicalizePath(WorkspaceRoot);
+        var root = Path.GetPathRoot(workspace);
+        if (!string.IsNullOrWhiteSpace(root) && string.Equals(workspace, CanonicalizePath(root), PathComparison))
+        {
+            throw new InvalidOperationException("Refusing to use the filesystem root as the tutorial workspace.");
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home) && string.Equals(workspace, CanonicalizePath(home), PathComparison))
+        {
+            throw new InvalidOperationException("Refusing to use your home directory as the tutorial workspace. Choose a dedicated subdirectory.");
+        }
+
+        var currentDirectory = CanonicalizePath(Directory.GetCurrentDirectory());
+        if (string.Equals(workspace, currentDirectory, PathComparison))
+        {
+            throw new InvalidOperationException("Refusing to use the current directory as the tutorial workspace. Choose a dedicated subdirectory.");
+        }
+
+        var repoRoot = FindCurrentRepositoryRoot();
+        if (repoRoot != null && string.Equals(workspace, CanonicalizePath(repoRoot), PathComparison))
+        {
+            throw new InvalidOperationException("Refusing to use the current repository root as the tutorial workspace. Choose a dedicated subdirectory.");
+        }
+
+        if (Directory.Exists(WorkspaceRoot) && Directory.EnumerateFileSystemEntries(WorkspaceRoot).Any() && !IsMarkedWorkspace())
+        {
+            throw new InvalidOperationException(
+                $"Refusing to use non-empty directory '{WorkspaceRoot}' because it is missing the {WorkspaceMarkerFileName} tutorial marker.");
+        }
+    }
+
+    private void ResetManagedWorkspace()
+    {
+        var lessonsRoot = GetLessonsRoot();
+        if (Directory.Exists(lessonsRoot))
+        {
+            Directory.Delete(lessonsRoot, recursive: true);
+        }
+
+        DeleteIfExists(Path.Combine(WorkspaceRoot, "README.md"));
+    }
+
     private string GetLessonsRoot() => Path.Combine(WorkspaceRoot, "lessons");
 
     private string GetLessonDirectory(TutorialLesson lesson)
@@ -672,6 +876,21 @@ obj/
         File.WriteAllText(path, content);
     }
 
+    private bool IsMarkedWorkspace()
+        => File.Exists(GetWorkspaceMarkerPath());
+
+    private string GetWorkspaceMarkerPath()
+        => Path.Combine(WorkspaceRoot, WorkspaceMarkerFileName);
+
+    private void WriteWorkspaceMarker()
+        => WriteIfChanged(GetWorkspaceMarkerPath(), """
+{
+  "schemaVersion": 1,
+  "owner": "nlc tutorial",
+  "description": "This directory is managed by the N# tutorial workspace."
+}
+""");
+
     private static string WorkspaceReadme() => """
 # N# Tutorial Workspace
 
@@ -684,6 +903,51 @@ You can open any lesson directory in VS Code to use the full N# extension too.
 
     private static string SanitizeName(string value)
         => string.Concat(value.Where(char.IsLetterOrDigit));
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string CreateSessionToken()
+        => Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+
+    private static string? FindCurrentRepositoryRoot()
+    {
+        var dir = Directory.GetCurrentDirectory();
+        while (!string.IsNullOrWhiteSpace(dir))
+        {
+            if (Directory.Exists(Path.Combine(dir, ".git")) ||
+                File.Exists(Path.Combine(dir, ".git")) ||
+                File.Exists(Path.Combine(dir, "NSharpLang.sln")))
+            {
+                return dir;
+            }
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+            {
+                return null;
+            }
+
+            dir = parent.FullName;
+        }
+
+        return null;
+    }
+
+    private static string CanonicalizePath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.IsNullOrEmpty(trimmed) ? fullPath : trimmed;
+    }
+
+    private static StringComparison PathComparison
+        => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 

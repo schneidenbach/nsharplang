@@ -86,19 +86,6 @@ public class Formatter
         _lastEmittedSourceLine = 0;
         var sb = new StringBuilder();
 
-        // Format package declaration
-        if (ast.Package != null)
-        {
-            EmitCommentsBefore(ast.Package.Line, sb);
-            if (_lastEmittedSourceLine > 0 && ast.Package.Line - _lastEmittedSourceLine > 1)
-            {
-                sb.AppendLine();
-            }
-            sb.AppendLine($"package {ast.Package.Name}");
-            _lastEmittedSourceLine = ast.Package.Line;
-            sb.AppendLine();
-        }
-
         // Format namespace declaration
         if (ast.Namespace != null)
         {
@@ -150,6 +137,15 @@ public class Formatter
 
         if (ast.Imports.Count > 0 || ast.FileImports.Count > 0)
         {
+            sb.AppendLine();
+        }
+
+        // Format package declaration after imports to match parser and language syntax.
+        if (ast.Package != null)
+        {
+            EmitCommentsBefore(ast.Package.Line, sb);
+            sb.AppendLine($"package {ast.Package.Name}");
+            _lastEmittedSourceLine = ast.Package.Line;
             sb.AppendLine();
         }
 

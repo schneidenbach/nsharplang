@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-05-14
+Updated: 2026-05-24
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -80,8 +80,10 @@ nlc tutorial --workspace ./.nlc/tutorial --dry-run
 Safety and state:
 
 - The host only accepts loopback hosts (`127.0.0.1`, `localhost`, or `::1`).
+- The browser app receives a per-server session token from `/api/lessons`; mutating tutorial actions require that token on POST requests.
 - Lesson files are local N# projects. Open the workspace in VS Code to use the full extension while the browser tutorial is running.
-- `--reset` recreates the tutorial workspace. Without it, edits are preserved.
+- `--reset` only recreates marked tutorial workspaces. `nlc tutorial` writes `.nsharp-tutorial-workspace` and refuses filesystem roots, the home directory, the current directory, the current repository root, and non-empty directories without the marker.
+- Reset preserves unrelated files at the workspace root and only recreates managed tutorial lesson state. Without `--reset`, lesson edits are preserved.
 - `--dry-run` materializes the workspaces and exits, which is useful for CI checks and package smoke tests.
 
 ## Examples
