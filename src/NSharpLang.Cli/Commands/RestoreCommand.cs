@@ -9,7 +9,8 @@ namespace NSharpLang.Cli.Commands;
 
 /// <summary>
 /// Generates obj/project.g.props from project.yml using the canonical YAML parser.
-/// This is the single projection from YAML config to MSBuild XML properties.
+/// This is the compatibility projection used by NSharpLang.Sdk for direct
+/// `dotnet build` scenarios. Native `nlc build` does not require it.
 /// </summary>
 public static class RestoreCommand
 {
@@ -26,7 +27,7 @@ public static class RestoreCommand
     }
 
     /// <summary>
-    /// Generate obj/project.g.props from project.yml.
+    /// Generate obj/project.g.props from project.yml for MSBuild compatibility.
     /// Returns 0 on success, 1 on failure.
     /// </summary>
     public static int Restore(string projectRoot, bool quiet = false)
@@ -145,8 +146,8 @@ public static class RestoreCommand
 Usage: nlc restore
 
 Generates build configuration (obj/project.g.props) from project.yml.
-This must be run before 'dotnet build' can work directly.
-'nlc build' runs this automatically.
+This must be run before 'dotnet build' can work directly against a minimal
+NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.
 
 Options:
   -h, --help    Show this help message");

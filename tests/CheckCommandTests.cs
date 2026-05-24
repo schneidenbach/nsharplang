@@ -347,6 +347,38 @@ func A() {
     }
 
     [Fact]
+    public void CheckCommand_ProjectYmlNative_DoesNotCreateGeneratedCsproj()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CheckNative
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "check"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_VerificationDoesNotRunWhenAnalysisHasErrors()
     {
         // When analysis already found errors, we skip the verification step entirely.

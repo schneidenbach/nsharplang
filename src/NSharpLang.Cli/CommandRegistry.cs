@@ -40,7 +40,7 @@ public static class CommandRegistry
         new CliCommandSpec("audit", "Check dependencies for known vulnerabilities"),
         new CliCommandSpec("env", "Show environment and toolchain info"),
         new CliCommandSpec("doctor", "Verify N# CLI, SDK/templates, LSP, and VS Code tooling"),
-        new CliCommandSpec("restore", "Generate build config from project.yml"),
+        new CliCommandSpec("restore", "Generate MSBuild compatibility config from project.yml"),
         new CliCommandSpec("pack", "Create a NuGet package from project.yml metadata"),
         new CliCommandSpec("help", "Show help")
     };

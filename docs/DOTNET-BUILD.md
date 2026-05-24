@@ -1,6 +1,6 @@
 # Using N# with `nlc` and `dotnet build`
 
-The primary N# workflow goes through `nlc`: `project.yml` holds N# settings, `nlc build`/`nlc run` generate the minimal MSBuild entry point when needed, and the SDK handles the .NET build pipeline underneath. Direct `dotnet build` remains supported for SDK interop, CI experiments, and host tooling that requires a `.csproj`.
+The primary N# workflow goes through `nlc`: `project.yml` holds N# settings, and `nlc build`/`nlc run` compile directly through the native IL backend without generating MSBuild project files. Direct `dotnet build` remains supported for SDK interop, CI experiments, and host tooling that requires a `.csproj`.
 
 ## Recommended Workflow
 
@@ -111,8 +111,7 @@ Hello from N#!
 
 - It is the N# product surface: `nlc check`, `nlc query`, `nlc fix`, formatting, tests, and package commands share one workflow.
 - Fresh projects stay `.csproj`-free; N# configuration lives in `project.yml`.
-- The generated `*.g.csproj` is an implementation detail, not user configuration.
-- Direct `dotnet build`, `dotnet run`, and `dotnet test` still work when a host tool needs SDK-level entry points.
+- Direct `dotnet build`, `dotnet run`, and `dotnet test` still work when a host tool needs SDK-level entry points, but that path is compatibility rather than the core `nlc` build path.
 
 Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.yml path instead.
 

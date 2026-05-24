@@ -29,7 +29,7 @@ cd MyApp
 - `global.json` - SDK selection
 - `NuGet.config` - package sources when using local/private packages
 
-Fresh N# projects are intentionally `.csproj`-free. `nlc build`, `nlc run`, and `nlc test` generate a minimal `*.g.csproj` build artifact only when MSBuild needs one.
+Fresh N# projects are intentionally `.csproj`-free. `nlc build`, `nlc run`, and `nlc test` read `project.yml` directly and do not generate MSBuild project files. A minimal `<Project Sdk="NSharpLang.Sdk" />` file remains an optional compatibility entry point for direct `dotnet build` workflows.
 
 ### 3. Build and Run
 
@@ -126,7 +126,7 @@ nlc run
 
 `nlc new` writes `project.yml`, `.nl` source, `global.json`, and `NuGet.config`; it does not write a user-authored `.csproj`. The `dotnet new nsharp-*` templates remain installed for .NET ecosystem interop, but `nlc new`, `nlc build`, `nlc run`, and `nlc test` are the first-class project path.
 
-The SDK (`NSharpLang.Sdk`) is restored from the configured package source when you build.
+The `NSharpLang.Sdk` package remains available for direct `dotnet build` compatibility, but the normal `nlc` path compiles directly from `project.yml`.
 
 ### Build from Source
 

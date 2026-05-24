@@ -38,6 +38,31 @@ targetFramework: net10.0
     }
 
     [Fact]
+    public void ProjectReferenceResolver_ResolvesProjectYmlToNSharpProjectRoot()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: SharedLib
+outputType: library
+targetFramework: net10.0
+""");
+
+            var resolved = ProjectReferenceResolver.ResolveNSharpProjectRoot(Path.Combine(sharedDir, "project.yml"));
+
+            Assert.Equal(sharedDir, resolved);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void DotnetBuild_UsesIlBackendThroughSdk()
     {
         var tempDir = CreateTempDir();

@@ -22,7 +22,7 @@ Updated: 2026-05-14
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
-| `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
+| `nlc test` | Run `.tests.nl` suites through the native N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
@@ -45,7 +45,7 @@ Updated: 2026-05-14
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
 | `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
-| `nlc restore` | Generate build config from `project.yml` | `--project` | `nlc restore` |
+| `nlc restore` | Generate MSBuild compatibility config from `project.yml` | `--project` | `nlc restore` |
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
@@ -300,12 +300,12 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 |---------|----|------|----------|-------|
 | Run tests | `go test ./...` | `cargo test` | `5` | `nlc test` runs `.tests.nl` suites |
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
-| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` increases `dotnet test` verbosity |
+| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual native test results |
 | Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
 | Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
-| Test coverage | `-cover` | external tools | `4` | `nlc test --coverage` via Coverlet |
+| Test coverage | `-cover` | external tools | Planned | Native coverage reporting is not part of the current `nlc test` path |
 | Benchmark | `-bench` | `cargo bench` | `1` | Future work |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |

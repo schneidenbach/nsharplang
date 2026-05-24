@@ -1,6 +1,6 @@
 # N# Quick Start
 
-**Project.yml-first, csproj-free N# projects. `nlc` generates a minimal `*.g.csproj` build artifact when needed.**
+**Project.yml-first, csproj-free N# projects. `nlc` builds directly from `project.yml` and does not generate MSBuild project files.**
 
 ## Install N#
 

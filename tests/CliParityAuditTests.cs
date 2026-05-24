@@ -743,7 +743,7 @@ func benchMultiply() {
     {
         // Verify --timings is documented in build --help and the phase names are present.
         // The actual timing output is emitted only on a successful build run; testing it
-        // end-to-end requires MSBuild infrastructure not available in unit tests.
+        // end-to-end requires compiling a sample project, which is covered by backend tests.
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
             ExecuteProgram("build", "--help"));
 
@@ -851,7 +851,7 @@ test "add works" {
                 ExecuteProgram("test", "--project", tempDir));
 
             // Must return non-zero when compilation fails — previously fell through
-            // to dotnet test and produced an "invalid DLL argument" error
+            // to the test runner and produced an "invalid DLL argument" error
             Assert.NotEqual(0, exitCode);
         }
         finally
