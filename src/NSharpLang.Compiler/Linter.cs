@@ -1225,6 +1225,17 @@ internal class LintVisitor
                 VisitExpression(printStmt.Value);
                 break;
 
+            case AssertStatement assertStmt:
+                VisitExpression(assertStmt.Condition);
+                if (assertStmt.Message != null)
+                    VisitExpression(assertStmt.Message);
+                break;
+
+            case AssertThrowsStatement assertThrows:
+                TrackTypeReference(assertThrows.ExceptionType);
+                VisitStatement(assertThrows.Body);
+                break;
+
             case LockStatement lockStmt:
                 VisitExpression(lockStmt.LockObject);
                 VisitStatement(lockStmt.Body);

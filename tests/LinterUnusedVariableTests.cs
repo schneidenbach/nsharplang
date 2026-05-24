@@ -201,6 +201,63 @@ public class LinterUnusedVariableTests
 
     #endregion
 
+    #region Assert Statement Tests
+
+    [Fact]
+    public void VariableUsedInAssertCondition_ShouldNotBeMarkedUnused()
+    {
+        var source = @"test ""assert reads locals"" {
+    first := CreateIssue(""First"")
+    second := CreateIssue(""Second"")
+
+    assert first.Id == 1
+    assert second.Id == 2
+}";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiags = diagnostics.Where(d => d.Code == "NL001").ToList();
+
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'first'"));
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'second'"));
+    }
+
+    [Fact]
+    public void VariableUsedInAssertMessage_ShouldNotBeMarkedUnused()
+    {
+        var source = @"test ""assert reads message"" {
+    expectedMessage := ""should be true""
+
+    assert true, expectedMessage
+}";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiags = diagnostics.Where(d => d.Code == "NL001").ToList();
+
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'expectedMessage'"));
+    }
+
+    [Fact]
+    public void VariableUsedInAssertThrowsBody_ShouldNotBeMarkedUnused()
+    {
+        var source = @"test ""assert throws reads locals"" {
+    value := ""bad""
+
+    assert throws InvalidOperationException {
+        ThrowIfInvalid(value)
+    }
+}";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiags = diagnostics.Where(d => d.Code == "NL001").ToList();
+
+        Assert.DoesNotContain(unusedDiags, d => d.Message.Contains("'value'"));
+    }
+
+    #endregion
+
     #region True Unused Variables (should still be detected)
 
     [Fact]
