@@ -7,9 +7,6 @@
     <Nullable>enable</Nullable>
     <RootNamespace>NSharpLang.Cli</RootNamespace>
 
-    <!-- Tool Configuration -->
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>nlc</ToolCommandName>
     <PackageId>NSharpLang.Cli</PackageId>
 
     <!-- Package Metadata -->
@@ -21,7 +18,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>dotnet;language;compiler;nlang;csharp;il;export</PackageTags>
 
-    <!-- Ensure project-reference assemblies are included in the dotnet tool package. -->
+    <!-- Ensure project-reference assemblies are present for local launcher/publish flows. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

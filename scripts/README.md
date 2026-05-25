@@ -11,6 +11,7 @@ human or automation entrypoint; shared implementation belongs in `scripts/lib/`.
 - `test-all.sh` - full product verification gate.
 - `pack-nuget.sh` - build release artifacts into `artifacts/`.
 - `publish-packages.sh` - publish the canonical package set to NuGet or GitHub Packages.
+- `publish-toolset.sh` - publish the package-manager-ready `nsharp-toolset` layout.
 - `smoke-turnkey-install.sh` - local-feed smoke for the public installer.
 - `build-vscode-extension.sh`, `reload-vscode-extension.sh`,
   `test-vscode-headless.sh`, `test-vscode-integration.sh` - editor loops.
@@ -22,7 +23,8 @@ human or automation entrypoint; shared implementation belongs in `scripts/lib/`.
   readers, command checks, and small portability helpers.
 - `packages.sh` owns the canonical NSharpLang package list and artifact path
   calculation.
-- `local-toolset.sh` owns local-feed package deployment and dotnet-tool refresh.
+- `toolset.sh` owns launcher generation, toolset publish/install, templates, and
+  shared NuGet config helpers.
 - `vscode-extension.sh` owns VS Code extension dependency, build, package, and
   reload helpers.
 

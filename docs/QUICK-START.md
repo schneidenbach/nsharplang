@@ -10,7 +10,7 @@ nlc doctor
 ```
 
 For contributor source builds, clone the repo and run `./scripts/setup-local.sh`; public users should use the one-line installer.
-The local setup script installs the repo-built `nlc` and `nsharp-lsp` tools from the local feed and adds `~/.dotnet/tools` to future shells through `~/.nsharp/env`.
+The local setup script installs the repo-built `nlc` and `nsharp-lsp` launchers under `~/.nsharp/bin` and adds that directory to future shells through `~/.nsharp/env`.
 
 ## Create Your First Project
 

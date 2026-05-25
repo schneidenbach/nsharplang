@@ -9,10 +9,8 @@ Users need to build N# projects in CI. Right now there's no easy way. Create a G
 A composite GitHub Action at `actions/setup-nsharp/action.yml` that:
 
 1. Installs .NET SDK (if not present)
-2. Installs the N# CLI (`nlc`) as a global dotnet tool
-3. Installs N# templates
-4. Optionally installs the N# SDK NuGet package to a local feed
-5. Adds `nlc` to PATH
+2. Installs the N# package-manager toolset (`nlc`, `nsharp-lsp`, SDK packages, templates)
+3. Adds `~/.nsharp/bin` to PATH
 
 ### Usage (what users write in their workflows):
 
@@ -49,9 +47,9 @@ inputs:
     required: false
     default: 'latest'
   dotnet-version:
-    description: '.NET SDK version (default: 9.0.x)'
+    description: '.NET SDK version (default: 10.0.x)'
     required: false
-    default: '9.0.x'
+    default: '10.0.x'
   include-templates:
     description: 'Install N# project templates (default: true)'
     required: false
@@ -75,19 +73,19 @@ runs:
       with:
         dotnet-version: ${{ inputs.dotnet-version }}
 
-    - name: Install N# CLI
+    - name: Install N# toolset
       shell: bash
       run: |
         if [ "${{ inputs.version }}" = "latest" ]; then
-          dotnet tool install -g NSharpLang.Cli
+          curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --skip-vscode
         else
-          dotnet tool install -g NSharpLang.Cli --version ${{ inputs.version }}
+          curl -fsSL "https://github.com/schneidenbach/nsharplang/releases/download/${{ inputs.version }}/nsharp-toolset.tar.gz" -o nsharp-toolset.tar.gz
+          bash scripts/install.sh --source nsharp-toolset.tar.gz --skip-vscode
         fi
 
-    - name: Install N# Templates
-      if: inputs.include-templates == 'true'
+    - name: Add N# to PATH
       shell: bash
-      run: dotnet new install NSharpLang.Templates
+      run: echo "$HOME/.nsharp/bin" >> "$GITHUB_PATH"
 
     - name: Verify installation
       shell: bash

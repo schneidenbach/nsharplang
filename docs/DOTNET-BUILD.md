@@ -10,7 +10,7 @@ For local repo development, set up the full local toolchain once:
 ./scripts/setup-local.sh
 ```
 
-This installs the repo-built `nlc` and `nsharp-lsp` tools from the local feed, installs templates, and makes `~/.dotnet/tools` available to future shells. Then create a project through the N# CLI:
+This installs the repo-built `nlc` and `nsharp-lsp` launchers under `~/.nsharp/bin`, installs templates, and makes that launcher directory available to future shells. Then create a project through the N# CLI:
 
 ```bash
 nlc new MyApp

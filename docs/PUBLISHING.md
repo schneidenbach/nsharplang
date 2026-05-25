@@ -12,10 +12,9 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 
 That installer expects these artifacts to exist for the target version:
 
-- `NSharpLang.Cli`: global tool that provides `nlc`
+- `nsharp-toolset.tar.gz`: package-manager-ready `nlc` and `nsharp-lsp` app payloads plus launchers
 - `NSharpLang.Sdk`: MSBuild SDK restored by generated project build files
 - `NSharpLang.Templates`: `dotnet new` templates used by `nlc new`/template consumers
-- `NSharpLang.LanguageServer`: global tool that provides `nsharp-lsp`
 - `NSharpLang.Compiler`: compiler API library used by SDK/tooling packages
 - `nsharp.nsharp` VS Code extension, either published to the Marketplace/Open VSX path or attached to the latest GitHub Release as `nsharp.vsix`
 
@@ -31,7 +30,7 @@ NuGet package versions are read from each project file's `<Version>` element:
 - `src/NSharpLang.LanguageServer/LanguageServer.csproj`
 - `templates/NSharpLang.Templates.csproj`
 
-`scripts/pack-nuget.sh` packs those projects. `scripts/publish-packages.sh` reads the same project-file versions when validating artifact names, so there is no second hard-coded version table to drift.
+`scripts/pack-nuget.sh` packs SDK/template/compiler NuGet packages and publishes the `nsharp-toolset.tar.gz` app artifact. `scripts/publish-packages.sh` reads project-file versions when validating NuGet package names, so there is no second hard-coded version table to drift.
 
 The public installer does not expose exact version pinning while those project-file versions are mixed. `scripts/install.sh --version ...` fails fast with an explanation instead of applying one version to every package and producing a partial install. Re-enable a single public pin only after CLI, SDK, templates, compiler, and language server releases share one unified NSharpLang version, or replace it with explicit package-specific pins.
 
@@ -46,6 +45,7 @@ The VS Code extension version is currently sourced from `editors/vscode/package.
 Outputs:
 
 - `artifacts/nuget/*.nupkg`
+- `artifacts/toolset/nsharp-toolset.tar.gz`
 - `artifacts/vscode/*.vsix` and the stable fallback asset `artifacts/vscode/nsharp.vsix` unless `SKIP_VSCODE_PACKAGE=1` is set
 
 For package-only smoke runs:
@@ -56,13 +56,13 @@ SKIP_VSCODE_PACKAGE=1 ./scripts/pack-nuget.sh
 
 ## Smoke the Turnkey Installer
 
-Run the local-feed smoke before publishing:
+Run the local toolset smoke before publishing:
 
 ```bash
 ./scripts/smoke-turnkey-install.sh
 ```
 
-The smoke creates an isolated `HOME` with a NuGet config that clears all package sources except `artifacts/nuget`, verifies that unsupported `--version` pins fail fast, installs from that local feed, rewrites the generated smoke app's `NuGet.config` to remove `nuget.org`, asserts the app config has `<clear />` and exactly one package source (`nsharp-local` pointing at the local NSharp artifacts feed), then runs:
+The smoke creates an isolated `HOME`, builds `nsharp-toolset.tar.gz`, verifies that unsupported `--version` pins fail fast, installs from that local toolset archive, rewrites the generated smoke app's `NuGet.config` to remove `nuget.org`, asserts the app config has `<clear />` and exactly one package source (`nsharp-local` pointing at the installed N# package cache), then runs:
 
 ```bash
 nlc --version

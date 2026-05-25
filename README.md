@@ -13,9 +13,9 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 nlc doctor
 ```
 
-This public setup path installs `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the dotnet-tool PATH and .NET root settings, and it wires the same env file into future shells.
+This public setup path installs `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the N# launcher PATH and .NET root settings, and it wires the same env file into future shells.
 
-Contributors working from source should clone the repo and run `./scripts/setup-local.sh`; that path builds packages from the checkout and installs them from the local feed.
+Contributors working from source should clone the repo and run `./scripts/setup-local.sh`; that path builds packages from the checkout and installs them into the local N# package cache.
 
 ### 2. Create Project
 

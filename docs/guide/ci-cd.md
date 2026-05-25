@@ -162,8 +162,8 @@ jobs:
     - name: Install N# toolchain
       run: curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
-    - name: Add .NET tools to PATH
-      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+    - name: Add N# to PATH
+      run: echo "$HOME/.nsharp/bin" >> $GITHUB_PATH
 
     - name: Check formatting
       run: nlc format --verify-no-changes
@@ -195,8 +195,8 @@ jobs:
     - name: Install N# toolchain
       run: curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
-    - name: Add .NET tools to PATH
-      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+    - name: Add N# to PATH
+      run: echo "$HOME/.nsharp/bin" >> $GITHUB_PATH
 
     - name: Run linter
       run: nlc lint
@@ -303,7 +303,7 @@ stages:
 
     - script: |
         curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
-        export PATH="$PATH:$HOME/.dotnet/tools"
+        export PATH="$HOME/.nsharp/bin:$PATH"
         nlc lint
       displayName: 'Run linter'
 
@@ -315,7 +315,7 @@ stages:
 
     - script: |
         curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
-        export PATH="$PATH:$HOME/.dotnet/tools"
+        export PATH="$HOME/.nsharp/bin:$PATH"
         nlc format --verify-no-changes
       displayName: 'Check formatting'
 ```
@@ -331,7 +331,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0
 
 RUN curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 
-ENV PATH="${PATH}:/root/.dotnet/tools"
+ENV PATH="/root/.nsharp/bin:${PATH}"
 
 WORKDIR /app
 COPY . .
@@ -610,11 +610,11 @@ Keep CI/CD documentation up to date:
 
 ### "nlc not found" Error
 
-The .NET tools might not be in PATH. Add this step:
+The N# launcher directory might not be in PATH. Add this step:
 
 ```yaml
-- name: Add tools to PATH
-  run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+- name: Add N# to PATH
+  run: echo "$HOME/.nsharp/bin" >> $GITHUB_PATH
 ```
 
 ### NuGet Push Fails

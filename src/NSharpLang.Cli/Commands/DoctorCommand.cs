@@ -36,9 +36,18 @@ public static class DoctorCommand
 
         checks.Add(DoctorCheck.Pass("nlc", Program.GetVersion()));
 
-        var toolList = dotnet is null ? ProcessResult.Failed("dotnet not found") : RunCapture("dotnet", "tool list -g");
-        checks.Add(CheckGlobalTool(toolList, "NSharpLang.Cli", "nlc global tool"));
-        checks.Add(CheckGlobalTool(toolList, "NSharpLang.LanguageServer", "language server tool"));
+        var nlc = FindOnPath("nlc");
+        checks.Add(nlc is not null
+            ? DoctorCheck.Pass("nlc-command", nlc)
+            : DoctorCheck.Warn("nlc-command", "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration"));
+
+        var packageCache = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".nsharp",
+            "packages");
+        checks.Add(Directory.Exists(packageCache) && Directory.EnumerateFiles(packageCache, "NSharpLang.Sdk.*.nupkg").Any()
+            ? DoctorCheck.Pass("nsharp-packages", packageCache)
+            : DoctorCheck.Fail("nsharp-packages", $"N# package cache was not found at {packageCache}; rerun the N# installer", required: true));
 
         var templateList = dotnet is null ? ProcessResult.Failed("dotnet not found") : RunCapture("dotnet", "new list nsharp");
         if (templateList.ExitCode == 0 && templateList.Stdout.Contains("nsharp-console", StringComparison.OrdinalIgnoreCase))
@@ -49,10 +58,8 @@ public static class DoctorCommand
         var lsp = FindOnPath("nsharp-lsp");
         if (lsp is not null)
             checks.Add(DoctorCheck.Pass("language-server", lsp));
-        else if (toolList.ExitCode == 0 && toolList.Stdout.Contains("NSharpLang.LanguageServer", StringComparison.OrdinalIgnoreCase))
-            checks.Add(DoctorCheck.Warn("language-server", "NSharpLang.LanguageServer is installed but nsharp-lsp is not on PATH; add ~/.dotnet/tools to PATH"));
         else
-            checks.Add(DoctorCheck.Fail("language-server", "nsharp-lsp was not found; run the N# installer or dotnet tool install -g NSharpLang.LanguageServer", required: true));
+            checks.Add(DoctorCheck.Fail("language-server", "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#", required: true));
 
         if (skipVscode)
         {
@@ -84,16 +91,6 @@ public static class DoctorCommand
             WriteText(ok, checks);
 
         return ok ? 0 : 1;
-    }
-
-    private static DoctorCheck CheckGlobalTool(ProcessResult toolList, string packageId, string name)
-    {
-        if (toolList.ExitCode != 0)
-            return DoctorCheck.Fail(name, toolList.Stderr.TrimOrDefault("dotnet tool list -g failed"), required: true);
-
-        return toolList.Stdout.Contains(packageId, StringComparison.OrdinalIgnoreCase)
-            ? DoctorCheck.Pass(name, packageId)
-            : DoctorCheck.Fail(name, $"{packageId} is not installed as a global tool", required: true);
     }
 
     private static void WriteText(bool ok, IReadOnlyList<DoctorCheck> checks)
@@ -183,8 +180,8 @@ public static class DoctorCommand
 
 Usage: nlc doctor [options]
 
-Verifies the public N# install path: dotnet, nlc, templates, language server,
-and the VS Code extension when the VS Code 'code' CLI is available.
+Verifies the public N# install path: dotnet, nlc, local N# packages, templates,
+language server, and the VS Code extension when the VS Code 'code' CLI is available.
 
 Options:
   --json              Output as JSON envelope

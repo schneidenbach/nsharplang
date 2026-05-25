@@ -12,7 +12,7 @@ namespace NSharpLang.IntegrationTests;
 /// <summary>
 /// End-to-end integration tests that verify the full N# toolchain works
 /// on a fresh machine (simulated via a Docker container with only the
-/// .NET SDK pre-installed and our NuGet packages available).
+/// .NET SDK pre-installed and our package-manager toolset available).
 /// </summary>
 [Trait("Category", "Integration")]
 public class ToolchainTests : IClassFixture<ToolchainFixture>
@@ -208,25 +208,17 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
     }
 
     [DockerFact]
-    public async Task CliTool_InstallsAndReportsVersion()
+    public async Task CliLauncher_ReportsVersion()
     {
-        var install = await Bash("dotnet tool install -g NSharpLang.Cli");
-        AssertSuccess(install, "dotnet tool install NSharpLang.Cli");
-
         var version = await Bash("nlc --version");
         AssertSuccess(version, "nlc --version");
     }
 
     [DockerFact]
-    public async Task LanguageServer_Installs()
+    public async Task LanguageServerLauncher_IsOnPath()
     {
-        var install = await Bash("dotnet tool install -g NSharpLang.LanguageServer");
-        AssertSuccess(install, "dotnet tool install NSharpLang.LanguageServer");
-
-        // Verify the tool is listed
-        var list = await Bash("dotnet tool list -g");
-        AssertSuccess(list, "dotnet tool list");
-        Assert.Contains("nsharplang.languageserver", list.Stdout.ToLowerInvariant());
+        var command = await Bash("command -v nsharp-lsp && test -x /root/.nsharp/bin/nsharp-lsp");
+        AssertSuccess(command, "nsharp-lsp launcher");
     }
 
     // --- Helpers ---
@@ -319,10 +311,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
 
     private async Task InstallCli()
     {
-        // Install nlc as a global tool (idempotent — update if already installed)
-        var result = await Bash(
-            "dotnet tool install -g NSharpLang.Cli 2>/dev/null || dotnet tool update -g NSharpLang.Cli");
-        AssertSuccess(result, "CLI tool installation");
+        var result = await Bash("nlc --version");
+        AssertSuccess(result, "CLI launcher availability");
     }
 
     private static string UniqueDir(string prefix) =>
