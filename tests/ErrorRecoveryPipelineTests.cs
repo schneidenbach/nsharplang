@@ -81,6 +81,55 @@ func semantic_error() {
         }
     }
 
+    [Fact]
+    public void QueryDiagnostics_MalformedProject_ReturnsSyntaxAndSemanticDiagnosticsWithoutPlaceholderCascade()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: MalformedDiagnostics
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class User {
+    Name: string
+}
+
+func main() {
+    first := 1 +
+    Console.WriteLine(undefinedFromQuery)
+    user := new User { Name = "Ada" }
+}
+""");
+
+            var service = new CodeIntelligenceService();
+            var snapshot = service.LoadProject(tempDir);
+            var diagnostics = service.GetDiagnostics(snapshot, "Program.nl");
+
+            Assert.Contains(diagnostics, diagnostic =>
+                diagnostic.Code == "NL102" &&
+                diagnostic.Line == 6 &&
+                diagnostic.Message.Contains("Expected expression after '+'"));
+            Assert.Contains(diagnostics, diagnostic =>
+                diagnostic.Code == "NL103" &&
+                diagnostic.Line == 8 &&
+                diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
+            Assert.Contains(diagnostics, diagnostic =>
+                diagnostic.Code == "NL301" &&
+                diagnostic.Message.Contains("undefinedFromQuery"));
+            Assert.DoesNotContain(diagnostics, diagnostic =>
+                diagnostic.Message.Contains("<error>", StringComparison.Ordinal));
+            Assert.True(diagnostics.Count <= 6,
+                $"Expected bounded diagnostics, got {diagnostics.Count}: {string.Join("; ", diagnostics.Select(d => $"{d.Code} {d.Message}"))}");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     #endregion
 
     #region Multi-file: syntax error in one file, semantic error in another

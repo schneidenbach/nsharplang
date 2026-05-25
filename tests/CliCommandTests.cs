@@ -144,6 +144,68 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommand_Diagnostics_MalformedCode_EmitsStableHighSignalJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-malformed-diagnostics-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: MalformedDiagnostics
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+class User {
+    Name: string
+}
+
+func main() {
+    first := 1 +
+    Console.WriteLine(undefinedFromCli)
+    user := new User { Name = "Ada" }
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--project", tempDir,
+                "--file", "Program.nl",
+                "--no-daemon"
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("diagnostics", doc.RootElement.GetProperty("command").GetString());
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToList();
+            Assert.Contains(results, result =>
+                result.GetProperty("code").GetString() == "NL102" &&
+                result.GetProperty("line").GetInt32() == 6 &&
+                result.GetProperty("message").GetString()!.Contains("Expected expression after '+'") &&
+                result.GetProperty("suggestion").GetString()!.Contains("Add an expression after '+'"));
+            Assert.Contains(results, result =>
+                result.GetProperty("code").GetString() == "NL103" &&
+                result.GetProperty("message").GetString()!.Contains("Object initializer member 'Name' uses '='") &&
+                result.GetProperty("hint").GetString()!.Contains("Name: value"));
+            Assert.Contains(results, result =>
+                result.GetProperty("code").GetString() == "NL301" &&
+                result.GetProperty("message").GetString()!.Contains("undefinedFromCli"));
+            Assert.DoesNotContain(results, result =>
+                result.GetProperty("message").GetString()!.Contains("<error>", StringComparison.Ordinal));
+            Assert.True(results.Count <= 4, $"Expected bounded diagnostics, got {results.Count}.");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]

@@ -580,6 +580,53 @@ func other() {
     }
 
     [Fact]
+    public void Parser_DanglingBinaryOperator_DoesNotSwallowFollowingStatements()
+    {
+        var source = @"
+func test() {
+    first := 1 +
+    second := missingValue
+    third := @@
+}";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.NotNull(result.CompilationUnit);
+        Assert.Contains(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Line == 3 &&
+            error.Message.Contains("Expected expression after '+'"));
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        var declarations = function.Body!.Statements
+            .OfType<VariableDeclarationStatement>()
+            .Select(statement => statement.Name)
+            .ToList();
+        Assert.Equal(new[] { "first", "second", "third" }, declarations);
+    }
+
+    [Fact]
+    public void Parser_ObjectInitializerEquals_ReportsActionableDiagnosticAndContinues()
+    {
+        var source = @"
+func test() {
+    user := new User { Name = ""Ada"", Age: 42 }
+}";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidSyntax &&
+            error.Message.Contains("Object initializer member 'Name' uses '='"));
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(29, diagnostic.Column);
+        Assert.Contains("N# uses ':'", diagnostic.Message);
+        Assert.Contains("Name: value", diagnostic.ContextualHint);
+        Assert.Contains("Name: ...", Assert.Single(diagnostic.Suggestions!));
+    }
+
+    [Fact]
     public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
     {
         // Multiple distinct bad statements inside a single function body

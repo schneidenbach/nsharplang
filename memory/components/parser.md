@@ -126,12 +126,19 @@ value match {
 
 ## Error Recovery
 
-Parser uses `Consume()` and `Expect()` methods:
-- `Consume(TokenType)`: Advances if match, throws if not
-- `Expect(TokenType)`: Same as Consume (for readability)
-- Errors include line/column from token
+Parser uses `Consume()` / `Expect()`-style helpers:
+- `Consume(TokenType)`: Advances if the token matches; otherwise reports a diagnostic and leaves the token for recovery.
+- `ConsumeIdentifier(...)`: Reports an expected-identifier diagnostic and returns `<error>` when a name is missing.
+- Errors include line/column from the offending token and, when source text is available, a snippet.
 
-Currently: **Stop on first error** (no panic mode recovery).
+Current behavior:
+- Collects parse diagnostics and still returns a partial `CompilationUnit`.
+- Recovers at declaration, member, statement, and block boundaries.
+- Uses line/column information to avoid swallowing the next same-indent statement after a dangling operator.
+- Suppresses cascades with panic-mode recovery, then resets at the next useful boundary.
+- Emits concrete diagnostics for common editing mistakes such as incomplete member access, missing braces, dangling binary operators, and C#-style `=` inside N# object initializers.
+
+Partial ASTs use placeholder nodes such as `<error>` only to keep downstream tooling alive; analyzer and tooling paths treat these as unknown values instead of reporting secondary undefined-symbol cascades.
 
 ## Testing
 
