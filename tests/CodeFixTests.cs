@@ -638,7 +638,7 @@ func main() {
             "NL905",
             "Possible null dereference: 'x' is maybe-null",
             new Location(3, 13),
-            DiagnosticSeverity.Warning,
+            DiagnosticSeverity.Error,
             "Use '?.'");
 
         var ast = ParseCode(sourceCode);

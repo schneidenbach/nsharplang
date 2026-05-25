@@ -234,7 +234,7 @@ $ nlc fix --file F                  # fix single file
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
-Compiler diagnostics also include `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
+Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
 
 **Currently supported auto-fixes (`nlc fix`):**
 

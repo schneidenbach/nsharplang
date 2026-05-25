@@ -5652,7 +5652,7 @@ func Hello(): string {
     }
 
     [Fact]
-    public void Nullability_PossibleDereferenceReportsStableWarning()
+    public void Nullability_PossibleDereferenceReportsStableError()
     {
         var result = Analyze(@"
             func Main() {
@@ -5662,8 +5662,9 @@ func Hello(): string {
         ");
 
         Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.NullabilityWarning &&
+            e.Code == ErrorCode.PossibleNullAccess &&
             e.DiagnosticId == "NL905" &&
+            e.Severity == ErrorSeverity.Error &&
             e.Message.Contains("Possible null dereference"));
     }
 
@@ -5681,7 +5682,7 @@ func Hello(): string {
         ");
 
         Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NullabilityWarning);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
     }
 
     [Fact]
@@ -5700,7 +5701,8 @@ func Hello(): string {
         ");
 
         Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.NullabilityWarning &&
+            e.Code == ErrorCode.PossibleNullAccess &&
+            e.Severity == ErrorSeverity.Error &&
             e.Message.Contains("`x` is null"));
     }
 
@@ -5723,7 +5725,7 @@ func Hello(): string {
         ");
 
         Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NullabilityWarning);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
     }
 
     [Fact]
@@ -5740,7 +5742,7 @@ func Hello(): string {
         ");
 
         Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
-        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.NullabilityWarning);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
     }
 
     #endregion

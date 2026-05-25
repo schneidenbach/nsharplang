@@ -50,8 +50,9 @@ func main() {
 
         var diagnostics = document!.Diagnostics ?? Enumerable.Empty<CompilerError>();
         Assert.Contains(diagnostics, diagnostic =>
-            diagnostic.Code == ErrorCode.NullabilityWarning &&
+            diagnostic.Code == ErrorCode.PossibleNullAccess &&
             diagnostic.DiagnosticId == "NL905" &&
+            diagnostic.Severity == ErrorSeverity.Error &&
             diagnostic.Suggestion != null &&
             diagnostic.Suggestion.Contains("?.", System.StringComparison.Ordinal));
     }

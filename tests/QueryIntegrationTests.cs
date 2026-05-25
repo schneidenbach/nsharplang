@@ -544,7 +544,7 @@ func Main() {
         var diagnostics = _service.GetDiagnostics(snapshot, "Program.nl");
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == "NL905" &&
-            diagnostic.Severity == "warning" &&
+            diagnostic.Severity == "error" &&
             diagnostic.Suggestion != null &&
             diagnostic.Suggestion.Contains("?.", StringComparison.Ordinal));
 

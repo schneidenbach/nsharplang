@@ -2919,7 +2919,7 @@ public class Analyzer : IDisposable
             _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
         };
 
-        Warning(ErrorCode.NullabilityWarning, message, line, column, suggestion, length: 1);
+        Error(ErrorCode.PossibleNullAccess, message, line, column, suggestion, length: 1);
     }
 
     private bool IsStaticMemberAccessTarget(Expression target)
