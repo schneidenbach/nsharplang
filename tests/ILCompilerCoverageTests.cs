@@ -185,7 +185,7 @@ func main(): int {
         Assert.Equal(23509, Assert.IsType<int>(result));
     }
 
-    [Fact(Skip = "TODO: .NET 10 TypeBuilder behavioral change causes null equality comparison on user-defined class locals to evaluate incorrectly at runtime")]
+    [Fact]
     public void ILCompiler_CanExecuteNullLiteralsForReferenceAndNullableTypes()
     {
         var source = @"
@@ -208,6 +208,79 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(1, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteEmittedClassNullComparisonsInBothOperandOrders()
+    {
+        var source = @"
+class Node {
+    Value: int
+}
+
+func main(): int {
+    missing: Node = null
+    present := new Node { Value: 7 }
+    score := 0
+
+    if missing == null {
+        score = score + 1
+    }
+
+    if null == missing {
+        score = score + 2
+    }
+
+    if present != null {
+        score = score + 4
+    }
+
+    if null != present {
+        score = score + 8
+    }
+
+    return score
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteNullableNullComparisonsAndCoalesce()
+    {
+        var source = @"
+func main(): int {
+    missing: int? = null
+    present: int? = 7
+    value := missing ?? 42
+    score := 0
+
+    if missing == null {
+        score = score + 1
+    }
+
+    if null == missing {
+        score = score + 2
+    }
+
+    if present != null {
+        score = score + 4
+    }
+
+    if null != present {
+        score = score + 8
+    }
+
+    if value == 42 {
+        score = score + 16
+    }
+
+    return score
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(31, Assert.IsType<int>(result));
     }
 
     [Fact]
