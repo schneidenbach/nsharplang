@@ -16,6 +16,11 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
+    private const string CoverageUnsupportedMessage =
+        "Coverage collection is not available in nlc test yet. " +
+        "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. " +
+        "Omit --coverage/--coverage-report until native coverage support lands.";
+
     private sealed record NativeTestCase(
         string DisplayName,
         string FullyQualifiedName,
@@ -74,14 +79,13 @@ partial class Program
 
         if (collectCoverage || coverageReport)
         {
-            const string message = "Coverage collection is not available in the xUnit-backed nlc test runner yet.";
             if (jsonOutput)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
                 return 1;
             }
 
-            return Error(message);
+            return Error(CoverageUnsupportedMessage);
         }
 
         projectConfig ??= ProjectFileParser.Parse(projectYmlPath);

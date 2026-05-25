@@ -422,11 +422,11 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 
 | Go | N# | Purpose |
 |----|----|---------|
-| `go build` | `dotnet build` | Compile |
-| `go run` | `dotnet run` | Build + run |
+| `go build` | `nlc build` | Compile |
+| `go run` | `nlc run` | Build + run |
 | `go test` | `nlc test` | Run tests |
 | `go test -run` | `nlc test --filter` | Filter tests |
-| `go test -cover` | Planned native coverage | Code coverage |
+| `go test -cover` | Unavailable in `nlc test`; `--coverage` exits 1 with guidance | Code coverage |
 | `go test -json` | `nlc test --json` | Machine-readable output |
 | `go fmt` | `nlc format` | Format code |
 | `go vet` | `nlc lint` | Static analysis |
@@ -440,7 +440,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 - **`duck interface`** — Structural typing, Go's best feature
 - **`result, err :=`** — The error handling pattern you know
 - **Strong CLI** — `nlc` toolchain inspired by `go` command
-- **Fast compilation** — Transpiles to C#, then .NET compiles (incremental builds are fast)
+- **Fast compilation** — Builds through the direct IL backend with stable project output paths
 
 ## What's Different (and Better)
 

@@ -25,7 +25,8 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 
 - [009-install-release-and-ci-setup.md](009-install-release-and-ci-setup.md)
 - [010-library-publishing-workflow.md](010-library-publishing-workflow.md)
-- [011-cli-command-truth-coverage-and-publish.md](011-cli-command-truth-coverage-and-publish.md)
 - [012-cli-automation-and-json-contracts.md](012-cli-automation-and-json-contracts.md)
 - [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
 - [014-public-playground.md](014-public-playground.md)
+- [015-native-test-coverage.md](015-native-test-coverage.md)
+- [016-target-runtime-publish-and-apphost.md](016-target-runtime-publish-and-apphost.md)

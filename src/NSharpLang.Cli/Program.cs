@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using NSharpLang.Compiler;
 using NSharpLang.Cli.Commands;
 
@@ -82,7 +83,7 @@ through the native IL backend. No user-authored .csproj is needed.
 
 Options:
   --backend <mode>   Compilation backend: il
-  --release          Build with Release configuration (default: Debug)
+  --release          Build with Release configuration/output layout (default: Debug)
   --verbose          Show detailed build output
   --timings          Emit per-phase timing breakdown after build
   --output <path>    Output directory for build artifacts (-o shorthand)
@@ -91,7 +92,7 @@ Options:
 Examples:
   nlc build              Build the current project
   nlc build --backend il Build the current project with the IL backend
-  nlc build --release    Optimized release build
+  nlc build --release    Release configuration/output layout
   nlc build --verbose    Show detailed build output
   nlc build --timings    Show phase-level timing breakdown
   nlc build -o ./dist    Build to a specific output directory
@@ -318,20 +319,35 @@ Options:
   --backend <mode>        Compilation backend: il
   --configuration <cfg>   Build configuration (default: Release)
   --output <dir>          Output directory for published files
-  --runtime <rid>         Target runtime (e.g., linux-x64, osx-arm64, win-x64)
-  --self-contained        Publish as self-contained (includes .NET runtime)
+  --runtime <rid>         Current host runtime only; adds a framework-dependent launcher
+  --self-contained        Planned; currently exits with guidance
   --help, -h              Show this help text
+
+Supported publish shapes:
+  - Portable framework-dependent: nlc publish --output ./dist
+  - Current-runtime launcher: nlc publish --runtime <current-rid>
+
+Unsupported today:
+  - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64
+  - Self-contained apphost/runtime bundles
 
 Examples:
   nlc publish
   nlc publish --backend il --output ./dist
-  nlc publish --configuration Release --runtime linux-x64 --self-contained
+  nlc publish --configuration Release
+  nlc publish --runtime <current-rid> --output ./dist
   nlc publish --output ./dist
 
 Exit codes:
   0  Publish succeeded
   1  Publish failed");
             return 0;
+        }
+
+        var validationError = ValidatePublishArguments(args);
+        if (validationError != null)
+        {
+            return Error(validationError);
         }
 
         var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
@@ -358,9 +374,18 @@ Exit codes:
             var output = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
             var runtime = GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r");
             var selfContained = args.Contains("--self-contained");
-            if (selfContained && string.IsNullOrWhiteSpace(runtime))
+            if (selfContained)
             {
-                return Error("Self-contained publish requires --runtime <rid>.");
+                return Error(SelfContainedPublishUnsupportedMessage);
+            }
+
+            if (!string.IsNullOrWhiteSpace(runtime))
+            {
+                var currentRuntime = RuntimeInformation.RuntimeIdentifier;
+                if (!string.Equals(runtime, currentRuntime, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Error(CrossRuntimePublishUnsupportedMessage(runtime, currentRuntime));
+                }
             }
 
             var publishDir = output != null
@@ -381,11 +406,6 @@ Exit codes:
             if (!string.IsNullOrWhiteSpace(runtime))
             {
                 WriteDotnetLauncher(publishDir, CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config));
-            }
-
-            if (selfContained)
-            {
-                CopySelfContainedRuntime(config, publishDir);
             }
 
             Console.WriteLine("Publish successful!");
@@ -429,15 +449,67 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
     }
 
-    private static void CopySelfContainedRuntime(ProjectConfig config, string outputDirectory)
+    private const string SelfContainedPublishUnsupportedMessage =
+        "Self-contained publish is not available in nlc publish yet. " +
+        "Today nlc publish produces framework-dependent artifacts. " +
+        "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.";
+
+    private static string CrossRuntimePublishUnsupportedMessage(string requestedRuntime, string currentRuntime)
+        => $"Cross-runtime publish is not available in nlc publish yet. Requested runtime '{requestedRuntime}', but this machine is '{currentRuntime}'. " +
+           "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
+           "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.";
+
+    private static string? ValidatePublishArguments(string[] args)
     {
-        foreach (var frameworkDirectory in CompilationReferenceResolver.GetRuntimeFrameworkDirectories(config))
+        var optionsWithValues = new HashSet<string>(StringComparer.Ordinal)
         {
-            foreach (var file in Directory.GetFiles(frameworkDirectory, "*", SearchOption.TopDirectoryOnly))
+            "--project",
+            "--backend",
+            "--configuration",
+            "-c",
+            "--output",
+            "-o",
+            "--runtime",
+            "-r"
+        };
+        var switchOptions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "--self-contained"
+        };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (optionsWithValues.Contains(arg))
             {
-                File.Copy(file, Path.Combine(outputDirectory, Path.GetFileName(file)), overwrite: true);
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                {
+                    return $"Option '{arg}' requires a value.";
+                }
+
+                i++;
+                continue;
             }
+
+            if (switchOptions.Contains(arg))
+            {
+                continue;
+            }
+
+            if (arg is "--target" or "--target-platform")
+            {
+                return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.";
+            }
+
+            if (arg.StartsWith("-", StringComparison.Ordinal))
+            {
+                return $"Unknown publish option '{arg}'. Run 'nlc publish --help' for supported options.";
+            }
+
+            return $"Unexpected publish argument '{arg}'. Run 'nlc publish --help' for usage.";
         }
+
+        return null;
     }
 
     static int NewCommand(string[] args)
@@ -738,10 +810,16 @@ Options:
   --json                Output results as structured JSON (schemaVersion 1 envelope)
   --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
   --no-cache            Force clean rebuild before running tests (bypass incremental build)
+  --coverage            Planned; currently exits with unsupported-feature guidance
+  --coverage-report     Planned; currently exits with unsupported-feature guidance
   --help, -h            Show this help text
 
 The test framework is configured in project.yml via the `testFramework` field.
 Supported values: xunit (default), nunit
+
+Coverage collection is not available in the native nlc test runner yet.
+When --coverage or --coverage-report is requested, nlc exits 1 and emits
+a structured JSON error if --json was also requested.
 
 Examples:
   nlc test
@@ -780,6 +858,17 @@ Exit codes:
         try
         {
             if (!jsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
+
+            if (collectCoverage || coverageReport)
+            {
+                if (jsonOutput)
+                {
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
+                    return 1;
+                }
+
+                return Error(CoverageUnsupportedMessage);
+            }
 
             // Find all .tests.nl files
             var testFiles = Directory.GetFiles(projectRoot, "*.tests.nl", SearchOption.AllDirectories);
@@ -1234,7 +1323,7 @@ Common Workflows:
   nlc doctor                   Verify the installed toolchain
   nlc tutorial                 Open the local guided language walkthrough
   nlc fix && nlc check         Auto-fix then verify
-  nlc build --release          Optimized release build
+  nlc build --release          Release configuration/output layout
   nlc export csharp --project . -o ./myapp-csharp
                                Export a C# migration bundle
   nlc format --check           CI formatting gate

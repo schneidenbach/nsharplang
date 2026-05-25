@@ -89,32 +89,6 @@ internal static class CompilationReferenceResolver
             GetStableOutputDirectory(projectRoot, config, configuration),
             $"{GetProjectAssemblyName(projectRoot, config)}.dll");
 
-    internal static IReadOnlyList<string> GetRuntimeFrameworkDirectories(ProjectConfig config)
-    {
-        var frameworkNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Microsoft.NETCore.App"
-        };
-
-        if (config.Sdk.Contains("Web", StringComparison.OrdinalIgnoreCase))
-        {
-            frameworkNames.Add("Microsoft.AspNetCore.App");
-        }
-
-        foreach (var reference in config.Dependencies.Where(reference => reference.Type == ReferenceType.Framework))
-        {
-            frameworkNames.Add(reference.Framework!);
-        }
-
-        return frameworkNames
-            .Select(frameworkName => FindSharedFrameworkDirectory(frameworkName, config.TargetFramework)
-                ?? throw new InvalidOperationException(
-                    $"Framework reference '{frameworkName}' could not be resolved for {config.TargetFramework}. " +
-                    $"Install the matching .NET runtime/targeting pack, or update project.yml to target an installed framework."))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
     private static ReferenceResolutionResult ResolveProjectReferences(
         string projectRoot,
         ProjectConfig config,

@@ -21,12 +21,14 @@ The executable toolchain is now IL-only:
 | `nlc build` | Compile project through the IL backend | `nlc build` |
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
-| `nlc build --release` | Build with Release configuration | `nlc build --release` |
+| `nlc build --release` | Build with Release configuration/output layout | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
-| `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
+| `nlc publish` | Publish portable framework-dependent artifacts | `nlc publish --output ./dist` |
+| `nlc publish --runtime <current-rid>` | Add a framework-dependent launcher for the current host runtime only | `nlc publish --runtime osx-arm64 --output ./dist` |
+| `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) and legacy generated wrappers | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
@@ -87,6 +89,7 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc test` | Run .tests.nl files with the xUnit-backed N# test runner | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
+| `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
 | `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
 | `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
 | `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
@@ -510,6 +513,7 @@ nlc test --verbose
 
 - `--filter` matches both test display names and fully-qualified test names
 - `--verbose` shows individual test results without changing the test pipeline
+- Native coverage is not available in `nlc test` yet. `--coverage` and `--coverage-report` are accepted only to fail honestly: exit code 1, a clear text error by default, and the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 
 ### `nlc build` — Release Builds and Verbose Output
 
@@ -518,15 +522,30 @@ Build supports Go/Rust-style configuration flags:
 ```bash
 nlc build                # debug build (default)
 nlc build --backend il   # direct IL build
-nlc build --release      # release (optimized) build
+nlc build --release      # Release configuration/output layout
 nlc build --verbose      # detailed native resolver/build output
 nlc build --release --verbose
 ```
 
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
-- `--release` affects the native output layout (`bin/Release/<tfm>` unless `--output` is provided)
+- `--release` selects the Release configuration and native output layout (`bin/Release/<tfm>` unless `--output` is provided); it is not a separate IL optimizer today
 - `--verbose` enables detailed native resolver/build output
+
+### `nlc publish` — Framework-Dependent Deployment Artifacts
+
+`nlc publish` builds through the IL backend and writes framework-dependent artifacts. Supported shapes today:
+
+```bash
+nlc publish --output ./dist
+nlc publish --configuration Release --output ./dist
+nlc publish --runtime <current-rid> --output ./dist
+```
+
+- Without `--runtime`, output is portable framework-dependent: run it with `dotnet <assembly>.dll` on a compatible .NET installation.
+- With `--runtime`, the requested RID must equal the current host RID reported by .NET. The command adds a small framework-dependent launcher beside the `.dll`.
+- Cross-runtime publishing fails before build with guidance that names both the requested RID and the current host RID.
+- `--self-contained` is not implemented in `nlc publish`; it exits 1 with guidance instead of producing a directory that only looks self-contained.
 
 ### `nlc clean` — Build Artifact Cleanup
 
@@ -777,10 +796,10 @@ Protocol: JSON-RPC over Unix socket
 |---------|-----|------|----|
 | Fast type-check | `go build` | `cargo check` | `nlc check` |
 | Auto-fix | — | `cargo clippy --fix` (lints) | `nlc fix` (compiler + linter) |
-| Release build | implicit | `cargo build --release` | `nlc build --release` |
+| Release build | implicit | `cargo build --release` | `nlc build --release` (Release configuration/output layout; no separate IL optimizer yet) |
 | Verbose build | `go build -v` | `cargo build -v` | `nlc build --verbose` |
 | Build timing | external (`time`) | `cargo build --timings` | Built-in (always shown) |
-| Test coverage | `go test -cover` | `cargo tarpaulin` | Planned native coverage |
+| Test coverage | `go test -cover` | `cargo tarpaulin` | Planned native coverage; `nlc test --coverage` exits 1 with guidance today |
 | Code intelligence CLI | Need `gopls` server | Need `rust-analyzer` server | `nlc query` (single-shot JSON) |
 | Structured output | No | No | Yes (versioned JSON schemas) |
 | Canonical format | `gofmt` | `rustfmt` | `nlc format` |
