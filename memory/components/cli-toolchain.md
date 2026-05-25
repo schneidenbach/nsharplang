@@ -108,7 +108,7 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 
 ### Guided Tutorial (`nlc tutorial`)
 
-`nlc tutorial` hosts a local ASP.NET Core walkthrough for a first 15-minute N# tour. It writes real lesson projects under a user-local workspace, serves a TypeScript browser app from embedded local assets, and backs the editor actions with the `nlc` command line:
+`nlc tutorial` hosts a local ASP.NET Core walkthrough for a first 15-minute N# tour. It writes real lesson projects under a user-local workspace and serves an embedded TypeScript/Monaco browser workbench with N# language registration, file tabs for `Program.nl` and `Program.tests.nl`, Monaco diagnostics/hover/completions/formatting, and a Problems/Output panel. Browser IntelliSense uses a same-origin WebSocket bridge to `NSharpLang.LanguageServer` when available, and the toolbar remains backed by the `nlc` command line:
 
 - diagnostics: `nlc query diagnostics`
 - IntelliSense-style suggestions: `nlc query completions --include-keywords`

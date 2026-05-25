@@ -39,6 +39,10 @@
                       LogicalName="NSharpLang.Cli.Tutorial.Web.index.html" />
     <EmbeddedResource Include="Tutorial\Web\app.js"
                       LogicalName="NSharpLang.Cli.Tutorial.Web.app.js" />
+    <EmbeddedResource Include="Tutorial\Web\app.css"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.app.css" />
+    <EmbeddedResource Include="Tutorial\Web\editor.worker.js"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.editor.worker.js" />
     <EmbeddedResource Include="Tutorial\Web\styles.css"
                       LogicalName="NSharpLang.Cli.Tutorial.Web.styles.css" />
     <EmbeddedResource Include="Tutorial\Web\app.tsx"
