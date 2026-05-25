@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/lib/toolset.sh"
 source "$SCRIPT_DIR/lib/vscode-extension.sh"
 
 PROJECT_ROOT="$NSHARP_REPO_ROOT"
+SETUP_LOCAL_INVOCATION="${NSHARP_SETUP_LOCAL_INVOCATION:-./scripts/setup-local.sh}"
 NSHARP_INSTALL_DIR="${NSHARP_INSTALL_DIR:-$HOME/.nsharp}"
 NSHARP_BIN_DIR="$NSHARP_INSTALL_DIR/bin"
 LOCAL_FEED="${NSHARP_LOCAL_FEED:-$NSHARP_INSTALL_DIR/packages}"
@@ -24,7 +25,7 @@ UPDATE_PATH=1
 
 usage() {
     cat <<EOF
-Usage: ./scripts/setup-local.sh [options]
+Usage: $SETUP_LOCAL_INVOCATION [options]
 
 Contributor bootstrap for the local N# toolchain. Builds packages from this
 checkout, refreshes the local N# package cache, installs the nlc and nsharp-lsp

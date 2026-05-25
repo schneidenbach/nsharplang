@@ -7,7 +7,7 @@ The primary N# workflow goes through `nlc`: `project.yml` holds N# settings, and
 For local repo development, set up the full local toolchain once:
 
 ```bash
-./scripts/setup-local.sh
+./install-local.sh
 ```
 
 This installs the repo-built `nlc` and `nsharp-lsp` launchers under `~/.nsharp/bin`, installs templates, and makes that launcher directory available to future shells. Then create a project through the N# CLI:
@@ -73,7 +73,7 @@ For local development against this repo, add:
 </configuration>
 ```
 
-Replace `PATH_TO_REPO` with the absolute path to this repository, or use `nlc new MyApp` for the normal csproj-free project path after running `./scripts/setup-local.sh`.
+Replace `PATH_TO_REPO` with the absolute path to this repository, or use `nlc new MyApp` for the normal csproj-free project path after running `./install-local.sh`.
 
 ## Build, Run, and Test
 

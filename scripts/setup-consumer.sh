@@ -9,7 +9,7 @@ setup-consumer.sh has been replaced by the package-manager toolset installer.
 Use one of:
   brew install nsharp
   ./scripts/install.sh --source <nsharp-toolset.tar.gz>
-  ./scripts/setup-local.sh
+  ./install-local.sh
 EOF
 
 exec "$SCRIPT_DIR/install.sh" "$@"

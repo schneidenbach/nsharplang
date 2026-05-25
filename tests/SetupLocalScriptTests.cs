@@ -17,7 +17,7 @@ public class SetupLocalScriptTests
 
         try
         {
-            var result = RunBash(repoRoot, home, "scripts/setup-local.sh --dry-run");
+            var result = RunBash(repoRoot, home, "./install-local.sh --dry-run");
 
             Assert.True(
                 result.ExitCode == 0,
@@ -34,6 +34,33 @@ public class SetupLocalScriptTests
             Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
             Assert.Contains("nlc new MyApp", result.Stdout);
             Assert.DoesNotContain("dotnet" + " tool", result.Stdout);
+        }
+        finally
+        {
+            try { Directory.Delete(home, recursive: true); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void InstallLocalHelpShowsTopLevelCommand()
+    {
+        var repoRoot = FindRepoRoot();
+        var home = Path.Combine(Path.GetTempPath(), "nsharp-install-local-help-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+
+        try
+        {
+            var result = RunBash(repoRoot, home, "./install-local.sh --help");
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"install-local help failed with exit code {result.ExitCode}\n" +
+                $"--- stdout ---\n{result.Stdout}\n" +
+                $"--- stderr ---\n{result.Stderr}");
+            Assert.Contains("Usage: ./install-local.sh [options]", result.Stdout);
+            Assert.Contains("--with-vscode", result.Stdout);
+            Assert.Contains("NSHARP_INSTALL_DIR", result.Stdout);
         }
         finally
         {

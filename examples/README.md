@@ -6,7 +6,7 @@ Welcome to the N# examples! These examples demonstrate the language features and
 
 For local repo development:
 ```bash
-./scripts/setup-local.sh
+./install-local.sh
 ```
 
 ## Example Categories

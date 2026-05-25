@@ -123,7 +123,7 @@ public void TestFullCompilation()
 - Rename (with interpolation awareness)
 - FindAllReferences
 - Headless VS Code extension-host smoke tests live under `editors/vscode/src/test`
-- `./scripts/test-vscode-headless.sh` builds the release server, launches VS Code in extension-host mode, exercises diagnostics/completions/hover/definition/references/code actions, and writes `.context/vscode-headless-report.json`
+- `./scripts/test-vscode-headless.sh` builds the release server, launches VS Code in extension-host mode, exercises diagnostics/completions/hover/definition/references/code actions, and writes `.context/vscode-headless-report.json`; the implementation lives under `tests/scripts/`
 
 ### Code Intelligence Tests (CLI Toolchain)
 - **QueryIntegrationTests** — runs against REAL example projects:

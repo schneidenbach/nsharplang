@@ -688,10 +688,10 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 
 ## Local Contributor Install
 
-Use [scripts/setup-local.sh](/Users/spencer/Repos/nsharplang/scripts/setup-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local N# package cache, publishes `nlc` and `nsharp-lsp` as framework-dependent apps, installs launchers under `~/.nsharp/bin`, and writes `~/.nsharp/env` so future shells put those launchers on PATH.
+Use [install-local.sh](/Users/spencer/repos/nsharplang/install-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local N# package cache, publishes `nlc` and `nsharp-lsp` as framework-dependent apps, installs launchers under `~/.nsharp/bin`, and writes `~/.nsharp/env` so future shells put those launchers on PATH.
 
 ```bash
-./scripts/setup-local.sh
+./install-local.sh
 ```
 
 The script:
@@ -700,7 +700,7 @@ The script:
 - verifies `nlc doctor --skip-vscode` by default
 - supports `--with-vscode` when the local VS Code extension should also be packaged and installed
 
-For a CLI-only reinstall while debugging packaging, use `./scripts/setup-local.sh --skip-vscode --no-path-update`.
+For a CLI-only reinstall while debugging packaging, use `./install-local.sh --skip-vscode --no-path-update`.
 
 ---
 
