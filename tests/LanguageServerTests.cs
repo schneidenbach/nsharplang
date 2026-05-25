@@ -1464,6 +1464,36 @@ func main(): void
         Assert.Contains("length: int", activeSignature.Label);
     }
 
+    [Fact]
+    public async Task SignatureHelp_DotNetNamedCall_UsesAnalyzerSelectedOverloadAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/signature_named_call.nl";
+
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): void
+    names := new List<string>()
+    names.Add(""alpha"")
+    joined := String.Join(separator: "","", values: names)
+";
+
+        harness.OpenDocument(uri, source);
+
+        var lines = source.Split('\n');
+        var line = Array.FindIndex(lines, text => text.Contains("String.Join", StringComparison.Ordinal));
+        var character = lines[line].IndexOf("values", StringComparison.Ordinal) + "values".Length;
+        var sigHelp = await harness.GetSignatureHelpAsync(uri, line, character);
+
+        Assert.NotNull(sigHelp);
+        Assert.NotEmpty(sigHelp.Signatures);
+        var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
+        Assert.Contains("separator: string", activeSignature.Label);
+        Assert.Contains("values: IEnumerable<string>", activeSignature.Label);
+    }
+
     #endregion
 
     #region Definition Tests

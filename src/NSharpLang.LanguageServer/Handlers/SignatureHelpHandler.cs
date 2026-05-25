@@ -337,7 +337,8 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 var instanceSignatures = BuildReflectionSignatures(
                     clrReceiverType,
                     methodName,
-                    MemberAccessMode.InstanceOnly);
+                    MemberAccessMode.InstanceOnly,
+                    TryGetSelectedReflectionMethod(doc, methodName, lspLine, lspCharacter));
                 if (instanceSignatures.Count > 0)
                 {
                     _logger.LogDebug("Resolved receiver '{Receiver}' as CLR instance type '{Type}'",
@@ -362,7 +363,11 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
             return new List<SignatureInformation>();
         }
 
-        return BuildReflectionSignatures(staticType, methodName, MemberAccessMode.StaticOnly);
+        return BuildReflectionSignatures(
+            staticType,
+            methodName,
+            MemberAccessMode.StaticOnly,
+            TryGetSelectedReflectionMethod(doc, methodName, lspLine, lspCharacter));
     }
 
     private bool TryLookupReceiverTypeInfo(
@@ -401,6 +406,141 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
         };
     }
 
+    private static MethodInfo? TryGetSelectedReflectionMethod(
+        DocumentState doc,
+        string methodName,
+        int lspLine,
+        int lspCharacter)
+    {
+        if (doc.CompilationUnit == null || doc.SemanticModel == null)
+        {
+            return null;
+        }
+
+        CallExpression? bestCall = null;
+
+        void ConsiderCall(CallExpression call)
+        {
+            if (call.Callee is not MemberAccessExpression memberAccess
+                || memberAccess.MemberName != methodName
+                || !IsBeforeOrAt(call.Line, call.Column, lspLine, lspCharacter))
+            {
+                return;
+            }
+
+            if (bestCall == null || IsAfter(call.Line, call.Column, bestCall.Line, bestCall.Column))
+            {
+                bestCall = call;
+            }
+        }
+
+        void VisitDeclaration(Declaration declaration)
+        {
+            switch (declaration)
+            {
+                case FunctionDeclaration function:
+                    if (function.Body != null) VisitStatement(function.Body);
+                    if (function.ExpressionBody != null) VisitExpression(function.ExpressionBody);
+                    break;
+                case ClassDeclaration cls:
+                    foreach (var member in cls.Members) VisitDeclaration(member);
+                    break;
+                case StructDeclaration str:
+                    foreach (var member in str.Members) VisitDeclaration(member);
+                    break;
+                case RecordDeclaration record:
+                    foreach (var member in record.Members) VisitDeclaration(member);
+                    break;
+            }
+        }
+
+        void VisitStatement(Statement statement)
+        {
+            switch (statement)
+            {
+                case BlockStatement block:
+                    foreach (var child in block.Statements) VisitStatement(child);
+                    break;
+                case ExpressionStatement expressionStatement:
+                    VisitExpression(expressionStatement.Expression);
+                    break;
+                case VariableDeclarationStatement variableDeclaration:
+                    if (variableDeclaration.Initializer != null) VisitExpression(variableDeclaration.Initializer);
+                    break;
+                case ReturnStatement returnStatement:
+                    if (returnStatement.Value != null) VisitExpression(returnStatement.Value);
+                    break;
+                case IfStatement ifStatement:
+                    VisitExpression(ifStatement.Condition);
+                    VisitStatement(ifStatement.ThenStatement);
+                    if (ifStatement.ElseStatement != null) VisitStatement(ifStatement.ElseStatement);
+                    break;
+                case ForeachStatement foreachStatement:
+                    VisitExpression(foreachStatement.Collection);
+                    VisitStatement(foreachStatement.Body);
+                    break;
+            }
+        }
+
+        void VisitExpression(Expression expression)
+        {
+            switch (expression)
+            {
+                case CallExpression call:
+                    ConsiderCall(call);
+                    VisitExpression(call.Callee);
+                    foreach (var argument in call.Arguments) VisitExpression(argument.Value);
+                    break;
+                case MemberAccessExpression memberAccess:
+                    VisitExpression(memberAccess.Object);
+                    break;
+                case BinaryExpression binary:
+                    VisitExpression(binary.Left);
+                    VisitExpression(binary.Right);
+                    break;
+                case UnaryExpression unary:
+                    VisitExpression(unary.Operand);
+                    break;
+                case AssignmentExpression assignment:
+                    VisitExpression(assignment.Target);
+                    VisitExpression(assignment.Value);
+                    break;
+                case LambdaExpression lambda:
+                    if (lambda.ExpressionBody != null) VisitExpression(lambda.ExpressionBody);
+                    if (lambda.BlockBody != null) VisitStatement(lambda.BlockBody);
+                    break;
+                case ArrayLiteralExpression array:
+                    foreach (var element in array.Elements) VisitExpression(element);
+                    break;
+                case ParenthesizedExpression parenthesized:
+                    VisitExpression(parenthesized.Inner);
+                    break;
+            }
+        }
+
+        foreach (var declaration in doc.CompilationUnit.Declarations)
+        {
+            VisitDeclaration(declaration);
+        }
+
+        return bestCall != null
+            ? doc.SemanticModel.LookupReflectionCallTarget(bestCall.Line, bestCall.Column)
+            : null;
+
+        static bool IsBeforeOrAt(int line, int column, int targetLine, int targetColumn)
+        {
+            var zeroBasedLine = Math.Max(0, line - 1);
+            var zeroBasedColumn = Math.Max(0, column - 1);
+            return zeroBasedLine < targetLine
+                || (zeroBasedLine == targetLine && zeroBasedColumn <= targetColumn);
+        }
+
+        static bool IsAfter(int line, int column, int otherLine, int otherColumn)
+        {
+            return line > otherLine || (line == otherLine && column > otherColumn);
+        }
+    }
+
     private static string? GetNSharpTypeName(DocumentState doc, CompilerTypeInfo typeInfo)
     {
         var typeName = typeInfo switch
@@ -425,7 +565,11 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     /// <summary>
     /// Build signatures for .NET types via reflection.
     /// </summary>
-    private List<SignatureInformation> BuildReflectionSignatures(Type type, string methodName, MemberAccessMode mode)
+    private List<SignatureInformation> BuildReflectionSignatures(
+        Type type,
+        string methodName,
+        MemberAccessMode mode,
+        MethodInfo? selectedMethod = null)
     {
         var bindingFlags = BindingFlags.Public;
         bindingFlags |= mode switch
@@ -437,7 +581,8 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
         var methods = type.GetMethods(bindingFlags)
             .Where(m => m.Name == methodName && !m.IsSpecialName)
-            .OrderBy(m => m.GetParameters().Length)
+            .OrderByDescending(m => selectedMethod != null && ReflectionMethodIdentity.MethodsMatch(m, selectedMethod))
+            .ThenBy(m => m.GetParameters().Length)
             .ThenBy(m => string.Join(",", m.GetParameters().Select(p => p.ParameterType.FullName)))
             .ToList();
 
@@ -684,11 +829,56 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
     {
         var count = 0;
         var depth = 0;
+        var inString = false;
+        var inChar = false;
+        var escaped = false;
 
         foreach (var ch in text)
         {
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (ch == '\\')
+                {
+                    escaped = true;
+                }
+                else if (ch == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (inChar)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (ch == '\\')
+                {
+                    escaped = true;
+                }
+                else if (ch == '\'')
+                {
+                    inChar = false;
+                }
+
+                continue;
+            }
+
             switch (ch)
             {
+                case '"':
+                    inString = true;
+                    break;
+                case '\'':
+                    inChar = true;
+                    break;
                 case '(':
                 case '[':
                 case '<':
@@ -697,7 +887,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 case ')':
                 case ']':
                 case '>':
-                    depth--;
+                    if (depth > 0) depth--;
                     break;
                 case ',':
                     if (depth == 0)

@@ -1784,6 +1784,27 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteRealBclNamedOptionalAndEnumerableOverloadCalls()
+    {
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): string {
+    names := new List<string>()
+    names.Add(""alpha"")
+    names.Add(""beta"")
+
+    joined := String.Join(separator: "","", values: names)
+    formatted := String.Format(format: ""{0}-{1}"", arg0: ""left"", arg1: ""right"")
+    return joined + ""|"" + formatted
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("alpha,beta|left-right", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteClosureLambdaCapturingMultipleParameters()
     {
         var source = @"

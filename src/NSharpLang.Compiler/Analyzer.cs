@@ -3292,6 +3292,7 @@ public class Analyzer : IDisposable
             {
                 "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
                 "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
+                "IQueryable" when genericType.TypeArguments.Count == 1 => wkt.IQueryableOpen,
                 "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
                 "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
                 "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
@@ -3430,6 +3431,12 @@ public class Analyzer : IDisposable
         Dictionary<Type, Type> clrBindings)
     {
         var resolvedType = ApplyReflectionBindings(openDelegateType, clrBindings);
+        if (TryGetExpressionTreeDelegateType(resolvedType, out var expressionDelegateType))
+        {
+            resolvedType = expressionDelegateType;
+            openDelegateType = GetDelegateParameterTypeForLambdaTarget(openDelegateType);
+        }
+
         if (!IsDelegateType(resolvedType))
             return null;
 
@@ -3483,6 +3490,14 @@ public class Analyzer : IDisposable
         };
     }
 
+    private static Type GetDelegateParameterTypeForLambdaTarget(Type parameterType)
+    {
+        parameterType = GetByRefElementType(parameterType);
+        return TryGetExpressionTreeDelegateType(parameterType, out var expressionDelegateType)
+            ? expressionDelegateType
+            : parameterType;
+    }
+
     private bool IsDelegateType(Type type)
     {
         if (_wellKnownTypes == null) return false;
@@ -3491,8 +3506,36 @@ public class Analyzer : IDisposable
             && type.FullName != "System.MulticastDelegate";
     }
 
+    private static bool TryGetExpressionTreeDelegateType(Type type, out Type delegateType)
+    {
+        delegateType = typeof(void);
+
+        type = GetByRefElementType(type);
+        if (!type.IsGenericType)
+            return false;
+
+        Type genericDefinition;
+        try
+        {
+            genericDefinition = type.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        if (genericDefinition.FullName != "System.Linq.Expressions.Expression`1")
+            return false;
+
+        delegateType = type.GetGenericArguments()[0];
+        return typeof(Delegate).IsAssignableFrom(delegateType) || delegateType.BaseType?.FullName == "System.MulticastDelegate";
+    }
+
     private FunctionTypeInfo CreateFunctionTypeInfoFromDelegate(Type delegateType)
     {
+        if (TryGetExpressionTreeDelegateType(delegateType, out var expressionDelegateType))
+            delegateType = expressionDelegateType;
+
         if (delegateType.IsGenericType)
         {
             var genericDefinition = delegateType.GetGenericTypeDefinition();
@@ -3608,6 +3651,7 @@ public class Analyzer : IDisposable
         {
             "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
             "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
+            "IQueryable" when genericType.TypeArguments.Count == 1 => wkt.IQueryableOpen,
             "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
             "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
             "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
@@ -4937,6 +4981,18 @@ public class Analyzer : IDisposable
         return type;
     }
 
+    private abstract record ReflectionBoundArgument(int ParameterIndex, Type OpenParameterType);
+    private sealed record SuppliedReflectionBoundArgument(int ParameterIndex, Type OpenParameterType, Argument Argument, int ArgumentIndex)
+        : ReflectionBoundArgument(ParameterIndex, OpenParameterType);
+    private sealed record DefaultReflectionBoundArgument(int ParameterIndex, Type OpenParameterType, ParameterInfo Parameter)
+        : ReflectionBoundArgument(ParameterIndex, OpenParameterType);
+    private sealed record ParamsReflectionBoundArgument(
+        int ParameterIndex,
+        Type OpenParameterType,
+        Type OpenElementType,
+        IReadOnlyList<(Argument Argument, int ArgumentIndex)> Arguments)
+        : ReflectionBoundArgument(ParameterIndex, OpenParameterType);
+
     private FunctionTypeInfo? BindReflectionCall(ReflectionMethodGroupInfo methodGroup, CallExpression call)
     {
         TypeInfo? receiverTypeInfo = null;
@@ -4957,7 +5013,9 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
         }
 
-        (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings, Dictionary<int, FunctionTypeInfo> MethodGroupArguments, int Score)? selected = null;
+        (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
+            Dictionary<int, FunctionTypeInfo> MethodGroupArguments, IReadOnlyList<ReflectionBoundArgument> BoundArguments,
+            int Score, bool UsesParams, int DefaultsUsed)? selected = null;
 
         foreach (var method in methodGroup.Methods)
         {
@@ -4965,14 +5023,25 @@ public class Analyzer : IDisposable
             if (candidate == null)
                 continue;
 
-            if (selected == null || candidate.Value.Score > selected.Value.Score)
+            if (selected == null
+                || candidate.Value.Score > selected.Value.Score
+                || (candidate.Value.Score == selected.Value.Score && selected.Value.UsesParams && !candidate.Value.UsesParams)
+                || (candidate.Value.Score == selected.Value.Score && selected.Value.UsesParams == candidate.Value.UsesParams && candidate.Value.DefaultsUsed < selected.Value.DefaultsUsed))
+            {
                 selected = candidate;
+            }
         }
 
         if (selected == null)
             return null;
 
-        return FinalizeBoundReflectionCall(selected.Value.Method, call, selected.Value.Bindings, selected.Value.TypeInfoBindings, selected.Value.MethodGroupArguments);
+        return FinalizeBoundReflectionCall(
+            selected.Value.Method,
+            call,
+            selected.Value.Bindings,
+            selected.Value.TypeInfoBindings,
+            selected.Value.MethodGroupArguments,
+            selected.Value.BoundArguments);
     }
 
     private FunctionTypeInfo? BindSingleReflectionMethod(MethodInfo method, CallExpression call)
@@ -4999,10 +5068,18 @@ public class Analyzer : IDisposable
         if (preBound == null)
             return null;
 
-        return FinalizeBoundReflectionCall(preBound.Value.Method, call, preBound.Value.Bindings, preBound.Value.TypeInfoBindings, preBound.Value.MethodGroupArguments);
+        return FinalizeBoundReflectionCall(
+            preBound.Value.Method,
+            call,
+            preBound.Value.Bindings,
+            preBound.Value.TypeInfoBindings,
+            preBound.Value.MethodGroupArguments,
+            preBound.Value.BoundArguments);
     }
 
-    private (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings, Dictionary<int, FunctionTypeInfo> MethodGroupArguments, int Score)? PreBindReflectionMethod(
+    private (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
+        Dictionary<int, FunctionTypeInfo> MethodGroupArguments, IReadOnlyList<ReflectionBoundArgument> BoundArguments,
+        int Score, bool UsesParams, int DefaultsUsed)? PreBindReflectionMethod(
         MethodInfo method,
         CallExpression call,
         Type? receiverClrType,
@@ -5015,6 +5092,7 @@ public class Analyzer : IDisposable
         var openMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
         var parameterOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
         var parameters = openMethod.GetParameters();
+        var receiverScore = 0;
 
         if (parameterOffset == 1)
         {
@@ -5024,6 +5102,8 @@ public class Analyzer : IDisposable
             // Track N# TypeInfo bindings from the receiver type
             if (receiverTypeInfo != null)
                 PopulateTypeInfoBindingsFromType(parameters[0].ParameterType, receiverTypeInfo, typeInfoBindings);
+
+            receiverScore = GetReflectionMatchScore(ApplyReflectionBindings(parameters[0].ParameterType, bindings), receiverClrType);
         }
 
         if (call.TypeArguments != null && call.TypeArguments.Count > 0)
@@ -5056,71 +5136,363 @@ public class Analyzer : IDisposable
             return null;
 
         // Extension methods get a small penalty so instance methods are preferred (matches C# semantics)
-        var score = parameterOffset == 1 ? -1 : 0;
+        var score = (parameterOffset == 1 ? -1 : 0) + receiverScore;
 
-        for (int i = 0; i < call.Arguments.Count; i++)
+        if (!TryBindReflectionArguments(
+                parameters,
+                parameterOffset,
+                call,
+                bindings,
+                typeInfoBindings,
+                methodGroupArguments,
+                analyzedNonLambdaArguments,
+                out var boundArguments,
+                out var argumentScore,
+                out var usesParams,
+                out var defaultsUsed))
         {
-            var parameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
-            if (parameterType == null)
-                return null;
-
-            if (call.Arguments[i].Value is LambdaExpression lambda)
-            {
-                var delegateType = ApplyReflectionBindings(parameterType, bindings);
-                var signature = IsDelegateType(delegateType)
-                    ? CreateFunctionTypeInfoFromDelegate(delegateType)
-                    : null;
-
-                if (signature?.ParameterTypes == null || signature.ParameterTypes.Count != lambda.Parameters.Count)
-                    return null;
-
-                score += 2 + signature.ParameterTypes.Count;
-                continue;
-            }
-
-            var argumentType = analyzedNonLambdaArguments[i];
-            if (argumentType == null)
-                return null;
-
-            if (TryBindMethodGroupToReflectionDelegate(parameterType, argumentType, bindings, out var selectedMethodGroup, out var methodGroupScore))
-            {
-                if (!TryPopulateReflectionBindingsFromMethodGroupDelegate(
-                        parameterType,
-                        selectedMethodGroup,
-                        bindings,
-                        typeInfoBindings))
-                {
-                    return null;
-                }
-
-                methodGroupArguments[i] = selectedMethodGroup;
-                score += methodGroupScore;
-                continue;
-            }
-
-            var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
-                ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
-            if (argumentClrType != null)
-            {
-                if (!TryMatchReflectionParameter(parameterType, argumentClrType, bindings))
-                    return null;
-
-                // Track TypeInfo bindings from this argument
-                if (argumentType != null)
-                    PopulateTypeInfoBindingsFromType(parameterType, argumentType, typeInfoBindings);
-
-                score += GetReflectionMatchScore(ApplyReflectionBindings(parameterType, bindings), argumentClrType);
-                continue;
-            }
-
-            var expectedType = ConvertReflectionType(ApplyReflectionBindings(parameterType, bindings));
-            if (!IsAssignable(expectedType, argumentType))
-                return null;
-
-            score += 1;
+            return null;
         }
 
-        return (openMethod, bindings, typeInfoBindings, methodGroupArguments, score);
+        score += argumentScore;
+        return (openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed);
+    }
+
+    private bool TryBindReflectionArguments(
+        ParameterInfo[] parameters,
+        int parameterOffset,
+        CallExpression call,
+        Dictionary<Type, Type> bindings,
+        Dictionary<Type, TypeInfo> typeInfoBindings,
+        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
+        TypeInfo?[] analyzedNonLambdaArguments,
+        out IReadOnlyList<ReflectionBoundArgument> boundArguments,
+        out int score,
+        out bool usesParams,
+        out int defaultsUsed)
+    {
+        boundArguments = Array.Empty<ReflectionBoundArgument>();
+        score = 0;
+        defaultsUsed = 0;
+
+        var bound = new ReflectionBoundArgument?[parameters.Length];
+        usesParams = parameters.Length > parameterOffset && IsParamsParameter(parameters[^1]);
+        var paramsParameterIndex = usesParams ? parameters.Length - 1 : -1;
+        var nextPositionalParameter = parameterOffset;
+        var paramsArguments = new List<(Argument Argument, int ArgumentIndex)>();
+
+        for (int argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
+        {
+            var argument = call.Arguments[argumentIndex];
+            if (argument.Name != null)
+            {
+                var parameterIndex = Array.FindIndex(
+                    parameters,
+                    parameterOffset,
+                    parameters.Length - parameterOffset,
+                    parameter => string.Equals(parameter.Name, argument.Name, StringComparison.Ordinal));
+                if (parameterIndex < parameterOffset || parameterIndex >= parameters.Length || bound[parameterIndex] != null)
+                    return false;
+
+                bound[parameterIndex] = new SuppliedReflectionBoundArgument(
+                    parameterIndex,
+                    GetByRefElementType(parameters[parameterIndex].ParameterType),
+                    argument,
+                    argumentIndex);
+                continue;
+            }
+
+            while (nextPositionalParameter < parameters.Length
+                   && nextPositionalParameter != paramsParameterIndex
+                   && bound[nextPositionalParameter] != null)
+            {
+                nextPositionalParameter++;
+            }
+
+            if (nextPositionalParameter < parameters.Length
+                && nextPositionalParameter != paramsParameterIndex)
+            {
+                bound[nextPositionalParameter] = new SuppliedReflectionBoundArgument(
+                    nextPositionalParameter,
+                    GetByRefElementType(parameters[nextPositionalParameter].ParameterType),
+                    argument,
+                    argumentIndex);
+                nextPositionalParameter++;
+                continue;
+            }
+
+            if (!usesParams)
+                return false;
+
+            paramsArguments.Add((argument, argumentIndex));
+        }
+
+        var regularParameterEnd = usesParams ? paramsParameterIndex : parameters.Length;
+        for (int parameterIndex = parameterOffset; parameterIndex < regularParameterEnd; parameterIndex++)
+        {
+            if (bound[parameterIndex] != null)
+                continue;
+
+            if (!parameters[parameterIndex].IsOptional)
+                return false;
+
+            bound[parameterIndex] = new DefaultReflectionBoundArgument(
+                parameterIndex,
+                GetByRefElementType(parameters[parameterIndex].ParameterType),
+                parameters[parameterIndex]);
+            defaultsUsed++;
+        }
+
+        if (usesParams)
+        {
+            if (bound[paramsParameterIndex] != null && paramsArguments.Count > 0)
+                return false;
+
+            if (bound[paramsParameterIndex] == null)
+            {
+                var paramsParameterType = GetByRefElementType(parameters[paramsParameterIndex].ParameterType);
+                if (!TryGetReflectionParamsElementType(paramsParameterType, out var elementType))
+                    return false;
+
+                if (paramsArguments.Count == 1
+                    && ShouldPassReflectionParamsArgumentDirectly(
+                        paramsArguments[0].Argument,
+                        paramsArguments[0].ArgumentIndex,
+                        paramsParameterType,
+                        bindings,
+                        analyzedNonLambdaArguments))
+                {
+                    bound[paramsParameterIndex] = new SuppliedReflectionBoundArgument(
+                        paramsParameterIndex,
+                        paramsParameterType,
+                        paramsArguments[0].Argument,
+                        paramsArguments[0].ArgumentIndex);
+                }
+                else
+                {
+                    bound[paramsParameterIndex] = new ParamsReflectionBoundArgument(
+                        paramsParameterIndex,
+                        paramsParameterType,
+                        elementType,
+                        paramsArguments);
+                }
+            }
+        }
+
+        var materializedBoundArguments = new List<ReflectionBoundArgument>();
+        for (int parameterIndex = parameterOffset; parameterIndex < parameters.Length; parameterIndex++)
+        {
+            var boundArgument = bound[parameterIndex];
+            if (boundArgument == null)
+                continue;
+
+            switch (boundArgument)
+            {
+                case DefaultReflectionBoundArgument:
+                    break;
+
+                case SuppliedReflectionBoundArgument supplied:
+                    if (!TryScoreReflectionSuppliedArgument(
+                            supplied,
+                            parameters[supplied.ParameterIndex],
+                            bindings,
+                            typeInfoBindings,
+                            methodGroupArguments,
+                            analyzedNonLambdaArguments,
+                            out var suppliedScore))
+                    {
+                        return false;
+                    }
+                    score += suppliedScore;
+                    break;
+
+                case ParamsReflectionBoundArgument paramsBound:
+                    foreach (var (argument, argumentIndex) in paramsBound.Arguments)
+                    {
+                        var suppliedParamsElement = new SuppliedReflectionBoundArgument(
+                            paramsBound.ParameterIndex,
+                            paramsBound.OpenElementType,
+                            argument,
+                            argumentIndex);
+                        if (!TryScoreReflectionSuppliedArgument(
+                                suppliedParamsElement,
+                                parameters[paramsBound.ParameterIndex],
+                                bindings,
+                                typeInfoBindings,
+                                methodGroupArguments,
+                                analyzedNonLambdaArguments,
+                                out var paramsElementScore,
+                                expectsParamsElement: true))
+                        {
+                            return false;
+                        }
+                        score += paramsElementScore;
+                    }
+                    break;
+            }
+
+            materializedBoundArguments.Add(boundArgument);
+        }
+
+        boundArguments = materializedBoundArguments;
+        return true;
+    }
+
+    private bool TryScoreReflectionSuppliedArgument(
+        SuppliedReflectionBoundArgument supplied,
+        ParameterInfo parameter,
+        Dictionary<Type, Type> bindings,
+        Dictionary<Type, TypeInfo> typeInfoBindings,
+        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
+        TypeInfo?[] analyzedNonLambdaArguments,
+        out int score,
+        bool expectsParamsElement = false)
+    {
+        score = 0;
+
+        var expectsByRef = !expectsParamsElement && parameter.ParameterType.IsByRef;
+        var suppliedByRef = supplied.Argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out;
+        if (expectsByRef != suppliedByRef)
+            return false;
+
+        var openParameterType = supplied.OpenParameterType;
+        var boundParameterType = ApplyReflectionBindings(openParameterType, bindings);
+
+        if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
+        {
+            if (outVariable.Type != null)
+            {
+                var declaredType = ResolveType(outVariable.Type);
+                var expectedTypeInfo = ConvertReflectionType(boundParameterType);
+                if (!IsAssignable(expectedTypeInfo, declaredType))
+                    return false;
+            }
+
+            score = 8;
+            return true;
+        }
+
+        if (supplied.Argument.Value is DefaultExpression)
+        {
+            score = 8;
+            return true;
+        }
+
+        if (supplied.Argument.Value is LambdaExpression lambda)
+        {
+            var expectedSignature = CreateDelegateSignatureFromOpenType(
+                openParameterType,
+                typeInfoBindings,
+                bindings);
+
+            if (expectedSignature?.ParameterTypes == null || expectedSignature.ParameterTypes.Count != lambda.Parameters.Count)
+                return false;
+
+            score = 2 + expectedSignature.ParameterTypes.Count;
+            return true;
+        }
+
+        var argumentType = analyzedNonLambdaArguments[supplied.ArgumentIndex];
+        if (argumentType == null)
+            return false;
+
+        if (TryBindMethodGroupToReflectionDelegate(openParameterType, argumentType, bindings, out var selectedMethodGroup, out var methodGroupScore))
+        {
+            if (!TryPopulateReflectionBindingsFromMethodGroupDelegate(
+                    openParameterType,
+                    selectedMethodGroup,
+                    bindings,
+                    typeInfoBindings))
+            {
+                return false;
+            }
+
+            methodGroupArguments[supplied.ArgumentIndex] = selectedMethodGroup;
+            score = methodGroupScore;
+            return true;
+        }
+
+        var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
+            ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
+        if (argumentClrType != null)
+        {
+            if (!TryMatchReflectionParameter(openParameterType, argumentClrType, bindings))
+                return false;
+
+            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings);
+
+            score = GetReflectionMatchScore(ApplyReflectionBindings(openParameterType, bindings), argumentClrType);
+            return true;
+        }
+
+        var expectedType = ConvertReflectionType(boundParameterType);
+        if (!IsAssignable(expectedType, argumentType))
+            return false;
+
+        score = 1;
+        return true;
+    }
+
+    private static Type GetByRefElementType(Type type)
+    {
+        return type.IsByRef ? type.GetElementType()! : type;
+    }
+
+    private static bool TryGetReflectionParamsElementType(Type paramsParameterType, out Type elementType)
+    {
+        if (paramsParameterType.IsArray)
+        {
+            elementType = paramsParameterType.GetElementType()!;
+            return true;
+        }
+
+        if (paramsParameterType.IsGenericType)
+        {
+            var genericDefinitionName = paramsParameterType.GetGenericTypeDefinition().FullName;
+            if (genericDefinitionName is "System.ReadOnlySpan`1" or "System.Span`1"
+                or "System.Collections.Generic.IEnumerable`1"
+                or "System.Collections.Generic.IReadOnlyList`1"
+                or "System.Collections.Generic.IReadOnlyCollection`1")
+            {
+                elementType = paramsParameterType.GetGenericArguments()[0];
+                return true;
+            }
+        }
+
+        elementType = typeof(object);
+        return false;
+    }
+
+    private bool ShouldPassReflectionParamsArgumentDirectly(
+        Argument argument,
+        int argumentIndex,
+        Type paramsParameterType,
+        Dictionary<Type, Type> bindings,
+        TypeInfo?[] analyzedNonLambdaArguments)
+    {
+        if (argument.Value is SpreadExpression)
+            return false;
+
+        if (argument.Value is DefaultExpression)
+            return true;
+
+        if (argument.Value is LambdaExpression)
+            return false;
+
+        var argumentType = analyzedNonLambdaArguments[argumentIndex];
+        if (argumentType == null || BuiltInTypes.IsUnknown(argumentType))
+            return false;
+
+        var argumentClrType = TryConvertTypeInfoToClrType(argumentType)
+            ?? TryConvertTypeInfoToClrTypeForBinding(argumentType);
+        if (argumentClrType != null)
+        {
+            var trialBindings = new Dictionary<Type, Type>(bindings);
+            return TryMatchReflectionParameter(paramsParameterType, argumentClrType, trialBindings);
+        }
+
+        var expectedType = ConvertReflectionType(ApplyReflectionBindings(paramsParameterType, bindings));
+        return IsAssignable(expectedType, argumentType);
     }
 
     private bool TryBindMethodGroupToReflectionDelegate(
@@ -5304,40 +5676,33 @@ public class Analyzer : IDisposable
         MethodInfo method, CallExpression call,
         Dictionary<Type, Type> bindings,
         Dictionary<Type, TypeInfo> typeInfoBindings,
-        Dictionary<int, FunctionTypeInfo> methodGroupArguments)
+        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
+        IReadOnlyList<ReflectionBoundArgument> boundArguments)
     {
         var workingBindings = new Dictionary<Type, Type>(bindings);
         var workingTypeInfoBindings = new Dictionary<Type, TypeInfo>(typeInfoBindings);
         var openMethod = method; // Preserve the open method for TypeInfo-based resolution
-        var parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
-        var parameters = method.GetParameters();
         var hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
 
-        for (int i = 0; i < call.Arguments.Count; i++)
+        foreach (var boundArgument in EnumerateSuppliedReflectionArguments(boundArguments))
         {
-            if (call.Arguments[i].Value is not LambdaExpression lambda)
+            if (boundArgument.Argument.Value is not LambdaExpression lambda)
                 continue;
 
-            var parameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
-            if (parameterType == null)
+            var expectedSignature = CreateDelegateSignatureFromOpenType(
+                boundArgument.OpenParameterType,
+                workingTypeInfoBindings,
+                workingBindings);
+            if (expectedSignature == null)
                 return null;
-
-            var delegateType = ApplyReflectionBindings(parameterType, workingBindings);
-            if (!IsDelegateType(delegateType))
-                return null;
-
-            // Use TypeInfo overrides for lambda parameter types when N# types are involved
-            FunctionTypeInfo? expectedSignature;
-            if (hasTypeInfoOverrides)
-                expectedSignature = CreateDelegateSignatureFromOpenType(
-                    parameterType, workingTypeInfoBindings, workingBindings);
-            else
-                expectedSignature = CreateFunctionTypeInfoFromDelegate(delegateType);
 
             var lambdaType = AnalyzeLambda(lambda, expectedSignature);
             var lambdaDelegateType = TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
-                TryMatchReflectionParameter(parameterType, lambdaDelegateType, workingBindings);
+            {
+                var delegateParameterType = GetDelegateParameterTypeForLambdaTarget(boundArgument.OpenParameterType);
+                TryMatchReflectionParameter(delegateParameterType, lambdaDelegateType, workingBindings);
+            }
 
             var lambdaReturnClrType = lambdaType.ReturnType != null
                 ? (TryConvertTypeInfoToClrType(lambdaType.ReturnType)
@@ -5365,8 +5730,6 @@ public class Analyzer : IDisposable
                 return null;
 
             method = method.MakeGenericMethod(genericArguments.Select(argument => workingBindings[argument]).ToArray());
-            parameters = method.GetParameters();
-            parameterOffset = IsExtensionMethodCall(method, call) ? 1 : 0;
         }
 
         // Recalculate whether we have overrides (lambda return types may have added more)
@@ -5374,70 +5737,62 @@ public class Analyzer : IDisposable
 
         var parameterTypes = new List<TypeInfo>();
         var validatedArgumentTypes = new List<TypeInfo>();
-        var openParameters = openMethod.GetParameters();
-        var openParamOffset = IsExtensionMethodCall(openMethod, call) ? 1 : 0;
 
-        for (int i = 0; i < call.Arguments.Count; i++)
+        foreach (var boundArgument in boundArguments)
         {
-            var rawParameterType = GetReflectionParameterTypeForArgument(parameters, parameterOffset, i, call.Arguments.Count);
-            if (rawParameterType == null)
-                return null;
-
-            if (call.Arguments[i].Value is LambdaExpression lambda && IsDelegateType(rawParameterType))
+            switch (boundArgument)
             {
-                FunctionTypeInfo? expectedSignature;
-                if (hasTypeInfoOverrides)
+                case DefaultReflectionBoundArgument defaultArgument:
                 {
-                    // Use the open parameter type with TypeInfo overrides for correct N# types
-                    var openParameterType = GetReflectionParameterTypeForArgument(openParameters, openParamOffset, i, call.Arguments.Count);
-                    expectedSignature = openParameterType != null
-                        ? CreateDelegateSignatureFromOpenType(
-                            openParameterType, workingTypeInfoBindings, workingBindings)
-                        : CreateFunctionTypeInfoFromDelegate(rawParameterType);
-                }
-                else
-                {
-                    expectedSignature = CreateFunctionTypeInfoFromDelegate(rawParameterType);
+                    var defaultType = ConvertReflectionTypeWithOverrides(
+                        defaultArgument.OpenParameterType,
+                        workingTypeInfoBindings,
+                        workingBindings);
+                    parameterTypes.Add(defaultType);
+                    validatedArgumentTypes.Add(defaultType);
+                    break;
                 }
 
-                // Always add to parameterTypes to keep parallel with validatedArgumentTypes
-                parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown });
+                case SuppliedReflectionBoundArgument supplied:
+                {
+                    if (!ValidateFinalReflectionSuppliedArgument(
+                            supplied,
+                            workingBindings,
+                            workingTypeInfoBindings,
+                            methodGroupArguments,
+                            hasTypeInfoOverrides,
+                            parameterTypes,
+                            validatedArgumentTypes))
+                    {
+                        return null;
+                    }
+                    break;
+                }
 
-                var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
-                validatedArgumentTypes.Add(lambdaArgumentType);
-                continue;
+                case ParamsReflectionBoundArgument paramsBound:
+                {
+                    foreach (var (argument, argumentIndex) in paramsBound.Arguments)
+                    {
+                        var suppliedElement = new SuppliedReflectionBoundArgument(
+                            paramsBound.ParameterIndex,
+                            paramsBound.OpenElementType,
+                            argument,
+                            argumentIndex);
+                        if (!ValidateFinalReflectionSuppliedArgument(
+                                suppliedElement,
+                                workingBindings,
+                                workingTypeInfoBindings,
+                                methodGroupArguments,
+                                hasTypeInfoOverrides,
+                                parameterTypes,
+                                validatedArgumentTypes))
+                        {
+                            return null;
+                        }
+                    }
+                    break;
+                }
             }
-
-            var expectedType = hasTypeInfoOverrides
-                ? ConvertReflectionTypeWithOverrides(rawParameterType, workingTypeInfoBindings, workingBindings)
-                : ConvertReflectionType(rawParameterType);
-            parameterTypes.Add(expectedType);
-
-            if (methodGroupArguments.TryGetValue(i, out var selectedMethodGroup))
-            {
-                var openParameter = GetReflectionParameterForArgument(openParameters, openParamOffset, i);
-                var expectedSignature = hasTypeInfoOverrides && openParameter != null
-                    ? CreateDelegateSignatureFromOpenType(
-                        openParameter.ParameterType, workingTypeInfoBindings, workingBindings)
-                    : IsDelegateType(rawParameterType)
-                        ? CreateFunctionTypeInfoFromDelegate(rawParameterType)
-                        : null;
-
-                if (expectedSignature?.ParameterTypes == null
-                    || !IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(selectedMethodGroup, expectedSignature))
-                {
-                    return null;
-                }
-
-                validatedArgumentTypes.Add(selectedMethodGroup);
-                continue;
-            }
-
-            var argumentType = AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType);
-            validatedArgumentTypes.Add(argumentType);
-
-            if (!IsAssignable(expectedType, argumentType))
-                return null;
         }
 
         // Compute return type using TypeInfo overrides for the open method's return type
@@ -5445,11 +5800,90 @@ public class Analyzer : IDisposable
             ? ConvertReflectionTypeWithOverrides(openMethod.ReturnType, workingTypeInfoBindings, workingBindings)
             : ConvertReflectionType(method.ReturnType);
 
+        _semanticModel.RecordReflectionCallTarget(call.Line, call.Column, method);
+
         return new FunctionTypeInfo(null)
         {
             ParameterTypes = parameterTypes,
             ReturnType = returnType
         };
+    }
+
+    private IEnumerable<SuppliedReflectionBoundArgument> EnumerateSuppliedReflectionArguments(
+        IReadOnlyList<ReflectionBoundArgument> boundArguments)
+    {
+        foreach (var boundArgument in boundArguments)
+        {
+            switch (boundArgument)
+            {
+                case SuppliedReflectionBoundArgument supplied:
+                    yield return supplied;
+                    break;
+                case ParamsReflectionBoundArgument paramsBound:
+                    foreach (var (argument, argumentIndex) in paramsBound.Arguments)
+                    {
+                        yield return new SuppliedReflectionBoundArgument(
+                            paramsBound.ParameterIndex,
+                            paramsBound.OpenElementType,
+                            argument,
+                            argumentIndex);
+                    }
+                    break;
+            }
+        }
+    }
+
+    private bool ValidateFinalReflectionSuppliedArgument(
+        SuppliedReflectionBoundArgument supplied,
+        Dictionary<Type, Type> workingBindings,
+        Dictionary<Type, TypeInfo> workingTypeInfoBindings,
+        Dictionary<int, FunctionTypeInfo> methodGroupArguments,
+        bool hasTypeInfoOverrides,
+        List<TypeInfo> parameterTypes,
+        List<TypeInfo> validatedArgumentTypes)
+    {
+        if (supplied.Argument.Value is LambdaExpression lambda)
+        {
+            var expectedSignature = CreateDelegateSignatureFromOpenType(
+                supplied.OpenParameterType,
+                workingTypeInfoBindings,
+                workingBindings);
+            parameterTypes.Add(expectedSignature ?? new FunctionTypeInfo(null) { ReturnType = BuiltInTypes.Unknown });
+
+            if (expectedSignature == null)
+                return false;
+
+            var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
+            validatedArgumentTypes.Add(lambdaArgumentType);
+            return true;
+        }
+
+        var expectedType = hasTypeInfoOverrides
+            ? ConvertReflectionTypeWithOverrides(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings)
+            : ConvertReflectionType(ApplyReflectionBindings(supplied.OpenParameterType, workingBindings));
+        parameterTypes.Add(expectedType);
+
+        if (methodGroupArguments.TryGetValue(supplied.ArgumentIndex, out var selectedMethodGroup))
+        {
+            var expectedSignature = CreateDelegateSignatureFromOpenType(
+                supplied.OpenParameterType,
+                workingTypeInfoBindings,
+                workingBindings);
+
+            if (expectedSignature?.ParameterTypes == null
+                || !IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(selectedMethodGroup, expectedSignature))
+            {
+                return false;
+            }
+
+            validatedArgumentTypes.Add(selectedMethodGroup);
+            return true;
+        }
+
+        var argumentType = AnalyzeExpressionWithExpectedType(supplied.Argument.Value, expectedType);
+        validatedArgumentTypes.Add(argumentType);
+
+        return IsAssignable(expectedType, argumentType);
     }
 
     private static bool HasCompatibleReflectionArity(ParameterInfo[] parameters, int parameterOffset, int argumentCount)
@@ -5465,44 +5899,6 @@ public class Analyzer : IDisposable
             return false;
 
         return true;
-    }
-
-    private static ParameterInfo? GetReflectionParameterForArgument(ParameterInfo[] parameters, int parameterOffset, int argumentIndex)
-    {
-        var effectiveParameters = parameters.Skip(parameterOffset).ToArray();
-        if (effectiveParameters.Length == 0)
-            return null;
-
-        if (argumentIndex < effectiveParameters.Length)
-            return effectiveParameters[argumentIndex];
-
-        return IsParamsParameter(effectiveParameters[^1]) ? effectiveParameters[^1] : null;
-    }
-
-    private static Type? GetReflectionParameterTypeForArgument(
-        ParameterInfo[] parameters,
-        int parameterOffset,
-        int argumentIndex,
-        int argumentCount)
-    {
-        var parameter = GetReflectionParameterForArgument(parameters, parameterOffset, argumentIndex);
-        if (parameter == null)
-            return null;
-
-        var parameterType = parameter.ParameterType.IsByRef
-            ? parameter.ParameterType.GetElementType()!
-            : parameter.ParameterType;
-
-        var effectiveParameterCount = parameters.Length - parameterOffset;
-        var paramsParameterIndex = effectiveParameterCount - 1;
-        var useExpandedParamsForm = argumentCount > effectiveParameterCount
-            && argumentIndex >= paramsParameterIndex
-            && IsParamsParameter(parameter)
-            && parameterType.IsArray;
-
-        return useExpandedParamsForm
-            ? parameterType.GetElementType()!
-            : parameterType;
     }
 
     private static bool IsParamsParameter(ParameterInfo parameter)
@@ -5730,7 +6126,7 @@ public class Analyzer : IDisposable
                 && param.Type is not SimpleTypeReference { Name: "var" };
 
             var paramType = hasExplicitType
-                ? ResolveType(param.Type)
+                ? ResolveType(param.Type!)
                 : expectedSignature?.ParameterTypes != null && paramIndex < expectedSignature.ParameterTypes.Count
                     ? expectedSignature.ParameterTypes[paramIndex]
                     : BuiltInTypes.Unknown;
@@ -6907,6 +7303,7 @@ public class Analyzer : IDisposable
         return (targetGeneric.Name, sourceGeneric.Name) switch
         {
             ("IEnumerable", "List" or "ICollection" or "IList" or "HashSet" or "Queue") => true,
+            ("IQueryable", "IQueryable") => true,
             ("ICollection", "List" or "IList" or "HashSet") => true,
             ("IList", "List") => true,
             ("IReadOnlyCollection", "List" or "IReadOnlyList" or "HashSet" or "Queue") => true,
@@ -7539,6 +7936,7 @@ public class Analyzer : IDisposable
                 typeName == "IList" ||
                 typeName == "ICollection" ||
                 typeName == "IEnumerable" ||
+                typeName == "IQueryable" ||
                 typeName == "ISet" ||
                 typeName == "Queue" ||
                 typeName == "Stack" ||
@@ -7569,6 +7967,7 @@ public class Analyzer : IDisposable
                 typeName.StartsWith("IList`") ||
                 typeName.StartsWith("ICollection`") ||
                 typeName.StartsWith("IEnumerable`") ||
+                typeName.StartsWith("IQueryable`") ||
                 typeName.StartsWith("ISet`") ||
                 typeName.StartsWith("Queue`") ||
                 typeName.StartsWith("Stack`") ||
@@ -9199,6 +9598,7 @@ public class Analyzer : IDisposable
             "System.Console",
             "System.Collections",
             "System.Linq",
+            "System.Linq.Queryable",
             "System.Net.Http",
             "System.Text.Json",
             "System.Threading",
@@ -9680,6 +10080,7 @@ public class Analyzer : IDisposable
         // Collections
         public readonly Type? ListOpen;
         public readonly Type? IEnumerableOpen;
+        public readonly Type? IQueryableOpen;
         public readonly Type? ICollectionOpen;
         public readonly Type? IListOpen;
         public readonly Type? DictionaryOpen;
@@ -9759,6 +10160,13 @@ public class Analyzer : IDisposable
 
             // IEnumerable<T> is in System.Runtime
             IEnumerableOpen = Resolve("System.Collections.Generic.IEnumerable`1");
+
+            try
+            {
+                var expressions = mlc.LoadFromAssemblyName("System.Linq.Expressions");
+                IQueryableOpen = expressions.GetType("System.Linq.IQueryable`1");
+            }
+            catch { /* System.Linq.Expressions assembly not available */ }
 
             // Tasks — try core first, then dedicated assembly
             TaskOpen = Resolve("System.Threading.Tasks.Task`1");
