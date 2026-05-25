@@ -71,9 +71,23 @@ Acceptance:
 - Completion, hover, rename, references, inlay hints, and query commands consume this shared model instead of re-walking ASTs differently.
 - Tests cover shadowing, nested functions/lambdas, blocks, pattern bindings, and imported names.
 
+### 8. Burn down skipped unit tests
+
+The core unit suite still has three intentionally skipped xUnit tests. These are real product gaps, not acceptable permanent skips.
+
+Acceptance:
+- Unskip and pass `LanguageServerTests.Completion_ChainedMemberAccessAsync`.
+- Unskip and pass `LanguageServerTests.Hover_ChainedMemberAccessAsync`.
+- Chained member access completion and hover resolve the semantic receiver type after calls such as `message.ToUpper().`, using the shared compiler semantic model rather than a text-only LSP special case.
+- Unskip and pass `ILCompiler_CanExecuteNullLiteralsForReferenceAndNullableTypes`.
+- IL null equality works for CLR reference types, emitted N# class types, nullable value types, and both `value == null` / `null == value` operand orders under .NET 10.
+- `rg -n "Fact\\(Skip|Theory\\(Skip" tests` returns no remaining skipped unit tests, or each remaining skip has a named current task here.
+- `dotnet test tests/Tests.csproj` reports `Skipped: 0`, and `./scripts/test-all.sh` passes.
+- Language server changes are rebuilt, reinstalled, and visually verified in real VS Code.
+
 ## P1: Parser And Diagnostics
 
-### 8. Harden parser recovery beyond the current baseline
+### 9. Harden parser recovery beyond the current baseline
 
 Parser recovery already reports multiple useful errors and returns partial ASTs. The remaining work is a hardening pass, not a from-scratch implementation.
 
@@ -83,7 +97,7 @@ Acceptance:
 - VS Code Problems shows all high-signal diagnostics for a malformed file.
 - Golden or snapshot tests lock down representative recovery behavior.
 
-### 9. Keep diagnostic quality from regressing
+### 10. Keep diagnostic quality from regressing
 
 Elm-style infrastructure and top diagnostic goldens exist. The live task is ongoing quality control as new diagnostics are added.
 
@@ -94,7 +108,7 @@ Acceptance:
 
 ## P1: IDE Tooling
 
-### 10. Move N# signature help to full compiler semantics
+### 11. Move N# signature help to full compiler semantics
 
 Signature help is stronger for .NET/reflection calls than for user-authored N# declarations and overloads.
 
@@ -103,7 +117,7 @@ Acceptance:
 - Active parameter selection is correct for nested calls and named arguments.
 - LSP tests and real VS Code visual verification cover representative cases.
 
-### 11. Polish auto-import completion ranking and coverage
+### 12. Polish auto-import completion ranking and coverage
 
 Auto-import completion exists, but ranking and symbol coverage need product polish.
 
@@ -113,7 +127,7 @@ Acceptance:
 - `additionalTextEdits` place imports consistently and do not corrupt existing imports/packages.
 - Tests cover duplicate names and same-name symbols from different namespaces.
 
-### 12. Harden workspace diagnostics scheduling and coverage
+### 13. Harden workspace diagnostics scheduling and coverage
 
 Project-scope diagnostics exist, but scheduling/update behavior needs confidence.
 
@@ -123,7 +137,7 @@ Acceptance:
 - Large workspaces avoid noisy full rescans and stale diagnostics.
 - LSP tests cover cross-file errors and file lifecycle events.
 
-### 13. Finish interpolation syntax highlighting
+### 14. Finish interpolation syntax highlighting
 
 Interpolation highlighting is still a product-polish risk because grammar-only tests can miss visual editor issues.
 
@@ -132,7 +146,7 @@ Acceptance:
 - Escapes, braces, raw strings, and multiline interpolation render correctly.
 - The VS Code extension is rebuilt/reinstalled and verified visually in the editor.
 
-### 14. Keep VS Code debug/task claims gated by real-editor evidence
+### 15. Keep VS Code debug/task claims gated by real-editor evidence
 
 VS Code tasks now use `nlc` paths and debug build plumbing exists, but public claims around F5/debug/test workflows must stay conservative until freshly verified.
 
@@ -143,7 +157,7 @@ Acceptance:
 
 ## P1: Nullability
 
-### 15. Add explicit null-state and flow-fact data structures
+### 16. Add explicit null-state and flow-fact data structures
 
 Nullable compatibility and branch narrowing exist, but there is no complete null-state model for expressions, symbols, and stable member paths.
 
@@ -152,7 +166,7 @@ Acceptance:
 - SemanticModel can expose declared type, flow type, and null state at a source position.
 - Facts are tracked for variables and stable member paths without noisy cascades after unrelated errors.
 
-### 16. Complete nullable flow narrowing
+### 17. Complete nullable flow narrowing
 
 Direct null-check branch narrowing exists, but early returns, assignment invalidation, member paths, and richer control-flow facts still need work.
 
@@ -162,7 +176,7 @@ Acceptance:
 - `&&`, `||`, `is` patterns, `match`, loops, and nested scopes preserve only sound facts.
 - Stable member paths such as `user.Address != null` can narrow inside the guarded region.
 
-### 17. Add possible-null diagnostics
+### 18. Add possible-null diagnostics
 
 N# should report member/index/call access on maybe-null values and assignment from nullable to non-nullable without proof.
 
@@ -171,7 +185,7 @@ Acceptance:
 - Assigning/returning/passing `T?` to `T` without proof is rejected or reported according to the chosen severity policy.
 - JSON diagnostics, LSP diagnostics, and terminal output expose the same stable code and suggestion fields.
 
-### 18. Implement `must` explicit unwrap/assertion
+### 19. Implement `must` explicit unwrap/assertion
 
 The planned `must expr` syntax is still missing.
 
@@ -181,7 +195,7 @@ Acceptance:
 - Lowering uses explicit throw behavior, not C# null-forgiving syntax.
 - Optional assertion messages are either implemented or explicitly deferred.
 
-### 19. Add nullable value idiom diagnostics and fixes
+### 20. Add nullable value idiom diagnostics and fixes
 
 Migration lints catch blind `.Value` and null-forgiving artifacts syntactically, but semantic nullable-value guidance is incomplete.
 
@@ -191,7 +205,7 @@ Acceptance:
 - Unguarded `.Value` reports an unsafe access diagnostic.
 - Fixes are marked safe, review-needed, or suggestion-only and round-trip through parser/formatter.
 
-### 20. Add nullable `match` exhaustiveness and narrowing
+### 21. Add nullable `match` exhaustiveness and narrowing
 
 Nullable values should be consumable through `match` as a first-class absence pattern.
 
@@ -201,7 +215,7 @@ Acceptance:
 - Value-type nullable and reference nullable cases are both tested.
 - Existing union exhaustiveness remains intact.
 
-### 21. Import and emit C# nullable metadata
+### 22. Import and emit C# nullable metadata
 
 C# nullable annotations are not yet fully modeled as semantic facts at interop boundaries.
 
@@ -211,7 +225,7 @@ Acceptance:
 - Missing nullable metadata can be represented as `Oblivious`.
 - Generated public C# preserves N# nullability for C# consumers.
 
-### 22. Surface nullability through query, fixes, and LSP
+### 23. Surface nullability through query, fixes, and LSP
 
 Nullability work must be visible to tools, not just analyzer internals.
 
@@ -222,7 +236,7 @@ Acceptance:
 
 ## P2: CLI And Ecosystem
 
-### 23. Create a current `setup-nsharp` GitHub Action
+### 24. Create a current `setup-nsharp` GitHub Action
 
 There is no `actions/setup-nsharp` composite action. The old action spec is stale because the installer no longer supports a `--version` flag.
 
@@ -231,7 +245,7 @@ Acceptance:
 - README documents inputs that match the current installer.
 - The repository dogfoods the action in an appropriate workflow without depending on stale `dotnet build` assumptions for csproj-free projects.
 
-### 24. Add formatter repo/example audit and CI gate
+### 25. Add formatter repo/example audit and CI gate
 
 `nlc format` exists with check, diff, and stdin support, but examples and CI are not currently gated by formatting.
 
@@ -240,7 +254,7 @@ Acceptance:
 - Any ugly or unstable formatter output has focused regression tests.
 - CI or `scripts/test-all.sh` includes a formatting gate if the repo is expected to stay formatted.
 
-### 25. Grow `nlc fix` into a broader machine-drivable tool
+### 26. Grow `nlc fix` into a broader machine-drivable tool
 
 `nlc fix` exists, but the fix catalog is still narrow.
 
@@ -249,7 +263,7 @@ Acceptance:
 - Dry-run JSON remains stable and includes enough edit/safety metadata for automation.
 - Applied fixes preserve formatting and are covered by parser/formatter round-trip tests.
 
-### 26. Unify install, release, and local toolset ergonomics
+### 27. Unify install, release, and local toolset ergonomics
 
 Install and deployment scripts have improved, but the public path, local dogfood path, and release artifact path still need to feel like one coherent product.
 
@@ -258,7 +272,7 @@ Acceptance:
 - Version/source selection is explicit and tested.
 - Stale or ad hoc deployment scripts are either documented as internal-only or removed.
 
-### 27. Build benchmark corpus and results workflow around `nlc bench`
+### 28. Build benchmark corpus and results workflow around `nlc bench`
 
 `nlc bench` exists; the missing work is benchmark content, repeatable results, and regression visibility.
 
@@ -268,7 +282,7 @@ Acceptance:
 - CI runs benchmarks on an intentional cadence and publishes artifacts without slowing normal PR validation.
 - Docs and website claims cite actual benchmark artifacts, not targets.
 
-### 28. Build a public website playground if still part of launch strategy
+### 29. Build a public website playground if still part of launch strategy
 
 The local `nlc tutorial` covers much of the interactive learning experience, but there is no public website playground.
 
@@ -277,7 +291,7 @@ Acceptance:
 - If in scope, the playground reuses current tutorial/compiler infrastructure where practical.
 - It supports examples, diagnostics, sharing, and a clear no-install first-run experience.
 
-### 29. Polish NuGet library publishing
+### 30. Polish NuGet library publishing
 
 Library template and `nlc pack` exist, but a few publishing-story gaps remain.
 
@@ -286,7 +300,7 @@ Acceptance:
 - Dedicated library publishing guide explains package metadata, `nlc pack`, NuGet push, and C# consumption.
 - End-to-end test verifies a C# project can consume an actual packed N# NuGet package, not only a project reference.
 
-### 30. Add native test coverage reporting or document its absence clearly
+### 31. Add native test coverage reporting or document its absence clearly
 
 `nlc test --coverage` currently reports that coverage is unavailable.
 
@@ -294,7 +308,7 @@ Acceptance:
 - Either implement coverage collection/reporting for the xUnit-backed runner, or keep help/docs explicit that coverage is planned.
 - CLI exit codes and JSON output remain clear when coverage is requested before support exists.
 
-### 31. Decide cross-compilation and publish-target scope
+### 32. Decide cross-compilation and publish-target scope
 
 Cross-compilation remains future work, and release/publish target evidence is still limited.
 
@@ -303,7 +317,7 @@ Acceptance:
 - Unsupported target scenarios fail with clear guidance.
 - Any supported cross-target path has scenario tests.
 
-### 32. Add built-in build timing evidence or avoid timing claims
+### 33. Add built-in build timing evidence or avoid timing claims
 
 Docs mention timing as a gap. Do not make Go/Rust-speed claims without measurements.
 
@@ -311,7 +325,7 @@ Acceptance:
 - Either expose reliable build/check timing output and test it, or keep timing claims out of public docs.
 - Benchmark and launch docs cite current measured artifacts.
 
-### 33. Audit dependency tree command and docs parity
+### 34. Audit dependency tree command and docs parity
 
 The CLI has `nlc tree`, but docs still contain stale future-work wording around dependency tree visualization.
 
@@ -322,7 +336,7 @@ Acceptance:
 
 ## P2: Docs And Site
 
-### 34. Remove stale launch and maturity claims
+### 35. Remove stale launch and maturity claims
 
 Docs and memory files still contain historical counts and launch-readiness claims that can drift from reality.
 
@@ -331,7 +345,7 @@ Acceptance:
 - Marketplace, debug, benchmark, production-ready, and feature-complete claims are tied to current evidence.
 - Docs build passes after claim updates.
 
-### 35. Keep CLI JSON contracts authoritative
+### 36. Keep CLI JSON contracts authoritative
 
 The CLI JSON contract is central to the LLM-first story and must not drift across docs.
 
