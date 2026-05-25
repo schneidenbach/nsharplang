@@ -1321,16 +1321,85 @@ public class LegacyDto
     }
 
     [Fact]
-    public void TutorialAssets_IncludeNSharpSyntaxHighlightedEditor()
+    public void TutorialAssets_IncludeMonacoEditorCapabilities()
     {
         var appSource = TutorialAssets.ReadWebAsset("app.tsx");
         var styles = TutorialAssets.ReadWebAsset("styles.css");
         var appBundle = TutorialAssets.ReadWebAsset("app.js");
+        var monacoStyles = TutorialAssets.ReadWebAsset("app.css");
+        var workerBundle = TutorialAssets.ReadWebAsset("editor.worker.js");
 
-        Assert.Contains("function HighlightedCode", appSource);
-        Assert.Contains("function tokenizeNSharp", appSource);
-        Assert.Contains("tok-keyword", styles);
-        Assert.Contains("code-highlight", appBundle);
+        Assert.Contains("monaco.languages.register", appSource);
+        Assert.Contains("registerCompletionItemProvider", appSource);
+        Assert.Contains("registerHoverProvider", appSource);
+        Assert.Contains("registerDocumentFormattingEditProvider", appSource);
+        Assert.Contains("setModelMarkers", appSource);
+        Assert.Contains("new WebSocket", appSource);
+        Assert.Contains("Program.tests.nl", appSource);
+        Assert.Contains("file-tabs", styles);
+        Assert.Contains("panel-area", styles);
+        Assert.Contains("monaco-host", appBundle);
+        Assert.Contains(".monaco-editor", monacoStyles);
+        Assert.Contains("Generated from Monaco Editor", workerBundle);
+    }
+
+    [Fact]
+    public async Task TutorialRouter_PostCode_CanSaveTestsFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-tests-file-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+            var lesson = TutorialCatalog.Lessons.First(l => l.HasTests);
+            var lessonDir = Path.Combine(tempDir, "lessons", lesson.Id);
+            var programPath = Path.Combine(lessonDir, "Program.nl");
+            var testsPath = Path.Combine(lessonDir, "Program.tests.nl");
+            var originalProgram = File.ReadAllText(programPath);
+            var nextTests = "package Tutorial\n\ntest \"saved from browser tab\" {\n    assert true\n}\n";
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Post,
+                $"/api/lessons/{lesson.Id}/code",
+                JsonSerializer.Serialize(new { code = nextTests, file = "Program.tests.nl" }),
+                runtime.SessionToken);
+
+            Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+            Assert.Equal(originalProgram, File.ReadAllText(programPath));
+            Assert.Equal(nextTests, File.ReadAllText(testsPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task TutorialRouter_LspBridge_RequiresSessionToken()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-lsp-token-{Guid.NewGuid():N}");
+
+        try
+        {
+            var runtime = new TutorialRuntime(tempDir);
+            runtime.Initialize(reset: false);
+
+            var response = await InvokeTutorialRouterAsync(
+                runtime,
+                HttpMethods.Get,
+                "/lsp");
+
+            Assert.Equal(StatusCodes.Status403Forbidden, response.StatusCode);
+            Assert.Contains("session token", response.Body);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
     }
 
     [Fact]

@@ -4,10 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild app.tsx --bundle --format=esm --target=es2022 --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=app.js --banner:js=\"/* Generated from app.tsx. Run npm run build in src/NSharpLang.Cli/Tutorial/Web. */\"",
+    "build": "npm run build:app && npm run build:worker",
+    "build:app": "esbuild app.tsx --bundle --format=esm --target=es2022 --minify --loader:.ttf=dataurl --define:process.env.NODE_ENV=\\\"production\\\" --outfile=app.js --banner:js=\"/* Generated from app.tsx. Run npm run build in src/NSharpLang.Cli/Tutorial/Web. */\"",
+    "build:worker": "esbuild ./node_modules/monaco-editor/esm/vs/editor/editor.worker.js --bundle --format=esm --target=es2022 --minify --outfile=editor.worker.js --banner:js=\"/* Generated from Monaco Editor. Run npm run build in src/NSharpLang.Cli/Tutorial/Web. */\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "monaco-editor": "^0.55.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.WebSockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -74,6 +76,7 @@ public static class TutorialCommand
             })
             .Configure(app =>
             {
+                app.UseWebSockets();
                 app.Run(context => TutorialRouter.HandleAsync(context, runtime));
             })
             .Build();
@@ -314,6 +317,18 @@ internal static class TutorialRouter
                 return;
             }
 
+            if (IsGet(context, segments, new[] { "assets", "app.css" }))
+            {
+                await WriteAssetAsync(context, "app.css", "text/css; charset=utf-8");
+                return;
+            }
+
+            if (IsGet(context, segments, new[] { "assets", "editor.worker.js" }))
+            {
+                await WriteAssetAsync(context, "editor.worker.js", "text/javascript; charset=utf-8");
+                return;
+            }
+
             if (IsGet(context, segments, new[] { "assets", "styles.css" }))
             {
                 await WriteAssetAsync(context, "styles.css", "text/css; charset=utf-8");
@@ -323,6 +338,12 @@ internal static class TutorialRouter
             if (IsGet(context, segments, new[] { "source", "app.tsx" }))
             {
                 await WriteAssetAsync(context, "app.tsx", "text/typescript; charset=utf-8");
+                return;
+            }
+
+            if (segments.Length == 1 && segments[0] == "lsp")
+            {
+                await HandleLspAsync(context, runtime);
                 return;
             }
 
@@ -407,57 +428,97 @@ internal static class TutorialRouter
             case "code":
             {
                 var request = await ReadJsonAsync<CodeRequest>(context) ?? new CodeRequest(null);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
                 await WriteJsonAsync(context, runtime.GetCode(lesson));
                 return;
             }
             case "diagnostics":
             {
                 var request = await ReadJsonAsync<CodeRequest>(context) ?? new CodeRequest(null);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
-                await WriteJsonAsync(context, await runtime.RunDiagnosticsAsync(lesson));
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
+                await WriteJsonAsync(context, await runtime.RunDiagnosticsAsync(lesson, request.File));
                 return;
             }
             case "completions":
             {
                 var request = await ReadJsonAsync<CompletionRequest>(context) ?? new CompletionRequest(null, 1, 0);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
-                await WriteJsonAsync(context, await runtime.RunCompletionsAsync(lesson, request.Line, request.Column));
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
+                await WriteJsonAsync(context, await runtime.RunCompletionsAsync(lesson, request.Line, request.Column, request.File));
                 return;
             }
             case "hover":
             {
                 var request = await ReadJsonAsync<CompletionRequest>(context) ?? new CompletionRequest(null, 1, 0);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
-                await WriteJsonAsync(context, await runtime.RunHoverAsync(lesson, request.Line, request.Column));
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
+                await WriteJsonAsync(context, await runtime.RunHoverAsync(lesson, request.Line, request.Column, request.File));
                 return;
             }
             case "run":
             {
                 var request = await ReadJsonAsync<CodeRequest>(context) ?? new CodeRequest(null);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
                 await WriteJsonAsync(context, await runtime.RunProgramAsync(lesson));
                 return;
             }
             case "test":
             {
                 var request = await ReadJsonAsync<CodeRequest>(context) ?? new CodeRequest(null);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
                 await WriteJsonAsync(context, await runtime.RunTestsAsync(lesson));
                 return;
             }
             case "format":
             {
                 var request = await ReadJsonAsync<CodeRequest>(context) ?? new CodeRequest(null);
-                runtime.SaveCode(lesson, request.Code ?? string.Empty);
-                var result = await runtime.RunFormatAsync(lesson);
-                await WriteJsonAsync(context, result with { Code = runtime.GetCode(lesson).Code });
+                runtime.SaveCode(lesson, request.Code ?? string.Empty, request.File);
+                var result = await runtime.RunFormatAsync(lesson, request.File);
+                await WriteJsonAsync(context, result with { Code = runtime.GetFileCode(lesson, request.File) });
                 return;
             }
             default:
                 await WriteNotFoundAsync(context, $"Unknown lesson action '{action}'.");
                 return;
         }
+    }
+
+    private static async Task HandleLspAsync(HttpContext context, TutorialRuntime runtime)
+    {
+        if (!context.Request.Query.TryGetValue("token", out var values) ||
+            values.Count != 1 ||
+            !TokenEquals(values[0], runtime.SessionToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = $"Missing or invalid tutorial session token. Include the {SessionTokenHeader} token from /api/lessons."
+            });
+            return;
+        }
+
+        if (!IsAllowedOrigin(context))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = "Tutorial LSP bridge only accepts same-origin WebSocket requests."
+            });
+            return;
+        }
+
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status426UpgradeRequired;
+            await WriteJsonAsync(context, new
+            {
+                ok = false,
+                error = "Tutorial LSP bridge requires a WebSocket connection."
+            });
+            return;
+        }
+
+        await TutorialLspBridge.HandleAsync(context);
     }
 
     private static bool IsGet(HttpContext context, string[] actual, string[] expected)
@@ -632,6 +693,275 @@ internal sealed class TutorialHttpException : Exception
     public int StatusCode { get; }
 }
 
+internal static class TutorialLspBridge
+{
+    private const int MaxWebSocketMessageBytes = 1024 * 1024;
+
+    public static async Task HandleAsync(HttpContext context)
+    {
+        using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+        using var process = StartLanguageServer();
+        using var cancellation = new CancellationTokenSource();
+
+        var browserToServer = PumpBrowserToServerAsync(webSocket, process.StandardInput.BaseStream, cancellation.Token);
+        var serverToBrowser = PumpServerToBrowserAsync(process.StandardOutput.BaseStream, webSocket, cancellation.Token);
+        var stderrDrain = DrainAsync(process.StandardError, cancellation.Token);
+        var processExit = process.WaitForExitAsync(cancellation.Token);
+
+        var completed = await Task.WhenAny(browserToServer, serverToBrowser, processExit);
+        cancellation.Cancel();
+
+        if (!process.HasExited)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* process is already gone */ }
+        }
+
+        try
+        {
+            await Task.WhenAll(ObserveAsync(browserToServer), ObserveAsync(serverToBrowser), ObserveAsync(stderrDrain));
+        }
+        finally
+        {
+            if (webSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+            {
+                await webSocket.CloseAsync(
+                    WebSocketCloseStatus.NormalClosure,
+                    completed == processExit ? "N# language server exited." : "Tutorial LSP bridge closed.",
+                    CancellationToken.None);
+            }
+        }
+    }
+
+    private static Process StartLanguageServer()
+    {
+        var invocation = TutorialLspInvocation.Create();
+        var psi = new ProcessStartInfo
+        {
+            FileName = invocation.FileName,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in invocation.Arguments)
+        {
+            psi.ArgumentList.Add(argument);
+        }
+
+        psi.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
+        psi.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
+
+        return Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the N# language server.");
+    }
+
+    private static async Task PumpBrowserToServerAsync(WebSocket webSocket, Stream serverInput, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[16 * 1024];
+        while (!cancellationToken.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+        {
+            using var message = new MemoryStream();
+            ValueWebSocketReceiveResult result;
+            do
+            {
+                result = await webSocket.ReceiveAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    return;
+                }
+
+                message.Write(buffer, 0, result.Count);
+                if (message.Length > MaxWebSocketMessageBytes)
+                {
+                    throw new InvalidOperationException("Tutorial LSP bridge received an oversized browser message.");
+                }
+            }
+            while (!result.EndOfMessage);
+
+            if (result.MessageType != WebSocketMessageType.Text)
+            {
+                continue;
+            }
+
+            var payload = message.ToArray();
+            var header = Encoding.ASCII.GetBytes($"Content-Length: {payload.Length}\r\n\r\n");
+            await serverInput.WriteAsync(header, cancellationToken);
+            await serverInput.WriteAsync(payload, cancellationToken);
+            await serverInput.FlushAsync(cancellationToken);
+        }
+    }
+
+    private static async Task PumpServerToBrowserAsync(Stream serverOutput, WebSocket webSocket, CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+        {
+            var payload = await ReadLanguageServerPayloadAsync(serverOutput, cancellationToken);
+            if (payload == null)
+            {
+                return;
+            }
+
+            await webSocket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+        }
+    }
+
+    private static async Task<byte[]?> ReadLanguageServerPayloadAsync(Stream serverOutput, CancellationToken cancellationToken)
+    {
+        var headerBytes = new List<byte>();
+        var singleByte = new byte[1];
+
+        while (true)
+        {
+            var read = await serverOutput.ReadAsync(singleByte.AsMemory(0, 1), cancellationToken);
+            if (read == 0)
+            {
+                return null;
+            }
+
+            headerBytes.Add(singleByte[0]);
+            var count = headerBytes.Count;
+            if (count >= 4 &&
+                headerBytes[count - 4] == '\r' &&
+                headerBytes[count - 3] == '\n' &&
+                headerBytes[count - 2] == '\r' &&
+                headerBytes[count - 1] == '\n')
+            {
+                break;
+            }
+
+            if (headerBytes.Count > 16 * 1024)
+            {
+                throw new InvalidOperationException("N# language server sent an oversized LSP header.");
+            }
+        }
+
+        var header = Encoding.ASCII.GetString(headerBytes.ToArray());
+        var contentLength = header
+            .Split("\r\n", StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split(':', 2))
+            .Where(parts => parts.Length == 2 && string.Equals(parts[0].Trim(), "Content-Length", StringComparison.OrdinalIgnoreCase))
+            .Select(parts => int.TryParse(parts[1].Trim(), out var length) ? length : -1)
+            .FirstOrDefault(-1);
+
+        if (contentLength < 0)
+        {
+            throw new InvalidOperationException("N# language server sent an LSP message without Content-Length.");
+        }
+
+        var payload = new byte[contentLength];
+        var offset = 0;
+        while (offset < payload.Length)
+        {
+            var read = await serverOutput.ReadAsync(payload.AsMemory(offset, payload.Length - offset), cancellationToken);
+            if (read == 0)
+            {
+                throw new EndOfStreamException("N# language server closed while sending an LSP message.");
+            }
+
+            offset += read;
+        }
+
+        return payload;
+    }
+
+    private static async Task DrainAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        var buffer = new char[4096];
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            if (read == 0)
+            {
+                return;
+            }
+        }
+    }
+
+    private static async Task ObserveAsync(Task task)
+    {
+        try { await task; }
+        catch (OperationCanceledException) { }
+        catch (ObjectDisposedException) { }
+    }
+}
+
+internal sealed record TutorialLspInvocation(string FileName, IReadOnlyList<string> Arguments)
+{
+    public static TutorialLspInvocation Create()
+    {
+        var configuredPath = Environment.GetEnvironmentVariable("NSHARP_TUTORIAL_LSP");
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return new TutorialLspInvocation(configuredPath, Array.Empty<string>());
+        }
+
+        var cliDirectory = Path.GetDirectoryName(typeof(TutorialCommand).Assembly.Location);
+        if (!string.IsNullOrWhiteSpace(cliDirectory))
+        {
+            var siblingAssembly = FindFirstExistingFile(
+                Path.Combine(cliDirectory, "LanguageServer.dll"),
+                Path.Combine(cliDirectory, "NSharpLang.LanguageServer.dll"));
+            if (File.Exists(siblingAssembly))
+            {
+                return new TutorialLspInvocation("dotnet", new[] { siblingAssembly });
+            }
+        }
+
+        foreach (var configuration in new[] { "Debug", "Release" })
+        {
+            var repoAssembly = FindRepositoryLanguageServerAssembly(configuration);
+            if (repoAssembly != null)
+            {
+                return new TutorialLspInvocation("dotnet", new[] { repoAssembly });
+            }
+        }
+
+        return new TutorialLspInvocation("nsharp-lsp", Array.Empty<string>());
+    }
+
+    private static string? FindRepositoryLanguageServerAssembly(string configuration)
+    {
+        var dir = Directory.GetCurrentDirectory();
+        while (!string.IsNullOrWhiteSpace(dir))
+        {
+            var outputDirectory = Path.Combine(
+                dir,
+                "src",
+                "NSharpLang.LanguageServer",
+                "bin",
+                configuration,
+                "net10.0");
+            var candidate = FindFirstExistingFile(
+                Path.Combine(outputDirectory, "LanguageServer.dll"),
+                Path.Combine(outputDirectory, "NSharpLang.LanguageServer.dll"));
+
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            if (File.Exists(Path.Combine(dir, "NSharpLang.sln")))
+            {
+                return null;
+            }
+
+            var parent = Directory.GetParent(dir);
+            if (parent == null)
+            {
+                return null;
+            }
+
+            dir = parent.FullName;
+        }
+
+        return null;
+    }
+
+    private static string? FindFirstExistingFile(params string[] paths)
+        => paths.FirstOrDefault(File.Exists);
+}
+
 internal sealed class TutorialRuntime
 {
     private const string ProgramFileName = "Program.nl";
@@ -693,28 +1023,35 @@ internal sealed class TutorialRuntime
     public CodeResponse GetCode(TutorialLesson lesson)
     {
         EnsureLessonWorkspace(lesson);
+        var testPath = Path.Combine(GetLessonDirectory(lesson), TestFileName);
         return new CodeResponse(
             LessonId: lesson.Id,
             File: NormalizePath(Path.Combine(GetLessonDirectory(lesson), ProgramFileName)),
             Code: File.ReadAllText(Path.Combine(GetLessonDirectory(lesson), ProgramFileName)),
-            TestsFile: lesson.HasTests ? NormalizePath(Path.Combine(GetLessonDirectory(lesson), TestFileName)) : null,
-            Tests: lesson.TestsCode);
+            TestsFile: lesson.HasTests ? NormalizePath(testPath) : null,
+            Tests: lesson.HasTests && File.Exists(testPath) ? File.ReadAllText(testPath) : null);
     }
 
-    public void SaveCode(TutorialLesson lesson, string code)
+    public string GetFileCode(TutorialLesson lesson, string? fileName)
     {
         EnsureLessonWorkspace(lesson);
-        File.WriteAllText(Path.Combine(GetLessonDirectory(lesson), ProgramFileName), NormalizeNewlines(code));
+        return File.ReadAllText(GetLessonFilePath(lesson, fileName));
     }
 
-    public Task<ToolResult> RunDiagnosticsAsync(TutorialLesson lesson)
-        => RunNlcAsync(lesson, new[] { "query", "diagnostics", "--project", GetLessonDirectory(lesson), "--file", ProgramFileName }, TimeSpan.FromSeconds(10));
+    public void SaveCode(TutorialLesson lesson, string code, string? fileName = null)
+    {
+        EnsureLessonWorkspace(lesson);
+        File.WriteAllText(GetLessonFilePath(lesson, fileName), NormalizeNewlines(code));
+    }
 
-    public Task<ToolResult> RunCompletionsAsync(TutorialLesson lesson, int line, int column)
-        => RunNlcAsync(lesson, new[] { "query", "completions", "--project", GetLessonDirectory(lesson), "--file", ProgramFileName, "--pos", $"{Math.Max(line, 1)}:{Math.Max(column, 0)}", "--include-keywords" }, TimeSpan.FromSeconds(10));
+    public Task<ToolResult> RunDiagnosticsAsync(TutorialLesson lesson, string? fileName = null)
+        => RunNlcAsync(lesson, new[] { "query", "diagnostics", "--project", GetLessonDirectory(lesson), "--file", GetLessonFileName(lesson, fileName) }, TimeSpan.FromSeconds(10));
 
-    public Task<ToolResult> RunHoverAsync(TutorialLesson lesson, int line, int column)
-        => RunNlcAsync(lesson, new[] { "query", "hover", "--project", GetLessonDirectory(lesson), "--file", ProgramFileName, "--pos", $"{Math.Max(line, 1)}:{Math.Max(column, 0)}" }, TimeSpan.FromSeconds(10));
+    public Task<ToolResult> RunCompletionsAsync(TutorialLesson lesson, int line, int column, string? fileName = null)
+        => RunNlcAsync(lesson, new[] { "query", "completions", "--project", GetLessonDirectory(lesson), "--file", GetLessonFileName(lesson, fileName), "--pos", $"{Math.Max(line, 1)}:{Math.Max(column, 0)}", "--include-keywords" }, TimeSpan.FromSeconds(10));
+
+    public Task<ToolResult> RunHoverAsync(TutorialLesson lesson, int line, int column, string? fileName = null)
+        => RunNlcAsync(lesson, new[] { "query", "hover", "--project", GetLessonDirectory(lesson), "--file", GetLessonFileName(lesson, fileName), "--pos", $"{Math.Max(line, 1)}:{Math.Max(column, 0)}" }, TimeSpan.FromSeconds(10));
 
     public Task<ToolResult> RunProgramAsync(TutorialLesson lesson)
         => RunNlcAsync(lesson, new[] { "run" }, TimeSpan.FromSeconds(12));
@@ -722,9 +1059,9 @@ internal sealed class TutorialRuntime
     public Task<ToolResult> RunTestsAsync(TutorialLesson lesson)
         => RunNlcAsync(lesson, new[] { "test", "--project", GetLessonDirectory(lesson), "--verbose" }, TimeSpan.FromSeconds(20));
 
-    public async Task<ToolResult> RunFormatAsync(TutorialLesson lesson)
+    public async Task<ToolResult> RunFormatAsync(TutorialLesson lesson, string? fileName = null)
     {
-        var result = await RunNlcAsync(lesson, new[] { "format", "--project", GetLessonDirectory(lesson), ProgramFileName }, TimeSpan.FromSeconds(10));
+        var result = await RunNlcAsync(lesson, new[] { "format", "--project", GetLessonDirectory(lesson), GetLessonFileName(lesson, fileName) }, TimeSpan.FromSeconds(10));
         return result;
     }
 
@@ -807,7 +1144,10 @@ obj/
         var testPath = Path.Combine(dir, TestFileName);
         if (!string.IsNullOrWhiteSpace(lesson.TestsCode))
         {
-            WriteIfChanged(testPath, NormalizeNewlines(lesson.TestsCode));
+            if (!File.Exists(testPath))
+            {
+                File.WriteAllText(testPath, NormalizeNewlines(lesson.TestsCode));
+            }
         }
         else if (File.Exists(testPath))
         {
@@ -864,6 +1204,34 @@ obj/
 
     private string GetLessonDirectory(TutorialLesson lesson)
         => Path.Combine(GetLessonsRoot(), lesson.Id);
+
+    private string GetLessonFilePath(TutorialLesson lesson, string? fileName)
+        => Path.Combine(GetLessonDirectory(lesson), GetLessonFileName(lesson, fileName));
+
+    private static string GetLessonFileName(TutorialLesson lesson, string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return ProgramFileName;
+        }
+
+        var normalized = fileName.Replace('\\', '/');
+        var candidate = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+        if (string.Equals(candidate, ProgramFileName, StringComparison.Ordinal))
+        {
+            return ProgramFileName;
+        }
+
+        if (lesson.HasTests && string.Equals(candidate, TestFileName, StringComparison.Ordinal))
+        {
+            return TestFileName;
+        }
+
+        throw new TutorialHttpException(
+            StatusCodes.Status400BadRequest,
+            $"Unsupported tutorial file '{fileName}'. Expected {ProgramFileName}" +
+            (lesson.HasTests ? $" or {TestFileName}." : "."));
+    }
 
     private static void WriteIfChanged(string path, string content)
     {
@@ -1357,9 +1725,9 @@ test "explains command status" {
         => Lessons.FirstOrDefault(lesson => string.Equals(lesson.Id, id, StringComparison.Ordinal));
 }
 
-internal sealed record CodeRequest(string? Code);
+internal sealed record CodeRequest(string? Code, string? File = null);
 
-internal sealed record CompletionRequest(string? Code, int Line, int Column);
+internal sealed record CompletionRequest(string? Code, int Line, int Column, string? File = null);
 
 internal sealed record CodeResponse(string LessonId, string File, string Code, string? TestsFile, string? Tests);
 

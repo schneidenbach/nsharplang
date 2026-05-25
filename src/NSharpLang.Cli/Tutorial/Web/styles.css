@@ -121,6 +121,20 @@ button.danger {
   flex: 0 0 auto;
 }
 
+.status-dot.connecting {
+  background: var(--accent-3);
+}
+
+.status-dot.error,
+.status-dot.disconnected {
+  background: var(--bad);
+}
+
+.lsp-status {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .workspace {
   min-height: 0;
   display: grid;
@@ -128,6 +142,7 @@ button.danger {
 }
 
 .lesson-nav {
+  min-width: 0;
   border-right: 1px solid var(--line);
   background: var(--panel-2);
   overflow: auto;
@@ -179,18 +194,21 @@ button.danger {
 }
 
 .lesson-name {
+  display: block;
   font-weight: 700;
   line-height: 1.2;
   margin-bottom: 3px;
 }
 
 .lesson-summary {
+  display: block;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.35;
 }
 
 .lesson-pane {
+  min-width: 0;
   overflow: auto;
   padding: 22px 26px;
 }
@@ -206,6 +224,7 @@ button.danger {
   color: var(--muted);
   line-height: 1.5;
   margin: 0 0 18px;
+  overflow-wrap: anywhere;
 }
 
 .goal {
@@ -214,6 +233,7 @@ button.danger {
   padding: 12px 14px;
   margin: 0 0 18px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .concepts {
@@ -240,6 +260,7 @@ button.danger {
   padding: 12px;
   color: #40380b;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .source-link {
@@ -254,7 +275,7 @@ button.danger {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(340px, 1fr) minmax(190px, 0.58fr);
+  grid-template-rows: auto auto minmax(340px, 1fr) minmax(190px, 0.58fr);
   border-left: 1px solid var(--line);
   background: var(--panel);
 }
@@ -272,6 +293,36 @@ button.danger {
   color: var(--muted);
   font-size: 13px;
   margin-left: auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tabs {
+  display: flex;
+  min-height: 36px;
+  background: #18201d;
+  border-bottom: 1px solid #2d3834;
+  overflow: auto hidden;
+}
+
+.file-tab {
+  min-height: 36px;
+  border: 0;
+  border-right: 1px solid #2d3834;
+  border-radius: 0;
+  background: #1c2521;
+  color: #b8c6c0;
+  font-size: 13px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.file-tab.active {
+  background: var(--code-bg);
+  color: #ffffff;
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 .editor-wrap {
@@ -280,142 +331,46 @@ button.danger {
   background: var(--code-bg);
 }
 
-.code-highlight,
-.code-editor {
+.monaco-host {
   width: 100%;
   height: 100%;
   min-height: 340px;
-  line-height: 1.55;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 14px;
-  padding: 16px 18px;
-  tab-size: 4;
-  white-space: pre;
 }
 
-.code-highlight {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--code-bg);
-  color: var(--code-ink);
-}
-
-.code-highlight code {
-  font: inherit;
-}
-
-.code-editor {
-  position: relative;
-  z-index: 1;
-  resize: none;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: transparent;
-  caret-color: var(--code-ink);
-  overflow: auto;
-}
-
-.code-editor::selection {
-  background: rgba(88, 176, 154, 0.34);
-  color: transparent;
-}
-
-.tok-keyword {
-  color: #7dcfff;
-  font-weight: 700;
-}
-
-.tok-builtin {
-  color: #f3cc71;
-}
-
-.tok-type {
-  color: #8bd49c;
-}
-
-.tok-string {
-  color: #e6c384;
-}
-
-.tok-number {
-  color: #f3a683;
-}
-
-.tok-comment {
-  color: #87958f;
-  font-style: italic;
-}
-
-.tok-directive {
-  color: #c8a2ff;
-}
-
-.tok-symbol {
-  color: #c5d1cc;
-}
-
-.completion-panel {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  width: min(360px, calc(100% - 32px));
-  max-height: 310px;
-  overflow: auto;
-  background: #fbfffd;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 18px 32px rgba(19, 30, 27, 0.18);
-  padding: 10px;
-}
-
-.completion-panel h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-
-.completion-group {
-  margin: 0 0 10px;
-}
-
-.completion-group-title {
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.completion-item {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  text-align: left;
-  min-height: 30px;
-  padding: 5px 7px;
-}
-
-.completion-item:hover {
-  background: #eaf3ef;
-}
-
-.completion-kind {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.output {
+.panel-area {
   min-height: 0;
   border-top: 1px solid var(--line);
   background: #101412;
   color: #dbe5e0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.panel-tabs {
+  min-height: 34px;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #151b18;
+}
+
+.panel-tabs button {
+  min-height: 34px;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  background: transparent;
+  color: #aebbb6;
+  font-size: 13px;
+}
+
+.panel-tabs button.active {
+  color: #ffffff;
+  background: #101412;
+}
+
+.output {
+  min-height: 0;
   display: grid;
   grid-template-rows: auto 1fr;
 }
@@ -446,6 +401,67 @@ button.danger {
   white-space: pre-wrap;
 }
 
+.problems-empty {
+  color: #aebbb6;
+  font-size: 13px;
+  padding: 12px;
+}
+
+.problems-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.problem-item {
+  width: 100%;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(54px, auto) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #dbe5e0;
+  font-size: 13px;
+  text-align: left;
+  padding: 6px 12px;
+}
+
+.problem-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.problem-code {
+  color: #ff9a91;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.problem-item.warning .problem-code {
+  color: #f3cc71;
+}
+
+.problem-item.info .problem-code,
+.problem-item.hint .problem-code {
+  color: #7dcfff;
+}
+
+.problem-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-location {
+  color: #aebbb6;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .ok {
   color: #82d99a;
 }
@@ -456,6 +472,10 @@ button.danger {
 
 .empty {
   color: var(--muted);
+}
+
+.error-state {
+  padding: 28px;
 }
 
 @media (max-width: 1100px) {
@@ -486,5 +506,16 @@ button.danger {
     max-height: 220px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .tool-status {
+    max-width: 100%;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .problem-item {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
 }

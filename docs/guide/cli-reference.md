@@ -68,7 +68,7 @@ Updated: 2026-05-24
 
 ## Tutorial Command
 
-`nlc tutorial` starts a loopback-only ASP.NET Core walkthrough for a first 15-minute N# tour. The browser app creates real lesson projects under the tutorial workspace and invokes the local `nlc` command for diagnostics, completions, hover, formatting, run, and test actions. The lessons cover hello world, values/functions, records/classes and visibility-by-casing, unions and pattern matching, duck interfaces, collections/LINQ, error capture, async/.NET interop, testing, and the normal `nlc` tooling loop.
+`nlc tutorial` starts a loopback-only ASP.NET Core walkthrough for a first 15-minute N# tour. The browser app creates real lesson projects under the tutorial workspace and hosts a Monaco Editor workbench with N# syntax highlighting, file tabs, Monaco completions, hover, diagnostics, document formatting, and a Problems/Output panel. The editor connects to `NSharpLang.LanguageServer` through a same-origin WebSocket LSP bridge when the language server is available, while the toolbar continues to invoke the local `nlc` command for diagnostics, completions, hover, formatting, run, and test actions. The lessons cover hello world, values/functions, records/classes and visibility-by-casing, unions and pattern matching, duck interfaces, collections/LINQ, error capture, async/.NET interop, testing, and the normal `nlc` tooling loop.
 
 ```bash
 nlc tutorial
@@ -81,7 +81,9 @@ Safety and state:
 
 - The host only accepts loopback hosts (`127.0.0.1`, `localhost`, or `::1`).
 - The browser app receives a per-server session token from `/api/lessons`; mutating tutorial actions require that token on POST requests.
-- Lesson files are local N# projects. Open the workspace in VS Code to use the full extension while the browser tutorial is running.
+- Lesson files are local N# projects. Lessons with tests open both `Program.nl` and `Program.tests.nl`; edits to either tab are saved in the tutorial workspace.
+- Browser IntelliSense uses the same language-server process as editor tooling when `nsharp-lsp` or the repo-built language server is available. If the LSP bridge is unavailable, the toolbar actions still use `nlc query` endpoints.
+- Open the workspace in VS Code when you want the full extension workbench around the same files.
 - `--reset` only recreates marked tutorial workspaces. `nlc tutorial` writes `.nsharp-tutorial-workspace` and refuses filesystem roots, the home directory, the current directory, the current repository root, and non-empty directories without the marker.
 - Reset preserves unrelated files at the workspace root and only recreates managed tutorial lesson state. Without `--reset`, lesson edits are preserved.
 - `--dry-run` materializes the workspaces and exits, which is useful for CI checks and package smoke tests.
