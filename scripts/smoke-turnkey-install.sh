@@ -7,6 +7,7 @@ LOG_DIR="${LOG_DIR:-$PROJECT_ROOT/artifacts/smoke-turnkey}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="$LOG_DIR/$STAMP"
 FEED="$PROJECT_ROOT/artifacts/nuget"
+TOOLSET_ARCHIVE="$PROJECT_ROOT/artifacts/toolset/nsharp-toolset.tar.gz"
 APP_DIR="$RUN_DIR/work/MyApp"
 
 mkdir -p "$RUN_DIR"
@@ -21,12 +22,11 @@ echo "log:  $LOG_FILE"
 echo ""
 
 cd "$PROJECT_ROOT"
-SKIP_VSCODE_PACKAGE=1 ./scripts/pack-nuget.sh
 
 TMP_HOME="$RUN_DIR/home"
 mkdir -p "$TMP_HOME"
 export HOME="$TMP_HOME"
-export PATH="$HOME/.dotnet/tools:$PATH"
+export PATH="$HOME/.nsharp/bin:$PATH"
 export DOTNET_CLI_HOME="$HOME"
 export DOTNET_ROOT="${DOTNET_ROOT:-$(python3 - <<'PY'
 import os, shutil
@@ -39,6 +39,8 @@ for candidate in (os.path.join(os.path.dirname(bin_dir), 'libexec'), os.path.dir
 PY
 )}"
 export NUGET_PACKAGES="$RUN_DIR/nuget-packages"
+
+SKIP_VSCODE_PACKAGE=1 ./scripts/pack-nuget.sh
 
 mkdir -p "$HOME/.nuget/NuGet"
 cat > "$HOME/.nuget/NuGet/NuGet.Config" <<NUGETCONFIG
@@ -73,8 +75,9 @@ if [[ "$PIN_EQUALS_STATUS" -ne 2 ]] || ! printf '%s\n' "$PIN_EQUALS_OUTPUT" | gr
 fi
 
 echo "==> Running installer against local package feed"
-./scripts/install.sh --source "$FEED" --skip-vscode
+./scripts/install.sh --source "$TOOLSET_ARCHIVE" --skip-vscode
 . "$HOME/.nsharp/env"
+FEED="$HOME/.nsharp/packages"
 
 echo "==> Verifying CLI"
 nlc --version
@@ -86,8 +89,8 @@ cd "$RUN_DIR/work"
 nlc new MyApp
 cd "$APP_DIR"
 
-# nlc-generated projects include NuGet.config; rewrite this smoke app to use only
-# the local artifacts feed so NSharpLang package restore cannot fall back to nuget.org.
+# nlc-generated projects include NuGet.config; verify this smoke app uses only
+# the installed N# package cache for NSharpLang packages.
 FEED="$FEED" python3 - <<'PY'
 from pathlib import Path
 import os
@@ -96,8 +99,8 @@ import xml.etree.ElementTree as ET
 feed = os.environ['FEED']
 p = Path('NuGet.config')
 s = p.read_text()
-s = s.replace('%HOME%/.nuget/local-feed', feed)
-s = s.replace('$HOME/.nuget/local-feed', feed)
+s = s.replace('%HOME%/.nsharp/packages', feed)
+s = s.replace('$HOME/.nsharp/packages', feed)
 p.write_text(s)
 
 tree = ET.parse(p)

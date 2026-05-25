@@ -17,10 +17,10 @@ jobs:
         dotnet-version: '10.0.x'
 
     - name: Install N# CLI
-      run: dotnet tool install -g NSharpLang.Cli
+      run: curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --skip-vscode
 
-    - name: Add .NET tools to PATH
-      run: echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+    - name: Add N# to PATH
+      run: echo "$HOME/.nsharp/bin" >> $GITHUB_PATH
 
     - name: Run linter
       run: nlc lint

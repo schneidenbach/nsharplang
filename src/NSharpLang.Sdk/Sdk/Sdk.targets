@@ -180,19 +180,7 @@
 
     <Message Importance="High" Text="Generating HTML coverage report..." />
 
-    <!-- Check if dotnet-reportgenerator-globaltool is installed -->
-    <Exec Command="dotnet tool list -g | grep reportgenerator"
-          IgnoreExitCode="true"
-          ConsoleToMSBuild="true">
-      <Output TaskParameter="ExitCode" PropertyName="ReportGeneratorInstalled" />
-    </Exec>
-
-    <!-- Install reportgenerator if not present -->
-    <Exec Command="dotnet tool install -g dotnet-reportgenerator-globaltool"
-          Condition="'$(ReportGeneratorInstalled)' != '0'"
-          IgnoreExitCode="true" />
-
-    <!-- Generate the report -->
+    <!-- Generate the report when reportgenerator is available on PATH. -->
     <Exec Command="reportgenerator -reports:&quot;$(CoverageFiles)&quot; -targetdir:&quot;$(CoverageReportDir)&quot; -reporttypes:Html"
           WorkingDirectory="$(MSBuildProjectDirectory)"
           IgnoreExitCode="true" />

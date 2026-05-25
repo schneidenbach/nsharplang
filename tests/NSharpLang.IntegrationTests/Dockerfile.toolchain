@@ -1,17 +1,18 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0
 
-# Copy pre-packed NuGet packages into the container
+# Copy the package-manager toolset and pre-packed NuGet packages into the container
+COPY toolset/ /root/.nsharp/
 COPY packages/ /packages/
 
 # Register the local package source so dotnet restore/build can find our packages
 RUN dotnet nuget add source /packages --name local
 
-# Template NuGet.config files use <clear/> and reference ~/.nuget/local-feed,
-# so symlink that path to /packages/ so SDK resolution works after <clear/>
-RUN mkdir -p /root/.nuget && ln -s /packages /root/.nuget/local-feed
+# Template NuGet.config files use <clear/> and reference ~/.nsharp/packages,
+# so keep the packaged SDK/compiler artifacts there as the canonical install cache.
+RUN dotnet new install /root/.nsharp/packages/NSharpLang.Templates.*.nupkg --force
 
-# Ensure global tools are on PATH
-ENV PATH="${PATH}:/root/.dotnet/tools"
+# Ensure N# launchers are on PATH
+ENV PATH="/root/.nsharp/bin:${PATH}"
 
 WORKDIR /workspace
 

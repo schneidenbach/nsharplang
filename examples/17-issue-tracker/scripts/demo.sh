@@ -84,13 +84,12 @@ CLI_PUBLISH_DIR="$LOG_DIR/local-cli"
 rm -rf "$REPO_ROOT/src/NSharpLang.Cli/bin" "$REPO_ROOT/src/NSharpLang.Cli/obj"
 dotnet publish "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" \
   --disable-build-servers -m:1 -c Debug -o "$CLI_PUBLISH_DIR" -v q \
-  /p:PackAsTool=false \
   /p:GenerateRuntimeConfigurationFiles=true \
   /p:GenerateDependencyFile=true
 NLC=(dotnet "$CLI_PUBLISH_DIR/Cli.dll")
 
 step "Packing local N# SDK for backend restore"
-LOCAL_FEED="$HOME/.nuget/local-feed"
+LOCAL_FEED="$HOME/.nsharp/packages"
 GLOBAL_PACKAGES="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 mkdir -p "$LOCAL_FEED"
 dotnet pack "$REPO_ROOT/src/NSharpLang.Sdk/NSharpLang.Sdk.csproj" \

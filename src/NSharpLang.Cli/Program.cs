@@ -638,7 +638,7 @@ language:
   <packageSources>
     <clear />
     <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
-    <add key=""nsharp-local"" value=""%HOME%/.nuget/local-feed"" />
+    <add key=""nsharp-local"" value=""%HOME%/.nsharp/packages"" />
   </packageSources>
 </configuration>
 ";

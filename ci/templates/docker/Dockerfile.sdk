@@ -4,15 +4,10 @@
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS base
 
-# Install N# CLI tools
-RUN dotnet tool install -g NSharpLang.Cli && \
-    dotnet tool install -g NSharpLang.LanguageServer
-
-# Add .NET tools to PATH
-ENV PATH="${PATH}:/root/.dotnet/tools"
-
-# Install N# templates
-RUN dotnet new install NSharpLang.Templates
+# Install N# toolset
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash -s -- --skip-vscode
+ENV PATH="/root/.nsharp/bin:${PATH}"
 
 # Verify installation
 RUN nlc --version

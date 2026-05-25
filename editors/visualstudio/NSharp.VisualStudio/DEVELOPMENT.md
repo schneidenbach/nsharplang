@@ -34,8 +34,7 @@
    - `NSharpLanguageClient.cs`: ILanguageClient implementation
    - Connects to N# Language Server for IntelliSense
    - Multi-strategy language server path resolution:
-     - Dotnet tool installations (~/.dotnet/tools/.store)
-     - NuGet packages (~/.nuget/packages)
+     - N# user-local toolset (~/.nsharp/lib/nsharp-lsp)
      - Program Files installation
      - Development builds (src/LanguageServer/bin)
    - Automatic process management and lifecycle

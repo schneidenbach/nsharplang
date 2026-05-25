@@ -8,9 +8,6 @@
 
     <RootNamespace>NSharpLang.LanguageServer</RootNamespace>
 
-    <!-- Tool Configuration -->
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>nsharp-lsp</ToolCommandName>
     <PackageId>NSharpLang.LanguageServer</PackageId>
 
     <!-- Package Metadata -->

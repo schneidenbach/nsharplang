@@ -8,8 +8,6 @@ NSHARP_PACKAGE_SPECS=(
     "NSharpLang.Sdk|NSharpLang.Sdk|src/NSharpLang.Sdk/NSharpLang.Sdk.csproj"
     "NSharpLang.Templates|NSharpLang.Templates|templates/NSharpLang.Templates.csproj"
     "NSharpLang.Compiler|NSharpLang.Compiler|src/NSharpLang.Compiler/Compiler.csproj"
-    "NSharpLang.Cli|nlc (N# CLI tool)|src/NSharpLang.Cli/Cli.csproj"
-    "NSharpLang.LanguageServer|NSharpLang.LanguageServer|src/NSharpLang.LanguageServer/LanguageServer.csproj"
 )
 
 nsharp_each_package_spec() {
@@ -34,7 +32,6 @@ nsharp_print_release_artifact_set() {
     echo "  - NSharpLang.Sdk - MSBuild SDK restored by projects"
     echo "  - NSharpLang.Templates - dotnet new templates"
     echo "  - NSharpLang.Compiler - Compiler API library"
-    echo "  - NSharpLang.Cli - global tool that provides nlc"
-    echo "  - NSharpLang.LanguageServer - global tool that provides nsharp-lsp"
+    echo "  - nsharp-toolset.tar.gz - package-manager-ready nlc and nsharp-lsp payloads"
     echo "  - nsharp.vsix - stable VS Code extension release asset used by scripts/install.sh fallback"
 }

@@ -3,9 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/toolset.sh"
 
 PROJECT_ROOT="$NSHARP_REPO_ROOT"
-DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
+NSHARP_INSTALL_DIR="${NSHARP_INSTALL_DIR:-$HOME/.nsharp}"
+NSHARP_BIN_DIR="$NSHARP_INSTALL_DIR/bin"
 NSHARP_ENV_DIR="${NSHARP_ENV_DIR:-$HOME/.nsharp}"
 NSHARP_ENV_FILE="$NSHARP_ENV_DIR/env"
 
@@ -19,8 +21,8 @@ usage() {
 Usage: ./scripts/setup-local.sh [options]
 
 Contributor bootstrap for the local N# toolchain. Builds packages from this
-checkout, refreshes the local NuGet feed, installs the nlc and nsharp-lsp dotnet
-tools from that feed, installs the templates, and makes nlc available on PATH
+checkout, refreshes the local N# package cache, installs the nlc and nsharp-lsp
+launchers, installs the templates, and makes nlc available on PATH
 for future shells.
 
 Options:
@@ -33,8 +35,7 @@ Options:
 
 Environment overrides:
   NSHARP_LOCAL_FEED          Local NuGet feed path
-  NSHARP_LOCAL_SOURCE_NAME   NuGet source name to register
-  DOTNET_TOOLS_DIR           Directory expected to contain dotnet global tools
+  NSHARP_INSTALL_DIR         N# install directory (default: ~/.nsharp)
   NSHARP_ENV_DIR             Directory for the N# shell env file
 EOF
 }
@@ -107,19 +108,19 @@ ensure_profile_sources_env() {
     echo "Updated shell profile: $profile"
 }
 
-ensure_dotnet_tools_path() {
-    if ! nsharp_path_contains "$DOTNET_TOOLS_DIR"; then
-        export PATH="$DOTNET_TOOLS_DIR:$PATH"
+ensure_nsharp_path() {
+    if ! nsharp_path_contains "$NSHARP_BIN_DIR"; then
+        export PATH="$NSHARP_BIN_DIR:$PATH"
     fi
 
     local dotnet_root=""
     if command -v dotnet >/dev/null 2>&1; then
         dotnet_root="$(nsharp_resolve_dotnet_root "$(command -v dotnet)")"
         if [[ -n "$dotnet_root" ]]; then
-            export DOTNET_ROOT="${DOTNET_ROOT:-$dotnet_root}"
+            export DOTNET_ROOT="$dotnet_root"
             case "$(uname -m)" in
-                arm64) export DOTNET_ROOT_ARM64="${DOTNET_ROOT_ARM64:-$DOTNET_ROOT}" ;;
-                x86_64) export DOTNET_ROOT_X64="${DOTNET_ROOT_X64:-$DOTNET_ROOT}" ;;
+                arm64) export DOTNET_ROOT_ARM64="$DOTNET_ROOT" ;;
+                x86_64) export DOTNET_ROOT_X64="$DOTNET_ROOT" ;;
             esac
         fi
     fi
@@ -140,7 +141,7 @@ ensure_dotnet_tools_path() {
         mkdir -p "$NSHARP_ENV_DIR"
         cat > "$NSHARP_ENV_FILE" <<EOF
 # Added by N# local setup.
-export PATH="$DOTNET_TOOLS_DIR:\$PATH"
+export PATH="$NSHARP_BIN_DIR:\$PATH"
 EOF
         if [[ -n "$dotnet_root" ]]; then
             {
@@ -172,7 +173,7 @@ verify_local_toolchain() {
 
     nsharp_log "Verifying local N# toolchain"
     if ! command -v nlc >/dev/null 2>&1; then
-        echo "Error: nlc was installed but is not on PATH. Source $NSHARP_ENV_FILE or add $DOTNET_TOOLS_DIR to PATH." >&2
+        echo "Error: nlc was installed but is not on PATH. Source $NSHARP_ENV_FILE or add $NSHARP_BIN_DIR to PATH." >&2
         exit 1
     fi
 
@@ -229,26 +230,27 @@ echo "========================================"
 echo "Setting up local N# toolchain"
 echo "========================================"
 echo "Project root:      $PROJECT_ROOT"
-echo "Dotnet tools path: $DOTNET_TOOLS_DIR"
+echo "Install dir:       $NSHARP_INSTALL_DIR"
+echo "Command path:      $NSHARP_BIN_DIR"
 echo "VS Code install:   $([[ "$WITH_VSCODE" -eq 1 ]] && echo yes || echo no)"
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Mode:              dry-run"
 fi
 
-nsharp_log "Deploying local packages, templates, CLI, and language server"
+nsharp_log "Deploying local packages, templates, CLI, and language server launchers"
 nsharp_print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
 "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
 
-ensure_dotnet_tools_path
+ensure_nsharp_path
 verify_local_toolchain
 
 echo
 echo "Local N# setup complete."
-echo "For this terminal, setup has exported: $DOTNET_TOOLS_DIR"
+echo "For this terminal, setup has exported: $NSHARP_BIN_DIR"
 if [[ "$UPDATE_PATH" -eq 1 ]]; then
     echo "For new terminals, restart your shell or run: source $NSHARP_ENV_FILE"
 else
-    echo "For new terminals, add $DOTNET_TOOLS_DIR to PATH or rerun without --no-path-update."
+    echo "For new terminals, add $NSHARP_BIN_DIR to PATH or rerun without --no-path-update."
 fi
 echo
 echo "Try:"

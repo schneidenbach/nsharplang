@@ -9,8 +9,8 @@ export function getNlcPath(): string {
         return expandHome(configuredPath);
     }
 
-    const dotnetToolPath = path.join(os.homedir(), '.dotnet', 'tools', process.platform === 'win32' ? 'nlc.exe' : 'nlc');
-    return fs.existsSync(dotnetToolPath) ? dotnetToolPath : 'nlc';
+    const nsharpLauncherPath = path.join(os.homedir(), '.nsharp', 'bin', process.platform === 'win32' ? 'nlc.cmd' : 'nlc');
+    return fs.existsSync(nsharpLauncherPath) ? nsharpLauncherPath : 'nlc';
 }
 
 export function getNlcEnvironment(): Record<string, string> {
@@ -28,8 +28,8 @@ export function getNlcEnvironment(): Record<string, string> {
         prependPath(env, dotnetRoot);
     }
 
-    const dotnetToolsDirectory = path.join(os.homedir(), '.dotnet', 'tools');
-    prependPath(env, dotnetToolsDirectory);
+    const nsharpBinDirectory = path.join(os.homedir(), '.nsharp', 'bin');
+    prependPath(env, nsharpBinDirectory);
 
     return env;
 }
@@ -185,8 +185,10 @@ function normalizeDotnetRoot(candidate: string | undefined): string | undefined 
 }
 
 function isDotnetRoot(candidate: string): boolean {
+    const runtimeDirectory = path.join(candidate, 'shared', 'Microsoft.NETCore.App');
     return fs.existsSync(path.join(candidate, process.platform === 'win32' ? 'dotnet.exe' : 'dotnet'))
-        && fs.existsSync(path.join(candidate, 'shared'));
+        && fs.existsSync(runtimeDirectory)
+        && fs.readdirSync(runtimeDirectory).some(entry => entry.startsWith('10.'));
 }
 
 function prependPath(env: Record<string, string>, directory: string): void {

@@ -8,8 +8,9 @@ To rebuild and redeploy the full local N# toolset in one step, run:
 ./scripts/deploy-local-toolset.sh
 ```
 
-That script refreshes the local NuGet feed, reinstalls the `nlc` and `nsharp-lsp`
-dotnet tools from local packages, then packages and installs the VS Code extension.
+That script refreshes the local N# package cache, installs the `nlc` and
+`nsharp-lsp` launchers under `~/.nsharp/bin`, then packages and installs the VS
+Code extension.
 
 ## Prerequisites
 

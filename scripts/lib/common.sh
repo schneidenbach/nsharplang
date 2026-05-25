@@ -96,14 +96,13 @@ for candidate in candidates:
     seen.add(candidate)
     if (
         os.path.isfile(os.path.join(candidate, "dotnet"))
-        and (
-            os.path.isdir(os.path.join(candidate, "sdk"))
-            or os.path.isdir(os.path.join(candidate, "host", "fxr"))
+        and os.path.isdir(os.path.join(candidate, "shared", "Microsoft.NETCore.App"))
+        and any(
+            name.startswith("10.")
+            for name in os.listdir(os.path.join(candidate, "shared", "Microsoft.NETCore.App"))
         )
     ):
         print(candidate)
         break
-else:
-    print(dotnet_dir)
 PY
 }

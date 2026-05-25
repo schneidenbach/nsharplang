@@ -23,7 +23,9 @@ public static class EnvCommand
         var arch = RuntimeInformation.OSArchitecture.ToString();
         var nugetCachePath = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        var globalToolsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet", "tools");
+        var nsharpHome = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nsharp");
+        var nsharpBinPath = Path.Combine(nsharpHome, "bin");
+        var nsharpPackageCachePath = Path.Combine(nsharpHome, "packages");
 
         string? projectName = null;
         string? targetFramework = null;
@@ -52,7 +54,7 @@ public static class EnvCommand
             using var stream = new MemoryStream();
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
             writer.WriteStartObject();
-            writer.WriteNumber("schemaVersion", 1);
+            writer.WriteNumber("schemaVersion", 2);
             writer.WriteString("command", "env");
             writer.WriteBoolean("ok", true);
             writer.WriteString("nlcVersion", nlcVersion);
@@ -61,7 +63,8 @@ public static class EnvCommand
             writer.WriteString("os", os);
             writer.WriteString("arch", arch);
             writer.WriteString("nugetCachePath", nugetCachePath);
-            writer.WriteString("globalToolsPath", globalToolsPath);
+            writer.WriteString("nsharpBinPath", nsharpBinPath);
+            writer.WriteString("nsharpPackageCachePath", nsharpPackageCachePath);
             if (projectName != null)
             {
                 writer.WriteStartObject("project");
@@ -83,7 +86,8 @@ public static class EnvCommand
             Console.WriteLine($"os:             {os}");
             Console.WriteLine($"arch:           {arch}");
             Console.WriteLine($"nuget cache:    {nugetCachePath}");
-            Console.WriteLine($"global tools:   {globalToolsPath}");
+            Console.WriteLine($"nsharp bin:     {nsharpBinPath}");
+            Console.WriteLine($"nsharp packages: {nsharpPackageCachePath}");
 
             if (projectName != null)
             {

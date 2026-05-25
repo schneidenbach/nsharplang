@@ -26,13 +26,14 @@ public class SetupLocalScriptTests
                 $"--- stderr ---\n{result.Stderr}");
             Assert.Contains("Deploying Local N# Toolset", result.Stdout);
             Assert.Contains("--skip-vscode", result.Stdout);
-            Assert.Contains("dotnet tool install -g NSharpLang.Cli", result.Stdout);
-            Assert.Contains("dotnet tool install -g NSharpLang.LanguageServer", result.Stdout);
-            Assert.Contains("dotnet new install NSharpLang.Templates", result.Stdout);
+            Assert.Contains("publish nlc and nsharp-lsp", result.Stdout);
+            Assert.Contains("install toolset", result.Stdout);
+            Assert.Contains("dotnet new install", result.Stdout);
             Assert.Contains(".nsharp/env", result.Stdout);
             Assert.Contains("DOTNET_ROOT", result.Stdout);
             Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
             Assert.Contains("nlc new MyApp", result.Stdout);
+            Assert.DoesNotContain("dotnet" + " tool", result.Stdout);
         }
         finally
         {
@@ -58,7 +59,8 @@ public class SetupLocalScriptTests
                 $"--- stdout ---\n{result.Stdout}\n" +
                 $"--- stderr ---\n{result.Stderr}");
             Assert.Contains(PublicInstallCommand, result.Stdout);
-            Assert.Contains("--vsix-url URL", result.Stdout);
+            Assert.Contains("--source SOURCE", result.Stdout);
+            Assert.Contains("--install-dir DIR", result.Stdout);
             Assert.Contains("--no-path-update", result.Stdout);
         }
         finally
@@ -84,12 +86,13 @@ public class SetupLocalScriptTests
                 $"install dry-run failed with exit code {result.ExitCode}\n" +
                 $"--- stdout ---\n{result.Stdout}\n" +
                 $"--- stderr ---\n{result.Stderr}");
-            Assert.Contains("dotnet new install NSharpLang.Templates", result.Stdout);
-            Assert.Contains("NSharpLang.Cli", result.Stdout);
-            Assert.Contains("NSharpLang.LanguageServer", result.Stdout);
+            Assert.Contains("Installing N# toolchain", result.Stdout);
+            Assert.Contains("copy bin/lib/packages", result.Stdout);
+            Assert.Contains("dotnet new install", result.Stdout);
             Assert.Contains("Ensuring nlc is on PATH for future shells", result.Stdout);
             Assert.Contains(".nsharp/env", result.Stdout);
             Assert.Contains("Skipping VS Code extension (--skip-vscode)", result.Stdout);
+            Assert.DoesNotContain("dotnet" + " tool", result.Stdout);
         }
         finally
         {
