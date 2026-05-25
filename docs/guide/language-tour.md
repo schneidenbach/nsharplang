@@ -565,8 +565,6 @@ The compiler maps common assert patterns to XUnit's best assertion methods:
 nlc test                         # Run all tests
 nlc test --filter "should add"   # Run matching tests
 nlc test --json                  # Structured JSON output
-nlc test --coverage              # Code coverage summary
-nlc test --coverage --coverage-report  # HTML coverage report
 nlc watch test                   # Re-run on file changes
 ```
 

@@ -49,7 +49,7 @@ MyApp/
 └── Program.nl         # Your N# code
 ```
 
-N# fresh projects are csproj-free. `nlc build`/`nlc run` generate a minimal `*.g.csproj` build artifact when MSBuild needs one; don't add project settings to a hand-authored `.csproj`.
+N# fresh projects are csproj-free. `nlc build`/`nlc run` read `project.yml` directly and do not generate MSBuild project files; don't add project settings to a hand-authored `.csproj`.
 
 ## Write Hello World
 
@@ -167,9 +167,9 @@ Open your project folder in VS Code and start editing `.nl` files.
 When you run `nlc build`:
 
 1. The CLI reads `project.yml` for project settings
-2. The CLI generates a minimal `*.g.csproj` build artifact for the N# MSBuild SDK
+2. The compiler resolves project, framework, and NuGet references natively
 3. The compiler emits IL directly for the project assembly
-4. The .NET toolchain builds and runs with the emitted assembly and runtime assets
+4. The CLI writes runtime assets into stable `bin/<configuration>/<targetFramework>/` output paths
 
 Most project workflows hide intermediate generated artifacts; use explicit export/debug flags when you need to inspect them.
 

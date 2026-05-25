@@ -6,6 +6,40 @@ namespace NSharpLang.Compiler;
 
 public static class ProjectReferenceResolver
 {
+    public static string ResolveNSharpProjectRoot(string projectReferencePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectReferencePath);
+
+        var fullPath = Path.GetFullPath(projectReferencePath);
+        if (Directory.Exists(fullPath))
+        {
+            var projectFile = Path.Combine(fullPath, "project.yml");
+            if (File.Exists(projectFile))
+            {
+                return fullPath;
+            }
+
+            throw new FileNotFoundException(
+                $"Project reference '{projectReferencePath}' points to a directory, but no project.yml was found in that directory.");
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"Project reference not found: {projectReferencePath}");
+        }
+
+        if (fullPath.EndsWith(".yml", StringComparison.OrdinalIgnoreCase) ||
+            fullPath.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetDirectoryName(fullPath)
+                ?? throw new InvalidOperationException($"Could not determine the project directory for '{projectReferencePath}'.");
+        }
+
+        throw new InvalidOperationException(
+            $"N# project reference '{projectReferencePath}' must point to a project.yml file or a directory containing project.yml. " +
+            "Use a DLL reference for prebuilt assemblies, or keep .csproj references inside MSBuild compatibility projects.");
+    }
+
     public static string ResolveMsBuildProjectPath(string projectReferencePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectReferencePath);

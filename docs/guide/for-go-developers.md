@@ -421,7 +421,7 @@ One canonical style, enforced by tooling. Same philosophy as Go.
 | `go run` | `dotnet run` | Build + run |
 | `go test` | `nlc test` | Run tests |
 | `go test -run` | `nlc test --filter` | Filter tests |
-| `go test -cover` | `nlc test --coverage` | Code coverage |
+| `go test -cover` | Planned native coverage | Code coverage |
 | `go test -json` | `nlc test --json` | Machine-readable output |
 | `go fmt` | `nlc format` | Format code |
 | `go vet` | `nlc lint` | Static analysis |

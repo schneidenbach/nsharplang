@@ -1,7 +1,6 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -11,7 +10,7 @@ namespace NSharpLang.Cli.Commands;
 
 /// <summary>
 /// Generates a NuGet package from the current N# project by reading package metadata
-/// from project.yml and delegating to `dotnet pack`.
+/// from project.yml and packing the native IL build output.
 /// </summary>
 public static class PackCommand
 {
@@ -65,97 +64,46 @@ public static class PackCommand
 
         try
         {
-            // Generate obj/project.g.props from project.yml
-            var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
-            if (restoreResult != 0)
+            var projectName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
+            var effectiveVersion = versionOverride ?? config.Version;
+            if (string.IsNullOrWhiteSpace(effectiveVersion))
             {
                 if (jsonOutput)
-                    WriteErrorJson("Failed to restore project configuration from project.yml.");
+                    WriteErrorJson("Package version is required. Set version in project.yml or pass --version.");
                 else
-                    Console.Error.WriteLine("Error: Failed to restore project configuration from project.yml.");
+                    Console.Error.WriteLine("Error: Package version is required. Set version in project.yml or pass --version.");
                 return 1;
             }
 
-            // Determine .g.csproj path (same logic as EnsureProjectFiles in Program.cs)
-            var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-            var csprojPath = Program.EnsureProjectFiles(projectRoot, config);
-
-            // Clean up stale .g.cs files from deleted .nl sources
-            Program.CleanStaleGeneratedFiles(projectRoot);
-
-            // Build 'dotnet pack' arguments
-            var packArgs = new List<string> { "pack", $"\"{csprojPath}\"" };
-            packArgs.Add($"--configuration {configuration}");
-            packArgs.Add("-p:NSharpExcludeTests=true");
-
-            // Inject package metadata as MSBuild properties
-            var pkg = config.Package;
-            if (pkg != null)
+            var buildOutputDir = Path.Combine(projectRoot, "bin", configuration, config.TargetFramework);
+            var assemblyPath = Program.BuildProjectWithIlBackendForCommand(
+                projectRoot,
+                config,
+                configuration,
+                buildOutputDir,
+                includeTests: false);
+            if (assemblyPath == null)
             {
-                if (!string.IsNullOrWhiteSpace(pkg.Author))
-                    packArgs.Add($"-p:Authors={QuoteProperty(pkg.Author)}");
-
-                if (!string.IsNullOrWhiteSpace(pkg.Description))
-                    packArgs.Add($"-p:Description={QuoteProperty(pkg.Description)}");
-
-                if (pkg.Tags != null && pkg.Tags.Count > 0)
-                    packArgs.Add($"-p:PackageTags={QuoteProperty(string.Join(" ", pkg.Tags))}");
-
-                if (!string.IsNullOrWhiteSpace(pkg.License))
-                    packArgs.Add($"-p:PackageLicenseExpression={QuoteProperty(pkg.License)}");
-
-                if (!string.IsNullOrWhiteSpace(pkg.Repository))
-                    packArgs.Add($"-p:RepositoryUrl={QuoteProperty(pkg.Repository)}");
-
-                if (!string.IsNullOrWhiteSpace(pkg.Icon))
-                    packArgs.Add($"-p:PackageIcon={QuoteProperty(pkg.Icon)}");
+                if (jsonOutput)
+                    WriteErrorJson("Pack build failed.");
+                else
+                    Console.Error.WriteLine("Error: Pack build failed.");
+                return 1;
             }
 
-            // Version override
-            var effectiveVersion = versionOverride ?? config.Version;
-            if (!string.IsNullOrWhiteSpace(effectiveVersion))
-                packArgs.Add($"-p:Version={QuoteProperty(effectiveVersion)}");
+            var packageOutputDir = string.IsNullOrEmpty(outputDir)
+                ? Path.Combine(projectRoot, "bin", configuration)
+                : Path.GetFullPath(outputDir);
+            Directory.CreateDirectory(packageOutputDir);
 
-            // Output directory
-            if (!string.IsNullOrEmpty(outputDir))
-            {
-                var absOutput = Path.GetFullPath(outputDir);
-                packArgs.Add($"--output \"{absOutput}\"");
-            }
+            var packagePath = Path.Combine(packageOutputDir, $"{projectName}.{effectiveVersion}.nupkg");
+            CreateNuGetPackage(projectRoot, config, projectName, effectiveVersion, assemblyPath, packagePath);
 
             if (includeSymbols)
             {
-                packArgs.Add("--include-symbols");
-                packArgs.Add("-p:SymbolPackageFormat=snupkg");
+                var symbolsPath = Path.Combine(packageOutputDir, $"{projectName}.{effectiveVersion}.snupkg");
+                CreateSymbolsPackage(projectName, effectiveVersion, assemblyPath, symbolsPath);
             }
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = string.Join(" ", packArgs),
-                WorkingDirectory = projectRoot,
-                UseShellExecute = false,
-                RedirectStandardOutput = jsonOutput,
-                RedirectStandardError = jsonOutput
-            };
-
-            var process = Process.Start(psi);
-            var stdout = jsonOutput ? process?.StandardOutput.ReadToEnd() ?? "" : "";
-            var stderr = jsonOutput ? process?.StandardError.ReadToEnd() ?? "" : "";
-            process?.WaitForExit();
-
-            if (process?.ExitCode != 0)
-            {
-                var detail = jsonOutput ? $": {(stderr + stdout).Trim()}" : "";
-                if (jsonOutput)
-                    WriteErrorJson($"Pack failed{detail}");
-                else
-                    Console.Error.WriteLine("Error: Pack failed");
-                return 1;
-            }
-
-            // Locate the produced .nupkg file
-            var packagePath = FindProducedPackage(projectRoot, outputDir, projectName, effectiveVersion);
 
             if (jsonOutput)
             {
@@ -166,18 +114,14 @@ public static class PackCommand
                     writer.WriteBoolean("ok", true);
                     writer.WriteString("projectRoot", projectRoot);
                     writer.WriteString("name", projectName);
-                    writer.WriteString("version", effectiveVersion ?? "");
-                    if (packagePath != null)
-                        writer.WriteString("packagePath", packagePath);
-                    else
-                        writer.WriteNull("packagePath");
+                    writer.WriteString("version", effectiveVersion);
+                    writer.WriteString("packagePath", packagePath);
                 });
             }
             else
             {
                 Console.WriteLine("Pack successful!");
-                if (packagePath != null)
-                    Console.WriteLine($"  Package: {packagePath}");
+                Console.WriteLine($"  Package: {packagePath}");
             }
 
             return 0;
@@ -194,43 +138,108 @@ public static class PackCommand
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Attempt to find the .nupkg produced by dotnet pack.
-    /// </summary>
-    static string? FindProducedPackage(string projectRoot, string? outputDir, string projectName, string? version)
+    static void CreateNuGetPackage(
+        string projectRoot,
+        ProjectConfig config,
+        string projectName,
+        string version,
+        string assemblyPath,
+        string packagePath)
     {
-        var searchDir = string.IsNullOrEmpty(outputDir)
-            ? Path.Combine(projectRoot, "bin")
-            : Path.GetFullPath(outputDir);
-
-        if (!Directory.Exists(searchDir))
-            return null;
-
-        try
+        if (File.Exists(packagePath))
         {
-            var pattern = $"{projectName}*.nupkg";
-            var candidates = Directory.GetFiles(searchDir, pattern, SearchOption.AllDirectories);
-
-            if (candidates.Length == 0)
-                return null;
-
-            // Prefer the one matching the exact version, otherwise return the newest
-            if (!string.IsNullOrEmpty(version))
-            {
-                var exact = candidates.FirstOrDefault(f => Path.GetFileName(f).Contains(version));
-                if (exact != null) return exact;
-            }
-
-            return candidates.OrderByDescending(File.GetLastWriteTimeUtc).First();
+            File.Delete(packagePath);
         }
-        catch
+
+        using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
+        AddTextEntry(archive, $"{projectName}.nuspec", GenerateNuspec(config, projectName, version));
+        archive.CreateEntryFromFile(assemblyPath, $"lib/{config.TargetFramework}/{Path.GetFileName(assemblyPath)}");
+
+        var runtimeConfigPath = Path.ChangeExtension(assemblyPath, ".runtimeconfig.json");
+        if (File.Exists(runtimeConfigPath))
         {
-            return null;
+            archive.CreateEntryFromFile(runtimeConfigPath, $"lib/{config.TargetFramework}/{Path.GetFileName(runtimeConfigPath)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.Package?.Icon))
+        {
+            var iconPath = Path.GetFullPath(Path.Combine(projectRoot, config.Package.Icon));
+            if (File.Exists(iconPath))
+            {
+                archive.CreateEntryFromFile(iconPath, config.Package.Icon.Replace('\\', '/'));
+            }
         }
     }
 
-    static string QuoteProperty(string value)
-        => value.Contains(' ') ? $"\"{value}\"" : value;
+    static void CreateSymbolsPackage(string projectName, string version, string assemblyPath, string symbolsPath)
+    {
+        if (File.Exists(symbolsPath))
+        {
+            File.Delete(symbolsPath);
+        }
+
+        using var archive = ZipFile.Open(symbolsPath, ZipArchiveMode.Create);
+        AddTextEntry(archive, $"{projectName}.nuspec", $$"""
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>{{EscapeXml(projectName)}}</id>
+    <version>{{EscapeXml(version)}}</version>
+    <authors>NSharp</authors>
+    <description>Symbols for {{EscapeXml(projectName)}}.</description>
+  </metadata>
+</package>
+""");
+
+        var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        if (File.Exists(pdbPath))
+        {
+            archive.CreateEntryFromFile(pdbPath, $"lib/{Path.GetFileName(pdbPath)}");
+        }
+    }
+
+    static string GenerateNuspec(ProjectConfig config, string projectName, string version)
+    {
+        var pkg = config.Package;
+        var authors = string.IsNullOrWhiteSpace(pkg?.Author) ? "NSharp" : pkg!.Author;
+        var description = string.IsNullOrWhiteSpace(pkg?.Description)
+            ? $"{projectName} N# package"
+            : pkg!.Description;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
+        sb.AppendLine("""<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">""");
+        sb.AppendLine("  <metadata>");
+        sb.AppendLine($"    <id>{EscapeXml(projectName)}</id>");
+        sb.AppendLine($"    <version>{EscapeXml(version)}</version>");
+        sb.AppendLine($"    <authors>{EscapeXml(authors!)}</authors>");
+        sb.AppendLine($"    <description>{EscapeXml(description!)}</description>");
+        if (pkg?.Tags is { Count: > 0 })
+            sb.AppendLine($"    <tags>{EscapeXml(string.Join(" ", pkg.Tags))}</tags>");
+        if (!string.IsNullOrWhiteSpace(pkg?.License))
+            sb.AppendLine($"    <license type=\"expression\">{EscapeXml(pkg.License!)}</license>");
+        if (!string.IsNullOrWhiteSpace(pkg?.Repository))
+            sb.AppendLine($"    <repository type=\"git\" url=\"{EscapeXml(pkg.Repository!)}\" />");
+        if (!string.IsNullOrWhiteSpace(pkg?.Icon))
+            sb.AppendLine($"    <icon>{EscapeXml(pkg.Icon!)}</icon>");
+        sb.AppendLine("  </metadata>");
+        sb.AppendLine("</package>");
+        return sb.ToString();
+    }
+
+    static void AddTextEntry(ZipArchive archive, string entryName, string contents)
+    {
+        var entry = archive.CreateEntry(entryName);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+        writer.Write(contents);
+    }
+
+    static string EscapeXml(string value)
+        => value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
 
     static string? GetOptionValue(string[] args, string flag)
     {
@@ -272,9 +281,9 @@ Usage: nlc pack [options]
 
 Generate a NuGet package from the current N# project.
 
-Reads package metadata from the 'package' section of project.yml, then
-delegates to `dotnet pack`. The package section is optional but recommended
-for library projects intended for distribution.
+Reads package metadata from the 'package' section of project.yml and packs
+the native nlc IL build output. The package section is optional but
+recommended for library projects intended for distribution.
 
 project.yml example:
   name: MyLibrary

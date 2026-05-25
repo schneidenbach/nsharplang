@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, and `publish`, and the MSBuild SDK honors it for `dotnet build`, `dotnet run`, and `dotnet test`. `pack` respects the configured backend through the SDK build it invokes. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating initial migration output as final.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating initial migration output as final.
 
 ---
 
@@ -22,19 +22,20 @@ The executable toolchain is now IL-only:
 | `nlc build <file>` | Compile single file | `nlc build Program.nl` |
 | `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
 | `nlc build --release` | Build with Release configuration | `nlc build --release` |
-| `nlc build --verbose` | Build with detailed MSBuild output | `nlc build --verbose` |
+| `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
 | `nlc publish` | Package for distribution | `nlc publish --runtime linux-x64` |
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
-| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `nsharp/`, `.nlc/`, `*.g.csproj`) | `nlc clean` |
+| `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) and legacy generated wrappers | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
 | `nlc export csharp` | Export a file or project bundle to C# | `nlc export csharp --project . -o ./myapp-csharp` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
+| `nlc tutorial` | Start a loopback-only interactive language walkthrough backed by `nlc query/run/test` | `nlc tutorial --open` |
 
 ### C# Source Migration
 
@@ -81,11 +82,9 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc lint --json` | JSON output with structured envelope | `nlc lint --json` |
 | `nlc lint --text` | Human-readable diagnostics | `nlc lint --text` |
 | `nlc lint --project <dir>` | Lint a specific project | `nlc lint --project examples/17-issue-tracker/backend` |
-| `nlc test` | Run .tests.nl files (xUnit or NUnit per project.yml) | `nlc test` |
+| `nlc test` | Run .tests.nl files with the xUnit-backed N# test runner | `nlc test` |
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
-| `nlc test --coverage` | Run tests with code coverage and HTML report | `nlc test --coverage` |
-| `nlc test --verbose` | Use more detailed `dotnet test` output | `nlc test --verbose` |
-| `nlc test --coverage` | Collect code coverage (coverlet) | `nlc test --coverage` |
+| `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
 | `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
 | `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
@@ -106,6 +105,19 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc daemon start` | Start background analysis daemon | `nlc daemon start` |
 | `nlc daemon stop` | Stop daemon | `nlc daemon stop` |
 | `nlc daemon status` | Show daemon info | `nlc daemon status` |
+
+### Guided Tutorial (`nlc tutorial`)
+
+`nlc tutorial` hosts a local ASP.NET Core walkthrough for a first 15-minute N# tour. It writes real lesson projects under a user-local workspace, serves a TypeScript browser app from embedded local assets, and backs the editor actions with the `nlc` command line:
+
+- diagnostics: `nlc query diagnostics`
+- IntelliSense-style suggestions: `nlc query completions --include-keywords`
+- hover: `nlc query hover`
+- execution: `nlc run`
+- formatting: `nlc format`
+- verification: `nlc test`
+
+The host is intentionally loopback-only (`127.0.0.1`, `localhost`, or `::1`). Use `--workspace <dir>` to choose where lesson projects live, `--reset` to recreate them, `--open` to launch a browser, and `--dry-run` to create/update the workspaces without starting the server.
 
 ---
 
@@ -146,7 +158,7 @@ Supported backend values:
 
 Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
-- `nlc check/build/run/test/bench/publish` all support `backend: il`.
+- `nlc check/build/run/test/bench/publish/pack` all support `backend: il` through the native project.yml path.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
 - Generated-C# export no longer exists as a backend or build path.
 - `nlc export csharp` is the only supported product surface for C# generation.
@@ -490,12 +502,10 @@ nlc format --stdin < Program.nl
 ```bash
 nlc test --filter "should add"
 nlc test --verbose
-nlc test --coverage
 ```
 
 - `--filter` matches both test display names and fully-qualified test names
-- `--verbose` increases `dotnet test` output detail without changing the underlying test pipeline
-- `--coverage` collects code coverage via coverlet.msbuild, generates `coverage.opencover.xml` in the project root
+- `--verbose` shows individual test results without changing the test pipeline
 
 ### `nlc build` — Release Builds and Verbose Output
 
@@ -505,14 +515,14 @@ Build supports Go/Rust-style configuration flags:
 nlc build                # debug build (default)
 nlc build --backend il   # direct IL build
 nlc build --release      # release (optimized) build
-nlc build --verbose      # detailed MSBuild output
+nlc build --verbose      # detailed native resolver/build output
 nlc build --release --verbose
 ```
 
 - All builds report elapsed time on completion (e.g., `Build successful! (release) [2.3s]`)
 - `il` backend parses/analyzes the project, emits a managed assembly directly, and writes `.runtimeconfig.json` for executables
-- `--release` affects the MSBuild configuration and output layout for SDK-backed IL builds
-- `--verbose` increases MSBuild verbosity to `detailed` for SDK-backed IL builds
+- `--release` affects the native output layout (`bin/Release/<tfm>` unless `--output` is provided)
+- `--verbose` enables detailed native resolver/build output
 
 ### `nlc clean` — Build Artifact Cleanup
 
@@ -766,7 +776,7 @@ Protocol: JSON-RPC over Unix socket
 | Release build | implicit | `cargo build --release` | `nlc build --release` |
 | Verbose build | `go build -v` | `cargo build -v` | `nlc build --verbose` |
 | Build timing | external (`time`) | `cargo build --timings` | Built-in (always shown) |
-| Test coverage | `go test -cover` | `cargo tarpaulin` | `nlc test --coverage` |
+| Test coverage | `go test -cover` | `cargo tarpaulin` | Planned native coverage |
 | Code intelligence CLI | Need `gopls` server | Need `rust-analyzer` server | `nlc query` (single-shot JSON) |
 | Structured output | No | No | Yes (versioned JSON schemas) |
 | Canonical format | `gofmt` | `rustfmt` | `nlc format` |

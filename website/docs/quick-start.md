@@ -45,9 +45,9 @@ Hello, N#!
 ## How It Works
 
 1. `nlc build` reads `project.yml`
-2. `nlc` generates a minimal `*.g.csproj` build artifact for the N# SDK
-3. The SDK discovers `.nl` files and transpiles them to C# under `obj/`
-4. The normal .NET toolchain builds and runs the result
+2. `nlc` resolves project, framework, and NuGet references natively
+3. The compiler emits IL directly for the project assembly
+4. Runtime assets are written to stable `bin/<configuration>/<targetFramework>/` output paths
 
 ## What You Can Do
 

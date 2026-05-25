@@ -33,6 +33,14 @@ public class CodeIntelligenceService
     public ProjectSnapshot LoadProject(string projectRoot, IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
         var config = ProjectFileParser.ParseFromDirectory(projectRoot);
+        return LoadProject(projectRoot, config, sourceTextOverrides);
+    }
+
+    public ProjectSnapshot LoadProject(
+        string projectRoot,
+        ProjectConfig? config,
+        IReadOnlyDictionary<string, string>? sourceTextOverrides = null)
+    {
         var compiler = new MultiFileCompiler(projectRoot, config, sourceTextOverrides);
         compiler.CompileForAnalysis();
 

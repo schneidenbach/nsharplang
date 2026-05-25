@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-05-14
+Updated: 2026-05-24
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -17,7 +17,7 @@ Updated: 2026-05-14
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
-| `nlc test` | Run `.tests.nl` suites through xUnit | `--project`, `--filter`, `--verbose`, `--json`, `--coverage`, `--coverage-report` | `nlc test --filter "should add"` |
+| `nlc test` | Run `.tests.nl` suites through the xUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
@@ -29,6 +29,7 @@ Updated: 2026-05-14
 | `nlc fix` | Auto-apply code fixes | `--project`, `--file`, `--dry-run`, `--text`, `--json` | `nlc fix --dry-run` |
 | `nlc query <subcommand>` | Code intelligence for humans and tools | global `--project`, `--file`, `--pos`, `--text`, `--json`, `--no-daemon` | `nlc query def --file Program.nl --pos 12:4` |
 | `nlc daemon <subcommand>` | Manage the background analysis daemon | `--project` | `nlc daemon status` |
+| `nlc tutorial` | Start the local interactive N# walkthrough | `--port`, `--workspace`, `--reset`, `--open`, `--dry-run` | `nlc tutorial --open` |
 | `nlc add <package>` | Add a NuGet dependency to `project.yml` | package spec | `nlc add Serilog@3.1.0` |
 | `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
@@ -40,7 +41,7 @@ Updated: 2026-05-14
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
 | `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
-| `nlc restore` | Generate build config from `project.yml` | `--project` | `nlc restore` |
+| `nlc restore` | Generate MSBuild compatibility config from `project.yml` | `--project` | `nlc restore` |
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
@@ -65,6 +66,26 @@ Updated: 2026-05-14
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
 | `nlc query help` | Show query command help | `nlc query help` |
 
+## Tutorial Command
+
+`nlc tutorial` starts a loopback-only ASP.NET Core walkthrough for a first 15-minute N# tour. The browser app creates real lesson projects under the tutorial workspace and invokes the local `nlc` command for diagnostics, completions, hover, formatting, run, and test actions. The lessons cover hello world, values/functions, records/classes and visibility-by-casing, unions and pattern matching, duck interfaces, collections/LINQ, error capture, async/.NET interop, testing, and the normal `nlc` tooling loop.
+
+```bash
+nlc tutorial
+nlc tutorial --open
+nlc tutorial --port 5055
+nlc tutorial --workspace ./.nlc/tutorial --dry-run
+```
+
+Safety and state:
+
+- The host only accepts loopback hosts (`127.0.0.1`, `localhost`, or `::1`).
+- The browser app receives a per-server session token from `/api/lessons`; mutating tutorial actions require that token on POST requests.
+- Lesson files are local N# projects. Open the workspace in VS Code to use the full extension while the browser tutorial is running.
+- `--reset` only recreates marked tutorial workspaces. `nlc tutorial` writes `.nsharp-tutorial-workspace` and refuses filesystem roots, the home directory, the current directory, the current repository root, and non-empty directories without the marker.
+- Reset preserves unrelated files at the workspace root and only recreates managed tutorial lesson state. Without `--reset`, lesson edits are preserved.
+- `--dry-run` materializes the workspaces and exits, which is useful for CI checks and package smoke tests.
+
 ## Examples
 
 ```bash
@@ -85,6 +106,10 @@ nlc watch test --filter "should add"
 # Installation verification
 nlc doctor
 nlc doctor --json --require-vscode
+
+# Local language walkthrough
+nlc tutorial
+nlc tutorial --workspace ./.nlc/tutorial --dry-run
 
 # Documentation and automation
 nlc doc --json
@@ -156,6 +181,7 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 | `doctor` | Required install checks passed | One or more required checks failed |
+| `tutorial` | Server stopped cleanly or dry-run succeeded | Startup, workspace, or tool invocation setup failed |
 
 ## JSON Examples
 
@@ -295,12 +321,12 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 |---------|----|------|----------|-------|
 | Run tests | `go test ./...` | `cargo test` | `5` | `nlc test` runs `.tests.nl` suites |
 | Run single test | `-run` | name filter | `5` | `nlc test --filter` |
-| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` increases `dotnet test` verbosity |
+| Verbose | `-v` | `-- --nocapture` | `4` | `nlc test --verbose` shows individual test results |
 | Table-driven tests | struct slices | `#[case]` | `5` | `test "desc" with (params) [cases] { }` |
 | Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
-| Test coverage | `-cover` | external tools | `4` | `nlc test --coverage` via Coverlet |
+| Test coverage | `-cover` | external tools | Planned | Native coverage reporting is not part of the current `nlc test` path |
 | Benchmark | `-bench` | `cargo bench` | `1` | Future work |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |

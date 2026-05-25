@@ -446,6 +446,48 @@ func Main() {
     }
 
     [Fact]
+    public void Format_ImportsBeforePackage()
+    {
+        var input = @"import System.Linq
+
+package Tutorial
+
+func Main() {
+print ""hello""
+}";
+        var expected = @"import System.Linq
+
+package Tutorial
+
+func Main() {
+    print ""hello""
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void FormatSafe_ImportsBeforePackage_ReparsesSuccessfully()
+    {
+        var source = @"import System.Threading.Tasks
+
+package Tutorial
+
+async func Main() {
+    await Task.Delay(10)
+}";
+        var ast = Parse(source);
+        var formatter = new Formatter();
+
+        var result = formatter.FormatSafe(source, ast, null, "test.nl");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Warnings));
+        Assert.StartsWith("import System.Threading.Tasks", result.Text, StringComparison.Ordinal);
+        Assert.Contains("package Tutorial", result.Text);
+    }
+
+    [Fact]
     public void Format_FunctionCall()
     {
         var input = @"func Test() {
