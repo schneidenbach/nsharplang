@@ -159,7 +159,7 @@ The CLI is much stronger now, but a few high-value items remain.
 
 ### 23. CLI/install ergonomics
 - Current: much better than before, but local tool deployment and editor deployment should feel like one supported path, not a pile of ad hoc scripts.
-- Decide what to do with `scripts/deploy-local-toolset.sh`.
+- Local deployment now lives behind `scripts/setup-local.sh`; shared package/tool refresh logic is in `scripts/lib/local-toolset.sh`.
 
 ---
 

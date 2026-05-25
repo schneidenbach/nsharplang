@@ -31,7 +31,7 @@ NuGet package versions are read from each project file's `<Version>` element:
 - `src/NSharpLang.LanguageServer/LanguageServer.csproj`
 - `templates/NSharpLang.Templates.csproj`
 
-`scripts/pack-nuget.sh` packs those projects. `scripts/publish-nuget.sh` reads the same project-file versions when validating artifact names, so there is no second hard-coded version table to drift.
+`scripts/pack-nuget.sh` packs those projects. `scripts/publish-packages.sh` reads the same project-file versions when validating artifact names, so there is no second hard-coded version table to drift.
 
 The public installer does not expose exact version pinning while those project-file versions are mixed. `scripts/install.sh --version ...` fails fast with an explanation instead of applying one version to every package and producing a partial install. Re-enable a single public pin only after CLI, SDK, templates, compiler, and language server releases share one unified NSharpLang version, or replace it with explicit package-specific pins.
 
@@ -87,10 +87,17 @@ code --list-extensions | grep -i '^nsharp\.nsharp$'
 
 ```bash
 export NUGET_API_KEY=your_api_key_here
-./scripts/publish-nuget.sh
+./scripts/publish-packages.sh --target nuget
 ```
 
 The script validates package names from project-file versions and pushes with `--skip-duplicate`.
+
+To publish the same package set to GitHub Packages:
+
+```bash
+export GITHUB_TOKEN=your_token_here
+./scripts/publish-packages.sh --target github
+```
 
 ## Publish VS Code Tooling
 

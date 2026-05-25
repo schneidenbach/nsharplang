@@ -35,12 +35,5 @@ jobs:
     - name: Push to GitHub Packages
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        FEED="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-        for pkg in artifacts/nuget/*.nupkg; do
-          echo "Publishing $(basename "$pkg")..."
-          dotnet nuget push "$pkg" \
-            --api-key "$GITHUB_TOKEN" \
-            --source "$FEED" \
-            --skip-duplicate
-        done
+        GITHUB_OWNER: ${{ github.repository_owner }}
+      run: ./scripts/publish-packages.sh --target github

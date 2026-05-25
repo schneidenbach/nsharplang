@@ -46,11 +46,11 @@ Builds and packages all 5 packages:
 # Creates packages in artifacts/nuget/
 ```
 
-#### publish-nuget.sh
+#### publish-packages.sh
 Publishes all packages to NuGet.org:
 ```bash
 export NUGET_API_KEY=your_key
-./publish-nuget.sh
+./scripts/publish-packages.sh --target nuget
 ```
 
 Features:
@@ -161,7 +161,7 @@ The existing `setup-local.sh` script already works with the new package structur
 - `src/LanguageServer/LanguageServer.csproj` - Added package metadata and tool config
 - `src/LanguageServer/Handlers/TextDocumentHandler.cs` - Fixed type ambiguities
 - `pack-nuget.sh` - Updated to pack all 5 packages
-- `publish-nuget.sh` - Updated to publish all packages with validation
+- `publish-packages.sh` - Publishes all packages with validation
 
 ### Impact
 

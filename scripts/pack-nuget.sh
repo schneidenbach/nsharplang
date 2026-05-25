@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/packages.sh"
 source "$SCRIPT_DIR/lib/vscode-extension.sh"
+source "$SCRIPT_DIR/lib/local-toolset.sh"
 
 cd "$NSHARP_REPO_ROOT"
 
@@ -15,26 +16,12 @@ echo "================================"
 # Create artifacts directories
 mkdir -p artifacts/nuget artifacts/vscode
 
-echo ""
-echo "Building NSharpLang.Build.Tasks in Release mode..."
-dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
-
-pack_project() {
-    local label="$1"
-    local project="$2"
-    echo ""
-    echo "Packing $label..."
-    dotnet pack "$project" -c Release -o artifacts/nuget
-}
-
-while IFS='|' read -r _package_id label project; do
-    pack_project "$label" "$project"
-done < <(nsharp_each_package_spec)
+nsharp_pack_package_set artifacts/nuget minimal
 
 if [[ "${SKIP_VSCODE_PACKAGE:-0}" != "1" ]]; then
     echo ""
     echo "Packaging VS Code extension..."
-    "$NSHARP_SCRIPTS_DIR/build-vscode-extension.sh"
+    nsharp_build_vscode_extension_package
     cp -f editors/vscode/*.vsix artifacts/vscode/ 2>/dev/null || true
     if latest_vsix="$(nsharp_latest_vscode_vsix)"; then
         cp -f "$latest_vsix" artifacts/vscode/nsharp.vsix

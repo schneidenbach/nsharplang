@@ -3,11 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/local-toolset.sh"
 
 PROJECT_ROOT="$NSHARP_REPO_ROOT"
+LOCAL_FEED="${NSHARP_LOCAL_FEED:-$HOME/.nuget/local-feed}"
+NUGET_SOURCE_NAME="${NSHARP_LOCAL_SOURCE_NAME:-nsharp-local}"
 DOTNET_TOOLS_DIR="${DOTNET_TOOLS_DIR:-$HOME/.dotnet/tools}"
 NSHARP_ENV_DIR="${NSHARP_ENV_DIR:-$HOME/.nsharp}"
 NSHARP_ENV_FILE="$NSHARP_ENV_DIR/env"
+SAMPLE_PROJECT="${NSHARP_VSCODE_SAMPLE_PROJECT:-$PROJECT_ROOT/examples/01-hello-world}"
 
 DRY_RUN=0
 WITH_VSCODE=0
@@ -215,11 +219,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 deploy_args=()
+deploy_skip_vscode=0
 if [[ "$DRY_RUN" -eq 1 ]]; then
     deploy_args+=(--dry-run)
 fi
 if [[ "$WITH_VSCODE" -eq 0 ]]; then
     deploy_args+=(--skip-vscode)
+    deploy_skip_vscode=1
 fi
 if [[ "$RESTART_VSCODE" -eq 0 ]]; then
     deploy_args+=(--no-restart-vscode)
@@ -229,6 +235,7 @@ echo "========================================"
 echo "Setting up local N# toolchain"
 echo "========================================"
 echo "Project root:      $PROJECT_ROOT"
+echo "Local feed:        $LOCAL_FEED"
 echo "Dotnet tools path: $DOTNET_TOOLS_DIR"
 echo "VS Code install:   $([[ "$WITH_VSCODE" -eq 1 ]] && echo yes || echo no)"
 if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -236,8 +243,10 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 nsharp_log "Deploying local packages, templates, CLI, and language server"
-nsharp_print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
-"$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
+if [[ "${#deploy_args[@]}" -gt 0 ]]; then
+    echo "Deploy options:    ${deploy_args[*]}"
+fi
+nsharp_deploy_local_toolset "$LOCAL_FEED" "$NUGET_SOURCE_NAME" "$DOTNET_TOOLS_DIR" "$deploy_skip_vscode" "$RESTART_VSCODE" "$SAMPLE_PROJECT"
 
 ensure_dotnet_tools_path
 verify_local_toolchain
