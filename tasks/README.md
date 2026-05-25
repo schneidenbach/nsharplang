@@ -1,50 +1,40 @@
-# N# Task Files
+# N# Vertical Task Files
 
 Last audited: 2026-05-25
 
-Each numbered file in this directory is a standalone task. Point an agent at one file and it should have enough context to start, inspect the repository, implement the work, verify it, and report what changed. Do not reintroduce a consolidated task-state file.
+Each task file is self-contained and framed around a shippable user or tool workflow. Prefer adding a new vertical task over creating a single-layer backlog item.
 
-## P0: Semantic Correctness
+## P0: Trustworthy Semantics And Editor Basics
 
-- [001-type-reference-source-spans.md](001-type-reference-source-spans.md)
-- [002-overload-resolution-edge-cases.md](002-overload-resolution-edge-cases.md)
-- [003-generic-type-inference.md](003-generic-type-inference.md)
-- [004-lambda-contextual-typing.md](004-lambda-contextual-typing.md)
-- [005-linq-return-types.md](005-linq-return-types.md)
-- [006-semantic-reference-parity.md](006-semantic-reference-parity.md)
-- [007-semanticmodel-scope-lookup.md](007-semanticmodel-scope-lookup.md)
-- [008-skipped-unit-tests-burn-down.md](008-skipped-unit-tests-burn-down.md)
+- [001-chained-member-access-authoring.md](001-chained-member-access-authoring.md)
+- [002-null-equality-il-runtime.md](002-null-equality-il-runtime.md)
+- [003-type-use-navigation.md](003-type-use-navigation.md)
+- [004-real-dotnet-call-binding.md](004-real-dotnet-call-binding.md)
+- [005-semantic-references-rename.md](005-semantic-references-rename.md)
+- [006-malformed-code-diagnostics.md](006-malformed-code-diagnostics.md)
 
-## P1: Parser, Diagnostics, IDE, Nullability
+## P1: IDE Product Workflows
 
-- [009-parser-recovery-hardening.md](009-parser-recovery-hardening.md)
-- [010-diagnostic-quality-regression-bar.md](010-diagnostic-quality-regression-bar.md)
-- [011-signature-help-compiler-semantics.md](011-signature-help-compiler-semantics.md)
-- [012-auto-import-completion-polish.md](012-auto-import-completion-polish.md)
-- [013-workspace-diagnostics-hardening.md](013-workspace-diagnostics-hardening.md)
-- [014-interpolation-syntax-highlighting.md](014-interpolation-syntax-highlighting.md)
-- [015-vscode-debug-task-evidence.md](015-vscode-debug-task-evidence.md)
-- [016-null-state-flow-facts.md](016-null-state-flow-facts.md)
-- [017-nullable-flow-narrowing.md](017-nullable-flow-narrowing.md)
-- [018-possible-null-diagnostics.md](018-possible-null-diagnostics.md)
-- [019-must-explicit-unwrap.md](019-must-explicit-unwrap.md)
-- [020-nullable-value-idioms.md](020-nullable-value-idioms.md)
-- [021-nullable-match-exhaustiveness.md](021-nullable-match-exhaustiveness.md)
-- [022-csharp-nullable-metadata.md](022-csharp-nullable-metadata.md)
-- [023-nullability-query-fixes-lsp.md](023-nullability-query-fixes-lsp.md)
+- [007-auto-import-writing-flow.md](007-auto-import-writing-flow.md)
+- [008-workspace-diagnostics-lifecycle.md](008-workspace-diagnostics-lifecycle.md)
+- [009-interpolated-string-editing.md](009-interpolated-string-editing.md)
+- [010-vscode-build-test-debug.md](010-vscode-build-test-debug.md)
 
-## P2: CLI, Ecosystem, Docs
+## P1: Nullability Workflows
 
-- [024-setup-nsharp-github-action.md](024-setup-nsharp-github-action.md)
-- [025-formatter-audit-ci-gate.md](025-formatter-audit-ci-gate.md)
-- [026-nlc-fix-catalog-growth.md](026-nlc-fix-catalog-growth.md)
-- [027-install-release-toolset-ergonomics.md](027-install-release-toolset-ergonomics.md)
-- [028-benchmark-corpus-nlc-bench.md](028-benchmark-corpus-nlc-bench.md)
-- [029-public-website-playground-scope.md](029-public-website-playground-scope.md)
-- [030-nuget-library-publishing.md](030-nuget-library-publishing.md)
-- [031-native-test-coverage.md](031-native-test-coverage.md)
-- [032-cross-compilation-publish-scope.md](032-cross-compilation-publish-scope.md)
-- [033-build-timing-evidence.md](033-build-timing-evidence.md)
-- [034-dependency-tree-docs-parity.md](034-dependency-tree-docs-parity.md)
-- [035-stale-launch-claims.md](035-stale-launch-claims.md)
-- [036-cli-json-contracts-authoritative.md](036-cli-json-contracts-authoritative.md)
+- [011-nullability-safe-dereference.md](011-nullability-safe-dereference.md)
+- [012-nullability-must-unwrap.md](012-nullability-must-unwrap.md)
+- [013-nullability-value-and-match-idioms.md](013-nullability-value-and-match-idioms.md)
+- [014-csharp-nullability-interop.md](014-csharp-nullability-interop.md)
+
+## P2: CLI, Release, Evidence, Docs
+
+- [015-setup-nsharp-action.md](015-setup-nsharp-action.md)
+- [016-install-release-toolset.md](016-install-release-toolset.md)
+- [017-library-publishing.md](017-library-publishing.md)
+- [018-format-and-fix-automation.md](018-format-and-fix-automation.md)
+- [019-cli-json-and-tree-contracts.md](019-cli-json-and-tree-contracts.md)
+- [020-benchmarks-and-timing.md](020-benchmarks-and-timing.md)
+- [021-public-playground.md](021-public-playground.md)
+- [022-test-coverage-and-publish-scope.md](022-test-coverage-and-publish-scope.md)
+- [023-launch-claim-cleanup.md](023-launch-claim-cleanup.md)

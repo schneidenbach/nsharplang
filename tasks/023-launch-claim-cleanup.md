@@ -1,15 +1,19 @@
-# Task 035: Remove Stale Launch And Maturity Claims
+# Task 023: Launch Claim Cleanup
 
-Priority: P2 docs and launch integrity.
+Priority: P2.
 
-Work in the N# repository and remove stale launch-readiness, maturity, and static evidence claims. Docs and memory files still contain historical counts and claims that can drift from reality.
+Remove stale launch-readiness, maturity, and static evidence claims from docs and memory files. This task protects product credibility.
+
+## User Outcome
+
+Public docs, website docs, README, talk materials, and memory docs make claims that are true at the current source state and tied to current evidence where needed.
 
 ## Scope
 
-- Audit public docs, website docs, README, memory docs, talk materials, launch docs, and package artifacts.
+- Audit README, public docs, website docs, memory docs, talk materials, launch docs, and package artifacts.
 - Remove static test counts unless generated from fresh artifacts.
 - Tie marketplace, debug, benchmark, production-ready, and feature-complete claims to current evidence.
-- Keep docs honest when a workflow is planned, partial, or verified only locally.
+- Keep planned, partial, and verified workflows clearly distinguished.
 
 ## Likely Files
 
