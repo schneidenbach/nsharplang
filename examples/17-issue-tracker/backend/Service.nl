@@ -12,8 +12,8 @@ import "Notifier"
 import "Workflow"
 
 class IssueService {
-    store: IssueStore
-    notifiers: NotifierHub
+    readonly store: IssueStore
+    readonly notifiers: NotifierHub
     nextId: int
 
     constructor(store: IssueStore, notifiers: NotifierHub) {

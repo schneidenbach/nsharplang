@@ -6,8 +6,8 @@ import System.Runtime.CompilerServices
 
 // 1. System.Serializable attribute (fully qualified)
 class Person {
-    Name: string
-    Age: int
+    readonly Name: string
+    readonly Age: int
 
     constructor(name: string, age: int) {
         Name = name

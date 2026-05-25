@@ -1,9 +1,9 @@
 // Interpolated Raw String Literals Example
 // Demonstrates C# 11 raw string interpolation feature in N#
 class Person {
-    Name: string
-    Age: int
-    Email: string
+    readonly Name: string
+    readonly Age: int
+    readonly Email: string
 
     constructor(name: string, age: int, email: string) {
         Name = name

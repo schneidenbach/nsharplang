@@ -3,9 +3,9 @@
 
 // Base class with multiple constructors
 class Person {
-    Name: string
-    Age: int
-    Email: string
+    readonly Name: string
+    readonly Age: int
+    readonly Email: string
 
     // Full constructor
     constructor(name: string, age: int, email: string) {
@@ -32,8 +32,8 @@ class Person {
 
 // Derived class using base constructor
 class Employee: Person {
-    EmployeeId: string
-    Department: string
+    readonly EmployeeId: string
+    readonly Department: string
 
     // Full constructor - calls base constructor
     constructor(name: string, age: int, email: string, empId: string, dept: string): base(name, age, email) {
@@ -59,10 +59,10 @@ class Employee: Person {
 
 // Dependency injection pattern - simplified constructor
 class UserService {
-    Logger: ILogger
-    Database: IDatabase
-    Cache: ICache
-    ConfigValue: string
+    readonly Logger: ILogger
+    readonly Database: IDatabase
+    readonly Cache: ICache
+    readonly ConfigValue: string
 
     // Full constructor with all dependencies
     constructor(logger: ILogger, db: IDatabase, cache: ICache, config: string) {

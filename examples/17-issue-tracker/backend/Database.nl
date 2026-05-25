@@ -6,7 +6,7 @@ import System.Collections.Generic
 import "Models"
 
 class IssueStore {
-    issues: List<Issue>
+    readonly issues: List<Issue>
 
     constructor() {
         issues = new List<Issue>()

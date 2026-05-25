@@ -3,8 +3,8 @@
 
 // 1. Simple class for demonstration
 class Person {
-    Name: string
-    Age: int
+    readonly Name: string
+    readonly Age: int
 
     constructor(name: string, age: int) {
         Name = name
@@ -18,7 +18,7 @@ class Person {
 
 // 2. Generic class to show type inference with generics
 class Box<T> {
-    Value: T
+    readonly Value: T
 
     constructor(value: T) {
         Value = value

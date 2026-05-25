@@ -11,8 +11,8 @@ import "Models"
 import "Service"
 
 class Routes {
-    service: IssueService
-    jsonOptions: JsonSerializerOptions
+    readonly service: IssueService
+    readonly jsonOptions: JsonSerializerOptions
 
     constructor(svc: IssueService) {
         service = svc

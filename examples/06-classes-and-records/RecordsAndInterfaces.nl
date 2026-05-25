@@ -17,7 +17,7 @@ interface IShape {
 
 // Class implementing interface
 class Circle: IShape {
-    Radius: double
+    readonly Radius: double
     readonly Pi: double = 3.14159
 
     constructor(radius: double) {
@@ -41,8 +41,8 @@ struct Rectangle {
 
 // Standalone class with readonly field
 class Square {
-    Name: string
-    Side: double
+    readonly Name: string
+    readonly Side: double
     readonly CreatedAt: string
 
     constructor(side: double, name: string) {

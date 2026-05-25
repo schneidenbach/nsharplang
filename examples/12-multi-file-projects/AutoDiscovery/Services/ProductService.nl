@@ -6,7 +6,7 @@ namespace AutoDiscovery.Services
 import System.Collections.Generic
 
 class ProductService {
-    products: List<Product>
+    readonly products: List<Product>
 
     constructor() {
         products = new List<Product>()

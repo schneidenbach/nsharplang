@@ -1,7 +1,7 @@
 // Demonstrating print, nameof, and typeof features
 class Person {
-    Name: string
-    Age: int
+    readonly Name: string
+    readonly Age: int
 
     constructor(name: string, age: int) {
         Name = name

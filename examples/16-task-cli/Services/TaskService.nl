@@ -9,7 +9,7 @@ import TaskCli.Models
 
 // Business logic for task management
 class TaskService {
-    store: TaskStore
+    readonly store: TaskStore
     tasks: List<TaskItem>
     nextId: int
 
