@@ -139,6 +139,27 @@ public class CliParityAuditTests
     }
 
     [Fact]
+    public void FormatCommand_StdinMalformedInput_ReturnsParseDiagnosticsWithoutFormatting()
+    {
+        var source = """
+func main() {
+    first := 1 +
+    second := 2
+}
+""";
+
+        var (exitCode, stdout, stderr) = CaptureConsole(
+            () => ExecuteProgram("format", "--stdin"),
+            stdin: source);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Format failed", stderr);
+        Assert.Contains("Parse errors in stdin.nl", stderr);
+        Assert.Contains("Expected expression after '+'", stderr);
+    }
+
+    [Fact]
     public void TestCommand_Help_DocumentsFilterAndVerbose()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("test", "--help"));

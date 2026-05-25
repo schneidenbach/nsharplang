@@ -14,6 +14,7 @@ public class Parser
     private readonly List<CompilerError> _errors = new();
     private int _position;
     private bool _panicMode;
+    private int? _currentRecoveryBoundaryColumn;
 
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
@@ -68,9 +69,11 @@ public class Parser
             {
                 _panicMode = false; // Reset at each declaration boundary
                 var startPosition = _position;
+                var previousRecoveryBoundaryColumn = _currentRecoveryBoundaryColumn;
 
                 try
                 {
+                    _currentRecoveryBoundaryColumn = Current.Column;
                     declarations.Add(ParseDeclaration());
                 }
                 catch (Exception ex)
@@ -93,6 +96,10 @@ public class Parser
                         Advance();
                     }
                     continue;
+                }
+                finally
+                {
+                    _currentRecoveryBoundaryColumn = previousRecoveryBoundaryColumn;
                 }
 
                 // If ParseDeclaration returned but we're in panic mode and
@@ -1103,7 +1110,16 @@ public class Parser
         {
             _panicMode = false; // Reset at each member boundary
             var startPosition = _position;
-            members.Add(ParseMemberDeclaration());
+            var previousRecoveryBoundaryColumn = _currentRecoveryBoundaryColumn;
+            try
+            {
+                _currentRecoveryBoundaryColumn = Current.Column;
+                members.Add(ParseMemberDeclaration());
+            }
+            finally
+            {
+                _currentRecoveryBoundaryColumn = previousRecoveryBoundaryColumn;
+            }
 
             // If we didn't make progress, synchronize to avoid infinite loops
             if (_position == startPosition && !IsAtEnd())
@@ -1739,7 +1755,16 @@ public class Parser
 
             _panicMode = false; // Reset at each statement boundary
             var startPosition = _position;
-            statements.Add(ParseStatement());
+            var previousRecoveryBoundaryColumn = _currentRecoveryBoundaryColumn;
+            try
+            {
+                _currentRecoveryBoundaryColumn = Current.Column;
+                statements.Add(ParseStatement());
+            }
+            finally
+            {
+                _currentRecoveryBoundaryColumn = previousRecoveryBoundaryColumn;
+            }
 
             // If we didn't make progress, synchronize to next statement boundary
             if (_position == startPosition && !IsAtEnd())
@@ -3018,11 +3043,35 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseLambdaOrAssignmentExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseLambdaOrAssignmentExpression);
             return new AssignmentExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
         return expr;
+    }
+
+    private Expression ParseRightOperandOrMissing(Token operatorToken, Func<Expression> parseOperand)
+    {
+        if (!IsMissingOperandBoundary(operatorToken))
+            return parseOperand();
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected expression after '{operatorToken.Value}'",
+            operatorToken.Line,
+            operatorToken.Column,
+            humanExplanation: $"The '{operatorToken.Value}' operator needs an expression on its right side.",
+            hint: "Finish the expression after the operator, or remove the operator if the expression is already complete.",
+            suggestions: new List<string>
+            {
+                $"Add an expression after '{operatorToken.Value}'",
+                $"Remove the trailing '{operatorToken.Value}'"
+            },
+            length: Math.Max(1, operatorToken.Value.Length)
+        );
+
+        var column = operatorToken.Column + Math.Max(1, operatorToken.Value.Length);
+        return new IdentifierExpression("<error>", operatorToken.Line, column);
     }
 
     private Expression ParseTernaryExpression()
@@ -3048,7 +3097,7 @@ public class Parser
         while (Check(TokenType.QuestionQuestion))
         {
             var opToken = Advance();
-            var right = ParseLogicalOrExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseLogicalOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.NullCoalesce, right, opToken.Line, opToken.Column);
         }
 
@@ -3062,7 +3111,7 @@ public class Parser
         while (Check(TokenType.Or))
         {
             var opToken = Advance();
-            var right = ParseLogicalAndExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseLogicalAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.Or, right, opToken.Line, opToken.Column);
         }
 
@@ -3076,7 +3125,7 @@ public class Parser
         while (Check(TokenType.And))
         {
             var opToken = Advance();
-            var right = ParseBitwiseOrExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.And, right, opToken.Line, opToken.Column);
         }
 
@@ -3090,7 +3139,7 @@ public class Parser
         while (Check(TokenType.BitwiseOr))
         {
             var opToken = Advance();
-            var right = ParseBitwiseXorExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseXorExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseOr, right, opToken.Line, opToken.Column);
         }
 
@@ -3104,7 +3153,7 @@ public class Parser
         while (Check(TokenType.BitwiseXor))
         {
             var opToken = Advance();
-            var right = ParseBitwiseAndExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseXor, right, opToken.Line, opToken.Column);
         }
 
@@ -3118,7 +3167,7 @@ public class Parser
         while (Check(TokenType.BitwiseAnd))
         {
             var opToken = Advance();
-            var right = ParseEqualityExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseEqualityExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseAnd, right, opToken.Line, opToken.Column);
         }
 
@@ -3133,7 +3182,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Equal ? BinaryOperator.Equal : BinaryOperator.NotEqual;
             var opToken = Advance();
-            var right = ParseRelationalExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseRelationalExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3205,7 +3254,7 @@ public class Parser
                 }
 
                 var opToken = Advance();
-                var right = ParseShiftExpression();
+                var right = ParseRightOperandOrMissing(opToken, ParseShiftExpression);
                 expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
             }
         }
@@ -3221,7 +3270,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.LeftShift ? BinaryOperator.LeftShift : BinaryOperator.RightShift;
             var opToken = Advance();
-            var right = ParseAdditiveExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseAdditiveExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3236,7 +3285,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Plus ? BinaryOperator.Add : BinaryOperator.Subtract;
             var opToken = Advance();
-            var right = ParseMultiplicativeExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseMultiplicativeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3281,7 +3330,7 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseRangeExpression();
+            var right = ParseRightOperandOrMissing(opToken, ParseRangeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3780,6 +3829,9 @@ public class Parser
             length: Current.Value.Length
         );
 
+        if (ShouldSkipUnexpectedExpressionToken())
+            Advance();
+
         // Return error placeholder
         return new IdentifierExpression("<error>", line, column);
     }
@@ -4179,7 +4231,27 @@ public class Parser
                 {
                     // Regular property initializer
                     var propName = ConsumeIdentifier("Expected property name");
-                    Consume(TokenType.Colon, "Expected ':'");
+                    if (Check(TokenType.Assign))
+                    {
+                        ReportError(
+                            ErrorCode.InvalidSyntax,
+                            $"Object initializer member '{propName}' uses '='; N# uses ':'",
+                            Current.Line,
+                            Current.Column,
+                            humanExplanation: "Object initializer members in N# use a colon between the member name and value. The equals sign is C# initializer syntax.",
+                            hint: $"Write '{propName}: value' instead of '{propName} = value'.",
+                            suggestions: new List<string>
+                            {
+                                $"Change '{propName} = ...' to '{propName}: ...'"
+                            },
+                            length: Current.Value.Length
+                        );
+                        Advance();
+                    }
+                    else
+                    {
+                        Consume(TokenType.Colon, "Expected ':'");
+                    }
                     var propValue = ParseExpression();
                     props.Add(new PropertyInitializer(propName, null, propValue));
                 }
@@ -4187,7 +4259,8 @@ public class Parser
                 if (!Check(TokenType.RightBrace))
                     Match(TokenType.Comma);
 
-                EnsureProgress(startPosition);
+                if (!EnsureProgress(startPosition))
+                    _panicMode = false;
             }
 
             Consume(TokenType.RightBrace, "Expected '}'");
@@ -4783,6 +4856,50 @@ public class Parser
                type == TokenType.Print || type == TokenType.Assert ||
                type == TokenType.Func || type == TokenType.Semicolon ||
                type == TokenType.LeftBrace;
+    }
+
+    private static bool IsExpressionTerminator(TokenType type)
+    {
+        return type == TokenType.RightBrace ||
+               type == TokenType.RightParen ||
+               type == TokenType.RightBracket ||
+               type == TokenType.Comma ||
+               type == TokenType.Semicolon ||
+               type == TokenType.Eof;
+    }
+
+    private bool IsMissingOperandBoundary(Token operatorToken)
+    {
+        if (IsAtEnd() || IsExpressionTerminator(Current.Type))
+            return true;
+
+        if (Current.Line <= operatorToken.Line)
+            return false;
+
+        if (IsStatementStartKeyword(Current.Type) ||
+            IsDeclarationKeyword(Current.Type) ||
+            IsModifierKeyword(Current.Type))
+        {
+            return true;
+        }
+
+        return _currentRecoveryBoundaryColumn.HasValue &&
+               Current.Column <= _currentRecoveryBoundaryColumn.Value;
+    }
+
+    private bool ShouldSkipUnexpectedExpressionToken()
+    {
+        if (IsAtEnd() || IsExpressionTerminator(Current.Type))
+            return false;
+
+        if (IsStatementStartKeyword(Current.Type) ||
+            IsDeclarationKeyword(Current.Type) ||
+            IsModifierKeyword(Current.Type))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -327,7 +327,7 @@ public class DocumentManager
                 state.SymbolLocations = ExtractSymbolLocations(state.CompilationUnit, uri, text);
             }
 
-            state.Diagnostics = diagnostics;
+            state.Diagnostics = DeduplicateCompilerDiagnostics(diagnostics);
             _documents[uri] = state;
             _lastAccessTimes[uri] = DateTime.UtcNow;
 
@@ -1128,7 +1128,22 @@ public class DocumentManager
             }
         }
 
-        return results;
+        return DeduplicateCompilerDiagnostics(results);
+    }
+
+    private static List<CompilerError> DeduplicateCompilerDiagnostics(IEnumerable<CompilerError> diagnostics)
+    {
+        return diagnostics
+            .GroupBy(diagnostic => new
+            {
+                diagnostic.Code,
+                diagnostic.FileName,
+                diagnostic.Line,
+                diagnostic.Column,
+                diagnostic.Message
+            })
+            .Select(group => group.First())
+            .ToList();
     }
 
     private static DocumentDiagnosticsPublication BuildPublicationFromDocument(DocumentState doc)

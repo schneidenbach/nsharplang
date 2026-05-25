@@ -223,7 +223,22 @@ public class CodeIntelligenceService
             ));
         }
 
-        return results;
+        return DeduplicateDiagnostics(results);
+    }
+
+    private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
+    {
+        return diagnostics
+            .GroupBy(diagnostic => new
+            {
+                diagnostic.Code,
+                diagnostic.File,
+                diagnostic.Line,
+                diagnostic.Column,
+                diagnostic.Message
+            })
+            .Select(group => group.First())
+            .ToList();
     }
 
     // ── Navigation Queries ──────────────────────────────────────────────

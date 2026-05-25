@@ -6718,6 +6718,9 @@ public class Analyzer : IDisposable
 
     private TypeInfo ResolveIdentifier(string name, int line, int column)
     {
+        if (name == "<error>")
+            return BuiltInTypes.Unknown;
+
         if (TryResolveIdentifierBindingTarget(name, line, column, out var type))
             return type;
 
