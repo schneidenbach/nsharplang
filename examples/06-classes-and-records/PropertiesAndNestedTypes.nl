@@ -5,7 +5,7 @@ class BankAccount {
 
     // Private backing fields
     balance: double
-    accountNumber: string
+    readonly accountNumber: string
     transactionCount: int
 
     // Nested enum for account status

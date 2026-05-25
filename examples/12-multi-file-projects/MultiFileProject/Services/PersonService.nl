@@ -4,7 +4,7 @@ import System.Collections.Generic
 import MultiFileProject.Models
 
 class PersonService {
-    people: List<Person>
+    readonly people: List<Person>
 
     constructor() {
         people = new List<Person>()

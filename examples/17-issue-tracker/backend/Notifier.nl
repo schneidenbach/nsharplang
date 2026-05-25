@@ -24,7 +24,7 @@ class ConsoleNotifier {
 
 // SlackNotifier also satisfies INotifier — different implementation, same shape.
 class SlackNotifier {
-    webhookUrl: string
+    readonly webhookUrl: string
 
     constructor(url: string) {
         webhookUrl = url
@@ -42,7 +42,7 @@ class SlackNotifier {
 class NotifierHub {
 
     // camelCase → private. The duck interface type stays hidden.
-    notifiers: List<INotifier>
+    readonly notifiers: List<INotifier>
 
     constructor() {
         notifiers = new List<INotifier>()

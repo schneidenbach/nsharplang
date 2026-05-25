@@ -1399,6 +1399,12 @@ internal class LintVisitor
                 break;
 
             case UnaryExpression unary:
+                if (IsMutationOperator(unary.Operator))
+                {
+                    if (unary.Operand is IdentifierExpression mutationTarget)
+                        _assignedVariables.Add(mutationTarget.Name);
+                    TrackFieldAssignment(unary.Operand);
+                }
                 VisitExpression(unary.Operand);
                 break;
 
@@ -2491,6 +2497,7 @@ internal class LintVisitor
         string? fieldName = target switch
         {
             IdentifierExpression id => id.Name,
+            MemberAccessExpression { Object: ThisExpression, MemberName: var m } => m,
             MemberAccessExpression { Object: IdentifierExpression { Name: "this" }, MemberName: var m } => m,
             _ => null
         };
@@ -2507,4 +2514,10 @@ internal class LintVisitor
         else
             _classFieldAssignments[fieldName] = (inCtor, true);
     }
+
+    private static bool IsMutationOperator(UnaryOperator op) =>
+        op is UnaryOperator.PreIncrement
+            or UnaryOperator.PreDecrement
+            or UnaryOperator.PostIncrement
+            or UnaryOperator.PostDecrement;
 }

@@ -49,7 +49,7 @@ file record CacheEntry {
 // File-scoped class that uses other file-scoped types internally
 file class UserService {
     cache: InternalCache = new InternalCache()
-    validator: IValidator
+    readonly validator: IValidator
 
     constructor(val: IValidator) {
         validator = val

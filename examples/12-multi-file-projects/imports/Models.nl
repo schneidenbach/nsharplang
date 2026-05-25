@@ -1,7 +1,7 @@
 // Models.nl - Defines public types for export
 class Person {
-    Name: string
-    Age: int
+    readonly Name: string
+    readonly Age: int
 
     constructor(name: string, age: int) {
         Name = name

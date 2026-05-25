@@ -1151,6 +1151,44 @@ class Counter {
     }
 
     [Fact]
+    public void NL018_PreferReadonly_NoInfoOnIncrementedField()
+    {
+        var source = @"
+class Counter {
+    count: int
+
+    constructor(initial: int) {
+        count = initial
+    }
+
+    func Increment() {
+        count++
+    }
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
+    }
+
+    [Fact]
+    public void NL018_PreferReadonly_InfoOnThisAssignedConstructorOnlyField()
+    {
+        var source = @"
+class Counter {
+    count: int
+
+    constructor(initial: int) {
+        this.count = initial
+    }
+
+    func GetCount(): int {
+        return count
+    }
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
+    }
+
+    [Fact]
     public void NL018_PreferReadonly_NoInfoOnAlreadyReadonlyField()
     {
         var source = @"

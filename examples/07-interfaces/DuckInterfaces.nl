@@ -19,7 +19,7 @@ duck interface IReadWriter {
 
 // FileReader implements IReader without explicit declaration
 class FileReader {
-    path: string
+    readonly path: string
 
     constructor(p: string) {
         path = p
@@ -49,7 +49,7 @@ class MemoryStore {
 
 // NetworkStream implements IReadWriter
 class NetworkStream {
-    url: string
+    readonly url: string
     buffer: string
 
     constructor(u: string) {

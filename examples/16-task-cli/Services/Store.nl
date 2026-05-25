@@ -9,7 +9,7 @@ import TaskCli.Models
 
 // Persists tasks to a pipe-delimited file with async I/O
 class TaskStore {
-    filePath: string
+    readonly filePath: string
 
     constructor() {
         dir := Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".taskr")

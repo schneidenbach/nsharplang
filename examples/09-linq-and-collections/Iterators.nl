@@ -113,8 +113,8 @@ func* Range(start: int, end: int, step: int): IEnumerable<int> {
 }
 
 class TreeNode {
-    Value: int
-    Children: List<TreeNode>
+    readonly Value: int
+    readonly Children: List<TreeNode>
 
     constructor(value: int) {
         Value = value

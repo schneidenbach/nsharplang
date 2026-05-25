@@ -1,9 +1,9 @@
 // Expression-Bodied Members Example
 // Demonstrates the => syntax for properties and methods
 class Person {
-    FirstName: string
-    LastName: string
-    BirthYear: int
+    readonly FirstName: string
+    readonly LastName: string
+    readonly BirthYear: int
 
     // Expression-bodied property
     FullName: string => FirstName + " " + LastName
@@ -22,7 +22,7 @@ class Person {
 }
 
 class Calculator {
-    Value: int
+    readonly Value: int
 
     // Expression-bodied property
     Double: int => Value * 2
@@ -39,8 +39,8 @@ class Calculator {
 }
 
 class Rectangle {
-    Width: double
-    Height: double
+    readonly Width: double
+    readonly Height: double
 
     // Expression-bodied properties for calculated values
     Area: double => Width * Height

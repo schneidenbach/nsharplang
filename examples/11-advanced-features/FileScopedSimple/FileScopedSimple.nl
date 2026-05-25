@@ -31,7 +31,7 @@ file record Config {
 // (C# requires that file-local types only appear in file-local type signatures)
 file class Application {
     logger: Logger = new Logger()
-    config: Config
+    readonly config: Config
 
     constructor(cfg: Config) {
         config = cfg
