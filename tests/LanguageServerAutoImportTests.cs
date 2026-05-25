@@ -266,6 +266,202 @@ func main() {
         Assert.Equal("import System\n", edit.NewText);
     }
 
+    [Fact]
+    public async Task Completion_RanksLocalSymbolsBeforeImportableTypesAsync()
+    {
+        var harness = new Harness();
+        var source = """
+record Ledger {
+    Name: string
+}
+
+func main() {
+    L
+}
+""";
+
+        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "    L");
+
+        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
+        var ledger = Assert.Single(completion.Items.Where(i => i.Label == "Ledger"));
+        var list = Assert.Single(completion.Items.Where(i => i.Label == "List"));
+
+        Assert.StartsWith("0000_", ledger.SortText, StringComparison.Ordinal);
+        Assert.StartsWith("0900_", list.SortText, StringComparison.Ordinal);
+        Assert.True(string.CompareOrdinal(ledger.SortText, list.SortText) < 0);
+    }
+
+    [Fact]
+    public async Task Completion_ProjectDuplicateNames_OffersDistinctImportEditsAsync()
+    {
+        var harness = new Harness();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-auto-import-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: AutoImportProject
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooWidgetSource = """
+namespace AutoImportProject.Foo
+
+record Widget {
+    Value: string
+}
+""";
+            File.WriteAllText(fooWidgetPath, fooWidgetSource);
+
+            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
+            var barWidgetSource = """
+namespace AutoImportProject.Bar
+
+record Widget {
+    Count: int
+}
+""";
+            File.WriteAllText(barWidgetPath, barWidgetSource);
+
+            var usePath = Path.Combine(tempRoot, "UseWidget.nl");
+            var useSource = """
+namespace AutoImportProject.App
+
+func main() {
+    Wid
+}
+""";
+            File.WriteAllText(usePath, useSource);
+
+            OpenDocumentAtPath(harness.DocumentManager, fooWidgetPath, fooWidgetSource);
+            OpenDocumentAtPath(harness.DocumentManager, barWidgetPath, barWidgetSource);
+            var (uri, line, character) = OpenDocumentAtPath(harness.DocumentManager, usePath, useSource, "Wid");
+
+            var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
+            var widgets = completion.Items
+                .Where(i => i.Label == "Widget")
+                .OrderBy(i => i.Detail, StringComparer.Ordinal)
+                .ToList();
+
+            Assert.Equal(2, widgets.Count);
+            Assert.Contains(widgets, item => item.Detail?.Contains("AutoImportProject.Foo", StringComparison.Ordinal) == true);
+            Assert.Contains(widgets, item => item.Detail?.Contains("AutoImportProject.Bar", StringComparison.Ordinal) == true);
+
+            var editTexts = widgets
+                .SelectMany(GetAdditionalTextEdits)
+                .Select(edit => edit.NewText)
+                .OrderBy(text => text, StringComparer.Ordinal)
+                .ToList();
+
+            Assert.Equal(new[] { "import AutoImportProject.Bar\n", "import AutoImportProject.Foo\n" }, editTexts);
+            Assert.All(widgets, item => Assert.StartsWith("0800_", item.SortText, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Completion_ProjectSymbolSkipsImportEdit_WhenNamespaceAlreadyImportedAsync()
+    {
+        var harness = new Harness();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-auto-import-in-scope-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Models"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: AutoImportInScope
+targetFramework: net10.0
+""");
+
+            var widgetPath = Path.Combine(tempRoot, "Models", "Widget.nl");
+            var widgetSource = """
+namespace AutoImportInScope.Models
+
+record Widget {
+    Value: string
+}
+""";
+            File.WriteAllText(widgetPath, widgetSource);
+
+            var usePath = Path.Combine(tempRoot, "UseWidget.nl");
+            var useSource = """
+namespace AutoImportInScope.App
+import AutoImportInScope.Models
+
+func main() {
+    Wid
+}
+""";
+            File.WriteAllText(usePath, useSource);
+
+            OpenDocumentAtPath(harness.DocumentManager, widgetPath, widgetSource);
+            var (uri, line, character) = OpenDocumentAtPath(harness.DocumentManager, usePath, useSource, "Wid");
+
+            var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
+            var widget = Assert.Single(completion.Items.Where(i => i.Label == "Widget"));
+
+            Assert.Empty(GetAdditionalTextEdits(widget));
+            Assert.StartsWith("0100_", widget.SortText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Completion_ImportInsertedAfterPackageAndExistingImportsAsync()
+    {
+        var harness = new Harness();
+        var source = """
+namespace Demo
+import System.Collections.Generic
+package Demo
+
+func main() {
+    Cons
+}
+""";
+
+        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Cons");
+
+        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
+        var item = Assert.Single(completion.Items.Where(i => i.Label == "Console"));
+
+        var edit = Assert.Single(GetAdditionalTextEdits(item));
+        Assert.Equal(3, (int)edit.Range.Start.Line);
+        Assert.Equal(0, (int)edit.Range.Start.Character);
+        Assert.Equal("import System\n", edit.NewText);
+    }
+
+    [Fact]
+    public async Task Completion_AliasedImportDoesNotHideRequiredUnqualifiedImportAsync()
+    {
+        var harness = new Harness();
+        var source = """
+import Sys = System
+
+func main() {
+    Cons
+}
+""";
+
+        var (uri, line, character) = CreateDocument(harness.DocumentManager, source, "Cons");
+
+        var completion = await GetCompletionAsync(harness.CompletionHandler, uri, line, character);
+        var item = Assert.Single(completion.Items.Where(i => i.Label == "Console"));
+
+        var edit = Assert.Single(GetAdditionalTextEdits(item));
+        Assert.Equal(1, (int)edit.Range.Start.Line);
+        Assert.Equal("import System\n", edit.NewText);
+    }
+
     private static (string Uri, int Line, int Character) CreateDocument(
         DocumentManager documentManager, string source, string target)
     {
@@ -279,6 +475,29 @@ func main() {
 
         var character = lines[targetLine].IndexOf(target, StringComparison.Ordinal) + target.Length;
         return (uri, targetLine, character);
+    }
+
+    private static (string Uri, int Line, int Character) OpenDocumentAtPath(
+        DocumentManager documentManager,
+        string filePath,
+        string source,
+        string target)
+    {
+        var uri = OpenDocumentAtPath(documentManager, filePath, source);
+        var lines = source.Split('\n');
+        var targetLine = Array.FindIndex(lines, line => line.Contains(target, StringComparison.Ordinal));
+        Assert.True(targetLine >= 0, $"Test source must contain the completion target text '{target}'.");
+
+        var character = lines[targetLine].IndexOf(target, StringComparison.Ordinal) + target.Length;
+        return (uri, targetLine, character);
+    }
+
+    private static string OpenDocumentAtPath(DocumentManager documentManager, string filePath, string source)
+    {
+        var uri = DocumentUri.From(new Uri(filePath).AbsoluteUri).ToString();
+        documentManager.MarkEditorOpen(uri);
+        documentManager.UpdateDocument(uri, source, 1);
+        return uri;
     }
 
     private static (string Uri, int Line, int Character) CreateDocumentAtDot(
