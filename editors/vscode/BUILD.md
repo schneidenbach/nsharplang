@@ -5,12 +5,12 @@
 To rebuild and redeploy the full local N# toolset in one step, run:
 
 ```bash
-./scripts/deploy-local-toolset.sh
+./scripts/setup-local.sh --with-vscode --no-path-update
 ```
 
-That script refreshes the local N# package cache, installs the `nlc` and
-`nsharp-lsp` launchers under `~/.nsharp/bin`, then packages and installs the VS
-Code extension.
+That refreshes the local N# package cache, installs the `nlc` and `nsharp-lsp`
+launchers under `~/.nsharp/bin`, then packages and installs the VS Code
+extension without editing shell startup files.
 
 ## Prerequisites
 

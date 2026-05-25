@@ -52,7 +52,7 @@ gh pr merge <number> --merge --admin
 
 ```bash
 git checkout main && git pull origin main
-./scripts/deploy-local-toolset.sh --skip-vscode
+./scripts/setup-local.sh --skip-vscode --no-path-update
 ```
 
 Verify `nlc --help` runs with the new version.

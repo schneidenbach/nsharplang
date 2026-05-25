@@ -126,7 +126,7 @@ Create a script to reorganize:
 
 ```bash
 #!/bin/bash
-# scripts/reorganize-examples.sh
+# one-time migration helper, retired after examples were reorganized
 
 # Create directories
 mkdir -p examples/1-hello-world

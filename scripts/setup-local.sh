@@ -3,13 +3,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/packages.sh"
 source "$SCRIPT_DIR/lib/toolset.sh"
+source "$SCRIPT_DIR/lib/vscode-extension.sh"
 
 PROJECT_ROOT="$NSHARP_REPO_ROOT"
 NSHARP_INSTALL_DIR="${NSHARP_INSTALL_DIR:-$HOME/.nsharp}"
 NSHARP_BIN_DIR="$NSHARP_INSTALL_DIR/bin"
+LOCAL_FEED="${NSHARP_LOCAL_FEED:-$NSHARP_INSTALL_DIR/packages}"
+TOOLSET_DIR="${NSHARP_TOOLSET_OUTPUT:-$PROJECT_ROOT/artifacts/toolset/local}"
 NSHARP_ENV_DIR="${NSHARP_ENV_DIR:-$HOME/.nsharp}"
 NSHARP_ENV_FILE="$NSHARP_ENV_DIR/env"
+SAMPLE_PROJECT="${NSHARP_VSCODE_SAMPLE_PROJECT:-$PROJECT_ROOT/examples/01-hello-world}"
+VSCODE_EXT_DIR="$NSHARP_VSCODE_EXT_DIR"
 
 DRY_RUN=0
 WITH_VSCODE=0
@@ -185,6 +191,87 @@ verify_local_toolchain() {
     fi
 }
 
+deploy_local_toolset() {
+    local skip_vscode="$1"
+
+    nsharp_require_command dotnet
+    if [[ "$skip_vscode" -eq 0 ]]; then
+        nsharp_require_command npm
+        nsharp_require_command npx
+        nsharp_require_command code
+    fi
+
+    echo "========================================"
+    echo "Deploying Local N# Toolset"
+    echo "========================================"
+    echo "Project root: $PROJECT_ROOT"
+    echo "Install dir:  $NSHARP_INSTALL_DIR"
+    echo "Packages:     $LOCAL_FEED"
+    echo "Toolset:      $TOOLSET_DIR"
+    if [[ "$skip_vscode" -eq 0 ]]; then
+        echo "VS Code:      yes"
+    fi
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "Mode:         dry-run"
+    fi
+
+    nsharp_log "Packing N# packages"
+    nsharp_run mkdir -p "$LOCAL_FEED"
+    while IFS='|' read -r package_id _label _project; do
+        normalized_id="$(nsharp_lowercase "$package_id")"
+        if [[ "$DRY_RUN" -eq 0 ]]; then
+            rm -f "$LOCAL_FEED"/"$package_id".*.nupkg
+            rm -rf "$HOME/.nuget/packages/$normalized_id"
+        else
+            echo "+ rm -f $LOCAL_FEED/$package_id.*.nupkg"
+            echo "+ rm -rf $HOME/.nuget/packages/$normalized_id"
+        fi
+    done < <(nsharp_each_package_spec)
+    nsharp_pack_package_set "$LOCAL_FEED" q
+
+    nsharp_log "Publishing and installing local app payloads"
+    if [[ "$DRY_RUN" -eq 0 ]]; then
+        nsharp_publish_toolset "$TOOLSET_DIR" "$LOCAL_FEED"
+        nsharp_install_toolset "$TOOLSET_DIR" "$NSHARP_INSTALL_DIR"
+        nsharp_install_templates_from_packages "$NSHARP_INSTALL_DIR/packages"
+        nsharp_write_shared_nuget_config "$NSHARP_INSTALL_DIR/packages" "$NSHARP_INSTALL_DIR/NuGet.config"
+    else
+        echo "+ publish nlc and nsharp-lsp to $TOOLSET_DIR"
+        echo "+ install toolset to $NSHARP_INSTALL_DIR"
+        echo "+ dotnet new install $NSHARP_INSTALL_DIR/packages/NSharpLang.Templates.<version>.nupkg --force"
+        echo "+ write $NSHARP_INSTALL_DIR/NuGet.config"
+    fi
+
+    if [[ "$skip_vscode" -eq 0 ]]; then
+        nsharp_log "Building and installing the VS Code extension"
+        nsharp_build_vscode_extension_package
+
+        if [[ "$RESTART_VSCODE" -eq 1 ]]; then
+            nsharp_kill_vscode
+        fi
+
+        nsharp_run code --install-extension "$VSCODE_EXT_DIR"/nsharp-*.vsix --force
+
+        if [[ "$RESTART_VSCODE" -eq 1 ]]; then
+            nsharp_run code "$SAMPLE_PROJECT"
+        fi
+    fi
+
+    echo
+    echo "Local deploy complete."
+    echo "Commands:"
+    echo "  - CLI: $NSHARP_INSTALL_DIR/bin/nlc"
+    echo "  - LSP: $NSHARP_INSTALL_DIR/bin/nsharp-lsp"
+    echo "  - Packages: $NSHARP_INSTALL_DIR/packages"
+    if [[ "$skip_vscode" -eq 0 ]]; then
+        if [[ "$RESTART_VSCODE" -eq 1 ]]; then
+            echo "  - VS Code reopened with: $SAMPLE_PROJECT"
+        else
+            echo "  - VS Code extension installed from: $VSCODE_EXT_DIR"
+        fi
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)
@@ -216,11 +303,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 deploy_args=()
+deploy_skip_vscode=0
 if [[ "$DRY_RUN" -eq 1 ]]; then
     deploy_args+=(--dry-run)
 fi
 if [[ "$WITH_VSCODE" -eq 0 ]]; then
     deploy_args+=(--skip-vscode)
+    deploy_skip_vscode=1
 fi
 if [[ "$RESTART_VSCODE" -eq 0 ]]; then
     deploy_args+=(--no-restart-vscode)
@@ -238,8 +327,10 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 nsharp_log "Deploying local packages, templates, CLI, and language server launchers"
-nsharp_print_command "$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
-"$PROJECT_ROOT/scripts/deploy-local-toolset.sh" "${deploy_args[@]}"
+if [[ "${#deploy_args[@]}" -gt 0 ]]; then
+    echo "Deploy options:    ${deploy_args[*]}"
+fi
+deploy_local_toolset "$deploy_skip_vscode"
 
 ensure_nsharp_path
 verify_local_toolchain

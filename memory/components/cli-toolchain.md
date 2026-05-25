@@ -695,12 +695,12 @@ Use [scripts/setup-local.sh](/Users/spencer/Repos/nsharplang/scripts/setup-local
 ```
 
 The script:
-- delegates package/toolset refresh to `scripts/deploy-local-toolset.sh`
+- refreshes packages and toolset apps through the shared `scripts/lib/toolset.sh` helpers
 - refreshes the local `~/.nsharp/packages` package cache used by generated projects
 - verifies `nlc doctor --skip-vscode` by default
 - supports `--with-vscode` when the local VS Code extension should also be packaged and installed
 
-Use [scripts/install-local-nlc.sh](/Users/spencer/Repos/nsharplang/scripts/install-local-nlc.sh) only for a CLI-only reinstall while debugging packaging.
+For a CLI-only reinstall while debugging packaging, use `./scripts/setup-local.sh --skip-vscode --no-path-update`.
 
 ---
 

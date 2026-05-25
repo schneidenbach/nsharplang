@@ -71,11 +71,7 @@ mkdir -p "$PACKAGE_DIR"
 
 if [[ "$SKIP_PACKAGES" -eq 0 ]]; then
     nsharp_log "Packing SDK, templates, and compiler packages"
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release -v q
-    while IFS='|' read -r _package_id label project; do
-        nsharp_log "Packing $label"
-        nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "$project" -c Release -o "$PACKAGE_DIR" -v q
-    done < <(nsharp_each_package_spec)
+    nsharp_pack_package_set "$PACKAGE_DIR" q
 fi
 
 nsharp_log "Publishing N# toolset"
