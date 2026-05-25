@@ -5,7 +5,7 @@ title: CLI Reference
 
 # N# CLI Reference
 
-Updated: 2026-05-14
+Updated: 2026-05-25
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -42,7 +42,7 @@ Updated: 2026-05-14
 | `nlc publish` | Publish project for deployment | `--project`, `--configuration`, `--runtime` | `nlc publish -c Release` |
 | `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
 | `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
-| `nlc tree` | Show dependency tree | `--project` | `nlc tree` |
+| `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
 | `nlc doctor` | Verify CLI, templates/SDK restore, language server, and VS Code extension availability | `--json`, `--require-vscode`, `--skip-vscode` | `nlc doctor --require-vscode` |
@@ -185,6 +185,7 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 | `idiom` | Report emitted successfully | Report failed |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
+| `tree` | Dependency tree emitted | Missing project root/config or dependency resolver failure |
 | `doctor` | Required install checks passed | One or more required checks failed |
 
 ## JSON Examples
@@ -256,6 +257,48 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
   }
 }
 ```
+
+`nlc tree --json`:
+
+```json
+{
+  "schemaVersion": 2,
+  "command": "tree",
+  "ok": true,
+  "projectRoot": "/abs/path/project",
+  "project": {
+    "name": "WebApi",
+    "targetFramework": "net10.0",
+    "source": "project.yml"
+  },
+  "maxDepth": 2147483647,
+  "capabilities": {
+    "directDependencies": true,
+    "transitiveNuGetDependencies": false
+  },
+  "dependencies": [
+    {
+      "name": "Swashbuckle.AspNetCore",
+      "kind": "nuget",
+      "version": "7.2.0",
+      "scope": "runtime",
+      "transitive": false,
+      "dependencies": []
+    }
+  ],
+  "transitiveDependencies": [],
+  "summary": {
+    "direct": 1,
+    "transitive": 0,
+    "total": 1
+  },
+  "limitations": [
+    "project.yml output lists direct runtime dependencies only. Transitive NuGet dependencies require an MSBuild project file so dotnet can resolve the package graph."
+  ]
+}
+```
+
+`nlc tree` is active for csproj-free projects: it reads direct runtime dependencies from `project.yml`. When a minimal MSBuild project file is present and `dotnet list package` succeeds, it also includes transitive NuGet packages; otherwise it still returns direct dependencies with a `limitations[]` note. Tree JSON schema version `2` replaces the earlier raw `packages` wrapper with stable `dependencies`, `transitiveDependencies`, `capabilities`, and `limitations` fields.
 
 ## Lint Rules
 
@@ -343,7 +386,7 @@ These remain intentionally out of scope for this pass:
 
 - Cross-compilation
 - First-class release builds
-- Dependency tree visualization
+- Nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
 - Coverage reporting
 - Benchmark execution
 - Built-in build timing reports

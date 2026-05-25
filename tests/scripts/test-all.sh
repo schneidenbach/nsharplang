@@ -128,6 +128,22 @@ else
     handle_error "Compiler build"
 fi
 
+section "Step 2b: Format Contract Gate"
+echo "Checking canonical formatting for examples, templates, and representative fixtures..."
+FORMAT_OUTPUT=$(mktemp)
+if {
+    dotnet "$CLI_DLL" format --project examples --check
+    dotnet "$CLI_DLL" format --project templates --check
+    dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check
+} > "$FORMAT_OUTPUT" 2>&1; then
+    cat "$FORMAT_OUTPUT"
+    handle_success "Formatting gate"
+else
+    cat "$FORMAT_OUTPUT"
+    handle_error "Formatting gate"
+fi
+rm -f "$FORMAT_OUTPUT"
+
 section "Step 3: Run Unit Tests"
 echo "Running all unit tests..."
 dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate --no-cache -v q

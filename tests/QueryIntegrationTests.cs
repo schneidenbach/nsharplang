@@ -1075,14 +1075,14 @@ func Main() {
     [Fact]
     public void Definition_IssueTracker_RecordDeclaration_Resolves()
     {
-        // Models.nl line 34: record Issue {
-        var result = _service.FindDefinition(IssueTracker, "Models.nl", 34, 8);
+        // Models.nl line 35: record Issue {
+        var result = _service.FindDefinition(IssueTracker, "Models.nl", 35, 8);
 
         Assert.NotNull(result);
         Assert.Equal("Issue", result!.Name);
         Assert.Equal("record", result.Kind);
         Assert.Equal("Models.nl", result.File);
-        Assert.Equal(34, result.Line);
+        Assert.Equal(35, result.Line);
     }
 
     [Fact]
@@ -1101,13 +1101,13 @@ func Main() {
     [Fact]
     public void Definition_IssueTracker_UnionDeclaration_Resolves()
     {
-        // Models.nl line 19: union IssueStatus {
+        // Models.nl line 20: union IssueStatus {
         var results = _service.FindDefinitionByName(IssueTracker, "IssueStatus");
         Assert.NotEmpty(results);
         var status = results.First(d => d.Name == "IssueStatus");
         Assert.Equal("union", status.Kind);
         Assert.Equal("Models.nl", status.File);
-        Assert.Equal(19, status.Line);
+        Assert.Equal(20, status.Line);
     }
 
     [Fact]
@@ -1123,8 +1123,8 @@ func Main() {
     [Fact]
     public void References_IssueTracker_EnumDeclaration_FindsUsages()
     {
-        // Models.nl line 9: enum Priority {
-        var refs = _service.FindReferences(IssueTracker, "Models.nl", 9, 6);
+        // Models.nl line 10: enum Priority {
+        var refs = _service.FindReferences(IssueTracker, "Models.nl", 10, 6);
 
         Assert.True(refs.Count >= 1, $"Expected at least 1 reference to Priority, got {refs.Count}");
     }

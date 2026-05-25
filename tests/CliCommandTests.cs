@@ -84,6 +84,79 @@ public class CliCommandTests
         }
     }
 
+    [Fact]
+    public void TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TreeContract
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - framework: Microsoft.AspNetCore.App
+  - nuget: Serilog
+    version: 3.1.1
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "ok"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TreeCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            AssertJsonContract("tree", stdout);
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("tree", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("ok").GetBoolean());
+            Assert.Equal(NormalizePath(Path.GetFullPath(tempDir)), root.GetProperty("projectRoot").GetString());
+            Assert.Equal("project.yml", root.GetProperty("project").GetProperty("source").GetString());
+            Assert.False(root.GetProperty("capabilities").GetProperty("transitiveNuGetDependencies").GetBoolean());
+            Assert.Equal(2, root.GetProperty("dependencies").GetArrayLength());
+            Assert.Equal(0, root.GetProperty("transitiveDependencies").GetArrayLength());
+            Assert.Equal(2, root.GetProperty("summary").GetProperty("direct").GetInt32());
+            Assert.Contains("direct runtime dependencies",
+                root.GetProperty("limitations")[0].GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TreeCommand_JsonError_UsesGlobalErrorEnvelope()
+    {
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-missing-{Guid.NewGuid():N}");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            TreeCommand.Execute(new[] { "--project", missingDir, "--json" }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        var root = doc.RootElement;
+        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("tree", root.GetProperty("command").GetString());
+        Assert.False(root.GetProperty("ok").GetBoolean());
+        Assert.Equal(NormalizePath(Path.GetFullPath(missingDir)), root.GetProperty("projectRoot").GetString());
+        Assert.Contains("Project directory not found",
+            root.GetProperty("error").GetProperty("message").GetString());
+    }
+
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)
@@ -978,13 +1051,13 @@ func Main() {
     [Fact]
     public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
     {
-        // hello-world Program.nl line 3: func Hi(): int {
+        // hello-world Program.nl line 2: func Hi(): int {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "3:6"
+            "--pos", "2:6"
         }));
 
         Assert.Equal(0, exitCode);
@@ -1971,7 +2044,7 @@ public class LegacyDto
                 "hover",
                 "--project", Path.Combine(examplesDir, "01-hello-world"),
                 "--file", "Program.nl",
-                "--pos", "16:10"
+                "--pos", "18:10"
             }
         };
 
