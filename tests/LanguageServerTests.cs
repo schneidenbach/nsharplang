@@ -2019,6 +2019,95 @@ func main(): void
     }
 
     [Fact]
+    public async Task TypeUseNavigation_DuplicateTypeNames_UsesProjectSemanticSnapshotAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"nsharp-lsp-type-use-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Foo"));
+        Directory.CreateDirectory(Path.Combine(tempRoot, "Bar"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempRoot, "project.yml"), """
+name: TempTypeUseNavigation
+targetFramework: net10.0
+""");
+
+            var fooWidgetPath = Path.Combine(tempRoot, "Foo", "Widget.nl");
+            var fooWidgetSource = """
+namespace TempTypeUseNavigation.Foo
+
+record Widget {
+    Value: string
+}
+""";
+            File.WriteAllText(fooWidgetPath, fooWidgetSource);
+
+            var barWidgetPath = Path.Combine(tempRoot, "Bar", "Widget.nl");
+            File.WriteAllText(barWidgetPath, """
+namespace TempTypeUseNavigation.Bar
+
+record Widget {
+    Value: int
+}
+""");
+
+            var fooUsePath = Path.Combine(tempRoot, "Foo", "UseWidget.nl");
+            var fooUseSource = """
+namespace TempTypeUseNavigation.Foo
+import System.Collections.Generic
+
+func Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widget, string>): string {
+    return ""
+}
+""";
+            File.WriteAllText(fooUsePath, fooUseSource);
+
+            var fooWidgetUri = new Uri(fooWidgetPath).AbsoluteUri;
+            var barWidgetUri = new Uri(barWidgetPath).AbsoluteUri;
+            var fooUseUri = new Uri(fooUsePath).AbsoluteUri;
+
+            harness.OpenDocument(fooWidgetUri, fooWidgetSource);
+            harness.OpenDocument(barWidgetUri, File.ReadAllText(barWidgetPath));
+            harness.OpenDocument(fooUseUri, fooUseSource);
+
+            var useLine = 3;
+            var typeUseColumn = fooUseSource.Split('\n')[useLine].IndexOf("Widget", StringComparison.Ordinal);
+            Assert.True(typeUseColumn >= 0);
+
+            var definition = await harness.GetDefinitionAsync(fooUseUri, useLine, typeUseColumn);
+            Assert.NotNull(definition);
+            var definitionLocation = ExtractSingleDefinitionLocation(definition!);
+            Assert.EndsWith("/Foo/Widget.nl", definitionLocation.Uri.GetFileSystemPath(), StringComparison.Ordinal);
+            Assert.Equal(2, (int)definitionLocation.Range.Start.Line);
+
+            var hover = await harness.GetHoverAsync(fooUseUri, useLine, typeUseColumn);
+            Assert.NotNull(hover);
+            Assert.Contains("Widget", hover!.Contents.MarkupContent?.Value ?? hover.Contents.MarkedStrings?.FirstOrDefault().Value, StringComparison.Ordinal);
+
+            var refs = await harness.GetReferencesAsync(fooUseUri, useLine, typeUseColumn);
+            Assert.NotNull(refs);
+            Assert.Contains(refs!, location => location.Uri.GetFileSystemPath().EndsWith("/Foo/Widget.nl", StringComparison.Ordinal));
+            Assert.Contains(refs!, location => location.Uri.GetFileSystemPath().EndsWith("/Foo/UseWidget.nl", StringComparison.Ordinal));
+            Assert.DoesNotContain(refs!, location => location.Uri.GetFileSystemPath().EndsWith("/Bar/Widget.nl", StringComparison.Ordinal));
+
+            var declarationColumn = fooWidgetSource.Split('\n')[2].IndexOf("Widget", StringComparison.Ordinal);
+            var edit = await harness.RenameAsync(fooWidgetUri, 2, declarationColumn, "RenamedWidget");
+            Assert.NotNull(edit);
+            Assert.NotNull(edit!.Changes);
+
+            var fooUseDocumentUri = DocumentUri.From(fooUseUri);
+            Assert.True(edit.Changes!.ContainsKey(fooUseDocumentUri), "Rename should edit type-use sites in Foo/UseWidget.nl");
+            Assert.Contains(edit.Changes[fooUseDocumentUri], change => change.NewText == "RenamedWidget" && change.Range.Start.Line == useLine);
+            Assert.DoesNotContain(edit.Changes.Keys, uri => uri.GetFileSystemPath().EndsWith("/Bar/Widget.nl", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task References_UnsavedCrossFileDuplicateMembers_UsesOpenBufferSemanticSnapshotAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);

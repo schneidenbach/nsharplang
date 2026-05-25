@@ -239,6 +239,10 @@ public class CodeIntelligenceService
 
         snapshot.SemanticModels.TryGetValue(filePath, out var semanticModel);
 
+        var typeUse = ResolveTypeUseAtPosition(snapshot, filePath, cu, semanticModel, line, col);
+        if (typeUse != null)
+            return typeUse;
+
         var expr = FindExpressionAtPositionRobust(cu, line, col);
         var candidateNames = GetCandidateQueryNames(expr, snapshot, filePath, line, col);
         var name = candidateNames.FirstOrDefault();
@@ -1097,6 +1101,30 @@ public class CodeIntelligenceService
             declaration.Line,
             declaration.Column,
             declaration.Name.Length);
+
+    private TypeResult? ResolveTypeUseAtPosition(ProjectSnapshot snapshot, string filePath, CompilationUnit currentUnit,
+        SemanticModel? semanticModel, int line, int col)
+    {
+        var declaration = TryResolveDefinitionViaBindings(snapshot, filePath, line, col);
+        if (declaration == null || !IsTypeDeclarationKind(declaration.Kind))
+            return null;
+
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        var typeInfo = span != null
+            ? semanticModel?.LookupTypeReferenceAtPosition(line, span.Value.StartColumn)
+            : null;
+        typeInfo ??= FindTypeInfoByName(snapshot, currentUnit, declaration.Name);
+
+        var resolvedType = typeInfo != null ? FormatTypeInfo(typeInfo) : declaration.Name;
+        return new TypeResult(
+            declaration.Name,
+            resolvedType,
+            declaration.Kind,
+            new LocationResult(
+                GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
+                declaration.Line,
+                declaration.Column));
+    }
 
     private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
     {
@@ -2259,6 +2287,9 @@ public class CodeIntelligenceService
         SetupDeclaration => "setup",
         _ => "unknown"
     };
+
+    private static bool IsTypeDeclarationKind(string kind)
+        => kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
 
     private static List<Declaration>? GetDeclarationMembers(Declaration decl) => decl switch
     {

@@ -605,4 +605,30 @@ func second(x: string) {
         Assert.NotNull(secondX);
         Assert.Equal("string", secondX!.ToString());
     }
+
+    [Fact]
+    public void Analyzer_TypeReferencePositions_RecordResolvedTypes()
+    {
+        var source = @"
+record Person {
+    Name: string
+}
+
+record Box<T> {
+    Value: T
+}
+
+func use(box: Box<Person>) {
+}";
+
+        var result = Analyze(source);
+
+        var boxType = result.SemanticModel.LookupTypeReferenceAtPosition(10, 15);
+        Assert.NotNull(boxType);
+        Assert.Equal("Box<Person>", boxType!.ToString());
+
+        var personType = result.SemanticModel.LookupTypeReferenceAtPosition(10, 19);
+        Assert.NotNull(personType);
+        Assert.Equal("Person", personType!.ToString());
+    }
 }

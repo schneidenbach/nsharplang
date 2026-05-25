@@ -207,6 +207,79 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommand_Inspect_TypeUseGenericArgument_UsesSemanticBinding()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-query-type-use-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, "Foo"));
+        Directory.CreateDirectory(Path.Combine(tempDir, "Bar"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: QueryTypeUse
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Foo", "Widget.nl"), """
+namespace QueryTypeUse.Foo
+
+record Widget {
+    Value: string
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Bar", "Widget.nl"), """
+namespace QueryTypeUse.Bar
+
+record Widget {
+    Value: int
+}
+""");
+            var useSource = """
+namespace QueryTypeUse.Foo
+import System.Collections.Generic
+
+func Read(items: List<Widget>): string {
+    return ""
+}
+""";
+            File.WriteAllText(Path.Combine(tempDir, "Foo", "UseWidget.nl"), useSource);
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+namespace QueryTypeUse
+
+func Main() {
+}
+""");
+
+            var typeUseColumn = useSource.Split('\n')[3].IndexOf("Widget", StringComparison.Ordinal) + 1;
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "inspect",
+                "--project", tempDir,
+                "--file", "Foo/UseWidget.nl",
+                "--pos", $"4:{typeUseColumn}"
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var result = doc.RootElement.GetProperty("result");
+            Assert.Equal("Widget", result.GetProperty("symbol").GetProperty("name").GetString());
+            Assert.EndsWith("Foo/Widget.nl", result.GetProperty("definition").GetProperty("file").GetString(), StringComparison.Ordinal);
+
+            var references = result.GetProperty("references").GetProperty("results").EnumerateArray().ToArray();
+            Assert.Contains(references, item => item.GetProperty("file").GetString()!.EndsWith("Foo/UseWidget.nl", StringComparison.Ordinal));
+            Assert.DoesNotContain(references, item => item.GetProperty("file").GetString()!.EndsWith("Bar/Widget.nl", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BatchCommand_UsesStableEnvelopeAndPerItemResponses()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");

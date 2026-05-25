@@ -241,6 +241,12 @@ public class Analyzer : IDisposable
             case EnumDeclaration enumDecl:
                 AnalyzeEnumDeclaration(enumDecl);
                 break;
+            case TypeAliasDeclaration aliasDecl:
+                ResolveType(aliasDecl.Type);
+                break;
+            case NewtypeDeclaration newtypeDecl:
+                ResolveType(newtypeDecl.UnderlyingType);
+                break;
             case FieldDeclaration field:
                 AnalyzeFieldDeclaration(field);
                 break;
@@ -410,6 +416,8 @@ public class Analyzer : IDisposable
                 _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
             }
         }
+
+        ResolveGenericConstraintTypes(func.Constraints);
 
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
@@ -621,6 +629,9 @@ public class Analyzer : IDisposable
             }
         }
 
+        ResolveTypeReferenceIfPresent(classDecl.BaseClass);
+        ResolveTypeReferences(classDecl.Interfaces);
+
         // Add 'this' to scope
         var classType = new ClassTypeInfo(classDecl);
         DeclareSymbol("this", classType, classDecl.Line, classDecl.Column);
@@ -680,6 +691,8 @@ public class Analyzer : IDisposable
             }
         }
 
+        ResolveTypeReferences(structDecl.Interfaces);
+
         var structType = new StructTypeInfo(structDecl);
         DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
 
@@ -723,6 +736,8 @@ public class Analyzer : IDisposable
             }
         }
 
+        ResolveTypeReferences(recordDecl.Interfaces);
+
         var recordType = new RecordTypeInfo(recordDecl);
         DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
 
@@ -762,6 +777,8 @@ public class Analyzer : IDisposable
                 _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
             }
         }
+
+        ResolveTypeReferences(interfaceDecl.BaseInterfaces);
 
         foreach (var member in interfaceDecl.Members)
         {
@@ -803,6 +820,14 @@ public class Analyzer : IDisposable
                 else
                 {
                     Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol);
+                }
+            }
+
+            if (unionCase.Properties != null)
+            {
+                foreach (var property in unionCase.Properties)
+                {
+                    ResolveType(property.Type);
                 }
             }
         }
@@ -6446,11 +6471,10 @@ public class Analyzer : IDisposable
     // Type resolution
     private TypeInfo ResolveType(TypeReference typeRef)
     {
-        return typeRef switch
+        var resolved = typeRef switch
         {
             SimpleTypeReference simple => ResolveSimpleType(simple.Name, simple.Line, simple.Column),
-            GenericTypeReference generic => new GenericTypeInfo(generic.Name,
-                generic.TypeArguments.Select(ResolveType).ToList()),
+            GenericTypeReference generic => ResolveGenericType(generic),
             ArrayTypeReference array => new ArrayTypeInfo(ResolveType(array.ElementType)),
             NullableTypeReference nullable => new NullableTypeInfo(ResolveType(nullable.InnerType)),
             TupleTypeReference tuple => new TupleTypeInfo(
@@ -6462,6 +6486,74 @@ public class Analyzer : IDisposable
             },
             _ => BuiltInTypes.Unknown
         };
+
+        RecordResolvedTypeReference(typeRef, resolved);
+        return resolved;
+    }
+
+    private TypeInfo ResolveGenericType(GenericTypeReference generic)
+    {
+        var typeArguments = generic.TypeArguments.Select(ResolveType).ToList();
+
+        if (generic.Line > 0)
+        {
+            _ = ResolveSimpleType(generic.Name, generic.Line, generic.Column);
+        }
+
+        return new GenericTypeInfo(generic.Name, typeArguments);
+    }
+
+    private void RecordResolvedTypeReference(TypeReference typeRef, TypeInfo resolved)
+    {
+        var span = GetTypeReferenceStartSpan(typeRef);
+        if (!span.IsValid)
+            return;
+
+        _semanticModel.RecordTypeReference(span.StartLine, span.StartColumn, resolved);
+    }
+
+    private static SourceSpan GetTypeReferenceStartSpan(TypeReference typeRef)
+    {
+        if (typeRef.Span.IsValid)
+            return typeRef.Span;
+
+        return typeRef switch
+        {
+            SimpleTypeReference simple => SourceSpan.FromStartAndLength(simple.Line, simple.Column, simple.Name.Length),
+            GenericTypeReference generic => SourceSpan.FromStartAndLength(generic.Line, generic.Column, generic.Name.Length),
+            ArrayTypeReference array => GetTypeReferenceStartSpan(array.ElementType),
+            NullableTypeReference nullable => GetTypeReferenceStartSpan(nullable.InnerType),
+            TupleTypeReference tuple when tuple.Elements.Count > 0 => GetTypeReferenceStartSpan(tuple.Elements[0].Type),
+            FunctionTypeReference function => GetTypeReferenceStartSpan(function.ReturnType),
+            _ => SourceSpan.None
+        };
+    }
+
+    private void ResolveTypeReferenceIfPresent(TypeReference? typeReference)
+    {
+        if (typeReference != null)
+        {
+            ResolveType(typeReference);
+        }
+    }
+
+    private void ResolveTypeReferences(IEnumerable<TypeReference> typeReferences)
+    {
+        foreach (var typeReference in typeReferences)
+        {
+            ResolveType(typeReference);
+        }
+    }
+
+    private void ResolveGenericConstraintTypes(IEnumerable<GenericConstraint>? constraints)
+    {
+        if (constraints == null)
+            return;
+
+        foreach (var constraint in constraints)
+        {
+            ResolveTypeReferences(constraint.Constraints);
+        }
     }
 
     private TypeInfo ResolveSimpleType(string name, int line = 0, int column = 0)
@@ -7923,6 +8015,7 @@ public class Analyzer : IDisposable
         else
         {
             currentScope.Types[name] = type;
+            _semanticModel.RecordType(name, type);
             if (!string.IsNullOrEmpty(_currentFilePath))
             {
                 _typeDeclarationFiles[name] = _currentFilePath;
@@ -8447,6 +8540,7 @@ public class Analyzer : IDisposable
                 else
                 {
                     globalScope.Types[symbol.Name] = symbol.Type;
+                    _semanticModel.RecordType(symbol.Name, symbol.Type);
                     if (IsTypeDeclarationKind(symbol.Declaration.Kind))
                     {
                         _typeDeclarationFiles[symbol.Name] = symbol.Declaration.File!;

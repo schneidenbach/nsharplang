@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Models;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
@@ -48,6 +49,18 @@ public class HoverHandler : HoverHandlerBase
 
         // Get the word at the cursor position for fallback lookup
         var word = EditorUtilities.GetWordAtPosition(doc.Text, line, character);
+
+        var keywordOrPrimitiveHover = TryCreateKeywordOrPrimitiveHover(doc.Text, line, character, word);
+        if (keywordOrPrimitiveHover != null)
+        {
+            return Task.FromResult<Hover?>(keywordOrPrimitiveHover);
+        }
+
+        var projectHover = _documentManager.FindProjectHover(uri, line, character);
+        if (projectHover != null)
+        {
+            return Task.FromResult<Hover?>(CreateProjectHover(projectHover, doc.Text, line, character, word));
+        }
 
         // Try AST-based resolution first (most precise)
         if (doc.CompilationUnit != null && doc.SemanticModel != null)
@@ -113,49 +126,84 @@ public class HoverHandler : HoverHandlerBase
             });
         }
 
-        // Check for keywords
-        if (!string.IsNullOrWhiteSpace(word))
+        return Task.FromResult<Hover?>(null);
+    }
+
+    private Hover? TryCreateKeywordOrPrimitiveHover(string text, int line, int character, string word)
+    {
+        if (string.IsNullOrWhiteSpace(word))
+            return null;
+
+        var keywords = new[]
         {
-            var keywords = new[]
-            {
-                "func", "class", "struct", "record", "interface", "enum", "union",
-                "match", "async", "await", "yield", "lock", "using", "import", "let"
-            };
+            "func", "class", "struct", "record", "interface", "enum", "union",
+            "match", "async", "await", "yield", "lock", "using", "import", "let"
+        };
 
-            if (keywords.Contains(word))
+        if (keywords.Contains(word))
+        {
+            return new Hover
             {
-                return Task.FromResult<Hover?>(new Hover
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
                 {
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = $"**{word}** *(keyword)*"
-                    }),
-                    Range = GetWordRange(doc.Text, line, character, word)
-                });
-            }
-
-            // Check for primitive types
-            var primitiveTypes = new[]
-            {
-                "int", "long", "float", "double", "bool", "string", "void", "object"
+                    Kind = MarkupKind.Markdown,
+                    Value = $"**{word}** *(keyword)*"
+                }),
+                Range = GetWordRange(text, line, character, word)
             };
-
-            if (primitiveTypes.Contains(word))
-            {
-                return Task.FromResult<Hover?>(new Hover
-                {
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = $"**{word}** *(primitive type)*"
-                    }),
-                    Range = GetWordRange(doc.Text, line, character, word)
-                });
-            }
         }
 
-        return Task.FromResult<Hover?>(null);
+        var primitiveTypes = new[]
+        {
+            "int", "long", "float", "double", "bool", "string", "void", "object"
+        };
+
+        if (primitiveTypes.Contains(word))
+        {
+            return new Hover
+            {
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = $"**{word}** *(primitive type)*"
+                }),
+                Range = GetWordRange(text, line, character, word)
+            };
+        }
+
+        return null;
+    }
+
+    private Hover CreateProjectHover(HoverResult result, string text, int line, int character, string word)
+    {
+        var markdown = new System.Text.StringBuilder();
+        markdown.AppendLine("```nsharp");
+        markdown.AppendLine(result.Signature);
+        markdown.AppendLine("```");
+
+        if (!string.IsNullOrWhiteSpace(result.Documentation))
+        {
+            markdown.AppendLine();
+            markdown.AppendLine(result.Documentation);
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.DefinedIn))
+        {
+            markdown.AppendLine();
+            markdown.AppendLine($"*Defined in:* `{result.DefinedIn}`");
+        }
+
+        return new Hover
+        {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+            {
+                Kind = MarkupKind.Markdown,
+                Value = markdown.ToString().TrimEnd()
+            }),
+            Range = !string.IsNullOrWhiteSpace(word)
+                ? GetWordRange(text, line, character, word)
+                : null
+        };
     }
 
     private Hover? TryResolveExpression(Expression expression, string word, DocumentState doc)

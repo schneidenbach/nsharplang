@@ -284,14 +284,62 @@ public record AttributeNode(
     string Name,
     List<Argument> Arguments);
 
-// Type references
-public abstract record TypeReference;
+// Source ranges use 1-based lines/columns and an exclusive end column.
+public readonly record struct SourceSpan(int StartLine, int StartColumn, int EndLine, int EndColumn)
+{
+    public static SourceSpan None => new(0, 0, 0, 0);
 
-public record SimpleTypeReference(string Name, int Line = 0, int Column = 0) : TypeReference;
+    public bool IsValid => StartLine > 0 && StartColumn > 0 && EndLine > 0 && EndColumn > 0;
+
+    public int Length => IsValid && StartLine == EndLine
+        ? Math.Max(0, EndColumn - StartColumn)
+        : 0;
+
+    public bool Contains(int line, int column)
+    {
+        if (!IsValid)
+            return false;
+
+        if (line < StartLine || line > EndLine)
+            return false;
+
+        if (line == StartLine && column < StartColumn)
+            return false;
+
+        if (line == EndLine && column >= EndColumn)
+            return false;
+
+        return true;
+    }
+
+    public static SourceSpan FromStartAndLength(int line, int column, int length)
+    {
+        if (line <= 0 || column <= 0)
+            return None;
+
+        return new SourceSpan(line, column, line, column + Math.Max(1, length));
+    }
+}
+
+// Type references
+public abstract record TypeReference
+{
+    public SourceSpan Span { get; init; } = SourceSpan.None;
+}
+
+public record SimpleTypeReference(string Name, int Line = 0, int Column = 0) : TypeReference
+{
+    public SourceSpan NameSpan => Span.IsValid ? Span : SourceSpan.FromStartAndLength(Line, Column, Name.Length);
+}
 
 public record GenericTypeReference(
     string Name,
-    List<TypeReference> TypeArguments) : TypeReference;
+    List<TypeReference> TypeArguments) : TypeReference
+{
+    public int Line { get; init; }
+    public int Column { get; init; }
+    public SourceSpan NameSpan => SourceSpan.FromStartAndLength(Line, Column, Name.Length);
+}
 
 public record ArrayTypeReference(TypeReference ElementType) : TypeReference;
 

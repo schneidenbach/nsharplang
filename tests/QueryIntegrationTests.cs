@@ -733,6 +733,76 @@ func Main() {
     }
 
     [Fact]
+    public void TypeUseNavigation_DuplicateTypeNames_UsesSemanticBindingForCompositeTypes()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Foo/Widget.nl", """
+namespace QueryTemp.Foo
+
+record Widget {
+    Value: string
+}
+"""),
+            ("Bar/Widget.nl", """
+namespace QueryTemp.Bar
+
+record Widget {
+    Value: int
+}
+"""),
+            ("Foo/UseWidget.nl", """
+namespace QueryTemp.Foo
+import System.Collections.Generic
+
+func Read(items: List<Widget>, maybe: Widget?, many: Widget[], mapper: Func<Widget, string>): string {
+    return ""
+}
+"""),
+            ("Bar/UseWidget.nl", """
+namespace QueryTemp.Bar
+import System.Collections.Generic
+
+func Read(items: List<Widget>): int {
+    return 1
+}
+"""),
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main() {
+}
+"""));
+
+        var useWidgetPath = Path.Combine(snapshot.ProjectRoot, "Foo", "UseWidget.nl");
+        var typeArgColumn = FindColumnInFile(useWidgetPath, 4, "Widget");
+
+        var definition = _service.FindDefinition(snapshot, "Foo/UseWidget.nl", 4, typeArgColumn);
+        Assert.NotNull(definition);
+        Assert.Equal("Widget", definition!.Name);
+        Assert.Equal("record", definition.Kind);
+        Assert.EndsWith("Foo/Widget.nl", definition.File, StringComparison.Ordinal);
+
+        var type = _service.GetTypeAtPosition(snapshot, "Foo/UseWidget.nl", 4, typeArgColumn);
+        Assert.NotNull(type);
+        Assert.Equal("Widget", type!.Name);
+        Assert.Equal("record", type.Kind);
+        Assert.EndsWith("Foo/Widget.nl", type.Definition!.File, StringComparison.Ordinal);
+
+        var hover = _service.GetHoverInfo(snapshot, "Foo/UseWidget.nl", 4, typeArgColumn);
+        Assert.NotNull(hover);
+        Assert.Equal("record", hover!.Kind);
+        Assert.Contains("Widget", hover.Signature, StringComparison.Ordinal);
+
+        var declLine = FindLineInFile(Path.Combine(snapshot.ProjectRoot, "Foo", "Widget.nl"), "record Widget");
+        var refs = _service.FindReferences(snapshot, "Foo/Widget.nl", declLine, 8);
+
+        Assert.Contains(refs, r => r.IsDefinition && r.File.EndsWith("Foo/Widget.nl", StringComparison.Ordinal));
+        Assert.Contains(refs, r => !r.IsDefinition && r.File.EndsWith("Foo/UseWidget.nl", StringComparison.Ordinal) && r.Line == 4);
+        Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/Widget.nl", StringComparison.Ordinal));
+        Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/UseWidget.nl", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Completions_DuplicateCrossFileTypeNames_UseReceiverDeclarationNotNameFallback()
     {
         var snapshot = LoadTemporaryProject(

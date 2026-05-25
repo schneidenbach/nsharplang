@@ -54,6 +54,12 @@ public class SemanticModel
     public Dictionary<(int Line, int Column), TypeInfo> ExpressionTypes { get; } = new();
 
     /// <summary>
+    /// Maps type-reference source positions to their resolved types.
+    /// Key: (line, column), Value: resolved TypeInfo for the type-use at that position.
+    /// </summary>
+    public Dictionary<(int Line, int Column), TypeInfo> TypeReferenceTypes { get; } = new();
+
+    /// <summary>
     /// Maps variable/parameter names to their resolved types (flat, last-write-wins).
     /// Use LookupIdentifierAtPosition for scope-aware lookups.
     /// </summary>
@@ -217,6 +223,17 @@ public class SemanticModel
         ExpressionTypes[(line, column)] = type;
     }
 
+    /// <summary>
+    /// Record the resolved type for a type reference at a specific source position.
+    /// </summary>
+    public void RecordTypeReference(int line, int column, TypeInfo type)
+    {
+        if (line <= 0 || column <= 0)
+            return;
+
+        TypeReferenceTypes[(line, column)] = type;
+    }
+
     // ── Lookups ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -336,6 +353,14 @@ public class SemanticModel
     public TypeInfo? LookupTypeAtPosition(int line, int column)
     {
         return ExpressionTypes.TryGetValue((line, column), out var type) ? type : null;
+    }
+
+    /// <summary>
+    /// Try to find the resolved type recorded for a type reference at a source position.
+    /// </summary>
+    public TypeInfo? LookupTypeReferenceAtPosition(int line, int column)
+    {
+        return TypeReferenceTypes.TryGetValue((line, column), out var type) ? type : null;
     }
 
     // ── Internal helpers ────────────────────────────────────────────────
