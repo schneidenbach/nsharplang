@@ -21,25 +21,44 @@ public class ExpressionTypeResolver
     }
 
     /// <summary>
-    /// Resolves the type of an expression
+    /// Resolves the semantic TypeInfo of an expression using the Analyzer's recorded
+    /// expression types first, then falls back to lightweight AST/reflection resolution.
+    /// </summary>
+    public TypeInfo? ResolveExpressionTypeInfo(Expression expr)
+    {
+        var recordedType = _semanticModel.LookupTypeAtPosition(expr.Line, expr.Column);
+        if (recordedType != null && !BuiltInTypes.IsUnknown(recordedType))
+            return recordedType;
+
+        return expr switch
+        {
+            IdentifierExpression id => ResolveIdentifierTypeInfo(id.Name),
+            MemberAccessExpression memberAccess => ResolveMemberAccessTypeInfo(memberAccess),
+            CallExpression call => ResolveCallTypeInfo(call),
+            IntLiteralExpression => BuiltInTypes.Int,
+            FloatLiteralExpression => BuiltInTypes.Double,
+            CharLiteralExpression => BuiltInTypes.Char,
+            StringLiteralExpression => BuiltInTypes.String,
+            InterpolatedStringExpression => BuiltInTypes.String,
+            BoolLiteralExpression => BuiltInTypes.Bool,
+            NullLiteralExpression => BuiltInTypes.Object,
+            NewExpression newExpr when newExpr.Type != null => ResolveTypeReference(newExpr.Type),
+            ArrayLiteralExpression => new ReflectionTypeInfo(typeof(Array)), // Simplified fallback
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Resolves the CLR type of an expression when one is available.
     /// </summary>
     public Type? ResolveExpressionType(Expression expr)
     {
-        return expr switch
-        {
-            IdentifierExpression id => ResolveIdentifierType(id.Name),
-            MemberAccessExpression memberAccess => ResolveMemberAccessType(memberAccess),
-            CallExpression call => ResolveCallType(call),
-            IntLiteralExpression => typeof(int),
-            FloatLiteralExpression => typeof(double),
-            CharLiteralExpression => typeof(char),
-            StringLiteralExpression => typeof(string),
-            InterpolatedStringExpression => typeof(string),
-            BoolLiteralExpression => typeof(bool),
-            NullLiteralExpression => typeof(object),
-            ArrayLiteralExpression => typeof(Array), // Simplified
-            _ => null
-        };
+        var typeInfo = ResolveExpressionTypeInfo(expr);
+        var clrType = typeInfo != null ? ResolveTypeInfoToClrType(typeInfo) : null;
+        if (clrType != null)
+            return clrType;
+
+        return ResolveExpressionTypeFallback(expr);
     }
 
     /// <summary>
@@ -106,6 +125,19 @@ public class ExpressionTypeResolver
         return null;
     }
 
+    private TypeInfo? ResolveIdentifierTypeInfo(string name)
+    {
+        var typeInfo = _semanticModel.LookupIdentifier(name);
+        if (typeInfo != null)
+            return typeInfo;
+
+        if (_importedTypes.TryGetValue(name, out var importedType))
+            return new ReflectionTypeInfo(importedType);
+
+        var clrType = ResolveTypeFromString(name);
+        return clrType != null ? ConvertClrTypeToTypeInfo(clrType) : null;
+    }
+
     private Type? ResolveMemberAccessType(MemberAccessExpression memberAccess)
     {
         var memberInfo = ResolveMemberInfo(memberAccess);
@@ -115,6 +147,19 @@ public class ExpressionTypeResolver
             MethodInfo method => method.ReturnType,
             PropertyInfo property => property.PropertyType,
             FieldInfo field => field.FieldType,
+            _ => null
+        };
+    }
+
+    private TypeInfo? ResolveMemberAccessTypeInfo(MemberAccessExpression memberAccess)
+    {
+        var memberInfo = ResolveMemberInfo(memberAccess);
+
+        return memberInfo switch
+        {
+            MethodInfo method => ConvertClrTypeToTypeInfo(method.ReturnType),
+            PropertyInfo property => ConvertClrTypeToTypeInfo(property.PropertyType),
+            FieldInfo field => ConvertClrTypeToTypeInfo(field.FieldType),
             _ => null
         };
     }
@@ -154,6 +199,144 @@ public class ExpressionTypeResolver
         }
 
         return null;
+    }
+
+    private TypeInfo? ResolveCallTypeInfo(CallExpression call)
+    {
+        if (call.Callee is MemberAccessExpression memberAccess)
+        {
+            var memberInfo = ResolveMemberInfo(memberAccess);
+            if (memberInfo is MethodInfo method)
+            {
+                if (method.IsGenericMethodDefinition)
+                {
+                    var constructedMethod = TryConstructGenericMethod(method, memberAccess, call);
+                    return constructedMethod != null
+                        ? ConvertClrTypeToTypeInfo(constructedMethod.ReturnType)
+                        : ConvertClrTypeToTypeInfo(method.ReturnType);
+                }
+
+                return ConvertClrTypeToTypeInfo(method.ReturnType);
+            }
+        }
+
+        if (call.Callee is IdentifierExpression id)
+        {
+            if (_semanticModel.Functions.TryGetValue(id.Name, out var funcReturnType))
+                return funcReturnType;
+
+            var type = ResolveTypeFromString(id.Name);
+            if (type != null)
+                return ConvertClrTypeToTypeInfo(type);
+        }
+
+        return null;
+    }
+
+    private Type? ResolveExpressionTypeFallback(Expression expr)
+    {
+        return expr switch
+        {
+            IdentifierExpression id => ResolveIdentifierType(id.Name),
+            MemberAccessExpression memberAccess => ResolveMemberAccessType(memberAccess),
+            CallExpression call => ResolveCallType(call),
+            IntLiteralExpression => typeof(int),
+            FloatLiteralExpression => typeof(double),
+            CharLiteralExpression => typeof(char),
+            StringLiteralExpression => typeof(string),
+            InterpolatedStringExpression => typeof(string),
+            BoolLiteralExpression => typeof(bool),
+            NullLiteralExpression => typeof(object),
+            ArrayLiteralExpression => typeof(Array),
+            _ => null
+        };
+    }
+
+    private TypeInfo ResolveTypeReference(TypeReference typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference s => new SimpleTypeInfo(s.Name),
+            GenericTypeReference g => new GenericTypeInfo(g.Name,
+                g.TypeArguments.Select(ResolveTypeReference).ToList()),
+            ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReference(a.ElementType)),
+            NullableTypeReference n => new NullableTypeInfo(ResolveTypeReference(n.InnerType)),
+            _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
+        };
+    }
+
+    private Type? ResolveTypeInfoToClrType(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            ReflectionTypeInfo reflection => reflection.Type,
+            SimpleTypeInfo simple => ResolveTypeFromString(simple.Name),
+            ArrayTypeInfo array => ResolveTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
+            NullableTypeInfo nullable => ResolveNullableTypeInfo(nullable.InnerType),
+            GenericTypeInfo generic => ResolveGenericTypeInfo(generic),
+            _ => ResolveTypeFromString(typeInfo.ToString())
+        };
+    }
+
+    private Type? ResolveNullableTypeInfo(TypeInfo innerType)
+    {
+        var clrInnerType = ResolveTypeInfoToClrType(innerType);
+        if (clrInnerType == null)
+            return null;
+
+        return clrInnerType.IsValueType
+            ? typeof(Nullable<>).MakeGenericType(clrInnerType)
+            : clrInnerType;
+    }
+
+    private Type? ResolveGenericTypeInfo(GenericTypeInfo generic)
+    {
+        var typeDefinition = ResolveTypeFromString(generic.Name);
+        if (typeDefinition == null)
+            return null;
+
+        if (!typeDefinition.IsGenericTypeDefinition)
+            return typeDefinition;
+
+        var typeArguments = new List<Type>();
+        foreach (var argument in generic.TypeArguments)
+        {
+            var clrArgument = ResolveTypeInfoToClrType(argument);
+            if (clrArgument == null)
+                return null;
+            typeArguments.Add(clrArgument);
+        }
+
+        return typeDefinition.MakeGenericType(typeArguments.ToArray());
+    }
+
+    private static TypeInfo ConvertClrTypeToTypeInfo(Type type)
+    {
+        if (type.IsByRef)
+            return ConvertClrTypeToTypeInfo(type.GetElementType()!);
+
+        if (type.IsArray)
+            return new ArrayTypeInfo(ConvertClrTypeToTypeInfo(type.GetElementType()!));
+
+        return type.FullName switch
+        {
+            "System.Int32" => BuiltInTypes.Int,
+            "System.Int64" => BuiltInTypes.Long,
+            "System.Int16" => BuiltInTypes.Short,
+            "System.Byte" => BuiltInTypes.Byte,
+            "System.Single" => BuiltInTypes.Float,
+            "System.Double" => BuiltInTypes.Double,
+            "System.Decimal" => BuiltInTypes.Decimal,
+            "System.Boolean" => BuiltInTypes.Bool,
+            "System.Char" => BuiltInTypes.Char,
+            "System.String" => BuiltInTypes.String,
+            "System.Void" => BuiltInTypes.Void,
+            "System.Object" => BuiltInTypes.Object,
+            _ when type.IsGenericType => new GenericTypeInfo(
+                type.Name[..type.Name.IndexOf('`')],
+                type.GetGenericArguments().Select(ConvertClrTypeToTypeInfo).ToList()),
+            _ => new ReflectionTypeInfo(type)
+        };
     }
 
     /// <summary>
