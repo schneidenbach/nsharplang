@@ -55,6 +55,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [completions, setCompletions] = useState<Record<string, CompletionItem[]> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const highlightRef = useRef<HTMLPreElement>(null);
   const codeRef = useRef("");
   const lessonIdRef = useRef("");
   const sessionTokenRef = useRef("");
@@ -73,6 +74,7 @@ function App() {
 
   useEffect(() => {
     codeRef.current = code;
+    requestAnimationFrame(syncHighlightedScroll);
   }, [code]);
 
   useEffect(() => {
@@ -253,6 +255,15 @@ function App() {
     });
   }
 
+  function syncHighlightedScroll() {
+    const editor = editorRef.current;
+    const highlight = highlightRef.current;
+    if (!editor || !highlight) return;
+
+    highlight.scrollTop = editor.scrollTop;
+    highlight.scrollLeft = editor.scrollLeft;
+  }
+
   if (!catalog || !selectedLesson) {
     return <div className="app"><main className="empty">Loading tutorial...</main></div>;
   }
@@ -310,12 +321,17 @@ function App() {
             <span className="tool-status">{busy ? "Running nlc..." : file}</span>
           </div>
           <div className="editor-wrap">
+            <pre ref={highlightRef} className="code-highlight" aria-hidden="true">
+              <code><HighlightedCode code={code} /></code>
+            </pre>
             <textarea
               ref={editorRef}
               className="code-editor"
               spellCheck={false}
+              wrap="off"
               value={code}
               onChange={event => setCode(event.target.value)}
+              onScroll={syncHighlightedScroll}
             />
             {completions && <CompletionPanel completions={completions} onPick={insertCompletion} />}
           </div>
@@ -323,6 +339,22 @@ function App() {
         </section>
       </main>
     </div>
+  );
+}
+
+function HighlightedCode(props: { code: string }) {
+  const tokens = tokenizeNSharp(props.code);
+  if (tokens.length === 0) {
+    return " ";
+  }
+
+  return (
+    <>
+      {tokens.map((token, index) =>
+        token.kind
+          ? <span className={`tok-${token.kind}`} key={index}>{token.text}</span>
+          : token.text)}
+    </>
   );
 }
 
@@ -346,6 +378,141 @@ function CompletionPanel(props: { completions: Record<string, CompletionItem[]>;
       ))}
     </aside>
   );
+}
+
+type HighlightToken = {
+  text: string;
+  kind?: string;
+};
+
+const nsharpKeywords = new Set([
+  "abstract", "as", "async", "await", "base", "break", "case", "catch", "checked",
+  "class", "const", "constructor", "continue", "default", "do", "duck", "else",
+  "enum", "explicit", "extern", "false", "file", "finally", "for", "foreach",
+  "func", "get", "if", "implicit", "import", "in", "init", "interface", "internal",
+  "is", "let", "lock", "match", "namespace", "new", "not", "null", "operator",
+  "or", "out", "override", "package", "params", "private", "protected", "public",
+  "readonly", "record", "ref", "required", "return", "sealed", "set", "setup",
+  "skip", "static", "struct", "switch", "teardown", "test", "this", "throw",
+  "true", "try", "unchecked", "union", "using", "var", "virtual", "when", "while",
+  "with", "yield"
+]);
+
+const nsharpBuiltins = new Set([
+  "assert", "bool", "byte", "char", "decimal", "double", "float", "int", "long",
+  "object", "print", "sbyte", "short", "string", "uint", "ulong", "ushort", "void"
+]);
+
+function tokenizeNSharp(source: string): HighlightToken[] {
+  const tokens: HighlightToken[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (/\s/.test(char)) {
+      const start = index++;
+      while (index < source.length && /\s/.test(source[index])) index++;
+      tokens.push({ text: source.slice(start, index) });
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      const start = index;
+      index += 2;
+      while (index < source.length && source[index] !== "\n") index++;
+      tokens.push({ text: source.slice(start, index), kind: "comment" });
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      const start = index;
+      index += 2;
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) index++;
+      index = Math.min(index + 2, source.length);
+      tokens.push({ text: source.slice(start, index), kind: "comment" });
+      continue;
+    }
+
+    if (char === "#" && (index === 0 || source[index - 1] === "\n")) {
+      const start = index++;
+      while (index < source.length && source[index] !== "\n") index++;
+      tokens.push({ text: source.slice(start, index), kind: "directive" });
+      continue;
+    }
+
+    if (char === "\"" || char === "'" || (char === "$" && next === "\"")) {
+      const start = index;
+      index = readStringLike(source, index);
+      tokens.push({ text: source.slice(start, index), kind: "string" });
+      continue;
+    }
+
+    if (/[0-9]/.test(char)) {
+      const start = index++;
+      while (index < source.length && /[A-Za-z0-9_.]/.test(source[index])) index++;
+      tokens.push({ text: source.slice(start, index), kind: "number" });
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(char)) {
+      const start = index++;
+      while (index < source.length && /[A-Za-z0-9_]/.test(source[index])) index++;
+      const word = source.slice(start, index);
+      const kind = nsharpKeywords.has(word)
+        ? "keyword"
+        : nsharpBuiltins.has(word)
+          ? "builtin"
+          : /^[A-Z]/.test(word)
+            ? "type"
+            : undefined;
+      tokens.push({ text: word, kind });
+      continue;
+    }
+
+    const operatorStart = index++;
+    while (index < source.length && /[+\-*%=!<>|&?:.,;()[\]{}]/.test(source[index])) {
+      if ("()[]{}.,;".includes(source[index - 1])) break;
+      index++;
+    }
+    tokens.push({ text: source.slice(operatorStart, index), kind: "symbol" });
+  }
+
+  return tokens;
+}
+
+function readStringLike(source: string, start: number) {
+  const quote = source[start] === "$" ? source[start + 1] : source[start];
+  let index = source[start] === "$" ? start + 2 : start + 1;
+
+  if (quote === "\"" && source.startsWith("\"\"\"", source[start] === "$" ? start + 1 : start)) {
+    const rawStart = source[start] === "$" ? start + 1 : start;
+    index = rawStart + 3;
+    while (index < source.length && !source.startsWith("\"\"\"", index)) index++;
+    return Math.min(index + 3, source.length);
+  }
+
+  while (index < source.length) {
+    if (source[index] === "\\" && quote !== "\"") {
+      index += 2;
+      continue;
+    }
+
+    if (source[index] === "\\" && quote === "\"") {
+      index += 2;
+      continue;
+    }
+
+    if (source[index] === quote) {
+      index++;
+      break;
+    }
+
+    index++;
+  }
+
+  return index;
 }
 
 function ToolOutput(props: { result: ToolResult | null }) {

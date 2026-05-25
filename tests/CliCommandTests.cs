@@ -1321,6 +1321,19 @@ public class LegacyDto
     }
 
     [Fact]
+    public void TutorialAssets_IncludeNSharpSyntaxHighlightedEditor()
+    {
+        var appSource = TutorialAssets.ReadWebAsset("app.tsx");
+        var styles = TutorialAssets.ReadWebAsset("styles.css");
+        var appBundle = TutorialAssets.ReadWebAsset("app.js");
+
+        Assert.Contains("function HighlightedCode", appSource);
+        Assert.Contains("function tokenizeNSharp", appSource);
+        Assert.Contains("tok-keyword", styles);
+        Assert.Contains("code-highlight", appBundle);
+    }
+
+    [Fact]
     public async Task TutorialRouter_PostCode_RequiresSessionToken()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tutorial-token-{Guid.NewGuid():N}");

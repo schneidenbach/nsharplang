@@ -3101,6 +3101,37 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void AspNetCore_WriteAsJsonAsync_SelectsGenericJsonOptionsOverloadForNSharpPayload()
+    {
+        AssertNoErrors(@"
+            import Microsoft.AspNetCore.Builder
+            import Microsoft.AspNetCore.Http
+            import System.Text.Json
+
+            record IssueResponse {
+                Id: int
+                Title: string
+            }
+
+            class Routes {
+                jsonOptions: JsonSerializerOptions
+
+                constructor() {
+                    jsonOptions = new JsonSerializerOptions()
+                }
+
+                func Map(app: WebApplication) {
+                    app.MapPost(""/api/issues"", context => {
+                        context.Response.StatusCode = 201
+                        response := new IssueResponse { Id: 1, Title: ""ok"" }
+                        return context.Response.WriteAsJsonAsync(response, jsonOptions)
+                    })
+                }
+            }
+        ", AspNetCoreConfig);
+    }
+
+    [Fact]
     public void AspNetCore_MinimalApi_MapGet_InfersRequestDelegateMethodGroup()
     {
         AssertNoErrors(@"

@@ -277,22 +277,85 @@ button.danger {
 .editor-wrap {
   min-height: 0;
   position: relative;
+  background: var(--code-bg);
 }
 
+.code-highlight,
 .code-editor {
   width: 100%;
   height: 100%;
   min-height: 340px;
-  resize: none;
-  border: 0;
-  border-radius: 0;
-  background: var(--code-bg);
-  color: var(--code-ink);
   line-height: 1.55;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 14px;
   padding: 16px 18px;
   tab-size: 4;
+  white-space: pre;
+}
+
+.code-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--code-bg);
+  color: var(--code-ink);
+}
+
+.code-highlight code {
+  font: inherit;
+}
+
+.code-editor {
+  position: relative;
+  z-index: 1;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--code-ink);
+  overflow: auto;
+}
+
+.code-editor::selection {
+  background: rgba(88, 176, 154, 0.34);
+  color: transparent;
+}
+
+.tok-keyword {
+  color: #7dcfff;
+  font-weight: 700;
+}
+
+.tok-builtin {
+  color: #f3cc71;
+}
+
+.tok-type {
+  color: #8bd49c;
+}
+
+.tok-string {
+  color: #e6c384;
+}
+
+.tok-number {
+  color: #f3a683;
+}
+
+.tok-comment {
+  color: #87958f;
+  font-style: italic;
+}
+
+.tok-directive {
+  color: #c8a2ff;
+}
+
+.tok-symbol {
+  color: #c5d1cc;
 }
 
 .completion-panel {
