@@ -183,6 +183,23 @@ public partial class ILCompilerTests
         }
     }
 
+    private static IReadOnlyList<byte> GetNullableAttributeFlags(IEnumerable<CustomAttributeData> attributes)
+    {
+        var nullableAttribute = attributes.FirstOrDefault(attribute =>
+            attribute.AttributeType.FullName == "System.Runtime.CompilerServices.NullableAttribute");
+        if (nullableAttribute == null || nullableAttribute.ConstructorArguments.Count == 0)
+            return Array.Empty<byte>();
+
+        var argument = nullableAttribute.ConstructorArguments[0];
+        if (argument.ArgumentType == typeof(byte) && argument.Value is byte singleFlag)
+            return new[] { singleFlag };
+
+        if (argument.Value is IEnumerable<CustomAttributeTypedArgument> array)
+            return array.Select(item => (byte)item.Value!).ToArray();
+
+        return Array.Empty<byte>();
+    }
+
     private static async Task AwaitTaskLikeResult(object? result)
     {
         switch (result)
@@ -798,6 +815,45 @@ func constrained<T>(value: T): T where T : class, IComparable {
             var constrainedParam = Assert.Single(constrained!.GetGenericArguments());
             Assert.True(constrainedParam.GenericParameterAttributes.HasFlag(GenericParameterAttributes.ReferenceTypeConstraint));
             Assert.Contains(constrainedParam.GetGenericParameterConstraints(), constraint => constraint == typeof(IComparable));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsNullableMetadataForPublicApi()
+    {
+        var source = @"
+class Customer {
+    Name: string
+    Nickname: string?
+
+    func Rename(name: string, nickname: string?): string? {
+        return nickname
+    }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var customer = assembly.GetType("Customer");
+            Assert.NotNull(customer);
+
+            var context = new NullabilityInfoContext();
+            var name = customer!.GetField("Name", BindingFlags.Public | BindingFlags.Instance);
+            var nickname = customer.GetField("Nickname", BindingFlags.Public | BindingFlags.Instance);
+            var rename = customer.GetMethod("Rename", BindingFlags.Public | BindingFlags.Instance);
+
+            Assert.NotNull(name);
+            Assert.NotNull(nickname);
+            Assert.NotNull(rename);
+
+            Assert.Equal(NullabilityState.NotNull, context.Create(name!).ReadState);
+            Assert.Equal(NullabilityState.Nullable, context.Create(nickname!).ReadState);
+            Assert.Equal(NullabilityState.Nullable, context.Create(rename!.ReturnParameter).ReadState);
+            Assert.Equal(NullabilityState.NotNull, context.Create(rename.GetParameters()[0]).ReadState);
+            Assert.Equal(NullabilityState.Nullable, context.Create(rename.GetParameters()[1]).ReadState);
+            Assert.Equal(new byte[] { 2 }, GetNullableAttributeFlags(rename.ReturnParameter.GetCustomAttributesData()));
+            Assert.Equal(new byte[] { 2 }, GetNullableAttributeFlags(rename.GetParameters()[1].GetCustomAttributesData()));
 
             return 0;
         });

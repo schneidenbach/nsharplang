@@ -117,6 +117,21 @@ targetFramework: net10.0
         return _service.LoadProject(projectRoot);
     }
 
+    private ProjectSnapshot LoadTemporaryProjectWithConfig(string projectYaml, params (string RelativePath, string Source)[] files)
+    {
+        var projectRoot = Directory.CreateTempSubdirectory("nsharp-query-").FullName;
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), projectYaml);
+
+        foreach (var (relativePath, source) in files)
+        {
+            var fullPath = Path.Combine(projectRoot, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, source);
+        }
+
+        return _service.LoadProject(projectRoot);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     //  SYMBOLS — does it actually find the right stuff?
     // ═══════════════════════════════════════════════════════════════════
@@ -1016,6 +1031,38 @@ func Main() {
         Assert.NotNull(result);
         Assert.Equal("filtered", result!.Name);
         Assert.Equal("IQueryable<string>", result.ResolvedType);
+    }
+
+    [Fact]
+    public void Type_CSharpInteropNullableReturn_ReportsNullableType()
+    {
+        var testAssemblyPath = typeof(CSharpNullabilityInteropProbe).Assembly.Location.Replace("\\", "\\\\");
+        var snapshot = LoadTemporaryProjectWithConfig($$"""
+name: QueryInterop
+version: 1.0.0
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+dependencies:
+  - dll: "{{testAssemblyPath}}"
+""",
+            ("Program.nl", """
+import NSharpLang.Tests
+
+func Main() {
+    maybe := CSharpNullabilityInteropProbe.Maybe("ok")
+}
+"""));
+
+        var programPath = Path.Combine(snapshot.ProjectRoot, "Program.nl");
+        var line = FindLineInFile(programPath, "maybe :=");
+        var column = FindColumnInFile(programPath, line, "maybe");
+
+        var result = _service.GetTypeAtPosition(snapshot, "Program.nl", line, column);
+
+        Assert.NotNull(result);
+        Assert.Equal("maybe", result!.Name);
+        Assert.Equal("string?", result.ResolvedType);
     }
 
     [Fact]

@@ -2249,7 +2249,7 @@ public class Analyzer : IDisposable
                 var prop = reflectionType.Type.GetProperty(propPattern.Name);
                 if (prop != null)
                 {
-                    propType = new ReflectionTypeInfo(prop.PropertyType);
+                    propType = NullabilityMetadata.ConvertProperty(prop);
                 }
             }
 
@@ -2717,6 +2717,9 @@ public class Analyzer : IDisposable
             case NullableTypeInfo nullableType:
                 return TryFindMemberExportVisibility(nullableType.InnerType, memberName, out isExported, out filePath);
 
+            case ObliviousTypeInfo obliviousType:
+                return TryFindMemberExportVisibility(obliviousType.InnerType, memberName, out isExported, out filePath);
+
             default:
                 return false;
         }
@@ -2801,6 +2804,9 @@ public class Analyzer : IDisposable
             case NullableTypeInfo nullableType:
                 return TryFindMemberDeclaration(nullableType.InnerType, memberName, out declaration);
 
+            case ObliviousTypeInfo obliviousType:
+                return TryFindMemberDeclaration(obliviousType.InnerType, memberName, out declaration);
+
             default:
                 var extension = _extensionMethods.FirstOrDefault(ext =>
                     ext.Name == memberName
@@ -2852,6 +2858,7 @@ public class Analyzer : IDisposable
         EnumTypeInfo enumType => ReferenceEquals(enumType.Declaration, declaration),
         UnionTypeInfo unionType => ReferenceEquals(unionType.Declaration, declaration),
         NullableTypeInfo nullableType => TypeInfoContainsDeclaration(nullableType.InnerType, declaration),
+        ObliviousTypeInfo obliviousType => TypeInfoContainsDeclaration(obliviousType.InnerType, declaration),
         _ => false
     };
 
@@ -2914,6 +2921,11 @@ public class Analyzer : IDisposable
 
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName, bool includeStaticMembers = true)
     {
+        if (objectType is ObliviousTypeInfo obliviousType)
+        {
+            objectType = obliviousType.InnerType;
+        }
+
         // Convert built-in simple types to reflection types for full CLR member resolution.
         // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
         if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
@@ -2936,12 +2948,12 @@ public class Analyzer : IDisposable
 
             var property = type.GetProperty(memberName, memberFlags);
             if (property != null)
-                return ConvertReflectionType(property.PropertyType);
+                return NullabilityMetadata.ConvertProperty(property);
 
             // Try field
             var field = type.GetField(memberName, memberFlags);
             if (field != null)
-                return ConvertReflectionType(field.FieldType);
+                return NullabilityMetadata.ConvertField(field);
 
             // Try methods (get all matching methods to handle overloads)
             var methods = type.GetMethods(memberFlags)
@@ -3506,12 +3518,16 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo(null)
         {
             ParameterTypes = invokeMethod.GetParameters()
-                .Select(p => ConvertReflectionTypeWithOverrides(p.ParameterType, typeInfoOverrides, clrBindings))
+                .Select(p => NullabilityMetadata.ConvertParameter(
+                    p,
+                    type => ConvertReflectionTypeWithOverrides(type, typeInfoOverrides, clrBindings)))
                 .ToList(),
             ParameterModifiers = invokeMethod.GetParameters()
                 .Select(GetReflectionParameterModifier)
                 .ToList(),
-            ReturnType = ConvertReflectionTypeWithOverrides(invokeMethod.ReturnType, typeInfoOverrides, clrBindings)
+            ReturnType = NullabilityMetadata.ConvertReturn(
+                invokeMethod,
+                type => ConvertReflectionTypeWithOverrides(type, typeInfoOverrides, clrBindings))
         };
     }
 
@@ -3599,12 +3615,12 @@ public class Analyzer : IDisposable
         return new FunctionTypeInfo(null)
         {
             ParameterTypes = invokeParameters
-                .Select(parameter => ConvertReflectionType(parameter.ParameterType))
+                .Select(parameter => NullabilityMetadata.ConvertParameter(parameter))
                 .ToList(),
             ParameterModifiers = invokeParameters
                 .Select(GetReflectionParameterModifier)
                 .ToList(),
-            ReturnType = ConvertReflectionType(invokeMethod.ReturnType)
+            ReturnType = NullabilityMetadata.ConvertReturn(invokeMethod)
         };
     }
 
@@ -3652,6 +3668,7 @@ public class Analyzer : IDisposable
             ReflectionTypeInfo reflection => reflection.Type,
             ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
+            ObliviousTypeInfo oblivious => TryConvertTypeInfoToClrType(oblivious.InnerType),
             GenericTypeInfo generic => TryConstructKnownGenericType(generic),
             FunctionTypeInfo function => TryConstructDelegateType(function),
             _ => null
@@ -4094,7 +4111,7 @@ public class Analyzer : IDisposable
             ?? candidateMethods.FirstOrDefault();
 
         return fallbackMethod != null
-            ? ConvertReflectionType(fallbackMethod.ReturnType)
+            ? NullabilityMetadata.ConvertReturn(fallbackMethod)
             : BuiltInTypes.Unknown;
     }
 
@@ -4179,64 +4196,14 @@ public class Analyzer : IDisposable
             parameters = parameters.Skip(1);
 
         var formattedParameters = parameters.Select(FormatReflectionParameter);
-        return $"{method.Name}({string.Join(", ", formattedParameters)}): {FormatReflectionTypeName(method.ReturnType)}";
+        return $"{method.Name}({string.Join(", ", formattedParameters)}): {NullabilityMetadata.FormatReturnType(method)}";
     }
 
     private static string FormatReflectionParameter(ParameterInfo parameter)
-    {
-        var modifier = parameter.IsOut
-            ? "out "
-            : parameter.ParameterType.IsByRef
-                ? "ref "
-                : IsParamsParameter(parameter)
-                    ? "params "
-                    : string.Empty;
-        var parameterType = parameter.ParameterType.IsByRef
-            ? parameter.ParameterType.GetElementType()!
-            : parameter.ParameterType;
-
-        return $"{modifier}{FormatReflectionTypeName(parameterType)} {parameter.Name}";
-    }
+        => NullabilityMetadata.FormatParameter(parameter);
 
     private static string FormatReflectionTypeName(Type type)
-    {
-        if (type.IsGenericParameter)
-            return type.Name;
-
-        if (type.IsArray)
-            return $"{FormatReflectionTypeName(type.GetElementType()!)}[]";
-
-        if (type.IsGenericType)
-        {
-            var name = type.Name;
-            var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
-            if (tickIndex >= 0)
-                name = name[..tickIndex];
-
-            return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatReflectionTypeName))}>";
-        }
-
-        return type.Name switch
-        {
-            "Boolean" => "bool",
-            "Byte" => "byte",
-            "SByte" => "sbyte",
-            "Int16" => "short",
-            "UInt16" => "ushort",
-            "Int32" => "int",
-            "UInt32" => "uint",
-            "Int64" => "long",
-            "UInt64" => "ulong",
-            "Single" => "float",
-            "Double" => "double",
-            "Decimal" => "decimal",
-            "Char" => "char",
-            "String" => "string",
-            "Object" => "object",
-            "Void" => "void",
-            _ => type.Name
-        };
-    }
+        => NullabilityMetadata.FormatType(type);
 
     private bool TryGetNSharpMethodGroupArgumentName(CallExpression call, out string name)
     {
@@ -5002,6 +4969,10 @@ public class Analyzer : IDisposable
         {
             return new NullableTypeInfo(ApplyNSharpGenericBindings(nullable.InnerType, bindings));
         }
+        if (type is ObliviousTypeInfo oblivious)
+        {
+            return new ObliviousTypeInfo(ApplyNSharpGenericBindings(oblivious.InnerType, bindings));
+        }
 
         return type;
     }
@@ -5762,6 +5733,7 @@ public class Analyzer : IDisposable
 
         var parameterTypes = new List<TypeInfo>();
         var validatedArgumentTypes = new List<TypeInfo>();
+        var openParameters = openMethod.GetParameters();
 
         foreach (var boundArgument in boundArguments)
         {
@@ -5769,10 +5741,9 @@ public class Analyzer : IDisposable
             {
                 case DefaultReflectionBoundArgument defaultArgument:
                 {
-                    var defaultType = ConvertReflectionTypeWithOverrides(
-                        defaultArgument.OpenParameterType,
-                        workingTypeInfoBindings,
-                        workingBindings);
+                    var defaultType = NullabilityMetadata.ConvertParameter(
+                        defaultArgument.Parameter,
+                        type => ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings));
                     parameterTypes.Add(defaultType);
                     validatedArgumentTypes.Add(defaultType);
                     break;
@@ -5780,8 +5751,10 @@ public class Analyzer : IDisposable
 
                 case SuppliedReflectionBoundArgument supplied:
                 {
+                    var parameter = openParameters[supplied.ParameterIndex];
                     if (!ValidateFinalReflectionSuppliedArgument(
                             supplied,
+                            parameter,
                             workingBindings,
                             workingTypeInfoBindings,
                             methodGroupArguments,
@@ -5803,8 +5776,10 @@ public class Analyzer : IDisposable
                             paramsBound.OpenElementType,
                             argument,
                             argumentIndex);
+                        var parameter = openParameters[paramsBound.ParameterIndex];
                         if (!ValidateFinalReflectionSuppliedArgument(
                                 suppliedElement,
+                                parameter,
                                 workingBindings,
                                 workingTypeInfoBindings,
                                 methodGroupArguments,
@@ -5821,9 +5796,11 @@ public class Analyzer : IDisposable
         }
 
         // Compute return type using TypeInfo overrides for the open method's return type
-        var returnType = hasTypeInfoOverrides
-            ? ConvertReflectionTypeWithOverrides(openMethod.ReturnType, workingTypeInfoBindings, workingBindings)
-            : ConvertReflectionType(method.ReturnType);
+        var returnType = NullabilityMetadata.ConvertReturn(
+            openMethod,
+            type => hasTypeInfoOverrides || type.ContainsGenericParameters
+                ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
+                : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
 
         _semanticModel.RecordReflectionCallTarget(call.Line, call.Column, method);
 
@@ -5860,6 +5837,7 @@ public class Analyzer : IDisposable
 
     private bool ValidateFinalReflectionSuppliedArgument(
         SuppliedReflectionBoundArgument supplied,
+        ParameterInfo parameter,
         Dictionary<Type, Type> workingBindings,
         Dictionary<Type, TypeInfo> workingTypeInfoBindings,
         Dictionary<int, FunctionTypeInfo> methodGroupArguments,
@@ -5883,9 +5861,11 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        var expectedType = hasTypeInfoOverrides
-            ? ConvertReflectionTypeWithOverrides(supplied.OpenParameterType, workingTypeInfoBindings, workingBindings)
-            : ConvertReflectionType(ApplyReflectionBindings(supplied.OpenParameterType, workingBindings));
+        var expectedType = NullabilityMetadata.ConvertParameter(
+            parameter,
+            type => hasTypeInfoOverrides || type.ContainsGenericParameters
+                ? ConvertReflectionTypeWithOverrides(type, workingTypeInfoBindings, workingBindings)
+                : ConvertReflectionType(ApplyReflectionBindings(type, workingBindings)));
         parameterTypes.Add(expectedType);
 
         if (methodGroupArguments.TryGetValue(supplied.ArgumentIndex, out var selectedMethodGroup))
@@ -7389,21 +7369,48 @@ public class Analyzer : IDisposable
         if (targetGeneric.TypeArguments.Count != sourceGeneric.TypeArguments.Count)
             return false;
 
-        for (var i = 0; i < targetGeneric.TypeArguments.Count; i++)
+        var isKnownConversion = (targetGeneric.Name, sourceGeneric.Name) switch
         {
-            if (!TypesEqual(targetGeneric.TypeArguments[i], sourceGeneric.TypeArguments[i]))
-                return false;
-        }
-
-        return (targetGeneric.Name, sourceGeneric.Name) switch
-        {
-            ("IEnumerable", "List" or "ICollection" or "IList" or "HashSet" or "Queue") => true,
+            ("IEnumerable", "IEnumerable" or "List" or "ICollection" or "IList" or "HashSet" or "Queue") => true,
             ("IQueryable", "IQueryable") => true,
             ("ICollection", "List" or "IList" or "HashSet") => true,
             ("IList", "List") => true,
             ("IReadOnlyCollection", "List" or "IReadOnlyList" or "HashSet" or "Queue") => true,
             ("IReadOnlyList", "List") => true,
             _ => false
+        };
+
+        if (!isKnownConversion)
+            return false;
+
+        var isCovariantTarget = targetGeneric.Name is "IEnumerable" or "IQueryable" or "IReadOnlyCollection" or "IReadOnlyList";
+        for (var i = 0; i < targetGeneric.TypeArguments.Count; i++)
+        {
+            var targetArgument = targetGeneric.TypeArguments[i];
+            var sourceArgument = sourceGeneric.TypeArguments[i];
+            if (TypesEqual(targetArgument, sourceArgument))
+                continue;
+
+            if (isCovariantTarget
+                && IsReferenceLikeForVariance(targetArgument)
+                && IsReferenceLikeForVariance(sourceArgument)
+                && IsAssignable(targetArgument, sourceArgument))
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool IsReferenceLikeForVariance(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return resolved switch
+        {
+            NullableTypeInfo nullable => IsReferenceLikeForVariance(nullable.InnerType),
+            ObliviousTypeInfo oblivious => IsReferenceLikeForVariance(oblivious.InnerType),
+            _ => MayUseDelegateReferenceConversion(resolved)
         };
     }
 
@@ -7516,6 +7523,13 @@ public class Analyzer : IDisposable
         if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo)
         {
             score = 1;
+            return true;
+        }
+
+        if (resolvedTarget is ReflectionTypeInfo { Type.IsGenericParameter: true }
+            || resolvedSource is ReflectionTypeInfo { Type.IsGenericParameter: true })
+        {
+            score = 2;
             return true;
         }
 
@@ -7891,6 +7905,10 @@ public class Analyzer : IDisposable
             var resolved = ResolveType(alias.AliasedType);
             // Recursively resolve in case of nested aliases
             return ResolveTypeAlias(resolved);
+        }
+        if (type is ObliviousTypeInfo oblivious)
+        {
+            return ResolveTypeAlias(oblivious.InnerType);
         }
         return type;
     }
@@ -10380,6 +10398,14 @@ public record ArrayTypeInfo(TypeInfo ElementType) : TypeInfo
 public record NullableTypeInfo(TypeInfo InnerType) : TypeInfo
 {
     public override string ToString() => $"{InnerType}?";
+}
+
+/// <summary>
+/// Represents external CLR reference nullability that had no C# nullable metadata.
+/// </summary>
+public record ObliviousTypeInfo(TypeInfo InnerType) : TypeInfo
+{
+    public override string ToString() => $"{InnerType}!";
 }
 
 public record TupleTypeInfo(List<(string? Name, TypeInfo Type)> Elements) : TypeInfo;

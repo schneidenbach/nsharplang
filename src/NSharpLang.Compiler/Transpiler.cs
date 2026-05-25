@@ -3815,6 +3815,7 @@ public class Transpiler
             UnionTypeInfo unionType => unionType.Declaration.Name,
             ArrayTypeInfo arrayType => TypeInfoToCSharpName(arrayType.ElementType) is string elemName ? $"{elemName}[]" : null,
             NullableTypeInfo nullable => TypeInfoToCSharpName(nullable.InnerType) is string innerName ? $"{innerName}?" : null,
+            ObliviousTypeInfo oblivious => TypeInfoToCSharpName(oblivious.InnerType),
             GenericTypeInfo generic =>
                 generic.TypeArguments.All(a => TypeInfoToCSharpName(a) != null)
                     ? $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(a => TypeInfoToCSharpName(a)))}>"

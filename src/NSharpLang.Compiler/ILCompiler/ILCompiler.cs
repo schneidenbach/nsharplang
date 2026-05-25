@@ -100,6 +100,9 @@ public partial class ILCompiler
     private int _customDelegateCounter = 0;
     private int _liftedStorageCounter = 0;
     private bool _currentHasThis;
+    private ConstructorInfo? _nullableAttributeByteConstructor;
+    private ConstructorInfo? _nullableAttributeByteArrayConstructor;
+    private ConstructorInfo? _nullableContextAttributeConstructor;
 
     // Lambda and closure support
     private int _lambdaCounter = 0;
@@ -2283,8 +2286,170 @@ public partial class ILCompiler
         }
     }
 
-    private void ApplyParameterAttributes(ParameterBuilder parameterBuilder, Parameter parameter)
+    private void EnsureNullableMetadataAttributeTypes()
     {
+        if (_nullableAttributeByteConstructor != null
+            && _nullableAttributeByteArrayConstructor != null
+            && _nullableContextAttributeConstructor != null)
+        {
+            return;
+        }
+
+        if (_moduleBuilder == null)
+        {
+            return;
+        }
+
+        var attributeTypeAttributes = TypeAttributes.NotPublic
+            | TypeAttributes.Sealed
+            | TypeAttributes.Class
+            | TypeAttributes.BeforeFieldInit;
+
+        var nullableAttribute = _moduleBuilder.DefineType(
+            "System.Runtime.CompilerServices.NullableAttribute",
+            attributeTypeAttributes,
+            typeof(Attribute));
+        _nullableAttributeByteConstructor = DefineNullableAttributeConstructor(nullableAttribute, typeof(byte));
+        _nullableAttributeByteArrayConstructor = DefineNullableAttributeConstructor(nullableAttribute, typeof(byte[]));
+        _generatedHelperTypes.Add(nullableAttribute);
+
+        var nullableContextAttribute = _moduleBuilder.DefineType(
+            "System.Runtime.CompilerServices.NullableContextAttribute",
+            attributeTypeAttributes,
+            typeof(Attribute));
+        _nullableContextAttributeConstructor = DefineNullableAttributeConstructor(nullableContextAttribute, typeof(byte));
+        _generatedHelperTypes.Add(nullableContextAttribute);
+    }
+
+    private static ConstructorBuilder DefineNullableAttributeConstructor(TypeBuilder attributeType, Type parameterType)
+    {
+        var baseConstructor = typeof(Attribute).GetConstructor(
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            Type.EmptyTypes,
+            modifiers: null)!;
+        var constructor = attributeType.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            new[] { parameterType });
+        var il = constructor.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, baseConstructor);
+        il.Emit(OpCodes.Ret);
+        return constructor;
+    }
+
+    private void ApplyNullableContextAttribute(Action<CustomAttributeBuilder> applyAttribute, byte context = 1)
+    {
+        EnsureNullableMetadataAttributeTypes();
+        if (_nullableContextAttributeConstructor == null)
+            return;
+
+        applyAttribute(new CustomAttributeBuilder(_nullableContextAttributeConstructor, new object[] { context }));
+    }
+
+    private void ApplyNullableAttribute(Action<CustomAttributeBuilder> applyAttribute, TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters = null)
+    {
+        var flags = GetNullableAttributeFlags(typeReference, genericParameters);
+        if (flags.Count == 0 || flags.All(flag => flag == 1))
+            return;
+
+        EnsureNullableMetadataAttributeTypes();
+        if (flags.Count == 1)
+        {
+            if (_nullableAttributeByteConstructor != null)
+            {
+                applyAttribute(new CustomAttributeBuilder(_nullableAttributeByteConstructor, new object[] { flags[0] }));
+            }
+            return;
+        }
+
+        if (_nullableAttributeByteArrayConstructor != null)
+        {
+            applyAttribute(new CustomAttributeBuilder(_nullableAttributeByteArrayConstructor, new object[] { flags.ToArray() }));
+        }
+    }
+
+    private List<byte> GetNullableAttributeFlags(TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters)
+    {
+        switch (typeReference)
+        {
+            case NullableTypeReference nullableType:
+            {
+                var innerFlags = GetNullableAttributeFlags(nullableType.InnerType, genericParameters);
+                if (TypeReferenceResolvesToNonNullableValueType(nullableType.InnerType, genericParameters))
+                    return innerFlags;
+
+                if (innerFlags.Count == 0)
+                    return new List<byte> { 2 };
+
+                innerFlags[0] = 2;
+                return innerFlags;
+            }
+
+            case ArrayTypeReference arrayType:
+            {
+                var flags = new List<byte> { 1 };
+                flags.AddRange(GetNullableAttributeFlags(arrayType.ElementType, genericParameters));
+                return flags;
+            }
+
+            case GenericTypeReference genericType:
+            {
+                var flags = new List<byte>();
+                if (!TypeReferenceResolvesToNonNullableValueType(genericType, genericParameters))
+                    flags.Add(1);
+
+                foreach (var argument in genericType.TypeArguments)
+                    flags.AddRange(GetNullableAttributeFlags(argument, genericParameters));
+
+                return flags;
+            }
+
+            case FunctionTypeReference functionType:
+            {
+                var flags = new List<byte> { 1 };
+                foreach (var parameterType in functionType.ParameterTypes)
+                    flags.AddRange(GetNullableAttributeFlags(parameterType, genericParameters));
+                flags.AddRange(GetNullableAttributeFlags(functionType.ReturnType, genericParameters));
+                return flags;
+            }
+
+            case TupleTypeReference tupleType:
+            {
+                var flags = new List<byte> { 1 };
+                foreach (var element in tupleType.Elements)
+                    flags.AddRange(GetNullableAttributeFlags(element.Type, genericParameters));
+                return flags;
+            }
+
+            default:
+                return TypeReferenceResolvesToNonNullableValueType(typeReference, genericParameters)
+                    ? new List<byte>()
+                    : new List<byte> { 1 };
+        }
+    }
+
+    private bool TypeReferenceResolvesToNonNullableValueType(TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters)
+    {
+        try
+        {
+            var type = ResolveType(typeReference, genericParameters);
+            return type.IsValueType && Nullable.GetUnderlyingType(type) == null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ApplyParameterAttributes(
+        ParameterBuilder parameterBuilder,
+        Parameter parameter,
+        GenericTypeParameterBuilder[]? genericParameters = null)
+    {
+        ApplyNullableAttribute(parameterBuilder.SetCustomAttribute, parameter.Type, genericParameters);
+
         if (parameter.Attributes == null || parameter.Attributes.Count == 0)
         {
             return;
@@ -6310,11 +6475,13 @@ public partial class ILCompiler
 
         // Create module builder
         _moduleBuilder = assemblyBuilder.DefineDynamicModule(_assemblyName);
+        EnsureNullableMetadataAttributeTypes();
 
         // Create Program class (entry point container)
         _programType = _moduleBuilder.DefineType(
             "Program",
             TypeAttributes.Public | TypeAttributes.Class);
+        ApplyNullableContextAttribute(_programType.SetCustomAttribute);
 
         if (_compilationUnit.Declarations.Any(d => d is TestDeclaration or SetupDeclaration or TeardownDeclaration))
         {
@@ -6343,6 +6510,7 @@ public partial class ILCompiler
                 TypeAttributes.Public | TypeAttributes.Class,
                 typeof(object),
                 interfaces);
+            ApplyNullableContextAttribute(_testType.SetCustomAttribute);
             RegisterType("NSharpTests", _testType);
         }
 
@@ -6684,12 +6852,18 @@ public partial class ILCompiler
         methodBuilder.SetReturnType(returnType);
         methodBuilder.SetParameters(parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
+        ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
+        if (function.ReturnType != null)
+        {
+            var returnParameter = methodBuilder.DefineParameter(0, ParameterAttributes.Retval, null);
+            ApplyNullableAttribute(returnParameter.SetCustomAttribute, function.ReturnType, genericParameters);
+        }
 
         // Define parameter names
         for (int i = 0; i < function.Parameters.Count; i++)
         {
             var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(function.Parameters[i]), function.Parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, function.Parameters[i]);
+            ApplyParameterAttributes(parameterBuilder, function.Parameters[i], genericParameters);
         }
 
         // Store method builder for later reference
@@ -14064,6 +14238,7 @@ public partial class ILCompiler
             classDecl.Name,
             typeAttributes);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, classDecl.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(classDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, classDecl.TypeParameters);
@@ -14124,6 +14299,7 @@ public partial class ILCompiler
             typeAttributes,
             typeof(ValueType));
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, structDecl.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(structDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, structDecl.TypeParameters);
@@ -14160,6 +14336,7 @@ public partial class ILCompiler
             interfaceDecl.Name,
             typeAttributes);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, interfaceDecl.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(interfaceDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, interfaceDecl.TypeParameters);
@@ -14190,6 +14367,7 @@ public partial class ILCompiler
             var typeBuilder = moduleBuilder.DefineType(
                 enumDecl.Name,
                 GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
             RegisterStringEnumContainer(enumDecl.Name, typeBuilder);
 
@@ -14249,6 +14427,7 @@ public partial class ILCompiler
             unionDecl.Name,
             GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract);
         ApplyCustomAttributes(unionType.SetCustomAttribute, unionDecl.Attributes);
+        ApplyNullableContextAttribute(unionType.SetCustomAttribute);
         RegisterType(unionDecl.Name, unionType);
         var unionCtor = unionType.DefineConstructor(
             MethodAttributes.Family,
@@ -14262,6 +14441,7 @@ public partial class ILCompiler
                 unionCase.Name,
                 VisibilityConventions.GetNestedTypeAttributes(unionCase.Name, Modifiers.None) | TypeAttributes.Class | TypeAttributes.Sealed,
                 unionType);
+            ApplyNullableContextAttribute(caseType.SetCustomAttribute);
 
             var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
             RegisterType(caseKey, caseType);
@@ -14299,7 +14479,8 @@ public partial class ILCompiler
                     caseParameterTypes);
                 for (int i = 0; i < caseParameters.Count; i++)
                 {
-                    caseCtor.DefineParameter(i + 1, GetParameterAttributes(caseParameters[i]), caseParameters[i].Name);
+                    var parameterBuilder = caseCtor.DefineParameter(i + 1, GetParameterAttributes(caseParameters[i]), caseParameters[i].Name);
+                    ApplyParameterAttributes(parameterBuilder, caseParameters[i]);
                 }
 
                 var syntheticConstructor = new ConstructorDeclaration(
@@ -14325,6 +14506,7 @@ public partial class ILCompiler
                     property.Name,
                     fieldType,
                     VisibilityConventions.GetMemberFieldAttributes(property.Name, Modifiers.None));
+                ApplyNullableAttribute(fieldBuilder.SetCustomAttribute, property.Type);
                 _fields[GetFieldKey(caseType, property.Name)] = fieldBuilder;
             }
         }
@@ -14468,12 +14650,18 @@ public partial class ILCompiler
             returnType,
             parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
+        ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
+        if (funcDecl.ReturnType != null)
+        {
+            var returnParameter = methodBuilder.DefineParameter(0, ParameterAttributes.Retval, null);
+            ApplyNullableAttribute(returnParameter.SetCustomAttribute, funcDecl.ReturnType, typeGenericParameters);
+        }
 
         // Define parameter names
         for (int i = 0; i < funcDecl.Parameters.Count; i++)
         {
             var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(funcDecl.Parameters[i]), funcDecl.Parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i]);
+            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
         }
 
         // Store method for reference (interface methods don't have bodies)
@@ -14632,6 +14820,10 @@ public partial class ILCompiler
             fieldType,
             null);
         ApplyCustomAttributes(propertyBuilder.SetCustomAttribute, fieldDecl.Attributes);
+        if (fieldDecl.Type != null)
+        {
+            ApplyNullableAttribute(propertyBuilder.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
+        }
 
         if (fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Required))
         {
@@ -14643,6 +14835,10 @@ public partial class ILCompiler
             backingFieldName,
             fieldType,
             FieldAttributes.Private | (fieldDecl.Modifiers.HasFlag(Modifiers.Static) ? FieldAttributes.Static : 0));
+        if (fieldDecl.Type != null)
+        {
+            ApplyNullableAttribute(backingField.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
+        }
 
         var accessorAttributes = GetConventionMethodVisibilityAttributes(fieldDecl.Name, fieldDecl.Modifiers)
             | MethodAttributes.SpecialName
@@ -14657,6 +14853,10 @@ public partial class ILCompiler
             accessorAttributes,
             fieldType,
             Type.EmptyTypes);
+        if (fieldDecl.Type != null)
+        {
+            ApplyNullableAttribute(getMethod.DefineParameter(0, ParameterAttributes.Retval, null).SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
+        }
 
         var hasInitSetter = fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Init)
             || fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Readonly);
@@ -14683,7 +14883,11 @@ public partial class ILCompiler
                 new[] { fieldType });
         }
 
-        setMethod.DefineParameter(1, ParameterAttributes.None, "value");
+        var valueParameter = setMethod.DefineParameter(1, ParameterAttributes.None, "value");
+        if (fieldDecl.Type != null)
+        {
+            ApplyNullableAttribute(valueParameter.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
+        }
 
         propertyBuilder.SetGetMethod(getMethod);
         propertyBuilder.SetSetMethod(setMethod);
@@ -14715,6 +14919,10 @@ public partial class ILCompiler
             fieldType,
             fieldAttributes);
         ApplyCustomAttributes(fieldBuilder.SetCustomAttribute, fieldDecl.Attributes);
+        if (fieldDecl.Type != null)
+        {
+            ApplyNullableAttribute(fieldBuilder.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
+        }
 
         // Store field with qualified name (TypeName.FieldName)
         _fields[GetFieldKey(typeBuilder, fieldDecl.Name)] = fieldBuilder;
@@ -14737,6 +14945,7 @@ public partial class ILCompiler
             propertyType,
             null);
         ApplyCustomAttributes(propertyBuilder.SetCustomAttribute, propDecl.Attributes);
+        ApplyNullableAttribute(propertyBuilder.SetCustomAttribute, propDecl.Type, GetTypeGenericParameters(typeBuilder));
 
         if (propDecl.PropertyModifier.HasFlag(PropertyModifier.Required))
         {
@@ -14749,6 +14958,7 @@ public partial class ILCompiler
             backingFieldName,
             propertyType,
             FieldAttributes.Private | (propDecl.Modifiers.HasFlag(Modifiers.Static) ? FieldAttributes.Static : 0));
+        ApplyNullableAttribute(backingField.SetCustomAttribute, propDecl.Type, GetTypeGenericParameters(typeBuilder));
 
         var accessorAttributes = GetConventionMethodVisibilityAttributes(propDecl.Name, propDecl.Modifiers)
             | MethodAttributes.SpecialName
@@ -14766,6 +14976,7 @@ public partial class ILCompiler
                 accessorAttributes,
                 propertyType,
                 Type.EmptyTypes);
+            ApplyNullableAttribute(getMethod.DefineParameter(0, ParameterAttributes.Retval, null).SetCustomAttribute, propDecl.Type, GetTypeGenericParameters(typeBuilder));
 
             propertyBuilder.SetGetMethod(getMethod);
 
@@ -14799,7 +15010,8 @@ public partial class ILCompiler
                     new[] { propertyType });
             }
 
-            setMethod.DefineParameter(1, ParameterAttributes.None, "value");
+            var valueParameter = setMethod.DefineParameter(1, ParameterAttributes.None, "value");
+            ApplyNullableAttribute(valueParameter.SetCustomAttribute, propDecl.Type, GetTypeGenericParameters(typeBuilder));
 
             propertyBuilder.SetSetMethod(setMethod);
 
@@ -14823,6 +15035,7 @@ public partial class ILCompiler
             propertyType,
             parameterTypes);
         ApplyCustomAttributes(propertyBuilder.SetCustomAttribute, indexerDecl.Attributes);
+        ApplyNullableAttribute(propertyBuilder.SetCustomAttribute, indexerDecl.Type, typeGenericParameters);
         _indexers[GetIndexerKey(typeBuilder)] = propertyBuilder;
 
         if (indexerDecl.GetBody != null)
@@ -14832,11 +15045,12 @@ public partial class ILCompiler
                 GetVisibilityMethodAttributes(indexerDecl.Modifiers) | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
                 propertyType,
                 parameterTypes);
+            ApplyNullableAttribute(getMethod.DefineParameter(0, ParameterAttributes.Retval, null).SetCustomAttribute, indexerDecl.Type, typeGenericParameters);
 
             for (int i = 0; i < indexerDecl.Parameters.Count; i++)
             {
                 var parameterBuilder = getMethod.DefineParameter(i + 1, GetParameterAttributes(indexerDecl.Parameters[i]), indexerDecl.Parameters[i].Name);
-                ApplyParameterAttributes(parameterBuilder, indexerDecl.Parameters[i]);
+                ApplyParameterAttributes(parameterBuilder, indexerDecl.Parameters[i], typeGenericParameters);
             }
 
             propertyBuilder.SetGetMethod(getMethod);
@@ -14855,9 +15069,10 @@ public partial class ILCompiler
             for (int i = 0; i < indexerDecl.Parameters.Count; i++)
             {
                 var parameterBuilder = setMethod.DefineParameter(i + 1, GetParameterAttributes(indexerDecl.Parameters[i]), indexerDecl.Parameters[i].Name);
-                ApplyParameterAttributes(parameterBuilder, indexerDecl.Parameters[i]);
+                ApplyParameterAttributes(parameterBuilder, indexerDecl.Parameters[i], typeGenericParameters);
             }
-            setMethod.DefineParameter(indexerDecl.Parameters.Count + 1, ParameterAttributes.None, "value");
+            var valueParameter = setMethod.DefineParameter(indexerDecl.Parameters.Count + 1, ParameterAttributes.None, "value");
+            ApplyNullableAttribute(valueParameter.SetCustomAttribute, indexerDecl.Type, typeGenericParameters);
 
             propertyBuilder.SetSetMethod(setMethod);
             _methods[GetMethodKey(typeBuilder, "set_Item")] = setMethod;
@@ -14901,6 +15116,7 @@ public partial class ILCompiler
                 $"<>primary_{parameter.Name}",
                 fieldType,
                 FieldAttributes.Private | (isValueType ? FieldAttributes.InitOnly : FieldAttributes.InitOnly));
+            ApplyNullableAttribute(fieldBuilder.SetCustomAttribute, parameter.Type, typeGenericParameters);
 
             _primaryConstructorFields[GetPrimaryConstructorFieldKey(typeBuilder, parameter.Name)] = fieldBuilder;
         }
@@ -14914,7 +15130,7 @@ public partial class ILCompiler
         for (int i = 0; i < parameters.Count; i++)
         {
             var parameterBuilder = ctorBuilder.DefineParameter(i + 1, GetParameterAttributes(parameters[i]), parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, parameters[i]);
+            ApplyParameterAttributes(parameterBuilder, parameters[i], typeGenericParameters);
         }
 
         _constructors[GetConstructorKey(typeBuilder)] = ctorBuilder;
@@ -14940,7 +15156,7 @@ public partial class ILCompiler
         for (int i = 0; i < ctorDecl.Parameters.Count; i++)
         {
             var parameterBuilder = ctorBuilder.DefineParameter(i + 1, GetParameterAttributes(ctorDecl.Parameters[i]), ctorDecl.Parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, ctorDecl.Parameters[i]);
+            ApplyParameterAttributes(parameterBuilder, ctorDecl.Parameters[i], typeGenericParameters);
         }
 
         // Store constructor for later body emission
@@ -15000,12 +15216,18 @@ public partial class ILCompiler
             returnType,
             parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
+        ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
+        if (funcDecl.ReturnType != null)
+        {
+            var returnParameter = methodBuilder.DefineParameter(0, ParameterAttributes.Retval, null);
+            ApplyNullableAttribute(returnParameter.SetCustomAttribute, funcDecl.ReturnType, typeGenericParameters);
+        }
 
         // Define parameter names
         for (int i = 0; i < funcDecl.Parameters.Count; i++)
         {
             var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(funcDecl.Parameters[i]), funcDecl.Parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i]);
+            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
         }
 
         // Store method for later body emission
@@ -16581,6 +16803,7 @@ public partial class ILCompiler
             typeAttributes,
             baseType);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, recordDecl.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(recordDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, recordDecl.TypeParameters);
@@ -16632,6 +16855,7 @@ public partial class ILCompiler
                     backingFieldName,
                     fieldType,
                     FieldAttributes.Private | FieldAttributes.InitOnly);
+                ApplyNullableAttribute(backingField.SetCustomAttribute, param.Type, typeGenericParameters);
 
                 _fields[GetFieldKey(typeBuilder, backingFieldName)] = backingField;
                 _primaryConstructorFields[GetPrimaryConstructorFieldKey(typeBuilder, param.Name)] = backingField;
@@ -16642,6 +16866,7 @@ public partial class ILCompiler
                     PropertyAttributes.None,
                     fieldType,
                     null);
+                ApplyNullableAttribute(property.SetCustomAttribute, param.Type, typeGenericParameters);
 
                 // Define getter
                 var getter = typeBuilder.DefineMethod(
@@ -16649,6 +16874,7 @@ public partial class ILCompiler
                     MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
                     fieldType,
                     Type.EmptyTypes);
+                ApplyNullableAttribute(getter.DefineParameter(0, ParameterAttributes.Retval, null).SetCustomAttribute, param.Type, typeGenericParameters);
 
                 _methods[GetMethodKey(typeBuilder, $"get_{param.Name}")] = getter;
                 property.SetGetMethod(getter);
@@ -16663,7 +16889,8 @@ public partial class ILCompiler
                     new[] { fieldType },
                     null,
                     null);
-                setter.DefineParameter(1, ParameterAttributes.None, "value");
+                var setterParameter = setter.DefineParameter(1, ParameterAttributes.None, "value");
+                ApplyNullableAttribute(setterParameter.SetCustomAttribute, param.Type, typeGenericParameters);
 
                 _methods[GetMethodKey(typeBuilder, $"set_{param.Name}")] = setter;
                 property.SetSetMethod(setter);
@@ -16683,7 +16910,7 @@ public partial class ILCompiler
             {
                 var parameter = recordDecl.PrimaryConstructorParameters[i];
                 var parameterBuilder = constructor.DefineParameter(i + 1, GetParameterAttributes(parameter), parameter.Name);
-                ApplyParameterAttributes(parameterBuilder, parameter);
+                ApplyParameterAttributes(parameterBuilder, parameter, typeGenericParameters);
             }
 
             _constructors[GetConstructorKey(typeBuilder)] = constructor;

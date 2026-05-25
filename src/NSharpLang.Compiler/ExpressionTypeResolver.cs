@@ -157,9 +157,9 @@ public class ExpressionTypeResolver
 
         return memberInfo switch
         {
-            MethodInfo method => ConvertClrTypeToTypeInfo(method.ReturnType),
-            PropertyInfo property => ConvertClrTypeToTypeInfo(property.PropertyType),
-            FieldInfo field => ConvertClrTypeToTypeInfo(field.FieldType),
+            MethodInfo method => NullabilityMetadata.ConvertReturn(method),
+            PropertyInfo property => NullabilityMetadata.ConvertProperty(property),
+            FieldInfo field => NullabilityMetadata.ConvertField(field),
             _ => null
         };
     }
@@ -212,11 +212,11 @@ public class ExpressionTypeResolver
                 {
                     var constructedMethod = TryConstructGenericMethod(method, memberAccess, call);
                     return constructedMethod != null
-                        ? ConvertClrTypeToTypeInfo(constructedMethod.ReturnType)
-                        : ConvertClrTypeToTypeInfo(method.ReturnType);
+                        ? NullabilityMetadata.ConvertReturn(constructedMethod)
+                        : NullabilityMetadata.ConvertReturn(method);
                 }
 
-                return ConvertClrTypeToTypeInfo(method.ReturnType);
+                return NullabilityMetadata.ConvertReturn(method);
             }
         }
 
@@ -273,6 +273,7 @@ public class ExpressionTypeResolver
             SimpleTypeInfo simple => ResolveTypeFromString(simple.Name),
             ArrayTypeInfo array => ResolveTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => ResolveNullableTypeInfo(nullable.InnerType),
+            ObliviousTypeInfo oblivious => ResolveTypeInfoToClrType(oblivious.InnerType),
             GenericTypeInfo generic => ResolveGenericTypeInfo(generic),
             _ => ResolveTypeFromString(typeInfo.ToString())
         };

@@ -67,6 +67,28 @@ func Add(x: int, y: int): int {
     }
 
     [Fact]
+    public void Transpile_PublicApi_EmitsNullableAnnotationsForCSharpConsumers()
+    {
+        var source = @"
+class Customer {
+    Name: string
+    Nickname: string?
+
+    func Rename(name: string, nickname: string?): string? {
+        return nickname
+    }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("#nullable enable annotations", result);
+        Assert.Contains("public string Name", result);
+        Assert.Contains("public string? Nickname", result);
+        Assert.Contains("public string? Rename(string name, string? nickname)", result);
+    }
+
+    [Fact]
     public void TestClassTranspilation()
     {
         var source = @"

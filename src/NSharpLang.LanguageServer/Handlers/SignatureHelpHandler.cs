@@ -246,7 +246,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             foreach (var param in parameters)
             {
-                var paramType = FormatTypeName(param.ParameterType);
+                var paramType = NullabilityMetadata.FormatParameterType(param);
                 paramInfos.Add(new ParameterInformation
                 {
                     Label = $"{param.Name}: {paramType}",
@@ -601,7 +601,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
 
             foreach (var param in parameters)
             {
-                var paramType = FormatTypeName(param.ParameterType);
+                var paramType = NullabilityMetadata.FormatParameterType(param);
                 var paramLabel = $"{param.Name}: {paramType}";
 
                 paramInfos.Add(new ParameterInformation
@@ -612,7 +612,7 @@ public class SignatureHelpHandler : SignatureHelpHandlerBase
                 });
             }
 
-            var returnType = FormatTypeName(method.ReturnType);
+            var returnType = NullabilityMetadata.FormatReturnType(method);
             var paramList = string.Join(", ", paramInfos.Select(p => p.Label));
             var label = $"{method.Name}({paramList}): {returnType}";
 
