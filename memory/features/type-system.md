@@ -34,6 +34,22 @@ let names := ["a", "b"]      // string[]
 - **Lambda inference**: Lambdas and method-group identifiers receive contextual parameter/return types from selected delegate parameters, including CLR delegates such as ASP.NET Core `RequestDelegate`. Lambdas still infer `Unknown` when no contextual type exists.
 - **Generic inference**: Limited (type parameters not fully inferred)
 
+## Nullability Flow
+
+Nullable types use `T?`. The analyzer tracks flow-sensitive null states for local variables and stable member paths (`x`, `request.Body`, `person.Name`) without rewriting the declared type. The states are:
+
+- `unknown`
+- `null`
+- `maybeNull`
+- `notNull`
+- `oblivious` for external CLR surfaces whose nullable metadata has not been imported yet
+
+Maybe-null member access, index access, or delegate calls report compiler diagnostic `NL905` with suggestions for `?.`, `?[`, `??`, guard clauses, or an explicit assertion. The diagnostic is a warning while nullable adoption is still pre-release, but assignments, returns, and arguments from `T?` to `T` continue to be rejected unless flow has proven the value is `notNull`.
+
+Flow narrowing is supported through direct null guards, guard clauses that return or throw, `&&`, `||`, `is` patterns, loops, nested scopes, and stable member-path checks. Assigning to a variable or member path invalidates prior facts for that path and its children.
+
+`nlc query type` and `nlc query inspect` include a `nullability` field on type results so editor and automation surfaces can agree with compiler diagnostics.
+
 ## Duck Interfaces (Structural Typing)
 
 Duck interfaces use **structural typing** instead of nominal typing.

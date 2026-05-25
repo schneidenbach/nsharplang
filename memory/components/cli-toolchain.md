@@ -70,6 +70,8 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 
 Type-use positions are first-class semantic navigation targets. `type`, `inspect`, `def`, `refs`, and `hover` resolve annotations and type arguments through the same BindingMap/SemanticModel data used by the LSP, including `Person`, `List<Person>`, `Person?`, `Person[]`, and `Func<Person, string>`. Duplicate simple type names in different namespaces/files are resolved by semantic binding, not text search.
 
+`nlc query type` and `nlc query inspect` type results include `nullability` (`unknown`, `null`, `maybeNull`, `notNull`, or `oblivious`) so CLI automation and the LSP can reason about the same null-flow facts.
+
 ### Code Quality
 
 | Command | Purpose | Example |
@@ -232,6 +234,8 @@ $ nlc fix --file F                  # fix single file
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
+Compiler diagnostics also include `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
+
 **Currently supported auto-fixes (`nlc fix`):**
 
 | Code | Fix | Safety | Notes |
@@ -243,6 +247,7 @@ $ nlc fix --file F                  # fix single file
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
 | NL015 | Replace `let` with `const` | `Safe` | |
+| NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
 **`FixSafety` levels** (on `CodeAction`):
 - `Safe` — always correct to apply automatically (default `nlc fix` behavior)

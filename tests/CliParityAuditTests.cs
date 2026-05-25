@@ -10,6 +10,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
+[Collection("ProcessState")]
 public class CliParityAuditTests
 {
     [Fact]

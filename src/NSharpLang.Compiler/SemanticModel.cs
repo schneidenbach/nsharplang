@@ -54,6 +54,12 @@ public class SemanticModel
     public Dictionary<(int Line, int Column), TypeInfo> ExpressionTypes { get; } = new();
 
     /// <summary>
+    /// Maps expression positions to their flow-sensitive null state.
+    /// Key: (line, column), Value: null state after applying local flow facts.
+    /// </summary>
+    public Dictionary<(int Line, int Column), NullState> ExpressionNullStates { get; } = new();
+
+    /// <summary>
     /// Maps type-reference source positions to their resolved types.
     /// Key: (line, column), Value: resolved TypeInfo for the type-use at that position.
     /// </summary>
@@ -227,6 +233,14 @@ public class SemanticModel
     public void RecordExpressionType(int line, int column, TypeInfo type)
     {
         ExpressionTypes[(line, column)] = type;
+    }
+
+    /// <summary>
+    /// Record the flow-sensitive null state for an expression at a specific source position.
+    /// </summary>
+    public void RecordExpressionNullState(int line, int column, NullState state)
+    {
+        ExpressionNullStates[(line, column)] = state;
     }
 
     /// <summary>

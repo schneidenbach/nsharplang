@@ -268,8 +268,9 @@ public class CodeIntelligenceService
         var kind = TypeInfoToKind(typeInfo);
         var definition = resolvedName != null ? FindDefinitionLocation(snapshot, resolvedName) : null;
         var displayName = resolvedName ?? name ?? GetTypeDisplayName(typeInfo, resolvedType);
+        var nullability = GetNullabilityForExpression(semanticModel, expr, typeInfo);
 
-        return new TypeResult(displayName, resolvedType, kind, definition);
+        return new TypeResult(displayName, resolvedType, kind, definition, nullability);
     }
 
     /// <summary>
@@ -1138,7 +1139,8 @@ public class CodeIntelligenceService
             new LocationResult(
                 GetRelativePath(snapshot.ProjectRoot, declaration.File ?? string.Empty),
                 declaration.Line,
-                declaration.Column));
+                declaration.Column),
+            typeInfo != null ? FormatNullState(GetDefaultNullState(typeInfo)) : null);
     }
 
     private SymbolDeclaration? ResolveDefinitionSymbolAtPosition(ProjectSnapshot snapshot, string file, int line, int col)
@@ -2788,6 +2790,43 @@ public class CodeIntelligenceService
         NullableTypeInfo n => $"{FormatTypeInfo(n.InnerType)}?",
         ReflectionTypeInfo r => r.Type.Name,
         _ => typeInfo.ToString() ?? "unknown"
+    };
+
+    private static string GetNullabilityForExpression(SemanticModel? semanticModel, Expression? expression, TypeInfo typeInfo)
+    {
+        if (expression != null
+            && semanticModel != null
+            && semanticModel.ExpressionNullStates.TryGetValue((expression.Line, expression.Column), out var state))
+        {
+            return FormatNullState(state);
+        }
+
+        return FormatNullState(GetDefaultNullState(typeInfo));
+    }
+
+    private static NullState GetDefaultNullState(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            NullableTypeInfo => NullState.MaybeNull,
+            UnknownTypeInfo => NullState.Unknown,
+            ExternalTypeInfo => NullState.Oblivious,
+            ReflectionTypeInfo reflectionType => reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
+                ? NullState.NotNull
+                : NullState.Oblivious,
+            SimpleTypeInfo { Name: "null" } => NullState.Null,
+            _ => NullState.NotNull
+        };
+    }
+
+    private static string FormatNullState(NullState state) => state switch
+    {
+        NullState.Unknown => "unknown",
+        NullState.Null => "null",
+        NullState.MaybeNull => "maybeNull",
+        NullState.NotNull => "notNull",
+        NullState.Oblivious => "oblivious",
+        _ => "unknown"
     };
 
     private static string TypeInfoToKind(TypeInfo typeInfo) => typeInfo switch

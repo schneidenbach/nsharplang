@@ -231,9 +231,10 @@ else
     handle_error "Templates pack"
 fi
 
-echo "Clearing NuGet global-packages cache..."
-dotnet nuget locals global-packages --clear > /dev/null 2>&1
-handle_success "NuGet global-packages cache cleared"
+echo "Clearing N# NuGet package cache entries..."
+remove_nuget_package_cache NSharpLang.Sdk
+remove_nuget_package_cache NSharpLang.Templates
+handle_success "N# NuGet package cache entries cleared"
 
 section "Step 4c: C# Interop Tests"
 echo "Running C# interop tests..."

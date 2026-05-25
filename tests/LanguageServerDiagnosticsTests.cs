@@ -32,6 +32,31 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nullable.nl";
+
+        var source = @"
+func main() {
+    x: string? = ""hello""
+    len := x.Length
+}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = document!.Diagnostics ?? Enumerable.Empty<CompilerError>();
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.NullabilityWarning &&
+            diagnostic.DiagnosticId == "NL905" &&
+            diagnostic.Suggestion != null &&
+            diagnostic.Suggestion.Contains("?.", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Diagnostics_MalformedEditingBuffer_PublishesHighSignalProblems()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

@@ -15,6 +15,7 @@ namespace NSharpLang.Tests;
 /// and that lint rules (especially NL010 unused imports) work correctly
 /// on real-world N# code patterns.
 /// </summary>
+[Collection("ProcessState")]
 public class ExampleLintTests
 {
     private static readonly string ExamplesDir = FindExamplesDir();

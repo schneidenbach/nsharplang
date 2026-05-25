@@ -16,6 +16,8 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class Analyzer : IDisposable
 {
+    private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -51,6 +53,8 @@ public class Analyzer : IDisposable
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
     private int _currentLine; // Tracks last analyzed line for scope end positions
+    private bool _suppressNullabilityFlowType;
+    private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
     private bool _disposed;
 
     // Project-level auto-discovered symbols (set once by MultiFileCompiler, persists across Analyze calls)
@@ -98,6 +102,8 @@ public class Analyzer : IDisposable
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
         _semanticScopeIds.Clear();
         _currentLine = 0;
+        _suppressNullabilityFlowType = false;
+        _reportedNullabilityDiagnostics.Clear();
         _currentReturnType = null;
         _currentFunctionIsAsync = false;
         _inLoop = false;
@@ -1192,13 +1198,24 @@ public class Analyzer : IDisposable
                 break;
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
+                var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
                 if (!IsBoolType(condType))
                 {
                     Error($"The condition in a 'while' loop must be a boolean, but I found '{condType}'", whileStmt.Line, whileStmt.Column);
                 }
                 var wasInLoop = _inLoop;
                 _inLoop = true;
-                AnalyzeStatement(whileStmt.Body);
+                if (whileThenNarrowings.Count > 0)
+                {
+                    PushScope(new Scope(ScopeKind.Block), whileStmt.Body.Line, whileStmt.Body.Column);
+                    ApplyNarrowingsToScope(whileThenNarrowings);
+                    AnalyzeStatement(whileStmt.Body);
+                    PopScope();
+                }
+                else
+                {
+                    AnalyzeStatement(whileStmt.Body);
+                }
                 _inLoop = wasInLoop;
                 break;
             case ReturnStatement returnStmt:
@@ -1499,6 +1516,13 @@ public class Analyzer : IDisposable
 
         // Record in semantic model for IDE features (scoped)
         RecordVariableInCurrentScope(varDecl.Name, finalType);
+
+        var initialNullState = finalType is NullableTypeInfo
+            ? varDecl.Initializer is NullLiteralExpression ? NullState.Null : NullState.MaybeNull
+            : varDecl.Initializer != null
+                ? GetExpressionNullState(varDecl.Initializer, inferredType ?? finalType)
+                : GetDefaultNullState(finalType);
+        SetNullStateInCurrentScope(varDecl.Name, initialNullState);
     }
 
     private void AnalyzeTupleDeconstruction(TupleDeconstructionStatement tupleDecl)
@@ -1610,27 +1634,55 @@ public class Analyzer : IDisposable
                 AnalyzeStatement(ifStmt.ElseStatement);
             }
         }
+
+        var thenAlwaysReturns = StatementAlwaysReturns(ifStmt.ThenStatement);
+        var elseAlwaysReturns = ifStmt.ElseStatement != null && StatementAlwaysReturns(ifStmt.ElseStatement);
+
+        // Guard clauses are experienced after the if, not inside it:
+        // if x == null { return } x.Member
+        // If the null branch exits, the surviving path inherits the opposite facts.
+        if (thenAlwaysReturns && !elseAlwaysReturns && elseNarrowings.Count > 0)
+        {
+            ApplyNarrowingsToScope(elseNarrowings);
+        }
+        else if (elseAlwaysReturns && thenNarrowings.Count > 0)
+        {
+            ApplyNarrowingsToScope(thenNarrowings);
+        }
     }
 
     /// <summary>
     /// Applies narrowings to the current scope, intersecting duplicate symbols
     /// (keeping the most specific/derived type rather than last-one-wins).
     /// </summary>
-    private void ApplyNarrowingsToScope(List<(string Name, TypeInfo NarrowedType)> narrowings)
+    private void ApplyNarrowingsToScope(List<FlowNarrowing> narrowings)
     {
         var currentScope = _scopes.Peek();
-        foreach (var (name, narrowedType) in narrowings)
+        foreach (var narrowing in narrowings)
         {
+            if (narrowing.NullState is { } nullState)
+            {
+                currentScope.NullStates[narrowing.Path] = nullState;
+            }
+
+            if (narrowing.NarrowedType is not { } narrowedType)
+                continue;
+
+            // Type narrowings currently apply to simple symbols. Stable member-path
+            // null facts are tracked above without rewriting the declared member type.
+            if (narrowing.Path.Contains('.', StringComparison.Ordinal))
+                continue;
+
+            var name = narrowing.Path;
             if (currentScope.Symbols.TryGetValue(name, out var existing))
             {
-                // If new type is more specific (subtype of existing), use it
-                // If existing is more specific (subtype of new), keep existing
-                // Otherwise (unrelated types), keep the new one (it came from a later condition)
+                // If new type is more specific (subtype of existing), use it.
+                // If existing is more specific (subtype of new), keep existing.
+                // Otherwise (unrelated types), keep the new one (it came from a later condition).
                 if (IsSubtypeOf(narrowedType, existing))
-                    currentScope.Symbols[name] = narrowedType; // new is more specific
-                // else: existing is already more specific or equal, keep it
+                    currentScope.Symbols[name] = narrowedType;
                 else if (!IsSubtypeOf(existing, narrowedType))
-                    currentScope.Symbols[name] = narrowedType; // unrelated, use later narrowing
+                    currentScope.Symbols[name] = narrowedType;
             }
             else
             {
@@ -1644,25 +1696,25 @@ public class Analyzer : IDisposable
     /// Returns separate narrowing lists for then-branch and else-branch.
     /// Handles: null checks (!=null, ==null), is-type patterns, and && chains.
     /// </summary>
-    private (List<(string Name, TypeInfo NarrowedType)> Then, List<(string Name, TypeInfo NarrowedType)> Else)
+    private (List<FlowNarrowing> Then, List<FlowNarrowing> Else)
         ExtractFlowNarrowings(Expression condition)
     {
-        var thenNarrowings = new List<(string, TypeInfo)>();
-        var elseNarrowings = new List<(string, TypeInfo)>();
+        var thenNarrowings = new List<FlowNarrowing>();
+        var elseNarrowings = new List<FlowNarrowing>();
 
         if (condition is BinaryExpression binary)
         {
             // x != null → narrow x to non-nullable in then-branch
             if (binary.Operator == BinaryOperator.NotEqual)
             {
-                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings);
-                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings);
+                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, notEqual: true);
+                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings, elseNarrowings, notEqual: true);
             }
             // x == null → narrow x to non-nullable in else-branch
             else if (binary.Operator == BinaryOperator.Equal)
             {
-                TryExtractNullNarrowing(binary.Left, binary.Right, elseNarrowings);
-                TryExtractNullNarrowing(binary.Right, binary.Left, elseNarrowings);
+                TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, notEqual: false);
+                TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings, elseNarrowings, notEqual: false);
             }
             // a && b → both sides hold in then-branch; else = !a || !b (can't narrow)
             else if (binary.Operator == BinaryOperator.And)
@@ -1690,27 +1742,41 @@ public class Analyzer : IDisposable
             if (isExpr.VariableName != null)
             {
                 // `x is Dog d` — declare d: Dog in then-branch
-                thenNarrowings.Add((isExpr.VariableName, narrowedType));
+                thenNarrowings.Add(new FlowNarrowing(isExpr.VariableName, narrowedType, NullState.NotNull));
             }
-            else if (isExpr.Expression is IdentifierExpression ident)
+            else if (TryGetStableNullPath(isExpr.Expression) is { } path)
             {
                 // `x is Dog` — narrow x to Dog in then-branch
-                thenNarrowings.Add((ident.Name, narrowedType));
+                thenNarrowings.Add(new FlowNarrowing(path, narrowedType, NullState.NotNull));
             }
         }
 
         return (thenNarrowings, elseNarrowings);
     }
 
-    private void TryExtractNullNarrowing(Expression expr, Expression other, List<(string, TypeInfo)> narrowings)
+    private void TryExtractNullNarrowing(
+        Expression expr,
+        Expression other,
+        List<FlowNarrowing> thenNarrowings,
+        List<FlowNarrowing> elseNarrowings,
+        bool notEqual)
     {
-        if (other is NullLiteralExpression && expr is IdentifierExpression ident)
+        if (other is not NullLiteralExpression)
+            return;
+
+        var path = TryGetStableNullPath(expr);
+        if (path == null)
+            return;
+
+        if (notEqual)
         {
-            var symbolType = LookupSymbol(ident.Name);
-            if (symbolType is NullableTypeInfo nullable)
-            {
-                narrowings.Add((ident.Name, nullable.InnerType));
-            }
+            thenNarrowings.Add(new FlowNarrowing(path, null, NullState.NotNull));
+            elseNarrowings.Add(new FlowNarrowing(path, null, NullState.Null));
+        }
+        else
+        {
+            thenNarrowings.Add(new FlowNarrowing(path, null, NullState.Null));
+            elseNarrowings.Add(new FlowNarrowing(path, null, NullState.NotNull));
         }
     }
 
@@ -1735,7 +1801,25 @@ public class Analyzer : IDisposable
 
         var wasInLoop = _inLoop;
         _inLoop = true;
-        AnalyzeStatement(forStmt.Body);
+        if (forStmt.Condition != null)
+        {
+            var (bodyNarrowings, _) = ExtractFlowNarrowings(forStmt.Condition);
+            if (bodyNarrowings.Count > 0)
+            {
+                PushScope(new Scope(ScopeKind.Block), forStmt.Body.Line, forStmt.Body.Column);
+                ApplyNarrowingsToScope(bodyNarrowings);
+                AnalyzeStatement(forStmt.Body);
+                PopScope();
+            }
+            else
+            {
+                AnalyzeStatement(forStmt.Body);
+            }
+        }
+        else
+        {
+            AnalyzeStatement(forStmt.Body);
+        }
         _inLoop = wasInLoop;
 
         PopScope();
@@ -2288,6 +2372,7 @@ public class Analyzer : IDisposable
             BinaryExpression binary => AnalyzeBinaryExpression(binary),
             UnaryExpression unary => AnalyzeUnaryExpression(unary),
             MemberAccessExpression member => AnalyzeMemberAccess(member),
+            IndexAccessExpression index => AnalyzeIndexAccess(index),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
             LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
@@ -2312,9 +2397,92 @@ public class Analyzer : IDisposable
             _ => BuiltInTypes.Unknown
         };
 
-        _semanticModel.RecordExpressionType(expr.Line, expr.Column, type);
-        return type;
+        var nullState = GetExpressionNullState(expr, type);
+        var flowType = ApplyNullabilityFlowType(expr, type, nullState);
+
+        _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
+        _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
+        return flowType;
     }
+
+    private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
+    {
+        if (_suppressNullabilityFlowType)
+            return type;
+
+        return nullState == NullState.NotNull && type is NullableTypeInfo nullable
+            ? nullable.InnerType
+            : type;
+    }
+
+    private NullState GetExpressionNullState(Expression expr, TypeInfo type)
+    {
+        if (expr is NullLiteralExpression)
+            return NullState.Null;
+
+        if (expr is NewExpression or ArrayLiteralExpression or LambdaExpression or InterpolatedStringExpression)
+            return NullState.NotNull;
+
+        if (expr is StringLiteralExpression or IntLiteralExpression or FloatLiteralExpression
+            or CharLiteralExpression or BoolLiteralExpression or TypeOfExpression or NameofExpression)
+        {
+            return NullState.NotNull;
+        }
+
+        if (expr is ParenthesizedExpression parenthesized)
+            return GetExpressionNullState(parenthesized.Inner, type);
+
+        if (expr is MemberAccessExpression { IsNullConditional: true }
+            || expr is IndexAccessExpression { IsNullConditional: true })
+        {
+            return NullState.MaybeNull;
+        }
+
+        var path = TryGetStableNullPath(expr);
+        if (path != null && TryLookupNullState(path, out var state))
+            return state;
+
+        return GetDefaultNullState(type);
+    }
+
+    private NullState GetDefaultNullState(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+
+        if (resolved == BuiltInTypes.Null)
+            return NullState.Null;
+
+        if (resolved is NullableTypeInfo)
+            return NullState.MaybeNull;
+
+        if (resolved is UnknownTypeInfo)
+            return NullState.Unknown;
+
+        if (resolved is ExternalTypeInfo)
+            return NullState.Oblivious;
+
+        if (resolved is ReflectionTypeInfo reflectionType)
+        {
+            return reflectionType.Type.IsValueType && Nullable.GetUnderlyingType(reflectionType.Type) == null
+                ? NullState.NotNull
+                : NullState.Oblivious;
+        }
+
+        return NullState.NotNull;
+    }
+
+    private static bool IsUnsafeNullState(NullState state)
+        => state is NullState.Null or NullState.MaybeNull;
+
+    private static string FormatNullState(NullState state) => state switch
+    {
+        NullState.Unknown => "unknown",
+        NullState.Null => "null",
+        NullState.MaybeNull => "maybe-null",
+        NullState.NotNull => "not-null",
+        NullState.Oblivious => "oblivious",
+        _ => "unknown"
+    };
 
     private TypeInfo AnalyzeDefaultExpression(DefaultExpression defaultExpr)
     {
@@ -2345,7 +2513,7 @@ public class Analyzer : IDisposable
         }
 
         // All range expressions return System.Range
-        return LookupType("System.Range") ?? BuiltInTypes.DeferredExternal;
+        return GetRangeType();
     }
 
     private TypeInfo AnalyzeOutVariableDeclaration(OutVariableDeclarationExpression outVar)
@@ -2515,7 +2683,7 @@ public class Analyzer : IDisposable
             BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
             BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftT, rightT, binary),
-            BinaryOperator.Range => LookupType("System.Range") ?? BuiltInTypes.DeferredExternal,
+            BinaryOperator.Range => GetRangeType(),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -2618,11 +2786,140 @@ public class Analyzer : IDisposable
         }
 
         var objectType = AnalyzeExpression(member.Object);
-        ValidateDeclaredMemberVisibility(objectType, member);
-        TryRecordMemberBinding(objectType, member);
+        ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
+        var receiverType = GetNonNullableType(objectType);
+
+        ValidateDeclaredMemberVisibility(receiverType, member);
+        TryRecordMemberBinding(receiverType, member);
 
         // Resolve member on type
-        return ResolveMember(objectType, member.MemberName, includeStaticMembers: IsStaticMemberAccessTarget(member.Object));
+        var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers: IsStaticMemberAccessTarget(member.Object));
+        return member.IsNullConditional ? MakeNullableResult(memberType) : memberType;
+    }
+
+    private TypeInfo AnalyzeIndexAccess(IndexAccessExpression index)
+    {
+        var objectType = AnalyzeExpression(index.Object);
+        ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
+
+        var indexType = AnalyzeExpression(index.Index);
+        var receiverType = GetNonNullableType(objectType);
+        var isRangeAccess = index.Index is RangeExpression || IsRangeLikeType(indexType);
+        var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
+
+        return index.IsNullConditional ? MakeNullableResult(elementType) : elementType;
+    }
+
+    private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)
+    {
+        receiverType = ResolveTypeAlias(receiverType);
+
+        if (receiverType is ArrayTypeInfo arrayType)
+        {
+            return isRangeAccess
+                ? receiverType
+                : arrayType.ElementType;
+        }
+
+        if (IsStringType(receiverType))
+        {
+            return isRangeAccess
+                ? BuiltInTypes.String
+                : BuiltInTypes.Char;
+        }
+
+        if (receiverType is GenericTypeInfo genericType)
+        {
+            var name = genericType.Name;
+            if (name.EndsWith("Dictionary", StringComparison.Ordinal) && genericType.TypeArguments.Count >= 2)
+                return genericType.TypeArguments[1];
+
+            if (genericType.TypeArguments.Count == 1
+                && (name.EndsWith("List", StringComparison.Ordinal)
+                    || name.EndsWith("IList", StringComparison.Ordinal)
+                    || name.EndsWith("IReadOnlyList", StringComparison.Ordinal)
+                    || name.EndsWith("Collection", StringComparison.Ordinal)))
+            {
+                return genericType.TypeArguments[0];
+            }
+        }
+
+        if (receiverType is ReflectionTypeInfo reflectionType)
+        {
+            var type = reflectionType.Type;
+            if (type.IsArray)
+                return isRangeAccess
+                    ? ConvertReflectionType(type)
+                    : ConvertReflectionType(type.GetElementType()!);
+
+            var indexer = type.GetDefaultMembers()
+                .OfType<PropertyInfo>()
+                .FirstOrDefault(property => property.GetIndexParameters().Length > 0);
+
+            if (indexer != null)
+                return ConvertReflectionType(indexer.PropertyType);
+        }
+
+        return BuiltInTypes.Unknown;
+    }
+
+    private static bool IsRangeLikeType(TypeInfo type)
+        => type is ReflectionTypeInfo { Type.FullName: "System.Range" }
+           || type is SimpleTypeInfo { Name: "Range" or "System.Range" };
+
+    private TypeInfo GetRangeType()
+        => LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
+
+    private TypeInfo GetNonNullableType(TypeInfo type)
+        => ResolveTypeAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;
+
+    private TypeInfo MakeNullableResult(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        if (resolved == BuiltInTypes.Void
+            || resolved == BuiltInTypes.Never
+            || resolved is UnknownTypeInfo
+            || resolved is NullableTypeInfo)
+        {
+            return type;
+        }
+
+        return new NullableTypeInfo(type);
+    }
+
+    private void ReportPossibleNullAccess(
+        Expression receiver,
+        TypeInfo receiverType,
+        int line,
+        int column,
+        string operation,
+        bool isNullConditional)
+    {
+        if (isNullConditional)
+            return;
+
+        var nullState = GetExpressionNullState(receiver, receiverType);
+        if (!IsUnsafeNullState(nullState))
+            return;
+
+        var path = TryGetStableNullPath(receiver) ?? "this value";
+        var key = (line, column, path, operation);
+        if (!_reportedNullabilityDiagnostics.Add(key))
+            return;
+
+        var stateLabel = FormatNullState(nullState);
+        var message = operation == "call"
+            ? $"Possible null call: `{path}` is {stateLabel}"
+            : $"Possible null {operation}: `{path}` is {stateLabel}";
+        var suggestion = operation switch
+        {
+            "dereference" => $"Use '?.', add a '??' fallback, guard with 'if {path} == null {{ return }}', or explicitly assert after proving '{path}' is not null.",
+            "index" => $"Use '?[', add a '??' fallback, guard with 'if {path} == null {{ return }}', or explicitly assert after proving '{path}' is not null.",
+            "call" => $"Guard with 'if {path} == null {{ return }}', use '?.' when calling through a member, or explicitly assert after proving '{path}' is not null.",
+            _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
+        };
+
+        Warning(ErrorCode.NullabilityWarning, message, line, column, suggestion, length: 1);
     }
 
     private bool IsStaticMemberAccessTarget(Expression target)
@@ -3760,6 +4057,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeCall(CallExpression call)
     {
         var calleeType = AnalyzeExpression(call.Callee);
+        ReportPossibleNullAccess(call.Callee, calleeType, call.Line, call.Column, "call", isNullConditional: false);
 
         // Analyze arguments
         var argTypes = new List<TypeInfo>();
@@ -6067,7 +6365,10 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
+        var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
+        _suppressNullabilityFlowType = true;
         var targetType = AnalyzeExpression(assignment.Target);
+        _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
 
         var previousExpectedType = _currentExpectedType;
         _currentExpectedType = targetType;
@@ -6102,7 +6403,24 @@ public class Analyzer : IDisposable
             }
         }
 
+        UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
+
         return targetType;
+    }
+
+    private void UpdateNullStateAfterAssignment(Expression target, Expression value, TypeInfo targetType, TypeInfo valueType)
+    {
+        var path = TryGetStableNullPath(target);
+        if (path == null)
+            return;
+
+        InvalidateNullFactsForAssignment(path);
+
+        var valueState = GetExpressionNullState(value, valueType);
+        if (valueState == NullState.Unknown)
+            valueState = GetDefaultNullState(targetType);
+
+        SetNullStateInCurrentScope(path, valueState);
     }
 
     private void CheckReadonlyFieldAssignment(Expression target, int line, int column)
@@ -7135,6 +7453,55 @@ public class Analyzer : IDisposable
                 return type;
         }
         return null;
+    }
+
+    private bool TryLookupNullState(string path, out NullState state)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.NullStates.TryGetValue(path, out state))
+                return true;
+        }
+
+        state = NullState.Unknown;
+        return false;
+    }
+
+    private void SetNullStateInCurrentScope(string path, NullState state)
+    {
+        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(path))
+            return;
+
+        _scopes.Peek().NullStates[path] = state;
+    }
+
+    private void InvalidateNullFactsForAssignment(string path)
+    {
+        foreach (var scope in _scopes)
+        {
+            var keysToRemove = scope.NullStates.Keys
+                .Where(key => key == path || key.StartsWith(path + ".", StringComparison.Ordinal))
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                scope.NullStates.Remove(key);
+            }
+        }
+    }
+
+    private static string? TryGetStableNullPath(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier when identifier.Name != "<error>" => identifier.Name,
+            ThisExpression => "this",
+            ParenthesizedExpression parenthesized => TryGetStableNullPath(parenthesized.Inner),
+            MemberAccessExpression { IsNullConditional: false } memberAccess
+                when TryGetStableNullPath(memberAccess.Object) is { } receiverPath
+                => $"{receiverPath}.{memberAccess.MemberName}",
+            _ => null
+        };
     }
 
     private bool TryResolveIdentifierBindingTarget(string name, int line, int column, out TypeInfo type)
@@ -8363,6 +8730,7 @@ public class Analyzer : IDisposable
         else
         {
             currentScope.Symbols[name] = type;
+            currentScope.NullStates[name] = GetDefaultNullState(type);
 
             // Record declaration in binding map for semantic references
             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
@@ -9663,6 +10031,7 @@ public class Analyzer : IDisposable
         // Add .NET shared framework directories
         var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
         _metadataResolver.AddSearchDirectory(runtimeDir);
+        _metadataResolver.AddSearchDirectory(AppContext.BaseDirectory);
 
         // Find and add ASP.NET Core and other shared framework directories
         var searchDir = runtimeDir;
@@ -10289,6 +10658,7 @@ public class Scope
     public ScopeKind Kind { get; }
     public Dictionary<string, TypeInfo> Symbols { get; } = new();
     public Dictionary<string, TypeInfo> Types { get; } = new();
+    public Dictionary<string, NullState> NullStates { get; } = new(StringComparer.Ordinal);
 
     // Declaration locations for binding map (name → declaration info)
     private readonly Dictionary<string, SymbolDeclaration> _declarationLocations = new();
@@ -10324,6 +10694,15 @@ public enum ScopeKind
     Interface,
     Function,
     Block
+}
+
+public enum NullState
+{
+    Unknown,
+    Null,
+    MaybeNull,
+    NotNull,
+    Oblivious
 }
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);

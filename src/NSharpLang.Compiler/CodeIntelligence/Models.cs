@@ -102,7 +102,8 @@ public record TypeResult(
     string Name,
     string ResolvedType,
     string Kind,
-    LocationResult? Definition);
+    LocationResult? Definition,
+    string? Nullability = null);
 
 /// <summary>
 /// Result of a go-to-definition query.
@@ -183,7 +184,8 @@ public record InspectSummarySymbolResult(
 public record InspectSummaryTypeResult(
     string Name,
     string ResolvedType,
-    string Kind);
+    string Kind,
+    string? Nullability = null);
 
 /// <summary>
 /// Compact reference sample for inspect summary mode.

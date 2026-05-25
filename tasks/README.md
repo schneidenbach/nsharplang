@@ -17,7 +17,6 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 
 ## P1: Nullability Workflows
 
-- [006-nullability-safe-dereference.md](006-nullability-safe-dereference.md)
 - [007-nullable-unwrap-and-match-idioms.md](007-nullable-unwrap-and-match-idioms.md)
 - [008-csharp-nullability-interop.md](008-csharp-nullability-interop.md)
 
