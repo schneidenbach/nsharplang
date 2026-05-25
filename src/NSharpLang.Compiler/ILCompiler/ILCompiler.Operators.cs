@@ -669,9 +669,11 @@ public partial class ILCompiler
             return;
         }
 
+        var sourceIsValueType = IsValueTypeLike(sourceType);
+        var targetIsValueType = IsValueTypeLike(targetType);
         if (AreTypesAssignmentCompatible(targetType, sourceType))
         {
-            if (sourceType.IsValueType && (!targetType.IsValueType || targetType.IsInterface))
+            if (sourceIsValueType && (!targetIsValueType || targetType.IsInterface))
             {
                 _currentIL.Emit(OpCodes.Box, sourceType);
             }
@@ -690,16 +692,16 @@ public partial class ILCompiler
             return;
         }
 
-        if (targetType.IsValueType)
+        if (targetIsValueType)
         {
-            if (!sourceType.IsValueType)
+            if (!sourceIsValueType)
             {
                 _currentIL.Emit(OpCodes.Unbox_Any, targetType);
             }
             return;
         }
 
-        if (sourceType.IsValueType)
+        if (sourceIsValueType)
         {
             _currentIL.Emit(OpCodes.Box, sourceType);
         }

@@ -20,6 +20,7 @@ Comparison basis:
   - `empty` statements
   - float literals
   - null literals
+  - null equality/inequality for CLR references, emitted class types, and nullable value types
   - unary operators for numeric negation, logical not, bitwise not, and increment/decrement
   - tuple expressions and tuple deconstruction
   - index access
@@ -34,6 +35,7 @@ Comparison basis:
   - `unchecked`
   - string concatenation in binary `+`
   - null-coalescing `??`
+  - nullable value-type `??` result typing and emission
   - array, nullable, tuple, and function type resolution
   - external CLR type resolution by name/import
   - type alias resolution

@@ -3092,7 +3092,7 @@ public partial class ILCompiler
 
     private static bool CanAssignNullToType(Type targetType)
     {
-        if (!targetType.IsValueType)
+        if (!IsValueTypeLike(targetType))
         {
             return true;
         }
@@ -4862,7 +4862,14 @@ public partial class ILCompiler
 
     private static bool IsValueTypeLike(Type type)
     {
-        return type.IsValueType || (type is TypeBuilder typeBuilder && typeBuilder.BaseType == typeof(ValueType));
+        type = GetByRefElementType(type);
+        if (type is TypeBuilder typeBuilder)
+        {
+            return typeBuilder.BaseType == typeof(ValueType)
+                || typeBuilder.BaseType == typeof(Enum);
+        }
+
+        return type.IsValueType;
     }
 
     private static Type GetByRefElementType(Type type)
@@ -5741,6 +5748,12 @@ public partial class ILCompiler
             if (expression is NullLiteralExpression && Nullable.GetUnderlyingType(_expectedExpressionType) != null)
             {
                 EmitDefaultValue(_expectedExpressionType);
+                return;
+            }
+
+            if (expression is NullLiteralExpression && CanAssignNullToType(_expectedExpressionType))
+            {
+                _currentIL!.Emit(OpCodes.Ldnull);
                 return;
             }
 
@@ -8986,7 +8999,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (!targetType.IsValueType)
+        if (!IsValueTypeLike(targetType))
         {
             _currentIL.Emit(OpCodes.Ldnull);
             return;
@@ -9646,6 +9659,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryEmitNullEqualityComparison(binary))
+        {
+            return;
+        }
+
         // Emit left and right operands
         EmitExpression(binary.Left);
         EmitExpression(binary.Right);
@@ -9718,6 +9736,99 @@ public partial class ILCompiler
         }
     }
 
+    private bool TryEmitNullEqualityComparison(BinaryExpression binary)
+    {
+        if (binary.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual))
+        {
+            return false;
+        }
+
+        var leftIsNull = binary.Left is NullLiteralExpression;
+        var rightIsNull = binary.Right is NullLiteralExpression;
+        if (!leftIsNull && !rightIsNull)
+        {
+            return false;
+        }
+
+        var equalToNull = binary.Operator == BinaryOperator.Equal;
+        if (leftIsNull && rightIsNull)
+        {
+            EmitBooleanConstant(equalToNull);
+            return true;
+        }
+
+        var valueExpression = leftIsNull ? binary.Right : binary.Left;
+        var valueType = GetExpressionType(valueExpression);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(valueType);
+        if (nullableUnderlyingType != null)
+        {
+            EmitNullableNullEqualityComparison(valueExpression, valueType, equalToNull);
+            return true;
+        }
+
+        if (IsValueTypeLike(valueType) && !valueType.IsGenericParameter)
+        {
+            EmitExpression(valueExpression);
+            if (valueType != typeof(void))
+            {
+                _currentIL!.Emit(OpCodes.Pop);
+            }
+
+            EmitBooleanConstant(!equalToNull);
+            return true;
+        }
+
+        EmitReferenceNullEqualityComparison(valueExpression, equalToNull);
+        return true;
+    }
+
+    private void EmitNullableNullEqualityComparison(Expression valueExpression, Type nullableType, bool equalToNull)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var hasValueGetter = nullableType.GetProperty(nameof(Nullable<int>.HasValue))?.GetGetMethod();
+        if (hasValueGetter == null)
+        {
+            throw new InvalidOperationException($"Could not resolve nullable HasValue for {nullableType}");
+        }
+
+        EmitExpression(valueExpression);
+        var valueLocal = _currentIL.DeclareLocal(nullableType);
+        _currentIL.Emit(OpCodes.Stloc, valueLocal);
+        _currentIL.Emit(OpCodes.Ldloca_S, valueLocal);
+        _currentIL.Emit(OpCodes.Call, hasValueGetter);
+
+        if (equalToNull)
+        {
+            _currentIL.Emit(OpCodes.Ldc_I4_0);
+            _currentIL.Emit(OpCodes.Ceq);
+        }
+    }
+
+    private void EmitReferenceNullEqualityComparison(Expression valueExpression, bool equalToNull)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var matchedLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(valueExpression);
+        _currentIL.Emit(equalToNull ? OpCodes.Brfalse : OpCodes.Brtrue, matchedLabel);
+        EmitBooleanConstant(false);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(matchedLabel);
+        EmitBooleanConstant(true);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private void EmitBooleanConstant(bool value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        _currentIL.Emit(value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+    }
+
     private void EmitStringConcatenation(BinaryExpression binary)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
@@ -9733,13 +9844,13 @@ public partial class ILCompiler
         }
 
         EmitExpression(binary.Left);
-        if (leftType.IsValueType)
+        if (IsValueTypeLike(leftType))
         {
             _currentIL.Emit(OpCodes.Box, leftType);
         }
 
         EmitExpression(binary.Right);
-        if (rightType.IsValueType)
+        if (IsValueTypeLike(rightType))
         {
             _currentIL.Emit(OpCodes.Box, rightType);
         }
@@ -9752,12 +9863,13 @@ public partial class ILCompiler
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         var leftType = GetExpressionType(binary.Left);
-        if (leftType.IsValueType && Nullable.GetUnderlyingType(leftType) == null)
+        if (IsValueTypeLike(leftType) && Nullable.GetUnderlyingType(leftType) == null)
         {
             EmitExpression(binary.Left);
             return;
         }
 
+        var resultType = GetNullCoalesceExpressionType(binary);
         EmitExpression(binary.Left);
         var leftLocal = _currentIL.DeclareLocal(leftType);
         _currentIL.Emit(OpCodes.Stloc, leftLocal);
@@ -9779,18 +9891,26 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldloca_S, leftLocal);
             _currentIL.Emit(OpCodes.Call, hasValueGetter);
             _currentIL.Emit(OpCodes.Brtrue, useLeftLabel);
-            EmitExpression(binary.Right);
+            EmitExpressionWithExpectedType(binary.Right, resultType);
             _currentIL.Emit(OpCodes.Br, endLabel);
 
             _currentIL.MarkLabel(useLeftLabel);
-            _currentIL.Emit(OpCodes.Ldloca_S, leftLocal);
-            _currentIL.Emit(OpCodes.Call, getValueOrDefault);
+            if (AreTypeIdentitiesEquivalent(resultType, leftType))
+            {
+                _currentIL.Emit(OpCodes.Ldloc, leftLocal);
+            }
+            else
+            {
+                _currentIL.Emit(OpCodes.Ldloca_S, leftLocal);
+                _currentIL.Emit(OpCodes.Call, getValueOrDefault);
+                EmitValueCoercion(Nullable.GetUnderlyingType(leftType)!, resultType, allowExplicitUserDefinedConversions: false);
+            }
             _currentIL.MarkLabel(endLabel);
             return;
         }
 
         _currentIL.Emit(OpCodes.Brtrue, useLeftLabel);
-        EmitExpression(binary.Right);
+        EmitExpressionWithExpectedType(binary.Right, resultType);
         _currentIL.Emit(OpCodes.Br, endLabel);
 
         _currentIL.MarkLabel(useLeftLabel);
@@ -12645,10 +12765,25 @@ public partial class ILCompiler
             BinaryOperator.Less or BinaryOperator.LessOrEqual or
             BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
             BinaryOperator.And or BinaryOperator.Or => typeof(bool),
-            BinaryOperator.NullCoalesce => GetExpressionType(binary.Left),
+            BinaryOperator.NullCoalesce => GetNullCoalesceExpressionType(binary),
             BinaryOperator.Range => typeof(Range),
             _ => GetExpressionType(binary.Left)
         };
+    }
+
+    private Type GetNullCoalesceExpressionType(BinaryExpression binary)
+    {
+        var leftType = GetExpressionType(binary.Left);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(leftType);
+        if (nullableUnderlyingType == null)
+        {
+            return leftType;
+        }
+
+        var rightType = GetExpressionType(binary.Right);
+        return Nullable.GetUnderlyingType(rightType) != null
+            ? rightType
+            : nullableUnderlyingType;
     }
 
     private Type GetUnaryExpressionType(UnaryExpression unary)
