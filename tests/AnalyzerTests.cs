@@ -4708,6 +4708,59 @@ func Hello(): string {
     }
 
     [Fact]
+    public void BCL_MethodCall_WithNamedOptionalAndParamsArguments_NoErrors()
+    {
+        var result = AnalyzeWithSource(@"
+            import System
+            import System.Collections.Generic
+            import System.Text.Json
+
+            class Payload {
+                Name: string
+            }
+
+            func Main() {
+                payload := JsonSerializer.Deserialize<Payload>(json: ""{}"")
+                names := new List<string>()
+                names.Add(""alpha"")
+                names.Add(""beta"")
+                joined := String.Join(separator: "","", values: names)
+                formatted := String.Format(format: ""{0}-{1}"", arg0: ""left"", arg1: ""right"")
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
+    public void QueryableLinq_ExpressionTreeLambdas_InferReturnType()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                filtered := query.Where(x => x > 1).Select(x => x.ToString())
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+
+        var queryType = result.SemanticModel.LookupIdentifier("query");
+        Assert.Equal("IQueryable<int>", queryType?.ToString());
+
+        var filteredType = result.SemanticModel.LookupIdentifier("filtered");
+        Assert.Equal("IQueryable<string>", filteredType?.ToString());
+    }
+
+    [Fact]
     public void BCL_MethodCall_WithOutArgument_NoNoMatchingOverload()
     {
         var result = AnalyzeWithSource(@"

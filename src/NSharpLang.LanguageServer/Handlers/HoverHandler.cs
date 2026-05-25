@@ -221,7 +221,7 @@ public class HoverHandler : HoverHandlerBase
                 return ResolveMemberAccess(memberAccess, resolver);
 
             case CallExpression call when call.Callee is MemberAccessExpression callMemberAccess:
-                return ResolveMethodCall(callMemberAccess, resolver);
+                return ResolveMethodCall(call, callMemberAccess, resolver, doc);
 
             default:
                 // Try to resolve the expression type generically
@@ -297,9 +297,14 @@ public class HoverHandler : HoverHandlerBase
         return null;
     }
 
-    private Hover? ResolveMethodCall(MemberAccessExpression memberAccess, ExpressionTypeResolver resolver)
+    private Hover? ResolveMethodCall(
+        CallExpression call,
+        MemberAccessExpression memberAccess,
+        ExpressionTypeResolver resolver,
+        DocumentState doc)
     {
-        var memberInfo = TryResolveMemberInfo(memberAccess, resolver);
+        var memberInfo = doc.SemanticModel?.LookupReflectionCallTarget(call.Line, call.Column)
+            ?? TryResolveMemberInfo(memberAccess, resolver);
         if (memberInfo is MethodInfo method)
         {
             var overloads = TryGetMethodOverloads(memberAccess, resolver);
@@ -465,7 +470,13 @@ public class HoverHandler : HoverHandlerBase
         sb.AppendLine();
         sb.AppendLine("```csharp");
 
-        foreach (var overload in overloads.Take(5)) // Limit to 5 overloads
+        var orderedOverloads = overloads
+            .OrderByDescending(overload => ReflectionMethodIdentity.MethodsMatch(overload, primary))
+            .ThenBy(overload => overload.GetParameters().Length)
+            .ThenBy(overload => string.Join(",", overload.GetParameters().Select(p => p.ParameterType.FullName)))
+            .Take(5);
+
+        foreach (var overload in orderedOverloads)
         {
             sb.AppendLine(FormatMethodSignature(overload));
         }

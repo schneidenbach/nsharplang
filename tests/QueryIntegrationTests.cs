@@ -943,6 +943,31 @@ func Main() {
     }
 
     [Fact]
+    public void Type_QueryableLinqChain_ReportsProjectedReturnType()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Program.nl", """
+import System.Linq
+
+func Main() {
+    source := [1, 2, 3]
+    query := source.AsQueryable()
+    filtered := query.Where(x => x > 1).Select(x => x.ToString())
+}
+"""));
+
+        var programPath = Path.Combine(snapshot.ProjectRoot, "Program.nl");
+        var filteredLine = FindLineInFile(programPath, "filtered :=");
+        var filteredColumn = FindColumnInFile(programPath, filteredLine, "filtered");
+
+        var result = _service.GetTypeAtPosition(snapshot, "Program.nl", filteredLine, filteredColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("filtered", result!.Name);
+        Assert.Equal("IQueryable<string>", result.ResolvedType);
+    }
+
+    [Fact]
     public void References_IssueTracker_MethodDeclaration_IsNotDuplicatedAsUsage()
     {
         // Service.nl line 64: func GetAll(): List<Issue>
