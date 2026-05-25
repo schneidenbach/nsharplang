@@ -238,9 +238,12 @@ func Read(result: Result<string>): string {
 
         var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
 
-        var action = Assert.Single(actions, a => a.DiagnosticCode == "NL111");
-        Assert.Contains("unsafe .Value", action.Title);
-        Assert.Equal(FixSafety.SuggestionOnly, action.Safety);
-        Assert.Empty(action.Edits);
+        var mustAction = Assert.Single(actions, a => a.DiagnosticCode == "NL111" && a.Safety == FixSafety.ReviewNeeded);
+        Assert.Contains("must result", mustAction.Title);
+        Assert.NotEmpty(mustAction.Edits);
+
+        var suggestion = Assert.Single(actions, a => a.DiagnosticCode == "NL111" && a.Safety == FixSafety.SuggestionOnly);
+        Assert.Contains("match", suggestion.Title);
+        Assert.Empty(suggestion.Edits);
     }
 }

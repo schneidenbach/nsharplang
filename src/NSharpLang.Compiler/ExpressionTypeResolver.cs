@@ -35,6 +35,7 @@ public class ExpressionTypeResolver
             IdentifierExpression id => ResolveIdentifierTypeInfo(id.Name),
             MemberAccessExpression memberAccess => ResolveMemberAccessTypeInfo(memberAccess),
             CallExpression call => ResolveCallTypeInfo(call),
+            MustExpression must => ResolveMustTypeInfo(must),
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression => BuiltInTypes.Double,
             CharLiteralExpression => BuiltInTypes.Char,
@@ -240,6 +241,7 @@ public class ExpressionTypeResolver
             IdentifierExpression id => ResolveIdentifierType(id.Name),
             MemberAccessExpression memberAccess => ResolveMemberAccessType(memberAccess),
             CallExpression call => ResolveCallType(call),
+            MustExpression must => ResolveMustType(must),
             IntLiteralExpression => typeof(int),
             FloatLiteralExpression => typeof(double),
             CharLiteralExpression => typeof(char),
@@ -250,6 +252,18 @@ public class ExpressionTypeResolver
             ArrayLiteralExpression => typeof(Array),
             _ => null
         };
+    }
+
+    private TypeInfo? ResolveMustTypeInfo(MustExpression must)
+    {
+        var operandType = ResolveExpressionTypeInfo(must.Expression);
+        return operandType is NullableTypeInfo nullable ? nullable.InnerType : operandType;
+    }
+
+    private Type? ResolveMustType(MustExpression must)
+    {
+        var operandType = ResolveExpressionType(must.Expression);
+        return operandType != null ? Nullable.GetUnderlyingType(operandType) ?? operandType : null;
     }
 
     private TypeInfo ResolveTypeReference(TypeReference typeRef)

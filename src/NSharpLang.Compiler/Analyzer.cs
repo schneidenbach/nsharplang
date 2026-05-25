@@ -1698,6 +1698,14 @@ public class Analyzer : IDisposable
                 thenNarrowings.Add((ident.Name, narrowedType));
             }
         }
+        else if (condition is MemberAccessExpression hasValueAccess
+                 && TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings))
+        {
+        }
+        else if (condition is UnaryExpression { Operator: UnaryOperator.Not, Operand: MemberAccessExpression negatedHasValue }
+                 && TryExtractHasValueNarrowing(negatedHasValue, elseNarrowings))
+        {
+        }
 
         return (thenNarrowings, elseNarrowings);
     }
@@ -1712,6 +1720,23 @@ public class Analyzer : IDisposable
                 narrowings.Add((ident.Name, nullable.InnerType));
             }
         }
+    }
+
+    private bool TryExtractHasValueNarrowing(MemberAccessExpression memberAccess, List<(string, TypeInfo)> narrowings)
+    {
+        if (memberAccess.MemberName != "HasValue" || memberAccess.Object is not IdentifierExpression ident)
+        {
+            return false;
+        }
+
+        var symbolType = LookupSymbol(ident.Name);
+        if (symbolType is not NullableTypeInfo nullable)
+        {
+            return false;
+        }
+
+        narrowings.Add((ident.Name, nullable.InnerType));
+        return true;
     }
 
     private void AnalyzeForStatement(ForStatement forStmt)
@@ -2000,7 +2025,14 @@ public class Analyzer : IDisposable
         {
             case IdentifierPattern identPattern:
                 // Check if this is a qualified union case name (e.g., "Result.Success")
-                if (valueType is UnionTypeInfo ut && identPattern.Name.Contains('.'))
+                if (valueType is NullableTypeInfo nullableValueType && !identPattern.Name.Contains('.'))
+                {
+                    if (identPattern.Name != "_")
+                    {
+                        DeclareSymbol(identPattern.Name, nullableValueType.InnerType, identPattern.Line, identPattern.Column);
+                    }
+                }
+                else if (valueType is UnionTypeInfo ut && identPattern.Name.Contains('.'))
                 {
                     if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
@@ -2287,6 +2319,7 @@ public class Analyzer : IDisposable
             IdentifierExpression ident => ResolveIdentifier(ident.Name, ident.Line, ident.Column),
             BinaryExpression binary => AnalyzeBinaryExpression(binary),
             UnaryExpression unary => AnalyzeUnaryExpression(unary),
+            MustExpression must => AnalyzeMustExpression(must),
             MemberAccessExpression member => AnalyzeMemberAccess(member),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
@@ -2590,6 +2623,30 @@ public class Analyzer : IDisposable
         };
     }
 
+    private TypeInfo AnalyzeMustExpression(MustExpression must)
+    {
+        var operandType = AnalyzeExpression(must.Expression);
+
+        if (operandType is NullableTypeInfo nullable)
+        {
+            return nullable.InnerType;
+        }
+
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        Warning(
+            ErrorCode.NullabilityWarning,
+            $"This 'must' unwrap is redundant — the expression is already known to be '{operandType}'",
+            must.Line,
+            must.Column,
+            "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.",
+            length: 4);
+        return operandType;
+    }
+
     private TypeInfo AnalyzeMemberAccess(MemberAccessExpression member)
     {
         // Check if this is an aliased import access (Alias.Symbol)
@@ -2618,11 +2675,84 @@ public class Analyzer : IDisposable
         }
 
         var objectType = AnalyzeExpression(member.Object);
+
+        if (TryResolveNullableMemberAccess(member, objectType, out var nullableMemberType))
+        {
+            return nullableMemberType;
+        }
+
         ValidateDeclaredMemberVisibility(objectType, member);
         TryRecordMemberBinding(objectType, member);
 
         // Resolve member on type
         return ResolveMember(objectType, member.MemberName, includeStaticMembers: IsStaticMemberAccessTarget(member.Object));
+    }
+
+    private bool TryResolveNullableMemberAccess(MemberAccessExpression member, TypeInfo objectType, out TypeInfo memberType)
+    {
+        memberType = BuiltInTypes.Unknown;
+
+        var nullableType = objectType as NullableTypeInfo;
+        var isNarrowedNullableOrigin = false;
+        if (nullableType == null
+            && member.Object is IdentifierExpression identifier
+            && IsPrimitiveLikeType(objectType)
+            && TryFindNullableOriginForIdentifier(identifier.Name, out var origin))
+        {
+            nullableType = origin;
+            isNarrowedNullableOrigin = true;
+        }
+
+        if (nullableType == null)
+        {
+            return false;
+        }
+
+        if (member.MemberName == "HasValue")
+        {
+            memberType = BuiltInTypes.Bool;
+            return true;
+        }
+
+        if (member.MemberName == "Value")
+        {
+            if (!isNarrowedNullableOrigin)
+            {
+                Warning(
+                    ErrorCode.NullabilityWarning,
+                    "This '.Value' access can throw when the nullable value is absent",
+                    member.Line,
+                    GetMemberNameColumn(member),
+                    "Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.",
+                    length: Math.Max(1, member.MemberName.Length));
+            }
+
+            memberType = nullableType.InnerType;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryFindNullableOriginForIdentifier(string name, out NullableTypeInfo nullableType)
+    {
+        foreach (var scope in _scopes.Skip(1))
+        {
+            if (scope.Symbols.TryGetValue(name, out var type)
+                && type is NullableTypeInfo nullable)
+            {
+                nullableType = nullable;
+                return true;
+            }
+        }
+
+        nullableType = null!;
+        return false;
+    }
+
+    private static bool IsPrimitiveLikeType(TypeInfo type)
+    {
+        return type is SimpleTypeInfo or ReflectionTypeInfo;
     }
 
     private bool IsStaticMemberAccessTarget(Expression target)
@@ -2914,6 +3044,14 @@ public class Analyzer : IDisposable
 
     private TypeInfo ResolveMember(TypeInfo objectType, string memberName, bool includeStaticMembers = true)
     {
+        if (objectType is NullableTypeInfo nullableType)
+        {
+            if (memberName == "HasValue")
+                return BuiltInTypes.Bool;
+            if (memberName == "Value")
+                return nullableType.InnerType;
+        }
+
         // Convert built-in simple types to reflection types for full CLR member resolution.
         // This enables member access on literals and built-in types (e.g., 5.ToString(), "hello".Length)
         if (objectType is SimpleTypeInfo && !BuiltInTypes.IsUnknown(objectType)
@@ -6431,6 +6569,10 @@ public class Analyzer : IDisposable
         {
             CheckEnumMatchExhaustiveness(match, enumType);
         }
+        else if (valueType is NullableTypeInfo nullableType)
+        {
+            CheckNullableMatchExhaustiveness(match, nullableType);
+        }
         else
         {
             // For non-union/non-enum types, mark exhaustive if there's a wildcard or catch-all
@@ -6447,6 +6589,66 @@ public class Analyzer : IDisposable
         }
 
         return resultType ?? BuiltInTypes.Unknown;
+    }
+
+    private void CheckNullableMatchExhaustiveness(MatchExpression match, NullableTypeInfo nullableType)
+    {
+        var coversNull = false;
+        var coversPresent = false;
+
+        foreach (var matchCase in match.Cases)
+        {
+            if (matchCase.Guard != null)
+            {
+                continue;
+            }
+
+            switch (matchCase.Pattern)
+            {
+                case IdentifierPattern identifier when identifier.Name == "_":
+                    match.IsExhaustive = true;
+                    return;
+
+                case LiteralPattern { Literal: NullLiteralExpression }:
+                    coversNull = true;
+                    break;
+
+                case IdentifierPattern identifier when !identifier.Name.Contains('.'):
+                    coversPresent = true;
+                    break;
+
+                case TypePattern:
+                case ObjectPattern:
+                case PositionalPattern:
+                case ListPattern:
+                    coversPresent = true;
+                    break;
+            }
+        }
+
+        if (coversNull && coversPresent)
+        {
+            match.IsExhaustive = true;
+            return;
+        }
+
+        var missing = new List<string>();
+        if (!coversNull)
+        {
+            missing.Add("null");
+        }
+        if (!coversPresent)
+        {
+            missing.Add($"present {nullableType.InnerType}");
+        }
+
+        var missingText = string.Join(" and ", missing);
+        Error(
+            ErrorCode.NonExhaustiveMatch,
+            $"This nullable match doesn't cover {missingText} — handle both 'null' and a non-null value arm",
+            match.Line,
+            match.Column,
+            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.");
     }
 
     private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)

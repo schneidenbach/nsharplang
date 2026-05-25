@@ -2581,6 +2581,7 @@ public class Transpiler
             IdentifierExpression ident => TranspileIdentifierExpression(ident),
             BinaryExpression binary => TranspileBinaryExpression(binary),
             UnaryExpression unary => TranspileUnaryExpression(unary),
+            MustExpression must => TranspileMustExpression(must),
             MemberAccessExpression member => TranspileMemberAccess(member),
             IndexAccessExpression index => TranspileIndexAccess(index),
             CallExpression call => TranspileCallExpression(call),
@@ -2767,9 +2768,42 @@ public class Transpiler
         };
     }
 
+    private string TranspileMustExpression(MustExpression must)
+    {
+        var expr = TranspileExpression(must.Expression);
+        var operandType = GetRecordedExpressionType(must.Expression);
+        var nullableOperandType = GetNullableExpressionType(must.Expression);
+
+        if (nullableOperandType == null
+            && operandType != null
+            && operandType is not NullableTypeInfo
+            && IsValueTypeInfo(operandType))
+        {
+            return expr;
+        }
+
+        return $"({expr} ?? throw new System.InvalidOperationException(\"must unwrap failed: value was null\"))";
+    }
+
     private string TranspileMemberAccess(MemberAccessExpression member)
     {
         var obj = TranspileExpression(member.Object);
+
+        if (GetNullableExpressionType(member.Object) is NullableTypeInfo nullableType)
+        {
+            if (member.MemberName == "HasValue")
+            {
+                return IsValueTypeInfo(nullableType.InnerType)
+                    ? $"{obj}.HasValue"
+                    : $"({obj} != null)";
+            }
+
+            if (member.MemberName == "Value")
+            {
+                return TranspileMustExpression(new MustExpression(member.Object, member.Line, member.Column));
+            }
+        }
+
         var accessor = member.IsNullConditional ? "?." : ".";
         return $"{obj}{accessor}{member.MemberName}";
     }
@@ -3056,6 +3090,7 @@ public class Transpiler
     {
         // Match expressions export to switch expressions in C#
         var value = TranspileExpression(match.Value);
+        var nullableValueType = GetNullableExpressionType(match.Value);
 
         // Check if the match already has a wildcard/catch-all arm
         bool hasWildcardOrCatchAll = match.Cases.Any(c =>
@@ -3067,7 +3102,9 @@ public class Transpiler
         {
             var aliases = new Dictionary<string, string>();
             _activePatternBindingAliases = aliases;
-            var pattern = TranspilePattern(c.Pattern);
+            var pattern = nullableValueType != null
+                ? TranspileNullableMatchPattern(c.Pattern, nullableValueType.InnerType)
+                : TranspilePattern(c.Pattern);
             _activePatternBindingAliases = null;
 
             string expression;
@@ -3125,6 +3162,22 @@ public class Transpiler
         }
 
         return switchExpr;
+    }
+
+    private string TranspileNullableMatchPattern(Pattern pattern, TypeInfo innerType)
+    {
+        if (pattern is IdentifierPattern identifier
+            && identifier.Name != "_"
+            && !identifier.Name.Contains('.'))
+        {
+            var binding = GetPatternBindingAlias(identifier.Name);
+            var innerTypeName = TypeInfoToCSharpName(innerType);
+            return innerTypeName != null
+                ? $"{innerTypeName} {binding}"
+                : $"var {binding} when {binding} != null";
+        }
+
+        return TranspilePattern(pattern);
     }
 
     private string TranspileWithExpression(WithExpression with)
@@ -3686,6 +3739,7 @@ public class Transpiler
             InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
             NullLiteralExpression => "object", // Null literal - should be caught by analyzer
+            MustExpression must => InferTypeFromExpression(must.Expression),
 
             // Array literals
             ArrayLiteralExpression array when array.Elements.Count > 0 =>
@@ -3742,6 +3796,7 @@ public class Transpiler
             AwaitExpression => true,
             BinaryExpression binary => ContainsAwaitInExpression(binary.Left) || ContainsAwaitInExpression(binary.Right),
             UnaryExpression unary => ContainsAwaitInExpression(unary.Operand),
+            MustExpression must => ContainsAwaitInExpression(must.Expression),
             CallExpression call => ContainsAwaitInExpression(call.Callee) || call.Arguments.Any(arg => ContainsAwaitInExpression(arg.Value)),
             MemberAccessExpression member => ContainsAwaitInExpression(member.Object),
             AssignmentExpression assign => ContainsAwaitInExpression(assign.Target) || ContainsAwaitInExpression(assign.Value),
@@ -3783,6 +3838,31 @@ public class Transpiler
     /// <summary>
     /// Converts a TypeInfo to its C# type name string.
     /// </summary>
+    private TypeInfo? GetRecordedExpressionType(Expression expression)
+    {
+        return _semanticModel != null
+            && _semanticModel.ExpressionTypes.TryGetValue((expression.Line, expression.Column), out var type)
+                ? type
+                : null;
+    }
+
+    private NullableTypeInfo? GetNullableExpressionType(Expression expression)
+    {
+        if (GetRecordedExpressionType(expression) is NullableTypeInfo nullableType)
+        {
+            return nullableType;
+        }
+
+        if (_semanticModel != null && expression is IdentifierExpression identifier)
+        {
+            var declaredType = _semanticModel.LookupIdentifierAtPosition(identifier.Name, expression.Line, expression.Column)
+                ?? _semanticModel.LookupIdentifier(identifier.Name);
+            return declaredType as NullableTypeInfo;
+        }
+
+        return null;
+    }
+
     private string? TypeInfoToCSharpName(TypeInfo typeInfo)
     {
         return typeInfo switch

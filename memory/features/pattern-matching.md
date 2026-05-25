@@ -159,6 +159,19 @@ result := status match {
 - Unguarded wildcard `_` or catch-all binding `other` covers all remaining cases
 - If guards are present but no unguarded fallback exists, the compiler requires all union cases to be covered by unguarded arms
 
+### Nullable Exhaustiveness
+
+Nullable matches must cover both absent and present cases:
+
+```
+result := match maybeAge {
+    null => 0,
+    age => age + 1
+}
+```
+
+The `null` arm covers absence. A non-qualified identifier arm binds the present value as the non-null inner type, so `age` above has type `int`, not `int?`. Missing either side reports a non-exhaustive nullable match diagnostic. An unguarded `_` arm still covers any remaining nullable case.
+
 ### When Exhaustiveness is Skipped
 - Non-union types (can't enumerate all possible values)
 - Type patterns (infinite possible types)

@@ -2308,6 +2308,7 @@ public class Parser
             TokenType.BitwiseNot or
             TokenType.Increment or
             TokenType.Decrement or
+            TokenType.Must or
             TokenType.Await or
             TokenType.Throw or
             // Keywords that are also expressions
@@ -3456,6 +3457,13 @@ public class Parser
             return new AwaitExpression(expr, awaitToken.Line, awaitToken.Column);
         }
 
+        if (Check(TokenType.Must))
+        {
+            var mustToken = Advance();
+            var expr = ParseUnaryExpression();
+            return new MustExpression(expr, mustToken.Line, mustToken.Column);
+        }
+
         if (Check(TokenType.Throw))
         {
             var throwToken = Advance();
@@ -4529,6 +4537,7 @@ public class Parser
                     TokenType.BitwiseNot or
                     TokenType.Increment or
                     TokenType.Decrement or
+                    TokenType.Must or
                     TokenType.Await or
                     TokenType.Throw;
             }

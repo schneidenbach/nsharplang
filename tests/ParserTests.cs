@@ -5838,4 +5838,21 @@ func Use(items: List<Person?>[], callback: Func<Person, string>): void {
         var callbackPerson = Assert.IsType<SimpleTypeReference>(callbackType.ParameterTypes[0]);
         Assert.Equal(new SourceSpan(5, 49, 5, 55), callbackPerson.Span);
     }
+
+    [Fact]
+    public void MustExpression_ParsesAsUnaryExpression()
+    {
+        var source = """
+func Test(input: int?) {
+    value := must input
+}
+""";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var valueDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var must = Assert.IsType<MustExpression>(valueDecl.Initializer);
+
+        Assert.IsType<IdentifierExpression>(must.Expression);
+    }
 }

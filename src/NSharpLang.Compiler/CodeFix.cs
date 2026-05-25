@@ -523,7 +523,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
             "NL104" => Suggest(diagnostic, "Rewrite out var / TryGetValue pattern for N#"),
             "NL105" => Suggest(diagnostic, "Convert DTO-shaped class to an N# record"),
             "NL106" => Suggest(diagnostic, "Replace catch-to-500 boilerplate with centralized error handling"),
-            "NL111" => Suggest(diagnostic, "Replace unsafe .Value access with match, ??, or an explicit null/HasValue guard"),
+            "NL111" => GetUnsafeValueActions(diagnostic, sourceCode),
             _ => new List<CodeAction>()
         };
     }
@@ -619,6 +619,113 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
             FixSafety.Safe));
 
         return actions;
+    }
+
+    private static List<CodeAction> GetUnsafeValueActions(Diagnostic diagnostic, string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
+        var line = diagnostic.Location.Line;
+        if (line <= 0 || line > sourceLines.Length)
+            return Suggest(diagnostic, "Replace unsafe .Value access with match, ??, or an explicit null/HasValue guard");
+
+        var sourceLine = sourceLines[line - 1];
+        var dotIndex = Math.Max(0, diagnostic.Location.Column - 1);
+        if (dotIndex >= sourceLine.Length || sourceLine[dotIndex] != '.')
+        {
+            dotIndex = sourceLine.IndexOf(".Value", dotIndex, StringComparison.Ordinal);
+        }
+
+        if (dotIndex >= 0
+            && dotIndex + ".Value".Length <= sourceLine.Length
+            && sourceLine.AsSpan(dotIndex, ".Value".Length).SequenceEqual(".Value"))
+        {
+            var receiverStart = FindValueReceiverStart(sourceLine, dotIndex);
+            if (receiverStart < dotIndex)
+            {
+                var receiver = sourceLine[receiverStart..dotIndex];
+                actions.Add(new CodeAction(
+                    $"Replace '.Value' with explicit 'must {receiver}' unwrap",
+                    "NL111",
+                    new List<TextEdit> { new(line, receiverStart, line, dotIndex + ".Value".Length, $"must {receiver}") },
+                    CodeActionKind.QuickFix,
+                    FixSafety.ReviewNeeded));
+            }
+        }
+
+        actions.Add(new CodeAction(
+            "Handle nullable value with match",
+            "NL111",
+            new List<TextEdit>(),
+            CodeActionKind.RefactorRewrite,
+            FixSafety.SuggestionOnly));
+
+        return actions;
+    }
+
+    private static int FindValueReceiverStart(string sourceLine, int dotIndex)
+    {
+        var index = dotIndex - 1;
+        while (index >= 0)
+        {
+            var ch = sourceLine[index];
+            if (char.IsLetterOrDigit(ch) || ch == '_')
+            {
+                while (index >= 0 && (char.IsLetterOrDigit(sourceLine[index]) || sourceLine[index] == '_'))
+                {
+                    index--;
+                }
+                continue;
+            }
+
+            if (ch == '.')
+            {
+                index--;
+                continue;
+            }
+
+            if (ch == ')')
+            {
+                var open = FindMatchingOpen(sourceLine, index, '(', ')');
+                if (open < 0)
+                    break;
+                index = open - 1;
+                continue;
+            }
+
+            if (ch == ']')
+            {
+                var open = FindMatchingOpen(sourceLine, index, '[', ']');
+                if (open < 0)
+                    break;
+                index = open - 1;
+                continue;
+            }
+
+            break;
+        }
+
+        return index + 1;
+    }
+
+    private static int FindMatchingOpen(string sourceLine, int closeIndex, char open, char close)
+    {
+        var depth = 0;
+        for (var i = closeIndex; i >= 0; i--)
+        {
+            if (sourceLine[i] == close)
+            {
+                depth++;
+            }
+            else if (sourceLine[i] == open)
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+        }
+
+        return -1;
     }
 
     private static List<CodeAction> Suggest(Diagnostic diagnostic, string title)

@@ -514,6 +514,16 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestMustKeyword()
+    {
+        var source = "must";
+        var tokens = Tokenize(source);
+        Assert.Equal(2, tokens.Count); // must + EOF
+        Assert.Equal(TokenType.Must, tokens[0].Type);
+        Assert.Equal("must", tokens[0].Value);
+    }
+
+    [Fact]
     public void TestImportKeyword()
     {
         var source = "import";

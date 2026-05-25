@@ -4302,10 +4302,61 @@ func Main() {
 
         // Run the analyzer to set IsExhaustive and other semantic flags
         using var analyzer = new Analyzer();
-        analyzer.Analyze(unit, "test.nl", null, source);
+        analyzer.LoadSystemAssemblies();
+        var analysis = analyzer.Analyze(unit, "test.nl", null, source);
 
-        var transpiler = new Transpiler(unit);
+        var transpiler = new Transpiler(unit, semanticModel: analysis.SemanticModel);
         return transpiler.Transpile();
+    }
+
+    [Fact]
+    public void TestMustExpression_TranspilesToExplicitThrow()
+    {
+        var source = @"
+func Main(input: int?): int {
+    return must input
+}
+        ";
+
+        var result = TranspileWithAnalysis(source);
+
+        Assert.Contains("return (input ?? throw new System.InvalidOperationException(\"must unwrap failed: value was null\"));", result);
+    }
+
+    [Fact]
+    public void TestNullableHasValueAndValueAccess_TranspilesWithExplicitUnwrap()
+    {
+        var source = @"
+func Main(input: int?): int {
+    if input.HasValue {
+        return input.Value
+    }
+    return 0
+}
+        ";
+
+        var result = TranspileWithAnalysis(source);
+
+        Assert.Contains("if (input.HasValue)", result);
+        Assert.Contains("return (input ?? throw new System.InvalidOperationException(\"must unwrap failed: value was null\"));", result);
+    }
+
+    [Fact]
+    public void TestNullableMatch_TranspilesPresentBindingToTypedPattern()
+    {
+        var source = @"
+func Main(input: int?): int {
+    return match input {
+        null => 0,
+        value => value + 1
+    }
+}
+        ";
+
+        var result = TranspileWithAnalysis(source);
+
+        Assert.Contains("null => 0", result);
+        Assert.Contains("int value => (value + 1)", result);
     }
 
     [Fact]

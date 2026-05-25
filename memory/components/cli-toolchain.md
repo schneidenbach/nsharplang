@@ -231,6 +231,7 @@ $ nlc fix --file F                  # fix single file
 | NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+| NL111 | Info | `unsafe-value-access` | C# migration smell: direct `.Value` unwrap can throw; prefer `must`, `match`, or an explicit guard |
 
 **Currently supported auto-fixes (`nlc fix`):**
 
@@ -243,6 +244,7 @@ $ nlc fix --file F                  # fix single file
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
 | NL015 | Replace `let` with `const` | `Safe` | |
+| NL111 | Replace `receiver.Value` with `must receiver`; also reports a match-based rewrite suggestion | `ReviewNeeded` + `SuggestionOnly` | ReviewNeeded edit makes the throw explicit; SuggestionOnly carries no edits |
 
 **`FixSafety` levels** (on `CodeAction`):
 - `Safe` — always correct to apply automatically (default `nlc fix` behavior)
