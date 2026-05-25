@@ -335,8 +335,31 @@ public class CompletionHandler : CompletionHandlerBase
             }
         }
 
-        // Try to resolve the type of the object expression (the part before the dot)
         var resolver = new ExpressionTypeResolver(doc.SemanticModel!);
+        var objectTypeInfo = resolver.ResolveExpressionTypeInfo(memberAccess.Object);
+        if (objectTypeInfo != null && !BuiltInTypes.IsUnknown(objectTypeInfo))
+        {
+            var nsharpMembers = GetNSharpTypeMembers(objectTypeInfo, doc);
+            if (nsharpMembers.Count > 0)
+            {
+                _logger.LogDebug("Resolved chained receiver as N# type '{Type}' with {Count} members",
+                    objectTypeInfo, nsharpMembers.Count);
+                return nsharpMembers;
+            }
+
+            var clrType = ResolveClrType(objectTypeInfo);
+            if (clrType != null)
+            {
+                var mode = IsStaticTypeAccess(memberAccess.Object, doc)
+                    ? MemberAccessMode.StaticOnly
+                    : MemberAccessMode.InstanceOnly;
+
+                _logger.LogDebug("Resolved chained receiver as CLR type: {Type}, mode: {Mode}", clrType.FullName, mode);
+                return MembersToCompletionItems(_typeResolver.GetMembers(clrType, mode), doc, clrType);
+            }
+        }
+
+        // Try to resolve the type of the object expression (the part before the dot)
         var objectType = resolver.ResolveExpressionType(memberAccess.Object);
 
         if (objectType != null)
@@ -504,6 +527,33 @@ public class CompletionHandler : CompletionHandlerBase
 
         // If the identifier resolves as a type name, it's static access
         return _typeResolver.ResolveType(id.Name) != null;
+    }
+
+    private Type? ResolveClrType(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            ReflectionTypeInfo reflection => reflection.Type,
+            SimpleTypeInfo simple => _typeResolver.ResolveType(simple.Name),
+            ArrayTypeInfo array => ResolveClrType(array.ElementType)?.MakeArrayType(),
+            NullableTypeInfo nullable => ResolveNullableClrType(nullable.InnerType),
+            GenericTypeInfo generic => _typeResolver.ResolveType(generic.Name)
+                ?? _typeResolver.ResolveType(generic.ToString()),
+            _ => _typeResolver.ResolveType(typeInfo.ToString())
+        };
+    }
+
+    private Type? ResolveNullableClrType(TypeInfo innerType)
+    {
+        var clrInnerType = ResolveClrType(innerType);
+        if (clrInnerType == null)
+        {
+            return null;
+        }
+
+        return clrInnerType.IsValueType
+            ? typeof(Nullable<>).MakeGenericType(clrInnerType)
+            : clrInnerType;
     }
 
     /// <summary>

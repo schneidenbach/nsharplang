@@ -2394,10 +2394,18 @@ public class CodeIntelligenceService
     private TypeInfo? ResolveTypeInfoFromExpression(Expression? expr, SemanticModel? semanticModel,
         ProjectSnapshot snapshot, CompilationUnit currentUnit)
     {
+        if (expr != null && semanticModel != null)
+        {
+            var resolved = new ExpressionTypeResolver(semanticModel).ResolveExpressionTypeInfo(expr);
+            if (resolved != null && !BuiltInTypes.IsUnknown(resolved))
+                return resolved;
+        }
+
         return expr switch
         {
             IdentifierExpression id => ResolveTypeInfoByName(id.Name, semanticModel, snapshot, currentUnit),
-            MemberAccessExpression ma => ResolveTypeInfoByName(ma.MemberName, semanticModel, snapshot, currentUnit),
+            MemberAccessExpression ma => ResolveMemberTypeInfo(ma, semanticModel, snapshot, currentUnit)
+                ?? ResolveTypeInfoByName(ma.MemberName, semanticModel, snapshot, currentUnit),
             CallExpression call => ResolveTypeInfoFromExpression(call.Callee, semanticModel, snapshot, currentUnit),
             NewExpression newExpr when newExpr.Type != null => ResolveTypeReferenceToTypeInfo(newExpr.Type, snapshot),
             WithExpression withExpr => ResolveTypeInfoFromExpression(withExpr.Target, semanticModel, snapshot, currentUnit),
@@ -2413,6 +2421,59 @@ public class CodeIntelligenceService
             NullLiteralExpression => new SimpleTypeInfo("object"),
             _ => null
         };
+    }
+
+    private TypeInfo? ResolveMemberTypeInfo(MemberAccessExpression memberAccess, SemanticModel? semanticModel,
+        ProjectSnapshot snapshot, CompilationUnit currentUnit)
+    {
+        var receiverType = ResolveTypeInfoFromExpression(memberAccess.Object, semanticModel, snapshot, currentUnit);
+        if (receiverType == null && memberAccess.Object is IdentifierExpression receiverId)
+            receiverType = ResolveTypeInfoByName(receiverId.Name, semanticModel, snapshot, currentUnit);
+
+        if (receiverType == null)
+            return null;
+
+        return FindMemberTypeInfo(snapshot, receiverType, memberAccess.MemberName);
+    }
+
+    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, TypeInfo receiverType, string memberName)
+    {
+        return receiverType switch
+        {
+            ClassTypeInfo classType => FindMemberTypeInfo(snapshot, classType.Declaration, memberName)
+                ?? (classType.Declaration.BaseClass != null
+                    ? FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(classType.Declaration.BaseClass, snapshot), memberName)
+                    : null),
+            StructTypeInfo structType => FindMemberTypeInfo(snapshot, structType.Declaration, memberName),
+            RecordTypeInfo recordType => FindMemberTypeInfo(snapshot, recordType.Declaration, memberName),
+            InterfaceTypeInfo interfaceType => FindMemberTypeInfo(snapshot, interfaceType.Declaration, memberName),
+            EnumTypeInfo => receiverType,
+            UnionTypeInfo => receiverType,
+            AliasTypeInfo aliasType => FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
+            NullableTypeInfo nullableType => FindMemberTypeInfo(snapshot, nullableType.InnerType, memberName),
+            _ => null
+        };
+    }
+
+    private TypeInfo? FindMemberTypeInfo(ProjectSnapshot snapshot, Declaration typeDeclaration, string memberName)
+    {
+        foreach (var member in GetDeclarationMembers(typeDeclaration) ?? Enumerable.Empty<Declaration>())
+        {
+            if (GetDeclarationName(member) != memberName)
+                continue;
+
+            return member switch
+            {
+                FieldDeclaration field when field.Type != null => ResolveTypeReferenceToTypeInfo(field.Type, snapshot),
+                PropertyDeclaration property => ResolveTypeReferenceToTypeInfo(property.Type, snapshot),
+                FunctionDeclaration function => function.ReturnType != null
+                    ? ResolveTypeReferenceToTypeInfo(function.ReturnType, snapshot)
+                    : new SimpleTypeInfo("void"),
+                _ => null
+            };
+        }
+
+        return null;
     }
 
     private TypeInfo? ResolveTypeInfoByName(string name, SemanticModel? semanticModel,

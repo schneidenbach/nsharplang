@@ -298,6 +298,8 @@ $ nlc query completions --file PersonService.nl --pos 15:15
 }
 ```
 
+Member access completion resolves the receiver expression semantically, including chained calls and properties such as `message.ToUpper().` or `factory.Create().`. CLI query results and LSP completion/hover use the analyzer's recorded expression types as the source of truth, so duplicate member names on unrelated receiver types do not collapse into name-only matches.
+
 Add `--include-keywords` to also get keywords, primitives, and modifiers.
 
 ### `nlc query inspect` — One Round Trip, Full Context

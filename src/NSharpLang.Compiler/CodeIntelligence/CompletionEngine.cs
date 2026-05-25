@@ -85,8 +85,11 @@ public class CompletionEngine
 
         // Try to determine context from source text
         string? sourceText = null;
-        try { sourceText = File.ReadAllText(filePath); }
-        catch { }
+        if (!snapshot.SourceTexts.TryGetValue(filePath, out sourceText))
+        {
+            try { sourceText = File.ReadAllText(filePath); }
+            catch { }
+        }
 
         if (sourceText == null)
         {
@@ -117,8 +120,8 @@ public class CompletionEngine
     private CompletionResult GetMemberAccessCompletions(CompilationUnit cu, SemanticModel? semanticModel,
         string beforeCursor, int line, int col, ProjectSnapshot snapshot)
     {
-        // Extract the receiver name (the part before the last dot)
-        var receiver = ExtractReceiver(beforeCursor);
+        var memberAccess = FindMemberAccessAtPosition(cu, line, col);
+        var receiver = ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
         if (receiver == null)
         {
             return EmptyResult(CompletionContext.MemberAccess);
@@ -144,6 +147,20 @@ public class CompletionEngine
                 receiver,
                 resolvedType.FullName,
                 completions);
+        }
+
+        // Resolve the full receiver expression semantically. This is the path for chains
+        // such as message.ToUpper().| or factory.Create().| where the receiver is not a
+        // plain identifier and must come from Analyzer-recorded expression types.
+        if (semanticModel != null && memberAccess != null)
+        {
+            var resolver = new ExpressionTypeResolver(semanticModel);
+            var receiverType = resolver.ResolveExpressionTypeInfo(memberAccess.Object);
+            if (receiverType != null && !BuiltInTypes.IsUnknown(receiverType))
+            {
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(receiverType, receiver, snapshot, completions);
+                if (memberResult != null) return memberResult;
+            }
         }
 
         // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
@@ -348,6 +365,59 @@ public class CompletionEngine
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
             _ => new SimpleTypeInfo("unknown")
         };
+    }
+
+    private static MemberAccessExpression? FindMemberAccessAtPosition(CompilationUnit cu, int line, int col)
+    {
+        foreach (var candidateColumn in GetNearbyColumns(col, maxDistance: 3))
+        {
+            var expr = AstNodeFinder.FindExpressionAtPosition(cu, line - 1, candidateColumn - 1)
+                ?? AstNodeFinder.FindExpressionAtPosition(cu, line, candidateColumn);
+
+            if (expr is MemberAccessExpression memberAccess)
+                return memberAccess;
+
+            if (expr is CallExpression { Callee: MemberAccessExpression callMemberAccess })
+                return callMemberAccess;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<int> GetNearbyColumns(int col, int maxDistance)
+    {
+        if (col > 0)
+            yield return col;
+
+        for (var distance = 1; distance <= maxDistance; distance++)
+        {
+            if (col - distance > 0)
+                yield return col - distance;
+            yield return col + distance;
+        }
+    }
+
+    private static string? FormatReceiverExpression(Expression? expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression id => id.Name,
+            MemberAccessExpression memberAccess => FormatMemberAccessReceiver(memberAccess),
+            CallExpression call => FormatReceiverExpression(call.Callee) is { } callee ? $"{callee}()" : null,
+            ParenthesizedExpression paren => FormatReceiverExpression(paren.Inner),
+            ThisExpression => "this",
+            BaseExpression => "base",
+            _ => null
+        };
+    }
+
+    private static string? FormatMemberAccessReceiver(MemberAccessExpression memberAccess)
+    {
+        var receiver = FormatReceiverExpression(memberAccess.Object);
+        if (receiver == null || string.IsNullOrEmpty(memberAccess.MemberName) || memberAccess.MemberName == "<error>")
+            return receiver;
+
+        return $"{receiver}.{memberAccess.MemberName}";
     }
 
     // ── Type Member Resolution ──────────────────────────────────────────

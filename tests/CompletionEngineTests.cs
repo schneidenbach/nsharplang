@@ -226,6 +226,90 @@ public class CompletionEngineTests
         finally { Cleanup(filePath); }
     }
 
+    [Fact]
+    public void GetCompletions_ChainedMemberAccess_StringCallMembers()
+    {
+        var source = "func main() {\n    name := \"hello\"\n    name.ToUpper().\n}";
+        var (engine, snapshot, filePath) = SetupWithSource(source);
+
+        try
+        {
+            var line = 3;
+            var col = source.Split('\n')[line - 1].Length;
+            var result = engine.GetCompletions(snapshot, filePath, line, col);
+
+            Assert.Equal(CompletionContext.MemberAccess, result.Context);
+            Assert.Equal("name.ToUpper()", result.Receiver);
+
+            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
+            Assert.Contains(allItems, c => c.Name == "Length");
+            Assert.Contains(allItems, c => c.Name == "ToLower");
+        }
+        finally { Cleanup(filePath); }
+    }
+
+    [Fact]
+    public void GetCompletions_ChainedMemberAccess_NonStringReturnMembers()
+    {
+        var source = "func main() {\n    name := \"hello\"\n    name.IndexOf(\"e\").\n}";
+        var (engine, snapshot, filePath) = SetupWithSource(source);
+
+        try
+        {
+            var line = 3;
+            var col = source.Split('\n')[line - 1].Length;
+            var result = engine.GetCompletions(snapshot, filePath, line, col);
+
+            Assert.Equal(CompletionContext.MemberAccess, result.Context);
+            Assert.Equal("name.IndexOf()", result.Receiver);
+
+            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
+            Assert.Contains(allItems, c => c.Name == "CompareTo");
+            Assert.DoesNotContain(allItems, c => c.Name == "ToLower");
+        }
+        finally { Cleanup(filePath); }
+    }
+
+    [Fact]
+    public void GetCompletions_ChainedMemberAccess_NSharpReturnMembers()
+    {
+        var source = """
+class Dog {
+    Name: string
+    func Bark(): string {
+        return "Woof"
+    }
+}
+
+class Factory {
+    func Create(): Dog {
+        return new Dog { Name: "Rex" }
+    }
+}
+
+func main() {
+    factory := new Factory {}
+    factory.Create().
+}
+""";
+        var (engine, snapshot, filePath) = SetupWithSource(source);
+
+        try
+        {
+            var line = 16;
+            var col = source.Split('\n')[line - 1].Length;
+            var result = engine.GetCompletions(snapshot, filePath, line, col);
+
+            Assert.Equal(CompletionContext.MemberAccess, result.Context);
+            Assert.Equal("factory.Create()", result.Receiver);
+
+            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
+            Assert.Contains(allItems, c => c.Name == "Name");
+            Assert.Contains(allItems, c => c.Name == "Bark");
+        }
+        finally { Cleanup(filePath); }
+    }
+
     // ── Namespace Completions ───────────────────────────────────────────
 
     [Fact]

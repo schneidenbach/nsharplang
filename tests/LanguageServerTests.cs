@@ -1126,7 +1126,7 @@ func main(): void
         Assert.Contains("int", content.Value);
     }
 
-    [Fact(Skip = "TODO: Same as Completion_ChainedMemberAccess - needs expression type resolution")]
+    [Fact]
     public async Task Hover_ChainedMemberAccessAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -2536,7 +2536,7 @@ func main(): void
 
     #region Complex Scenarios
 
-    [Fact(Skip = "TODO: Implement proper expression type resolution for chained method calls")]
+    [Fact]
     public async Task Completion_ChainedMemberAccessAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -2555,6 +2555,27 @@ func main(): void
         Assert.NotEmpty(completions.Items);
         Assert.Contains(completions.Items, c => c.Label == "Length");
         Assert.Contains(completions.Items, c => c.Label == "ToLower");
+    }
+
+    [Fact]
+    public async Task Completion_ChainedMemberAccess_NonStringReturnAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test.nl";
+
+        var source = @"
+func main(): void
+    let message = ""hello""
+    let number = message.IndexOf(""e"").";
+
+        harness.OpenDocument(uri, source);
+
+        var completions = await harness.GetCompletionsAsync(uri, 3, 38);
+
+        Assert.NotEmpty(completions.Items);
+        Assert.Contains(completions.Items, c => c.Label == "CompareTo");
+        Assert.Contains(completions.Items, c => c.Label == "ToString");
+        Assert.DoesNotContain(completions.Items, c => c.Label == "ToLower");
     }
 
     [Fact]

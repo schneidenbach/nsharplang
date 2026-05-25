@@ -843,6 +843,57 @@ func Main() {
     }
 
     [Fact]
+    public void Completions_ChainedMemberAccess_DuplicateCrossFileTypeNames_UseReturnDeclaration()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Foo/Widget.nl", """
+namespace QueryTemp.Foo
+
+record Widget {
+    FooOnly: string
+}
+"""),
+            ("Bar/Widget.nl", """
+namespace QueryTemp.Bar
+
+record Widget {
+    BarOnly: int
+}
+"""),
+            ("Foo/UseWidget.nl", """
+namespace QueryTemp.Foo
+
+class Factory {
+    func Create(): Widget {
+        return new Widget { FooOnly: "ok" }
+    }
+}
+
+func Read(factory: Factory): string {
+    return factory.Create().
+}
+"""),
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main() {
+}
+"""));
+
+        var useWidgetPath = snapshot.CompilationUnits.Keys.Single(
+            path => path.EndsWith(Path.Combine("Foo", "UseWidget.nl"), StringComparison.Ordinal));
+        var line = FindLineInFile(useWidgetPath, "factory.Create().");
+        var col = File.ReadLines(useWidgetPath).Skip(line - 1).First().Length;
+
+        var engine = new CompletionEngine();
+        var result = engine.GetCompletions(snapshot, "Foo/UseWidget.nl", line, col);
+
+        var properties = Assert.Contains("properties", result.Completions);
+        Assert.Contains(properties, item => item.Name == "FooOnly");
+        Assert.DoesNotContain(properties, item => item.Name == "BarOnly");
+    }
+
+    [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
         // Main() is declared on line 11
@@ -1164,6 +1215,31 @@ func Main() {
         Assert.NotNull(result);
         Assert.Equal("function", result!.Kind);
         Assert.Contains("Hi", result.Signature, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HoverAndType_ChainedMemberAccess_ResolveThroughReceiverExpression()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Program.nl", """
+func Main(): void
+    let message = "hello"
+    let len = message.ToUpper().Length
+"""));
+        var programPath = snapshot.CompilationUnits.Keys.Single(
+            path => path.EndsWith("Program.nl", StringComparison.Ordinal));
+        var line = FindLineInFile(programPath, "ToUpper().Length");
+        var col = FindColumnInFile(programPath, line, "Length");
+
+        var type = _service.GetTypeAtPosition(snapshot, "Program.nl", line, col);
+        Assert.NotNull(type);
+        Assert.Equal("Length", type!.Name);
+        Assert.Equal("int", type.ResolvedType);
+
+        var hover = _service.GetHoverInfo(snapshot, "Program.nl", line, col);
+        Assert.NotNull(hover);
+        Assert.Contains("Length", hover!.Signature, StringComparison.Ordinal);
+        Assert.Contains("int", hover.Signature, StringComparison.Ordinal);
     }
 
     [Fact]
