@@ -1,4 +1,4 @@
-# Task 008: Workspace Diagnostics Lifecycle
+# Task 004: Workspace Diagnostics Lifecycle
 
 Priority: P1.
 

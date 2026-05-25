@@ -1,8 +1,8 @@
-# Task 017: Library Publishing Workflow
+# Task 010: Library Publishing Workflow
 
 Priority: P2.
 
-Make the N# library publishing workflow credible from template creation through NuGet packing and C# consumption.
+Make the N# library publishing workflow credible from template creation through NuGet packing and C# consumption. This remains separate from install/release setup because it owns package authoring semantics and consumer validation.
 
 ## User Outcome
 

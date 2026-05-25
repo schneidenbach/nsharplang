@@ -1,8 +1,8 @@
-# Task 014: C# Nullability Interop
+# Task 008: C# Nullability Interop
 
 Priority: P1.
 
-Make N# understand and emit C# nullable metadata at interop boundaries. This is a vertical slice through reflection import, semantic nullability, generated public C#, query output, and runtime/backend behavior.
+Make N# understand and emit C# nullable metadata at interop boundaries. This stays separate from nullable language idioms because reflection metadata import/export has its own compatibility surface and backend risks.
 
 ## User Outcome
 

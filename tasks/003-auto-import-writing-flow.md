@@ -1,8 +1,8 @@
-# Task 007: Auto-Import Writing Flow
+# Task 003: Auto-Import Writing Flow
 
 Priority: P1.
 
-Make completion help developers write code by offering useful local symbols first and importable symbols when needed. This task owns the complete auto-import experience: ranking, coverage, import edits, diagnostics around duplicate names, tests, and real VS Code verification.
+Make completion help developers write code by offering useful local symbols first and importable symbols when needed. This stays separate from semantic navigation because ranking, import edits, and duplicate-name UX are a complex writing workflow of their own.
 
 ## User Outcome
 

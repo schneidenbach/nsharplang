@@ -2,39 +2,30 @@
 
 Last audited: 2026-05-25
 
-Each task file is self-contained and framed around a shippable user or tool workflow. Prefer adding a new vertical task over creating a single-layer backlog item.
+Each task file is a thread-sized vertical slice framed around a shippable user or tool workflow. Tasks that touch the same functionality are combined so one thread can carry the feature end to end. Tasks stay split when the combined slice would cross too many risky systems or bury a distinct product decision.
 
-## P0: Trustworthy Semantics And Editor Basics
+## P0: Trustworthy Semantics And Runtime Basics
 
-- [001-chained-member-access-authoring.md](001-chained-member-access-authoring.md)
+- [001-semantic-authoring-and-navigation.md](001-semantic-authoring-and-navigation.md)
 - [002-null-equality-il-runtime.md](002-null-equality-il-runtime.md)
-- [003-type-use-navigation.md](003-type-use-navigation.md)
-- [004-real-dotnet-call-binding.md](004-real-dotnet-call-binding.md)
-- [005-semantic-references-rename.md](005-semantic-references-rename.md)
-- [006-malformed-code-diagnostics.md](006-malformed-code-diagnostics.md)
 
 ## P1: IDE Product Workflows
 
-- [007-auto-import-writing-flow.md](007-auto-import-writing-flow.md)
-- [008-workspace-diagnostics-lifecycle.md](008-workspace-diagnostics-lifecycle.md)
-- [009-interpolated-string-editing.md](009-interpolated-string-editing.md)
-- [010-vscode-build-test-debug.md](010-vscode-build-test-debug.md)
+- [003-auto-import-writing-flow.md](003-auto-import-writing-flow.md)
+- [004-workspace-diagnostics-lifecycle.md](004-workspace-diagnostics-lifecycle.md)
+- [005-vscode-editing-and-workflow-evidence.md](005-vscode-editing-and-workflow-evidence.md)
 
 ## P1: Nullability Workflows
 
-- [011-nullability-safe-dereference.md](011-nullability-safe-dereference.md)
-- [012-nullability-must-unwrap.md](012-nullability-must-unwrap.md)
-- [013-nullability-value-and-match-idioms.md](013-nullability-value-and-match-idioms.md)
-- [014-csharp-nullability-interop.md](014-csharp-nullability-interop.md)
+- [006-nullability-safe-dereference.md](006-nullability-safe-dereference.md)
+- [007-nullable-unwrap-and-match-idioms.md](007-nullable-unwrap-and-match-idioms.md)
+- [008-csharp-nullability-interop.md](008-csharp-nullability-interop.md)
 
 ## P2: CLI, Release, Evidence, Docs
 
-- [015-setup-nsharp-action.md](015-setup-nsharp-action.md)
-- [016-install-release-toolset.md](016-install-release-toolset.md)
-- [017-library-publishing.md](017-library-publishing.md)
-- [018-format-and-fix-automation.md](018-format-and-fix-automation.md)
-- [019-cli-json-and-tree-contracts.md](019-cli-json-and-tree-contracts.md)
-- [020-benchmarks-and-timing.md](020-benchmarks-and-timing.md)
-- [021-public-playground.md](021-public-playground.md)
-- [022-test-coverage-and-publish-scope.md](022-test-coverage-and-publish-scope.md)
-- [023-launch-claim-cleanup.md](023-launch-claim-cleanup.md)
+- [009-install-release-and-ci-setup.md](009-install-release-and-ci-setup.md)
+- [010-library-publishing-workflow.md](010-library-publishing-workflow.md)
+- [011-cli-command-truth-coverage-and-publish.md](011-cli-command-truth-coverage-and-publish.md)
+- [012-cli-automation-and-json-contracts.md](012-cli-automation-and-json-contracts.md)
+- [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
+- [014-public-playground.md](014-public-playground.md)

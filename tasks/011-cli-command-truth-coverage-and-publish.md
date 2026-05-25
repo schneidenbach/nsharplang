@@ -1,4 +1,4 @@
-# Task 022: Test Coverage And Publish Scope Truth
+# Task 011: CLI Command Truth For Coverage, Release, And Publish
 
 Priority: P2.
 
