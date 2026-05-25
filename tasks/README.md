@@ -7,7 +7,6 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 ## P0: Trustworthy Semantics And Runtime Basics
 
 - [001-semantic-authoring-and-navigation.md](001-semantic-authoring-and-navigation.md)
-- [002-null-equality-il-runtime.md](002-null-equality-il-runtime.md)
 
 ## P1: IDE Product Workflows
 
@@ -29,3 +28,4 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 - [012-cli-automation-and-json-contracts.md](012-cli-automation-and-json-contracts.md)
 - [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
 - [014-public-playground.md](014-public-playground.md)
+- [015-build-and-test-warning-hygiene.md](015-build-and-test-warning-hygiene.md)
