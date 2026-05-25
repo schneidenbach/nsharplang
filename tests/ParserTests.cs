@@ -5803,4 +5803,39 @@ Hello, {person.Name}!
         Assert.NotNull(outerLambda!.ExpressionBody);
         // Use outerLambda!.ExpressionBody! for all following references
     }
+
+    [Fact]
+    public void TypeReferenceSpans_CoverCompositeTypeShapes()
+    {
+        var source = """
+record Person {
+    Name: string
+}
+
+func Use(items: List<Person?>[], callback: Func<Person, string>): void {
+}
+""";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[1]);
+
+        var itemsType = Assert.IsType<ArrayTypeReference>(funcDecl.Parameters[0].Type);
+        Assert.Equal(new SourceSpan(5, 17, 5, 32), itemsType.Span);
+
+        var listType = Assert.IsType<GenericTypeReference>(itemsType.ElementType);
+        Assert.Equal(new SourceSpan(5, 17, 5, 30), listType.Span);
+        Assert.Equal(new SourceSpan(5, 17, 5, 21), listType.NameSpan);
+
+        var nullablePerson = Assert.IsType<NullableTypeReference>(listType.TypeArguments[0]);
+        Assert.Equal(new SourceSpan(5, 22, 5, 29), nullablePerson.Span);
+
+        var personArg = Assert.IsType<SimpleTypeReference>(nullablePerson.InnerType);
+        Assert.Equal(new SourceSpan(5, 22, 5, 28), personArg.Span);
+
+        var callbackType = Assert.IsType<FunctionTypeReference>(funcDecl.Parameters[1].Type);
+        Assert.Equal(new SourceSpan(5, 44, 5, 64), callbackType.Span);
+
+        var callbackPerson = Assert.IsType<SimpleTypeReference>(callbackType.ParameterTypes[0]);
+        Assert.Equal(new SourceSpan(5, 49, 5, 55), callbackPerson.Span);
+    }
 }

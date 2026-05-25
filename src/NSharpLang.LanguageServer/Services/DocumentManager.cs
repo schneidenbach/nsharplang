@@ -395,6 +395,16 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
+    public HoverResult? FindProjectHover(string uri, int line0, int character0)
+    {
+        if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out var filePath, out var snapshot))
+        {
+            return null;
+        }
+
+        return _codeIntelligenceService.GetHoverInfo(snapshot, filePath, line0 + 1, character0 + 1);
+    }
+
     public List<ReferenceResult>? FindStrictProjectReferences(string uri, int line0, int character0)
     {
         if (!TryGetSynchronizedProjectSnapshot(uri, out var projectRoot, out var filePath, out var snapshot))

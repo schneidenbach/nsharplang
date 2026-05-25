@@ -261,4 +261,54 @@ func make(): Config {
         // Should have usages from: return type (line 6), variable type (line 7), constructor (line 7)
         Assert.True(usages.Count >= 2, $"Expected at least 2 usages, got {usages.Count}");
     }
+
+    [Fact]
+    public void AnalyzerBindingMap_CompositeTypeUses_RecordSemanticBindings()
+    {
+        var source = @"
+record Person {
+    Name: string
+}
+
+record Box<T> {
+    Value: T
+}
+
+func use(
+    maybe: Person?,
+    many: Person[],
+    box: Box<Person>,
+    mapper: Func<Person, string>
+) {
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        var maybePerson = bindings.GetBindingAt("test.nl", 11, FindColumn(source, 11, "Person"));
+        Assert.NotNull(maybePerson);
+        Assert.Equal("Person", maybePerson!.Name);
+        Assert.Equal("record", maybePerson.Kind);
+        Assert.Equal(2, maybePerson.Line);
+
+        var arrayPerson = bindings.GetBindingAt("test.nl", 12, FindColumn(source, 12, "Person"));
+        Assert.NotNull(arrayPerson);
+        Assert.Equal("Person", arrayPerson!.Name);
+        Assert.Equal(2, arrayPerson.Line);
+
+        var boxUse = bindings.GetBindingAt("test.nl", 13, FindColumn(source, 13, "Box"));
+        Assert.NotNull(boxUse);
+        Assert.Equal("Box", boxUse!.Name);
+        Assert.Equal(6, boxUse.Line);
+
+        var genericPerson = bindings.GetBindingAt("test.nl", 13, FindColumn(source, 13, "Person"));
+        Assert.NotNull(genericPerson);
+        Assert.Equal("Person", genericPerson!.Name);
+        Assert.Equal(2, genericPerson.Line);
+
+        var functionPerson = bindings.GetBindingAt("test.nl", 14, FindColumn(source, 14, "Person"));
+        Assert.NotNull(functionPerson);
+        Assert.Equal("Person", functionPerson!.Name);
+        Assert.Equal(2, functionPerson.Line);
+    }
 }

@@ -1490,15 +1490,21 @@ public class Parser
         while (Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket)
         {
             Advance();
-            Consume(TokenType.RightBracket, "Expected ']'");
-            baseType = new ArrayTypeReference(baseType);
+            var rightBracket = Consume(TokenType.RightBracket, "Expected ']'");
+            baseType = new ArrayTypeReference(baseType)
+            {
+                Span = ExtendSpan(baseType, rightBracket)
+            };
         }
 
         // Nullable type
         if (Check(TokenType.Question))
         {
-            Advance();
-            baseType = new NullableTypeReference(baseType);
+            var question = Advance();
+            baseType = new NullableTypeReference(baseType)
+            {
+                Span = ExtendSpan(baseType, question)
+            };
         }
 
         return baseType;
@@ -1519,14 +1525,17 @@ public class Parser
         }
 
         // Simple or generic type (possibly qualified with dots like Result.Success)
-        var typeNameLine = Current.Line;
-        var typeNameColumn = Current.Column;
+        var typeNameToken = Current;
+        var typeNameLine = typeNameToken.Line;
+        var typeNameColumn = typeNameToken.Column;
         var name = ConsumeIdentifier("Expected type name");
+        var lastNameToken = typeNameToken;
 
         // Support qualified names like Result.Success
         while (Check(TokenType.Dot))
         {
             Advance();
+            lastNameToken = Current;
             name += "." + ConsumeIdentifier("Expected identifier after '.'");
         }
 
@@ -1540,16 +1549,24 @@ public class Parser
                 typeArgs.Add(ParseTypeReference());
             }
 
-            ConsumeGreater("Expected '>'");
-            return new GenericTypeReference(name, typeArgs);
+            var greater = ConsumeGreater("Expected '>'");
+            return new GenericTypeReference(name, typeArgs)
+            {
+                Line = typeNameLine,
+                Column = typeNameColumn,
+                Span = SpanFromTokens(typeNameToken, greater)
+            };
         }
 
-        return new SimpleTypeReference(name, typeNameLine, typeNameColumn);
+        return new SimpleTypeReference(name, typeNameLine, typeNameColumn)
+        {
+            Span = SpanFromTokens(typeNameToken, lastNameToken)
+        };
     }
 
     private TupleTypeReference ParseTupleTypeReference()
     {
-        Consume(TokenType.LeftParen, "Expected '('");
+        var leftParen = Consume(TokenType.LeftParen, "Expected '('");
         var elements = new List<TupleTypeElement>();
 
         do
@@ -1568,13 +1585,16 @@ public class Parser
 
         } while (Match(TokenType.Comma));
 
-        Consume(TokenType.RightParen, "Expected ')'");
-        return new TupleTypeReference(elements);
+        var rightParen = Consume(TokenType.RightParen, "Expected ')'");
+        return new TupleTypeReference(elements)
+        {
+            Span = SpanFromTokens(leftParen, rightParen)
+        };
     }
 
     private FunctionTypeReference ParseFunctionTypeReference()
     {
-        Consume(TokenType.Identifier, "Expected 'Func'");
+        var funcToken = Consume(TokenType.Identifier, "Expected 'Func'");
         Consume(TokenType.Less, "Expected '<'");
 
         var paramTypes = new List<TypeReference>();
@@ -1586,10 +1606,13 @@ public class Parser
             returnType = ParseTypeReference();
         }
 
-        Consume(TokenType.Greater, "Expected '>'");
+        var greater = ConsumeGreater("Expected '>'");
 
         // Last type is return type, rest are parameters
-        return new FunctionTypeReference(paramTypes, returnType);
+        return new FunctionTypeReference(paramTypes, returnType)
+        {
+            Span = SpanFromTokens(funcToken, greater)
+        };
     }
 
     // Check if we're looking at a generic method call (e.g., Method<T>(...))
@@ -1669,11 +1692,11 @@ public class Parser
     }
 
     // Helper to consume '>' but also handle '>>' (which needs to be split)
-    private void ConsumeGreater(string message)
+    private Token ConsumeGreater(string message)
     {
         if (Check(TokenType.Greater))
         {
-            Advance();
+            return Advance();
         }
         else if (Check(TokenType.RightShift))
         {
@@ -1687,6 +1710,7 @@ public class Parser
             // Actually, we can't modify the token stream, so we'll use a different approach:
             // We'll keep track that we "owe" a > token
             _splitGreaterDepth++;
+            return new Token(TokenType.Greater, ">", rightShift.Line, rightShift.Column, rightShift.FileName);
         }
         else
         {
@@ -1703,6 +1727,7 @@ public class Parser
                 },
                 length: Current.Value.Length
             );
+            return Current;
         }
     }
 
@@ -4563,6 +4588,30 @@ public class Parser
         return _tokens[_position - 1];
     }
 
+    private static SourceSpan SpanFromTokens(Token start, Token end)
+    {
+        if (start.Line <= 0 || start.Column <= 0)
+            return SourceSpan.None;
+
+        return new SourceSpan(
+            start.Line,
+            start.Column,
+            end.Line,
+            end.Column + Math.Max(1, end.Value.Length));
+    }
+
+    private static SourceSpan ExtendSpan(TypeReference start, Token end)
+    {
+        if (!start.Span.IsValid)
+            return SourceSpan.None;
+
+        return new SourceSpan(
+            start.Span.StartLine,
+            start.Span.StartColumn,
+            end.Line,
+            end.Column + Math.Max(1, end.Value.Length));
+    }
+
     private bool Check(TokenType type)
     {
         // Handle split >> token
@@ -4589,7 +4638,7 @@ public class Parser
         return pos < _tokens.Count ? _tokens[pos] : _tokens[^1];
     }
 
-    private void Consume(TokenType type, string message)
+    private Token Consume(TokenType type, string message)
     {
         if (!Check(type))
         {
@@ -4603,9 +4652,9 @@ public class Parser
                 hint: GetHintForMissingToken(type),
                 length: Current.Value.Length
             );
-            return; // Don't advance
+            return Current; // Don't advance
         }
-        Advance();
+        return Advance();
     }
 
     private string TokenTypeToString(TokenType type)

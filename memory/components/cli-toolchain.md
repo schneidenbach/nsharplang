@@ -68,6 +68,8 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query implementors --name I` | Concrete types implementing an interface (by name) | `nlc query implementors --name IShape` |
 | `nlc query implementors --file F --pos L:C` | Implementors of the interface at a position | `nlc query implementors --file Program.nl --pos 10:11` |
 
+Type-use positions are first-class semantic navigation targets. `type`, `inspect`, `def`, `refs`, and `hover` resolve annotations and type arguments through the same BindingMap/SemanticModel data used by the LSP, including `Person`, `List<Person>`, `Person?`, `Person[]`, and `Func<Person, string>`. Duplicate simple type names in different namespaces/files are resolved by semantic binding, not text search.
+
 ### Code Quality
 
 | Command | Purpose | Example |
