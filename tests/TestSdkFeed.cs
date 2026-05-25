@@ -46,20 +46,6 @@ internal static class TestSdkFeed
 
     private static PackedSdkInfo BuildSdkFeed()
     {
-        var existingFeed = Environment.GetEnvironmentVariable("NSHARP_TEST_SDK_FEED");
-        var existingVersion = Environment.GetEnvironmentVariable("NSHARP_TEST_SDK_VERSION");
-        if (!string.IsNullOrWhiteSpace(existingFeed) && !string.IsNullOrWhiteSpace(existingVersion))
-        {
-            var packagePath = Path.Combine(existingFeed, $"NSharpLang.Sdk.{existingVersion}.nupkg");
-            if (!File.Exists(packagePath))
-            {
-                throw new InvalidOperationException(
-                    $"NSHARP_TEST_SDK_FEED was set, but the expected SDK package does not exist: {packagePath}");
-            }
-
-            return new PackedSdkInfo(existingFeed, existingVersion);
-        }
-
         var repoRoot = FindRepoRoot();
         var feedDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-feed-{Guid.NewGuid():N}");
         var version = $"0.1.0-il{Guid.NewGuid():N}";

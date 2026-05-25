@@ -29,13 +29,14 @@ DEFAULT_JOBS=$(get_cpu_count)
 if ! [[ "$DEFAULT_JOBS" =~ ^[0-9]+$ ]] || [ "$DEFAULT_JOBS" -lt 1 ]; then
     DEFAULT_JOBS=4
 fi
-if [ "$DEFAULT_JOBS" -gt 8 ]; then
-    DEFAULT_JOBS=8
+if [ "$DEFAULT_JOBS" -gt 4 ]; then
+    DEFAULT_JOBS=4
 fi
 MAX_JOBS=${TEST_ALL_JOBS:-$DEFAULT_JOBS}
 if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
     MAX_JOBS=1
 fi
+
 is_enabled() {
     case "$1" in
         1|true|TRUE|yes|YES|on|ON) return 0 ;;
@@ -55,7 +56,7 @@ DOTNET_STABLE_FLAGS="--disable-build-servers -nr:false"
 if is_enabled "$NLC_MSBUILD_SINGLE_NODE"; then
     # Some coding-agent sandboxes allow file writes but deny local IPC socket
     # binds. Force MSBuild into the in-process, single-node path there.
-    DOTNET_STABLE_FLAGS="$DOTNET_STABLE_FLAGS -m:1 -p:BuildInParallel=false -p:UseSharedCompilation=false"
+    DOTNET_STABLE_FLAGS="$DOTNET_STABLE_FLAGS -m:1 -p:BuildInParallel=false"
     export DOTNET_CLI_USE_MSBUILD_SERVER=0
     export DOTNET_CLI_RUN_MSBUILD_OUTOFPROC=0
     export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=0
@@ -104,11 +105,6 @@ remove_nuget_package_cache() {
     rm -rf "$NUGET_PACKAGE_CACHE/$normalized_id"
 }
 
-read_project_version() {
-    local project_file="$1"
-    sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$project_file" | head -n 1
-}
-
 section "Step 1: Clean Previous Build Artifacts"
 if [ "$CLEAN_BUILD" = "1" ]; then
     echo "Cleaning bin/ and obj/ directories..."
@@ -132,33 +128,14 @@ else
     handle_error "Compiler build"
 fi
 
-section "Step 2b: Pack MSBuild SDK"
-echo "Packing SDK to local NuGet feed..."
-mkdir -p "$LOCAL_FEED"
-rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
-remove_nuget_package_cache NSharpLang.Sdk
-dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -v q
-dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj --no-restore -v q
-if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
-    SDK_VERSION=$(read_project_version src/NSharpLang.Sdk/NSharpLang.Sdk.csproj)
-    export NSHARP_TEST_SDK_FEED="$LOCAL_FEED"
-    export NSHARP_TEST_SDK_VERSION="$SDK_VERSION"
-    handle_success "SDK packed"
-else
-    handle_error "SDK pack"
-fi
-
 section "Step 3: Run Unit Tests"
 echo "Running all unit tests..."
-dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q
-dotnet build $DOTNET_STABLE_FLAGS tests/Tests.csproj --no-restore -v q
+dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate --no-cache -v q
 TEST_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-build --no-restore > "$TEST_OUTPUT" 2>&1; then
+if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
     TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
     if [ -n "$TEST_RESULT" ]; then
         echo "$TEST_RESULT"
-    else
-        cat "$TEST_OUTPUT"
     fi
     handle_success "Unit tests passed"
 else
@@ -231,7 +208,20 @@ else
     fi
 fi
 
-section "Step 4: Pack N# Templates"
+section "Step 4: Pack and Install MSBuild SDK"
+echo "Packing SDK to local NuGet feed..."
+mkdir -p "$LOCAL_FEED"
+rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
+remove_nuget_package_cache NSharpLang.Sdk
+dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate --no-cache -v q
+dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q
+if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
+    handle_success "SDK packed"
+else
+    handle_error "SDK pack"
+fi
+
+section "Step 4b: Pack N# Templates"
 echo "Packing templates to local NuGet feed..."
 rm -f "$LOCAL_FEED"/NSharpLang.Templates.*.nupkg
 remove_nuget_package_cache NSharpLang.Templates
@@ -241,16 +231,20 @@ else
     handle_error "Templates pack"
 fi
 
-section "Step 4b: C# Interop Tests"
+echo "Clearing NuGet global-packages cache..."
+dotnet nuget locals global-packages --clear > /dev/null 2>&1
+handle_success "NuGet global-packages cache cleared"
+
+section "Step 4c: C# Interop Tests"
 echo "Running C# interop tests..."
 INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
 
-if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q; then
+if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate --no-cache -v q; then
     handle_error "C# interop restore"
 fi
 
 INTEROP_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo --no-restore > "$INTEROP_OUTPUT" 2>&1; then
+if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo > "$INTEROP_OUTPUT" 2>&1; then
     TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
     if [ -n "$TEST_RESULT" ]; then
         echo "$TEST_RESULT"
@@ -353,6 +347,7 @@ else
     FIRST_PROJECT=$(echo "$EXAMPLE_PROJECTS" | head -1)
     FIRST_DIR=$(dirname "$FIRST_PROJECT")
     echo "Warming NuGet cache with $FIRST_DIR..."
+    rm -rf "$FIRST_DIR/bin" "$FIRST_DIR/obj" "$FIRST_DIR/nsharp" 2>/dev/null || true
     rm -f "$FIRST_DIR"/*.g.csproj 2>/dev/null || true
     (cd "$REPO_ROOT/$FIRST_DIR" && dotnet "$CLI_DLL" build > /dev/null 2>&1) || true
 
@@ -377,6 +372,7 @@ else
         result_file="$results_dir/$idx.result"
         work_dir="$repo_root/$project_dir"
 
+        rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
         # Remove any stale generated .g.csproj files
         rm -f "$work_dir"/*.g.csproj 2>/dev/null || true
 

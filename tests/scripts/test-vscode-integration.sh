@@ -48,12 +48,8 @@ fi
 echo
 echo -e "${YELLOW}Step 2: Installing npm dependencies${NC}"
 cd editors/vscode
-if [ -x node_modules/.bin/tsc ] && [ -d node_modules/@vscode/test-electron ]; then
-    echo -e "${GREEN}✓ Dependencies already installed${NC}"
-else
-    npm install --silent 2>/dev/null || npm install
-    echo -e "${GREEN}✓ Dependencies installed${NC}"
-fi
+npm install --silent 2>/dev/null || npm install
+echo -e "${GREEN}✓ Dependencies installed${NC}"
 
 echo
 echo -e "${YELLOW}Step 3: Publishing Language Server to extension${NC}"
@@ -88,7 +84,7 @@ for vscode_app in .vscode-test/vscode-*/Visual\ Studio\ Code.app; do
     fi
 done
 
-npm run test:run
+npm test
 
 echo
 echo -e "${GREEN}=======================================${NC}"
