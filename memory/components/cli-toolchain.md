@@ -688,15 +688,15 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 
 ## Local Contributor Install
 
-Use [scripts/setup-local.sh](/Users/spencer/Repos/nsharplang/scripts/setup-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local NuGet feed, installs templates, installs `NSharpLang.Cli` and `NSharpLang.LanguageServer` as dotnet tools from that feed, and writes `~/.nsharp/env` so future shells put `~/.dotnet/tools` on PATH.
+Use [scripts/setup-local.sh](/Users/spencer/Repos/nsharplang/scripts/setup-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local N# package cache, publishes `nlc` and `nsharp-lsp` as framework-dependent apps, installs launchers under `~/.nsharp/bin`, and writes `~/.nsharp/env` so future shells put those launchers on PATH.
 
 ```bash
 ./scripts/setup-local.sh
 ```
 
 The script:
-- delegates package/tool refresh to `scripts/deploy-local-toolset.sh`
-- clears stale same-version dotnet-tool caches for `NSharpLang.Cli` and `NSharpLang.LanguageServer`
+- delegates package/toolset refresh to `scripts/deploy-local-toolset.sh`
+- refreshes the local `~/.nsharp/packages` package cache used by generated projects
 - verifies `nlc doctor --skip-vscode` by default
 - supports `--with-vscode` when the local VS Code extension should also be packaged and installed
 

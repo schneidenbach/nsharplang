@@ -38,12 +38,14 @@ public class ToolchainFixture : IAsyncLifetime
         await RunDotnetAsync(repoRoot,
             "build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release --disable-build-servers -v q");
 
-        // Pack all distributable NuGet packages
+        // Pack all distributable NuGet packages used by generated projects
         await PackProject(repoRoot, "src/NSharpLang.Compiler/Compiler.csproj", packagesDir);
         await PackProject(repoRoot, "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj", packagesDir);
         await PackProject(repoRoot, "templates/NSharpLang.Templates.csproj", packagesDir);
-        await PackProject(repoRoot, "src/NSharpLang.Cli/Cli.csproj", packagesDir);
-        await PackProject(repoRoot, "src/NSharpLang.LanguageServer/LanguageServer.csproj", packagesDir);
+
+        await RunBashAsync(
+            repoRoot,
+            $"./scripts/publish-toolset.sh --output \"{Path.Combine(_buildContextDir, "toolset")}\" --packages \"{packagesDir}\" --skip-packages --skip-archive");
 
         // Copy Dockerfile into the build context
         var dockerfileSrc = Path.Combine(
@@ -86,6 +88,35 @@ public class ToolchainFixture : IAsyncLifetime
     private static Task PackProject(string repoRoot, string projectPath, string outputDir) =>
         RunDotnetAsync(repoRoot,
             $"pack {projectPath} -c Release -o \"{outputDir}\" --disable-build-servers -v q");
+
+    private static async Task RunBashAsync(string workingDirectory, string command)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "bash",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-lc");
+        psi.ArgumentList.Add(command);
+
+        using var process = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start: bash -lc {command}");
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await Task.WhenAll(stdoutTask, stderrTask);
+        await process.WaitForExitAsync();
+
+        var stdout = stdoutTask.Result;
+        var stderr = stderrTask.Result;
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"bash -lc {command} failed (exit code {process.ExitCode}):\n{stdout}\n{stderr}");
+    }
 
     private static async Task RunDotnetAsync(string workingDirectory, string arguments)
     {

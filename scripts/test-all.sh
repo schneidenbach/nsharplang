@@ -94,7 +94,7 @@ handle_success() {
 cd "$(dirname "$0")/.."
 REPO_ROOT=$(pwd)
 CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
-LOCAL_FEED="$HOME/.nuget/local-feed"
+LOCAL_FEED="$HOME/.nsharp/packages"
 NUGET_PACKAGE_CACHE="$HOME/.nuget/packages"
 
 remove_nuget_package_cache() {
@@ -256,7 +256,7 @@ fi
 rm -f "$INTEROP_OUTPUT"
 
 section "Step 5: Install dotnet new Template"
-echo "Installing NSharpLang.Templates from local feed..."
+echo "Installing NSharpLang.Templates from local N# package cache..."
 if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
     handle_success "Template package installed"
 else

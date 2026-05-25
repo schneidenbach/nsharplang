@@ -133,7 +133,7 @@ ACCEPT:
 REJECT:
 
 - Docs/site launch-polished claims unless the current docs build and claim audit have just passed.
-- Marketplace, `dotnet tool install -g nlc`, zero-config debug, production-ready, feature-complete, or stale test-count claims unless verified and updated.
+- Marketplace, legacy tool-install commands, zero-config debug, production-ready, feature-complete, or stale test-count claims unless verified and updated.
 
 DEFER:
 

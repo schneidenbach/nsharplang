@@ -89,6 +89,8 @@ def main() -> int:
 
     temp_root = Path(tempfile.mkdtemp(prefix="nsharp-template-quickstarts-"))
     packages_dir = temp_root / "packages"
+    install_dir = temp_root / ".nsharp"
+    toolset_dir = temp_root / "toolset"
     dotnet_home = temp_root / "dotnet-home"
     packages_dir.mkdir()
     dotnet_home.mkdir()
@@ -96,7 +98,7 @@ def main() -> int:
     env = os.environ.copy()
     env["HOME"] = str(temp_root)
     env["DOTNET_CLI_HOME"] = str(dotnet_home)
-    env["PATH"] = f"{dotnet_home / '.dotnet' / 'tools'}{os.pathsep}{env['PATH']}"
+    env["PATH"] = f"{install_dir / 'bin'}{os.pathsep}{env['PATH']}"
     if "DOTNET_ROOT" not in env:
         dotnet_root = subprocess.check_output(
             ["dotnet", "--list-runtimes"], text=True
@@ -115,16 +117,21 @@ def main() -> int:
             "src/NSharpLang.Compiler/Compiler.csproj",
             "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj",
             "templates/NSharpLang.Templates.csproj",
-            "src/NSharpLang.Cli/Cli.csproj",
         ):
             run(f"dotnet pack {repo_root / project} -c Release -o {packages_dir} --disable-build-servers -v q", repo_root, env)
 
-        local_feed = temp_root / ".nuget" / "local-feed"
-        local_feed.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            local_feed.symlink_to(packages_dir, target_is_directory=True)
-        except OSError:
-            shutil.copytree(packages_dir, local_feed, dirs_exist_ok=True)
+        run(
+            f"{repo_root / 'scripts/publish-toolset.sh'} --output {toolset_dir} "
+            f"--packages {packages_dir} --skip-packages --skip-archive",
+            repo_root,
+            env,
+        )
+        run(
+            f"{repo_root / 'scripts/install.sh'} --source {toolset_dir} "
+            f"--install-dir {install_dir} --skip-vscode --no-path-update",
+            repo_root,
+            env,
+        )
 
         # Isolate generated-project restores from any globally cached NSharpLang packages,
         # but only after repo-local pack has used the developer's normal restore cache.
@@ -139,9 +146,6 @@ def main() -> int:
             "  </packageSources>\n"
             "</configuration>\n"
         )
-
-        run(f"dotnet new install NSharpLang.Templates --nuget-source {packages_dir} --force", temp_root, env)
-        run(f"dotnet tool install -g NSharpLang.Cli --add-source {packages_dir}", temp_root, env)
 
         for name, commands in blocks:
             project_dir = temp_root / f"docs-{name}"

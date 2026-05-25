@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/packages.sh"
+source "$SCRIPT_DIR/lib/toolset.sh"
 source "$SCRIPT_DIR/lib/vscode-extension.sh"
 
 cd "$NSHARP_REPO_ROOT"
@@ -13,7 +14,7 @@ echo "Packing N# Release Artifacts"
 echo "================================"
 
 # Create artifacts directories
-mkdir -p artifacts/nuget artifacts/vscode
+mkdir -p artifacts/nuget artifacts/toolset artifacts/vscode
 
 echo ""
 echo "Building NSharpLang.Build.Tasks in Release mode..."
@@ -30,6 +31,15 @@ pack_project() {
 while IFS='|' read -r _package_id label project; do
     pack_project "$label" "$project"
 done < <(nsharp_each_package_spec)
+
+echo ""
+echo "Publishing package-manager toolset..."
+nsharp_publish_toolset "artifacts/toolset/nsharp" "artifacts/nuget"
+(
+    cd artifacts/toolset
+    rm -f nsharp-toolset.tar.gz
+    tar -czf nsharp-toolset.tar.gz nsharp
+)
 
 if [[ "${SKIP_VSCODE_PACKAGE:-0}" != "1" ]]; then
     echo ""
@@ -49,6 +59,7 @@ echo "================================"
 echo "Artifacts created successfully:"
 echo "================================"
 ls -lh artifacts/nuget/*.nupkg
+ls -lh artifacts/toolset/nsharp-toolset.tar.gz
 if compgen -G "artifacts/vscode/*.vsix" >/dev/null; then
     ls -lh artifacts/vscode/*.vsix
 fi

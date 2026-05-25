@@ -103,38 +103,22 @@ namespace NSharpLang.VisualStudio.LanguageServer
         /// </summary>
         private string GetLanguageServerPath()
         {
-            // Strategy 1: Look for dotnet tool installation
+            // Strategy 1: Look for the user-local N# toolset installation
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var dotnetToolsPath = Path.Combine(userProfile, ".dotnet", "tools", ".store",
-                "nsharp.languageserver");
+            var userToolsetPath = Path.Combine(userProfile, ".nsharp", "lib", "nsharp-lsp");
 
-            if (Directory.Exists(dotnetToolsPath))
+            if (Directory.Exists(userToolsetPath))
             {
-                var languageServerDll = Directory.GetFiles(dotnetToolsPath, "LanguageServer.dll",
-                    SearchOption.AllDirectories).FirstOrDefault();
-                if (!string.IsNullOrEmpty(languageServerDll))
+                var languageServerDll = Path.Combine(userToolsetPath, "LanguageServer.dll");
+                if (File.Exists(languageServerDll))
                 {
                     return languageServerDll;
                 }
             }
 
-            // Strategy 2: Look in NuGet packages
-            var nugetPackagesPath = Path.Combine(userProfile, ".nuget", "packages",
-                "nsharp.languageserver");
-
-            if (Directory.Exists(nugetPackagesPath))
-            {
-                var languageServerDll = Directory.GetFiles(nugetPackagesPath, "LanguageServer.dll",
-                    SearchOption.AllDirectories).FirstOrDefault();
-                if (!string.IsNullOrEmpty(languageServerDll))
-                {
-                    return languageServerDll;
-                }
-            }
-
-            // Strategy 3: Look in Program Files
+            // Strategy 2: Look in Program Files / package-manager installations
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            var nsharpPath = Path.Combine(programFiles, "NSharp", "LanguageServer");
+            var nsharpPath = Path.Combine(programFiles, "NSharp", "lib", "nsharp-lsp");
 
             if (Directory.Exists(nsharpPath))
             {
@@ -145,7 +129,7 @@ namespace NSharpLang.VisualStudio.LanguageServer
                 }
             }
 
-            // Strategy 4: Look in development environment (relative to current assembly)
+            // Strategy 3: Look in development environment (relative to current assembly)
             var assemblyLocation = typeof(NSharpLanguageClient).Assembly.Location;
             var assemblyDir = Path.GetDirectoryName(assemblyLocation);
 

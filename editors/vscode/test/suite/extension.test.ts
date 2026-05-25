@@ -77,11 +77,11 @@ suite('Extension Activation', () => {
             assert.strictEqual(execution.command, configuredPath);
             assert.deepStrictEqual(execution.args, [taskName]);
 
-            const dotnetToolsDirectory = path.join(os.homedir(), '.dotnet', 'tools');
-            if (fs.existsSync(dotnetToolsDirectory)) {
+            const nsharpBinDirectory = path.join(os.homedir(), '.nsharp', 'bin');
+            if (fs.existsSync(nsharpBinDirectory)) {
                 assert.ok(
-                    execution.options?.env?.PATH?.split(path.delimiter).includes(dotnetToolsDirectory),
-                    `${taskName} task PATH should include the .NET tools directory for nlc`
+                    execution.options?.env?.PATH?.split(path.delimiter).includes(nsharpBinDirectory),
+                    `${taskName} task PATH should include the N# launcher directory for nlc`
                 );
             }
 
@@ -90,13 +90,13 @@ suite('Extension Activation', () => {
                 assert.strictEqual(
                     execution.options?.env?.DOTNET_ROOT,
                     expectedDotnetRoot,
-                    `${taskName} task should set DOTNET_ROOT so dotnet global tool apphosts can find the runtime`
+                    `${taskName} task should set DOTNET_ROOT so N# launchers can find the runtime`
                 );
             }
         }
     });
 
-    test('nlc environment resolves the dotnet runtime root for apphost launches', () => {
+    test('nlc environment resolves the dotnet runtime root for launcher execution', () => {
         const env = getNlcEnvironment();
         const expectedDotnetRoot = resolveDotnetRoot();
 
@@ -113,7 +113,7 @@ suite('Extension Activation', () => {
             assert.strictEqual(
                 env[archRootVariable],
                 expectedDotnetRoot,
-                `${archRootVariable} should be set for architecture-specific apphost lookup`
+                `${archRootVariable} should be set for architecture-specific launcher lookup`
             );
         }
     });
