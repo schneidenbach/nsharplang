@@ -110,7 +110,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         var create = await Bash($"dotnet new nsharp-console -o {dir}");
         AssertSuccess(create, "dotnet new nsharp-console");
 
-        // Verify expected files exist — no .csproj (nlc generates it on build)
+        // Verify expected files exist — no .csproj; nlc builds directly from project.yml.
         var check = await Bash(
             $"test -f {dir}/project.yml && " +
             $"test -f {dir}/Program.nl");

@@ -51,46 +51,17 @@ public static partial class BenchCommand
             Console.WriteLine();
         }
 
-        var restoreResult = RestoreCommand.Restore(projectRoot, quiet: true);
-        if (restoreResult != 0)
-        {
-            Console.Error.WriteLine("Failed to restore project configuration.");
-            return 1;
-        }
-
-        var projectFile = Program.EnsureProjectFiles(projectRoot, projectConfig);
-        Program.CleanStaleGeneratedFiles(projectRoot);
-
-        var buildArgs = string.Join(" ", new[]
-        {
-            "build",
-            $"\"{projectFile}\"",
-            "-c",
+        var outputAssemblyPath = Program.BuildProjectWithIlBackendForCommand(
+            projectRoot,
+            projectConfig,
             "Release",
-            "-v",
-            "q",
-            "-p:NSharpExcludeTests=true",
-            Program.GetBackendMsBuildProperty(CompilationBackend.Il)
-        });
-
-        var buildResult = DotnetRunner.Run(buildArgs, workingDirectory: projectRoot);
-        if (buildResult.ExitCode != 0)
+            outputDir: null,
+            includeTests: false);
+        if (outputAssemblyPath == null)
         {
             Console.Error.WriteLine("Benchmark build failed.");
-            var detail = (buildResult.Stderr + buildResult.Stdout).Trim();
-            if (!string.IsNullOrWhiteSpace(detail))
-            {
-                Console.Error.WriteLine(detail);
-            }
             return 1;
         }
-
-        var outputAssemblyPath = Path.Combine(
-            projectRoot,
-            "bin",
-            "Release",
-            projectConfig.TargetFramework,
-            $"{projectConfig.EffectiveName}.dll");
 
         if (!File.Exists(outputAssemblyPath))
         {
@@ -131,7 +102,7 @@ public static partial class BenchCommand
             var benchmarkProjectPath = Path.Combine(tempDir, "Benchmarks.csproj");
             File.WriteAllText(
                 benchmarkProjectPath,
-                GenerateIlBenchmarkCsProj(projectConfig.TargetFramework, projectFile));
+                GenerateIlBenchmarkCsProj(projectConfig.TargetFramework, outputAssemblyPath));
 
             if (!jsonOutput)
             {
@@ -145,7 +116,6 @@ public static partial class BenchCommand
                 $"\"{benchmarkProjectPath}\"",
                 "-c",
                 "Release",
-                Program.GetBackendMsBuildProperty(CompilationBackend.Il),
                 "--"
             };
 
@@ -350,7 +320,7 @@ public static partial class BenchCommand
             .Replace("\"", "\\\"", StringComparison.Ordinal);
     }
 
-    private static string GenerateIlBenchmarkCsProj(string targetFramework, string projectFile)
+    private static string GenerateIlBenchmarkCsProj(string targetFramework, string outputAssemblyPath)
     {
         var sb = new StringBuilder();
         sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
@@ -362,7 +332,9 @@ public static partial class BenchCommand
         sb.AppendLine("    <Optimize>true</Optimize>");
         sb.AppendLine("  </PropertyGroup>");
         sb.AppendLine("  <ItemGroup>");
-        sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectFile)}\" />");
+        sb.AppendLine($"    <Reference Include=\"{EscapeXml(Path.GetFileNameWithoutExtension(outputAssemblyPath))}\">");
+        sb.AppendLine($"      <HintPath>{EscapeXml(outputAssemblyPath)}</HintPath>");
+        sb.AppendLine("    </Reference>");
         sb.AppendLine("    <PackageReference Include=\"BenchmarkDotNet\" Version=\"0.14.0\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine("</Project>");

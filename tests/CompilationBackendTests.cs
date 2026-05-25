@@ -612,6 +612,7 @@ func main() {
             var assemblyPath = Path.Combine(outputDir, "BuildIl.dll");
             Assert.True(File.Exists(assemblyPath));
             Assert.True(File.Exists(Path.Combine(outputDir, "BuildIl.runtimeconfig.json")));
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
 
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir);
             Assert.Equal(0, runResult.ExitCode);
@@ -654,11 +655,8 @@ func main() {
             Assert.Contains("Build successful!", stdout);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
 
-            var generatedFiles = Directory.GetFiles(tempDir, "*.g.cs", SearchOption.AllDirectories)
-                .Select(Path.GetFileName)
-                .ToArray();
-            Assert.Contains("__NSharpIlStub.g.cs", generatedFiles);
-            Assert.DoesNotContain("Program.g.cs", generatedFiles);
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.cs", SearchOption.AllDirectories));
 
             var assemblyPath = Path.Combine(outputDir, "BuildDefaultIl.dll");
             Assert.True(File.Exists(assemblyPath));
@@ -702,6 +700,7 @@ func main() {
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("Running...", runResult.Stdout);
             Assert.Contains("ran with il", runResult.Stdout);
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
         }
         finally
         {
@@ -747,6 +746,7 @@ test "addition works" {
             Assert.Equal("test", doc.RootElement.GetProperty("command").GetString());
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("passed").GetInt32());
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
         }
         finally
         {
@@ -798,6 +798,7 @@ class Greeter {
 
             using var package = ZipFile.OpenRead(packagePath!);
             Assert.Contains(package.Entries, entry => entry.FullName == "lib/net10.0/PackIl.dll");
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
         }
         finally
         {
@@ -830,6 +831,8 @@ class Greeter {
             Assert.True(File.Exists(Path.Combine(outputDir, "App.runtimeconfig.json")));
             Assert.True(File.Exists(Path.Combine(outputDir, "SharedLib.dll")));
             Assert.True(File.Exists(Path.Combine(outputDir, "Newtonsoft.Json.dll")));
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+            Assert.Empty(Directory.GetFiles(Path.Combine(tempDir, "Shared"), "*.g.csproj", SearchOption.TopDirectoryOnly));
 
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: outputDir, timeout: TimeSpan.FromMinutes(3));
             Assert.Equal(0, runResult.ExitCode);
@@ -867,6 +870,8 @@ class Greeter {
             Assert.True(File.Exists(Path.Combine(publishDir, "App.runtimeconfig.json")));
             Assert.True(File.Exists(Path.Combine(publishDir, "SharedLib.dll")));
             Assert.True(File.Exists(Path.Combine(publishDir, "Newtonsoft.Json.dll")));
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+            Assert.Empty(Directory.GetFiles(Path.Combine(tempDir, "Shared"), "*.g.csproj", SearchOption.TopDirectoryOnly));
 
             var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
             Assert.Equal(0, runResult.ExitCode);
@@ -914,6 +919,7 @@ func main() {
             var publishedApp = GetPublishedAppPath(publishDir, "RuntimeSpecificIlPublish");
             Assert.True(File.Exists(publishedApp), publishedApp);
             Assert.True(File.Exists(Path.Combine(publishDir, "RuntimeSpecificIlPublish.dll")));
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
 
             var runResult = DotnetRunner.RunProcess(publishedApp, "", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
             Assert.Equal(0, runResult.ExitCode);
@@ -967,6 +973,7 @@ func main() {
             Assert.True(File.Exists(publishedApp), publishedApp);
             Assert.True(File.Exists(Path.Combine(publishDir, "SelfContainedIlPublish.dll")));
             Assert.True(Directory.GetFiles(publishDir, "System.Private.CoreLib.dll").Length > 0);
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
 
             var runResult = DotnetRunner.RunProcess(publishedApp, "", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
             Assert.Equal(0, runResult.ExitCode);
@@ -1016,6 +1023,7 @@ test "override il tests" {
             Assert.Equal("test", doc.RootElement.GetProperty("command").GetString());
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("passed").GetInt32());
+            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
         }
         finally
         {

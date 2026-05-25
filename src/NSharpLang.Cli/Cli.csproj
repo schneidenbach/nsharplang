@@ -27,12 +27,25 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NSharpLang.Compiler\Compiler.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <!-- Keep compiler runtime dependencies explicit for publish/deps.json.
          Clean rehearsals can reuse prior Compiler builds, which otherwise lets
          dotnet publish omit transitive ProjectReference runtime assets and leaves
          the isolated demo CLI unable to parse project.yml. -->
     <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
+    <PackageReference Include="xunit.runner.utility" Version="2.9.2" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Tutorial\Web\index.html"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.index.html" />
+    <EmbeddedResource Include="Tutorial\Web\app.js"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.app.js" />
+    <EmbeddedResource Include="Tutorial\Web\styles.css"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.styles.css" />
+    <EmbeddedResource Include="Tutorial\Web\app.tsx"
+                      LogicalName="NSharpLang.Cli.Tutorial.Web.app.tsx" />
   </ItemGroup>
 
 </Project>

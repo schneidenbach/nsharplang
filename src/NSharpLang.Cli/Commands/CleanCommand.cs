@@ -80,7 +80,7 @@ public static class CleanCommand
             removed.Add(NormalizePath(Path.GetRelativePath(projectRoot, dir)));
         }
 
-        // Remove generated .g.csproj files (created by nlc build)
+        // Remove legacy generated MSBuild wrapper files from older nlc versions.
         foreach (var csproj in Directory.GetFiles(projectRoot, "*.g.csproj"))
         {
             File.Delete(csproj);

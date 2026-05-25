@@ -23,22 +23,20 @@ public static class CheckCommand
             return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
         }
 
-        // Generate build config so that check-then-build workflows work
-        // (nlc check -> dotnet build should succeed without a separate nlc restore)
-        // Only attempt if project.yml exists — single-file examples and non-project dirs skip this
         var projectYmlPath = Path.Combine(projectDir, "project.yml");
-        if (File.Exists(projectYmlPath))
-        {
-            RestoreCommand.Restore(projectDir, quiet: true);
-        }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
+            if (projectConfig != null)
+            {
+                CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
+            }
+
             var backend = ResolveCompilationBackend(args, projectConfig);
             var service = new CodeIntelligenceService();
-            var snapshot = service.LoadProject(projectDir);
+            var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
             diagnostics.AddRange(GetLintDiagnostics(projectDir, snapshot.SourceFiles));
             diagnostics = DeduplicateAndSort(diagnostics);
@@ -51,7 +49,7 @@ public static class CheckCommand
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
-                var verificationDiagnostics = VerifyBackendOutput(projectDir, backend);
+                var verificationDiagnostics = VerifyBackendOutput(projectDir, backend, projectConfig);
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
@@ -92,29 +90,30 @@ public static class CheckCommand
     /// <summary>
     /// Verifies that the configured backend can emit a valid assembly.
     /// </summary>
-    private static List<DiagnosticResult> VerifyBackendOutput(string projectDir, CompilationBackend backend)
+    private static List<DiagnosticResult> VerifyBackendOutput(string projectDir, CompilationBackend backend, ProjectConfig? config)
     {
         if (backend != CompilationBackend.Il)
         {
             throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
         }
 
-        return VerifyIlOutput(projectDir);
+        return VerifyIlOutput(projectDir, config);
     }
 
-    private static List<DiagnosticResult> VerifyIlOutput(string projectDir)
+    private static List<DiagnosticResult> VerifyIlOutput(string projectDir, ProjectConfig? config)
     {
         var results = new List<DiagnosticResult>();
-        var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
+        config ??= ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault();
         var tempDir = Path.Combine(Path.GetTempPath(), $"nlc-check-il-{Guid.NewGuid():N}");
 
         try
         {
             Directory.CreateDirectory(tempDir);
-            CompilationReferenceResolver.AddResolvedDllReferences(projectDir, config);
-            var outputPath = Path.Combine(tempDir, $"{config.EffectiveName}.dll");
+            var outputPath = Path.Combine(tempDir, $"{CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config)}.dll");
             var compiler = new MultiFileCompiler(projectDir, config);
-            var compileResult = compiler.CompileToIlAssembly(config.EffectiveName, outputPath);
+            var compileResult = compiler.CompileToIlAssembly(
+                CompilationReferenceResolver.GetProjectAssemblyName(projectDir, config),
+                outputPath);
 
             if (!compileResult.Success)
             {

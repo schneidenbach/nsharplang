@@ -2,7 +2,7 @@
 
 Project templates for N# language.
 
-Canonical fresh-project policy: templates are csproj-free and `project.yml`-first. Neither `nlc new` nor `dotnet new nsharp-*` writes a user-authored `.csproj`. `nlc build`, `nlc run`, `nlc test`, and the VS Code N# tasks generate a minimal `<Project Sdk="NSharpLang.Sdk" />` `*.g.csproj` only as a build artifact when needed. All project configuration belongs in `project.yml`.
+Canonical fresh-project policy: templates are csproj-free and `project.yml`-first. Neither `nlc new` nor `dotnet new nsharp-*` writes a user-authored `.csproj`. `nlc build`, `nlc run`, `nlc test`, and the VS Code N# tasks read `project.yml` directly and do not generate MSBuild project files. All project configuration belongs in `project.yml`.
 
 The supported fresh-project workflow is `nlc build`, `nlc run`, and `nlc test`; the VS Code extension exposes those same commands as N# tasks and honors `nsharp.cli.path`.
 

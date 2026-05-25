@@ -8,11 +8,6 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
-    internal static string GetBackendMsBuildProperty(CompilationBackend backend)
-    {
-        return $"-p:NSharpCompilationBackend={backend.ToConfigValue()}";
-    }
-
     private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
         return !string.IsNullOrWhiteSpace(backendOption)
@@ -20,9 +15,11 @@ partial class Program
             : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
-    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings)
+    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false)
     {
         var totalSw = Stopwatch.StartNew();
+        var resolveSw = new Stopwatch();
+        var compileSw = new Stopwatch();
 
         try
         {
@@ -35,11 +32,21 @@ partial class Program
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
+            var configuration = release ? "Release" : "Debug";
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
-                : Path.Combine(projectRoot, "bin", release ? "Release" : "Debug", config.TargetFramework);
+                : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
 
-            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir);
+            resolveSw.Start();
+            var references = CompilationReferenceResolver.AddResolvedDllReferences(
+                projectRoot,
+                config,
+                new ReferenceResolutionOptions(Configuration: configuration, Quiet: !verbose));
+            resolveSw.Stop();
+
+            compileSw.Start();
+            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references);
+            compileSw.Stop();
             if (outputPath == null)
             {
                 Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
@@ -53,7 +60,8 @@ partial class Program
             {
                 Console.Error.WriteLine($"""
 Build timings:
-  Emit IL:    {FormatElapsed(totalSw.Elapsed)}
+  Resolve:    {FormatElapsed(resolveSw.Elapsed)}
+  Emit IL:    {FormatElapsed(compileSw.Elapsed)}
   Total:      {FormatElapsed(totalSw.Elapsed)}
 """);
             }
@@ -78,7 +86,11 @@ Build timings:
                 ? Path.GetFullPath(outputDir)
                 : Path.Combine(sourceDir, "bin", release ? "Release" : "Debug", config.TargetFramework);
 
-            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir);
+            var references = CompilationReferenceResolver.AddResolvedDllReferences(
+                sourceDir,
+                config,
+                new ReferenceResolutionOptions(Configuration: release ? "Release" : "Debug", BuildProjectReferences: false));
+            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references);
             if (outputPath == null)
             {
                 return 1;
@@ -98,6 +110,7 @@ Build timings:
     {
         try
         {
+            projectRoot = Path.GetFullPath(projectRoot);
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
@@ -110,24 +123,22 @@ Build timings:
                 return Error("Cannot run a library project.");
             }
 
-            var tempDir = CreateTempBuildDirectory();
-            try
+            var configuration = "Debug";
+            var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+            var references = CompilationReferenceResolver.AddResolvedDllReferences(
+                projectRoot,
+                config,
+                new ReferenceResolutionOptions(Configuration: configuration));
+            var outputPath = CompileProjectWithIlBackend(projectRoot, config, outputDir, references);
+            if (outputPath == null)
             {
-                var outputPath = CompileProjectWithIlBackend(projectRoot, config, tempDir);
-                if (outputPath == null)
-                {
-                    return 1;
-                }
+                return 1;
+            }
 
-                Console.WriteLine();
-                Console.WriteLine("Running...");
-                Console.WriteLine();
-                return DotnetRunner.RunPassthrough($"\"{outputPath}\"", workingDirectory: projectRoot);
-            }
-            finally
-            {
-                CleanupDirectory(tempDir);
-            }
+            Console.WriteLine();
+            Console.WriteLine("Running...");
+            Console.WriteLine();
+            return DotnetRunner.RunPassthrough($"\"{outputPath}\"", workingDirectory: projectRoot);
         }
         catch (Exception ex)
         {
@@ -149,7 +160,11 @@ Build timings:
                 return Error("Cannot run a library source file.");
             }
 
-            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, tempDir);
+            var references = CompilationReferenceResolver.AddResolvedDllReferences(
+                sourceDir,
+                config,
+                new ReferenceResolutionOptions(BuildProjectReferences: false));
+            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, tempDir, references);
             if (outputPath == null)
             {
                 return 1;
@@ -168,19 +183,66 @@ Build timings:
         }
     }
 
-    private static string? CompileProjectWithIlBackend(string projectRoot, ProjectConfig config, string outputDir)
+    internal static string? BuildProjectWithIlBackendForCommand(
+        string projectRoot,
+        ProjectConfig config,
+        string configuration,
+        string? outputDir = null,
+        bool includeTests = false,
+        bool verbose = false)
     {
-        var compiler = new MultiFileCompiler(projectRoot, config);
-        return CompileWithIlBackend(compiler, outputDir, config.EffectiveName, config);
+        projectRoot = Path.GetFullPath(projectRoot);
+        var resolvedOutputDir = outputDir != null
+            ? Path.GetFullPath(outputDir)
+            : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+        var references = CompilationReferenceResolver.AddResolvedDllReferences(
+            projectRoot,
+            config,
+            new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose));
+
+        return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests);
     }
 
-    private static string? CompileSourceFilesWithIlBackend(string[] sourceFiles, string projectRoot, ProjectConfig config, string outputDir)
+    private static string? CompileProjectWithIlBackend(
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references = null,
+        bool includeTests = false)
+    {
+        var compiler = includeTests
+            ? new MultiFileCompiler(config.GetSourceFiles(projectRoot, includeTests: true), projectRoot, config)
+            : new MultiFileCompiler(projectRoot, config);
+        return CompileWithIlBackend(
+            compiler,
+            outputDir,
+            CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
+            config,
+            references);
+    }
+
+    private static string? CompileSourceFilesWithIlBackend(
+        string[] sourceFiles,
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references = null)
     {
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
-        return CompileWithIlBackend(compiler, outputDir, config.EffectiveName, config);
+        return CompileWithIlBackend(
+            compiler,
+            outputDir,
+            CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
+            config,
+            references);
     }
 
-    private static string? CompileWithIlBackend(MultiFileCompiler compiler, string outputDir, string assemblyName, ProjectConfig config)
+    private static string? CompileWithIlBackend(
+        MultiFileCompiler compiler,
+        string outputDir,
+        string assemblyName,
+        ProjectConfig config,
+        ReferenceResolutionResult? references)
     {
         Directory.CreateDirectory(outputDir);
 
@@ -197,6 +259,8 @@ Build timings:
         {
             CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath);
         }
+
+        references?.CopyRuntimeAssets(outputDir);
 
         return result.OutputAssemblyPath;
     }
