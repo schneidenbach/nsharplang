@@ -926,7 +926,7 @@ public class DocumentManager
             if (!IsPathUnderProject(docPath, projectRoot))
                 continue;
 
-            var symbols = Analyzer.ExtractProjectSymbols(doc.CompilationUnit, docPath);
+            var symbols = Analyzer.ExtractProjectSymbols(doc.CompilationUnit, docPath, doc.Text);
             foreach (var symbol in symbols)
             {
                 if (!table.TryGetValue(symbol.Name, out var list))

@@ -117,21 +117,6 @@ public class RenameHandler : RenameHandlerBase
                     "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
             }
 
-            var declarationCount = _documentManager.CountDocumentDeclarations(uri, oldName);
-            if (declarationCount == 0)
-            {
-                throw RenameRefused(
-                    $"Rename for '{oldName}' is unavailable because semantic resolution found no declaration for this symbol in the current document. " +
-                    "No edits were applied; open the containing project and retry for cross-file symbols.");
-            }
-
-            if (declarationCount > 1)
-            {
-                throw RenameRefused(
-                    $"Rename for '{oldName}' is unsafe without project semantics because this document declares {declarationCount} symbols with that name. " +
-                    "No edits were applied; open the containing project or remove the ambiguity and retry.");
-            }
-
             _logger.LogInformation("Found {Count} references to '{Name}'", references.Count, oldName);
 
             // Build text edits for each strict semantic reference

@@ -194,7 +194,10 @@ public class MultiFileCompiler
             var sourceFile = kvp.Key;
             var compilationUnit = kvp.Value;
 
-            var symbols = Analyzer.ExtractProjectSymbols(compilationUnit, sourceFile);
+            var sourceText = _sourceTexts.TryGetValue(sourceFile, out var text)
+                ? text
+                : ReadSourceText(sourceFile);
+            var symbols = Analyzer.ExtractProjectSymbols(compilationUnit, sourceFile, sourceText);
             foreach (var symbol in symbols)
             {
                 if (!table.TryGetValue(symbol.Name, out var list))
@@ -465,6 +468,7 @@ public class MultiFileCompiler
     {
         // Build project symbol table for auto-discovery and set it on the shared analyzer
         var projectSymbols = BuildProjectSymbolTable();
+        _sharedAnalyzer.SetProjectSourceTexts(_sourceTexts);
         _sharedAnalyzer.SetProjectSymbols(projectSymbols);
 
         // Analyze each file using the shared analyzer instance

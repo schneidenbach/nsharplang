@@ -102,12 +102,15 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
 
         if (!hasSynchronizedProjectSnapshot)
         {
-            var declarationCount = _documentManager.CountDocumentDeclarations(uri, word);
-            if (declarationCount > 1)
+            var documentReferences = _documentManager.FindStrictDocumentReferences(
+                uri,
+                request.Position.Line,
+                request.Position.Character);
+            if (documentReferences == null || documentReferences.Count == 0)
             {
                 throw RenameRefused(
-                    $"Rename for '{word}' is unsafe without project semantics because this document declares {declarationCount} symbols with that name. " +
-                    "No edits were applied; open the containing project or remove the ambiguity and retry.");
+                    $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
+                    "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
             }
         }
 
