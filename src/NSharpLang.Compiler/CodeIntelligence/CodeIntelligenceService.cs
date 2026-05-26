@@ -1155,6 +1155,7 @@ public class CodeIntelligenceService
             UnionTypeInfo unionType => FindMemberDeclarationSymbol(snapshot, unionType.Declaration, memberName),
             AliasTypeInfo aliasType => FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
             NullableTypeInfo nullableType => FindMemberDeclarationSymbol(snapshot, nullableType.InnerType, memberName),
+            ObliviousTypeInfo obliviousType => FindMemberDeclarationSymbol(snapshot, obliviousType.InnerType, memberName),
             _ => null
         };
     }
@@ -1730,6 +1731,7 @@ public class CodeIntelligenceService
             UnionTypeInfo => receiverType,
             AliasTypeInfo aliasType => FindMemberTypeInfo(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
             NullableTypeInfo nullableType => FindMemberTypeInfo(snapshot, nullableType.InnerType, memberName),
+            ObliviousTypeInfo obliviousType => FindMemberTypeInfo(snapshot, obliviousType.InnerType, memberName),
             _ => null
         };
     }
@@ -2052,22 +2054,8 @@ public class CodeIntelligenceService
         _ => typeRef.ToString() ?? "unknown"
     };
 
-    private static string FormatTypeInfo(TypeInfo typeInfo) => typeInfo switch
-    {
-        SimpleTypeInfo s => s.Name,
-        ClassTypeInfo c => c.Declaration.Name,
-        StructTypeInfo s => s.Declaration.Name,
-        RecordTypeInfo r => r.Declaration.Name,
-        InterfaceTypeInfo i => i.Declaration.Name,
-        EnumTypeInfo e => e.Declaration.Name,
-        UnionTypeInfo u => u.Declaration.Name,
-        FunctionTypeInfo f => f.Declaration?.Name ?? "function",
-        GenericTypeInfo g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(FormatTypeInfo))}>",
-        ArrayTypeInfo a => $"{FormatTypeInfo(a.ElementType)}[]",
-        NullableTypeInfo n => $"{FormatTypeInfo(n.InnerType)}?",
-        ReflectionTypeInfo r => r.Type.Name,
-        _ => typeInfo.ToString() ?? "unknown"
-    };
+    private static string FormatTypeInfo(TypeInfo typeInfo)
+        => NullabilityMetadata.FormatTypeInfo(typeInfo);
 
     private static string GetNullabilityForExpression(SemanticModel? semanticModel, Expression? expression, TypeInfo typeInfo)
     {
@@ -2118,6 +2106,7 @@ public class CodeIntelligenceService
         GenericTypeInfo => "generic",
         ArrayTypeInfo => "array",
         NullableTypeInfo => "nullable",
+        ObliviousTypeInfo => "oblivious",
         ReflectionTypeInfo r => r.Type.IsEnum ? "enum" : (r.Type.IsValueType ? "struct" : "class"),
         ReflectionMethodInfo => "method",
         ReflectionMethodGroupInfo => "method",

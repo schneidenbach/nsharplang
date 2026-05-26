@@ -274,6 +274,10 @@ let name: string? = null     // Nullable reference
 let age: int? = null          // Nullable value type
 ```
 
+C# interop distinguishes annotated nullable types from oblivious metadata. When a
+referenced C# API has no nullable metadata, query and hover display the imported type as
+`T!` to make the unknown legacy nullability explicit.
+
 ## Generic Types
 
 ```

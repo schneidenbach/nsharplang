@@ -738,17 +738,10 @@ public class CompletionEngine
         return type.Name;
     }
 
-    private static string FormatTypeInfo(TypeInfo typeInfo) => typeInfo switch
-    {
-        SimpleTypeInfo s => s.Name,
-        ClassTypeInfo c => c.Declaration.Name,
-        StructTypeInfo s => s.Declaration.Name,
-        RecordTypeInfo r => r.Declaration.Name,
-        InterfaceTypeInfo i => i.Declaration.Name,
-        FunctionTypeInfo f => f.Declaration?.ReturnType != null
-            ? CodeIntelligenceService.FormatTypeReferencePublic(f.Declaration.ReturnType) : "void",
-        _ => typeInfo.ToString() ?? "unknown"
-    };
+    private static string FormatTypeInfo(TypeInfo typeInfo)
+        => typeInfo is FunctionTypeInfo { Declaration.ReturnType: not null } function
+            ? CodeIntelligenceService.FormatTypeReferencePublic(function.Declaration.ReturnType)
+            : NullabilityMetadata.FormatTypeInfo(typeInfo);
 
     private (string filePath, CompilationUnit? cu) FindCompilationUnit(ProjectSnapshot snapshot, string file)
     {

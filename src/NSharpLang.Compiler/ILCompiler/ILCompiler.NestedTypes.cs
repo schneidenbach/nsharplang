@@ -239,6 +239,7 @@ public partial class ILCompiler
 
         var typeBuilder = containingTypeBuilder.DefineNestedType(classDeclaration.Name, typeAttributes);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, classDeclaration.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(typeName, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, classDeclaration.TypeParameters);
@@ -290,6 +291,7 @@ public partial class ILCompiler
             GetNestedTypeVisibilityAttributes(structDeclaration.Name, structDeclaration.Modifiers) | TypeAttributes.Sealed,
             typeof(ValueType));
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, structDeclaration.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(typeName, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, structDeclaration.TypeParameters);
@@ -320,6 +322,7 @@ public partial class ILCompiler
             | TypeAttributes.Interface
             | TypeAttributes.Abstract);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, interfaceDeclaration.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(typeName, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, interfaceDeclaration.TypeParameters);
@@ -347,6 +350,7 @@ public partial class ILCompiler
                 | TypeAttributes.Class
                 | TypeAttributes.Abstract
                 | TypeAttributes.Sealed);
+            ApplyNullableContextAttribute(stringEnumType.SetCustomAttribute);
 
             RegisterStringEnumContainer(typeName, stringEnumType);
 
@@ -379,6 +383,7 @@ public partial class ILCompiler
             | TypeAttributes.Sealed,
             typeof(Enum));
         ApplyCustomAttributes(enumType.SetCustomAttribute, enumDeclaration.Attributes);
+        ApplyNullableContextAttribute(enumType.SetCustomAttribute);
 
         enumType.DefineField(
             "value__",
@@ -421,6 +426,7 @@ public partial class ILCompiler
             | TypeAttributes.Class
             | TypeAttributes.Abstract);
         ApplyCustomAttributes(unionType.SetCustomAttribute, unionDeclaration.Attributes);
+        ApplyNullableContextAttribute(unionType.SetCustomAttribute);
         RegisterType(typeName, unionType);
 
         var unionCtor = unionType.DefineConstructor(
@@ -435,6 +441,7 @@ public partial class ILCompiler
                 unionCase.Name,
                 TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed,
                 unionType);
+            ApplyNullableContextAttribute(caseType.SetCustomAttribute);
 
             var caseKey = $"{typeName}.{unionCase.Name}";
             RegisterType(caseKey, caseType);
@@ -473,7 +480,8 @@ public partial class ILCompiler
                     caseParameterTypes);
                 for (int i = 0; i < caseParameters.Count; i++)
                 {
-                    caseCtor.DefineParameter(i + 1, GetParameterAttributes(caseParameters[i]), caseParameters[i].Name);
+                    var parameterBuilder = caseCtor.DefineParameter(i + 1, GetParameterAttributes(caseParameters[i]), caseParameters[i].Name);
+                    ApplyParameterAttributes(parameterBuilder, caseParameters[i]);
                 }
 
                 var syntheticConstructor = new ConstructorDeclaration(
@@ -499,6 +507,7 @@ public partial class ILCompiler
                     property.Name,
                     fieldType,
                     FieldAttributes.Public);
+                ApplyNullableAttribute(fieldBuilder.SetCustomAttribute, property.Type);
                 _fields[GetFieldKey(caseType, property.Name)] = fieldBuilder;
             }
         }
@@ -532,6 +541,7 @@ public partial class ILCompiler
             typeAttributes,
             baseType);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, recordDeclaration.Attributes);
+        ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(typeName, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, recordDeclaration.TypeParameters);

@@ -501,9 +501,9 @@ public class HoverHandler : HoverHandlerBase
     {
         var parameters = method.GetParameters();
         var paramList = string.Join(", ", parameters.Select(p =>
-            $"{FormatTypeName(p.ParameterType)} {p.Name}"));
+            NullabilityMetadata.FormatParameter(p)));
 
-        var returnType = FormatTypeName(method.ReturnType);
+        var returnType = NullabilityMetadata.FormatReturnType(method);
         return $"{returnType} {method.Name}({paramList})";
     }
 
@@ -522,7 +522,7 @@ public class HoverHandler : HoverHandlerBase
         else if (property.CanWrite)
             accessors = " { set; }";
 
-        sb.AppendLine($"{FormatTypeName(property.PropertyType)} {property.Name}{accessors}");
+        sb.AppendLine($"{NullabilityMetadata.FormatPropertyType(property)} {property.Name}{accessors}");
         sb.AppendLine("```");
 
         if (!string.IsNullOrEmpty(property.DeclaringType?.Namespace))
@@ -545,7 +545,7 @@ public class HoverHandler : HoverHandlerBase
         if (field.IsStatic) modifiers = "static ";
         if (field.IsInitOnly) modifiers += "readonly ";
 
-        sb.AppendLine($"{modifiers}{FormatTypeName(field.FieldType)} {field.Name}");
+        sb.AppendLine($"{modifiers}{NullabilityMetadata.FormatFieldType(field)} {field.Name}");
         sb.AppendLine("```");
 
         if (!string.IsNullOrEmpty(field.DeclaringType?.Namespace))
@@ -560,7 +560,7 @@ public class HoverHandler : HoverHandlerBase
     private string FormatType(Type type)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"**(type)** `{FormatTypeName(type)}`");
+        sb.AppendLine($"**(type)** `{NullabilityMetadata.FormatType(type)}`");
         sb.AppendLine();
 
         if (!string.IsNullOrEmpty(type.Namespace))

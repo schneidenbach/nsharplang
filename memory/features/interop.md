@@ -77,6 +77,22 @@ let text := "hello"
 let length := text.Length
 ```
 
+### Nullable Metadata
+
+N# imports C# nullable metadata from referenced assemblies. `NullableAttribute` and
+`NullableContextAttribute` are decoded through the reflection import path, so annotated
+C# APIs surface as N# `T` or `T?` at call sites:
+
+```
+// C#: public static string? FindName(string id)
+name := CustomerApi.FindName("42")   // name: string?
+```
+
+Missing C# nullable metadata is represented explicitly as oblivious and displayed as
+`T!` in query/hover output. Common flow attributes that affect boundary types, such as
+`MaybeNull` and `NotNull`, are folded into the imported type; conditional attributes
+such as `NotNullWhen(true)` are surfaced in reflected signatures.
+
 ### Constructors
 ```
 let list := new List<int>()
@@ -107,6 +123,8 @@ Reference C# projects from N# projects (future feature).
 ## N# Consumed by C#
 
 N# compiles to C#, so the generated code is fully consumable by C# projects.
+Generated C# is emitted with nullable annotations enabled, so public N# `T` and `T?`
+APIs preserve their nullability for C# consumers.
 
 ### Example
 

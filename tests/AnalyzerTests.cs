@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using Xunit;
@@ -7,6 +8,32 @@ using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Tests;
+
+#nullable disable
+public static class CSharpObliviousInteropProbe
+{
+    public static string Identity(string value) => value;
+}
+#nullable restore
+
+public static class CSharpNullabilityInteropProbe
+{
+    public static string NonNull(string value) => value;
+    public static string? Maybe(string? value) => value;
+    public static List<string?> MaybeList() => new();
+
+    [return: MaybeNull]
+    public static string MaybeNullReturn() => null;
+
+    [return: NotNull]
+    public static string? NotNullReturn() => "";
+
+    public static bool TryGet([NotNullWhen(true)] out string? value)
+    {
+        value = "ok";
+        return true;
+    }
+}
 
 public class AnalyzerTests
 {
@@ -5507,6 +5534,76 @@ func Hello(): string {
                 y: short = x
             }
         ", "is typed as");
+    }
+
+    #endregion
+
+    #region C# Nullability Interop
+
+    private AnalysisResult AnalyzeWithInteropProbe(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens);
+        var result = parser.ParseCompilationUnit();
+        var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        analyzer.LoadReferencedAssembly(typeof(CSharpNullabilityInteropProbe).Assembly.Location);
+        return analyzer.Analyze(result.CompilationUnit!);
+    }
+
+    [Fact]
+    public void CSharpInterop_ImportsNullableMetadata()
+    {
+        var result = AnalyzeWithInteropProbe(@"
+            import NSharpLang.Tests
+
+            func Main() {
+                nonNull := CSharpNullabilityInteropProbe.NonNull(""ok"")
+                maybe := CSharpNullabilityInteropProbe.Maybe(""ok"")
+                maybeList := CSharpNullabilityInteropProbe.MaybeList()
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Equal("string", result.SemanticModel.LookupIdentifier("nonNull")?.ToString());
+        Assert.Equal("string?", result.SemanticModel.LookupIdentifier("maybe")?.ToString());
+        Assert.Equal("List<string?>", result.SemanticModel.LookupIdentifier("maybeList")?.ToString());
+    }
+
+    [Fact]
+    public void CSharpInterop_ImportsFlowNullabilityAttributes()
+    {
+        var result = AnalyzeWithInteropProbe(@"
+            import NSharpLang.Tests
+
+            func Main() {
+                maybe := CSharpNullabilityInteropProbe.MaybeNullReturn()
+                nonNull := CSharpNullabilityInteropProbe.NotNullReturn()
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Equal("string?", result.SemanticModel.LookupIdentifier("maybe")?.ToString());
+        Assert.Equal("string", result.SemanticModel.LookupIdentifier("nonNull")?.ToString());
+
+        var method = typeof(CSharpNullabilityInteropProbe).GetMethod(nameof(CSharpNullabilityInteropProbe.TryGet))!;
+        Assert.Contains("[NotNullWhen(true)]", NullabilityMetadata.FormatParameter(method.GetParameters()[0]));
+    }
+
+    [Fact]
+    public void CSharpInterop_MissingNullableMetadataIsOblivious()
+    {
+        var result = AnalyzeWithInteropProbe(@"
+            import NSharpLang.Tests
+
+            func Main() {
+                value := CSharpObliviousInteropProbe.Identity(""ok"")
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Equal("string!", result.SemanticModel.LookupIdentifier("value")?.ToString());
     }
 
     #endregion

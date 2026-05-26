@@ -1491,7 +1491,7 @@ func main(): void
         Assert.NotEmpty(sigHelp.Signatures);
         var activeSignature = sigHelp.Signatures.ElementAt(sigHelp.ActiveSignature ?? 0);
         Assert.Contains("separator: string", activeSignature.Label);
-        Assert.Contains("values: IEnumerable<string>", activeSignature.Label);
+        Assert.Contains("values: IEnumerable<string?>", activeSignature.Label);
     }
 
     #endregion
