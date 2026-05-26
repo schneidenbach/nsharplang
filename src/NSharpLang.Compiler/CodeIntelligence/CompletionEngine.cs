@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -461,6 +462,10 @@ public class CompletionEngine
     // ── Type Member Resolution ──────────────────────────────────────────
 
     private enum MemberFilter { All, StaticOnly, InstanceOnly }
+    private const DynamicallyAccessedMemberTypes CompletionMemberTypes =
+        DynamicallyAccessedMemberTypes.PublicMethods |
+        DynamicallyAccessedMemberTypes.PublicProperties |
+        DynamicallyAccessedMemberTypes.PublicFields;
 
     private List<CompletionItem> GetTypeMembers(Type type, MemberFilter filter)
     {
@@ -987,6 +992,12 @@ public class CompletionEngine
 
         EnsureAssembliesLoaded();
 
+        if (TryResolveWellKnownType(name) is { } wellKnownType)
+        {
+            _typeCache[name] = wellKnownType;
+            return wellKnownType;
+        }
+
         // Common aliases
         var fullName = name switch
         {
@@ -1031,6 +1042,36 @@ public class CompletionEngine
 
         return null;
     }
+
+    [DynamicDependency(CompletionMemberTypes, typeof(Console))]
+    [DynamicDependency(CompletionMemberTypes, typeof(Math))]
+    [DynamicDependency(CompletionMemberTypes, typeof(DateTime))]
+    [DynamicDependency(CompletionMemberTypes, typeof(string))]
+    [DynamicDependency(CompletionMemberTypes, typeof(int))]
+    [DynamicDependency(CompletionMemberTypes, typeof(long))]
+    [DynamicDependency(CompletionMemberTypes, typeof(bool))]
+    [DynamicDependency(CompletionMemberTypes, typeof(double))]
+    [DynamicDependency(CompletionMemberTypes, typeof(float))]
+    [DynamicDependency(CompletionMemberTypes, typeof(object))]
+    [DynamicDependency(CompletionMemberTypes, typeof(List<>))]
+    [DynamicDependency(CompletionMemberTypes, typeof(Dictionary<,>))]
+    private static Type? TryResolveWellKnownType(string name)
+        => name switch
+        {
+            "int" or "System.Int32" => typeof(int),
+            "long" or "System.Int64" => typeof(long),
+            "string" or "System.String" => typeof(string),
+            "bool" or "System.Boolean" => typeof(bool),
+            "double" or "System.Double" => typeof(double),
+            "float" or "System.Single" => typeof(float),
+            "object" or "System.Object" => typeof(object),
+            "Console" or "System.Console" => typeof(Console),
+            "Math" or "System.Math" => typeof(Math),
+            "DateTime" or "System.DateTime" => typeof(DateTime),
+            "List" or "System.Collections.Generic.List" => typeof(List<>),
+            "Dictionary" or "System.Collections.Generic.Dictionary" => typeof(Dictionary<,>),
+            _ => null
+        };
 
     private static readonly HashSet<string> WellKnownNamespaces = new()
     {
