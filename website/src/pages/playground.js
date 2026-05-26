@@ -4,6 +4,8 @@ import Layout from '@theme/Layout';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   Clipboard,
   FileCode2,
@@ -12,6 +14,7 @@ import {
   Share2,
   Wand2,
 } from 'lucide-react';
+import {validateTutorialStep} from '../lib/tutorialValidation.mjs';
 
 const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
 const owner = 'nsharp-playground';
@@ -23,6 +26,7 @@ const fallbackExample = {
   goal: 'Change the greeting and use diagnostics to keep the program clean.',
   concepts: ['entry point', 'print', 'string interpolation', 'tests'],
   cSharpContrast: 'N# keeps top-level ceremony low: func main() plus print is enough.',
+  expectedOutput: 'Hello, N#!\n',
   code: `package Tutorial
 
 func Greeting(name: string): string {
@@ -56,6 +60,31 @@ function normalizeExample(example) {
     cSharpContrast: readField(example, 'cSharpContrast', 'CSharpContrast') ?? '',
     code: readField(example, 'code', 'Code') ?? '',
     testsCode: readField(example, 'testsCode', 'TestsCode'),
+    expectedOutput: readField(example, 'expectedOutput', 'ExpectedOutput'),
+  };
+}
+
+function normalizeTutorialValidation(validation) {
+  if (!validation) {
+    return null;
+  }
+
+  return {
+    type: readField(validation, 'type', 'Type') ?? 'output',
+    expectedOutput: readField(validation, 'expectedOutput', 'ExpectedOutput'),
+    requiredText: readField(validation, 'requiredText', 'RequiredText'),
+    successMessage: readField(validation, 'successMessage', 'SuccessMessage') ?? 'Exercise complete.',
+  };
+}
+
+function normalizeTutorialStep(step) {
+  return {
+    id: readField(step, 'id', 'Id'),
+    title: readField(step, 'title', 'Title'),
+    kind: readField(step, 'kind', 'Kind') ?? 'info',
+    narration: readField(step, 'narration', 'Narration') ?? '',
+    exampleId: readField(step, 'exampleId', 'ExampleId'),
+    validation: normalizeTutorialValidation(readField(step, 'validation', 'Validation')),
   };
 }
 
@@ -85,6 +114,7 @@ function normalizeDiagnostic(diagnostic) {
 
 function normalizeCheckResponse(response) {
   return {
+    schemaVersion: readField(response, 'schemaVersion', 'SchemaVersion'),
     ok: readField(response, 'ok', 'Ok') ?? false,
     file: readField(response, 'file', 'File') ?? 'Program.nl',
     diagnostics: (readField(response, 'diagnostics', 'Diagnostics') ?? []).map(normalizeDiagnostic),
@@ -97,6 +127,16 @@ function normalizeFormatResponse(response) {
     ...normalizeCheckResponse(response),
     formattedCode: readField(response, 'formattedCode', 'FormattedCode'),
     warnings: readField(response, 'warnings', 'Warnings') ?? [],
+  };
+}
+
+function normalizeRunResponse(response) {
+  return {
+    ...normalizeCheckResponse(response),
+    exitCode: readField(response, 'exitCode', 'ExitCode') ?? 1,
+    stdout: readField(response, 'stdout', 'Stdout') ?? '',
+    stderr: readField(response, 'stderr', 'Stderr'),
+    unsupportedReason: readField(response, 'unsupportedReason', 'UnsupportedReason'),
   };
 }
 
@@ -317,8 +357,9 @@ function completionKind(monaco, kind) {
     case 'keyword':
       return monaco.languages.CompletionItemKind.Keyword;
     case 'function':
-    case 'method':
       return monaco.languages.CompletionItemKind.Function;
+    case 'method':
+      return monaco.languages.CompletionItemKind.Method;
     case 'property':
       return monaco.languages.CompletionItemKind.Property;
     case 'field':
@@ -504,7 +545,84 @@ function EditorFallback({value, onChange}) {
   );
 }
 
-export default function Playground() {
+function OutputPanel({runResult, activeExample, validationState}) {
+  if (!runResult) {
+    return (
+      <div className="playground-output">
+        <div className="playground-empty">
+          <Play size={16} aria-hidden="true" />
+          <span>Run the active file to see stdout.</span>
+        </div>
+        {activeExample?.expectedOutput && (
+          <div className="playground-expected-output">
+            <span>Expected output</span>
+            <pre>{activeExample.expectedOutput}</pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="playground-output">
+      <div className={`playground-run-summary ${runResult.ok ? 'playground-run-summary--ok' : 'playground-run-summary--error'}`}>
+        <span>exit {runResult.exitCode}</span>
+        <span>{runResult.ok ? 'completed' : 'failed'}</span>
+      </div>
+      {runResult.stdout ? (
+        <pre className="playground-stdout">{runResult.stdout}</pre>
+      ) : (
+        <div className="playground-empty">
+          <span>No stdout.</span>
+        </div>
+      )}
+      {runResult.stderr && <pre className="playground-stderr">{runResult.stderr}</pre>}
+      {runResult.unsupportedReason && (
+        <div className="playground-note playground-note--warning">
+          <AlertTriangle size={15} aria-hidden="true" />
+          <span>{runResult.unsupportedReason}</span>
+        </div>
+      )}
+      {validationState?.message && (
+        <div className={`playground-validation ${validationState.complete ? 'playground-validation--ok' : 'playground-validation--pending'}`}>
+          {validationState.complete ? <CheckCircle2 size={15} aria-hidden="true" /> : <AlertTriangle size={15} aria-hidden="true" />}
+          <span>{validationState.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GuidePanel({activeExample, activeTutorialStep, validationState, isTutorial}) {
+  if (isTutorial && activeTutorialStep) {
+    return (
+      <div className="playground-lesson-notes">
+        <p>{activeTutorialStep.narration}</p>
+        {activeTutorialStep.validation && (
+          <div className={`playground-validation ${validationState?.complete ? 'playground-validation--ok' : 'playground-validation--pending'}`}>
+            {validationState?.complete ? <CheckCircle2 size={15} aria-hidden="true" /> : <AlertTriangle size={15} aria-hidden="true" />}
+            <span>{validationState?.message ?? 'Run the exercise to unlock Next.'}</span>
+          </div>
+        )}
+        {activeExample?.cSharpContrast && <p>{activeExample.cSharpContrast}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="playground-lesson-notes">
+      <p>{activeExample?.summary}</p>
+      <p>{activeExample?.cSharpContrast}</p>
+      <div className="playground-note">
+        <Clipboard size={15} aria-hidden="true" />
+        <span>Install nlc for full build, run, test, NuGet, and filesystem workflows.</span>
+      </div>
+    </div>
+  );
+}
+
+export function PlaygroundWorkbench({mode = 'playground'}) {
+  const isTutorial = mode === 'tutorial';
   const loaderUrl = useBaseUrl('/playground/nsharp-playground.js');
   const contextRef = useRef(null);
   const monacoRef = useRef(null);
@@ -515,15 +633,19 @@ export default function Playground() {
 
   const [playground, setPlayground] = useState(null);
   const [examples, setExamples] = useState([fallbackExample]);
+  const [tutorialSteps, setTutorialSteps] = useState([]);
+  const [selectedTutorialStep, setSelectedTutorialStep] = useState(null);
+  const [completedSteps, setCompletedSteps] = useState(() => new Set());
   const [selectedExample, setSelectedExample] = useState(fallbackExample.id);
   const [files, setFiles] = useState(filesForExample(fallbackExample));
   const [activeFile, setActiveFile] = useState('Program.nl');
   const [result, setResult] = useState(null);
+  const [runResult, setRunResult] = useState(null);
   const [version, setVersion] = useState(null);
   const [status, setStatus] = useState('Loading compiler...');
   const [loadError, setLoadError] = useState(null);
   const [isWorking, setIsWorking] = useState(false);
-  const [panel, setPanel] = useState('problems');
+  const [panel, setPanel] = useState('output');
 
   filesRef.current = files;
   activeFileRef.current = activeFile;
@@ -533,18 +655,43 @@ export default function Playground() {
     () => examples.find((example) => example.id === selectedExample) ?? examples[0],
     [examples, selectedExample],
   );
+  const activeTutorialStep = useMemo(
+    () => tutorialSteps.find((step) => step.id === selectedTutorialStep) ?? tutorialSteps[0],
+    [tutorialSteps, selectedTutorialStep],
+  );
   const activeFileModel = useMemo(
     () => files.find((file) => file.name === activeFile) ?? files[0],
     [files, activeFile],
   );
   const diagnostics = result?.diagnostics ?? [];
   const summary = result?.summary ?? {errors: 0, warnings: 0, infos: 0};
-  const canRun = playground && !isWorking;
-  const statusClass = result ? (summary.errors === 0 ? 'playground-status--ok' : 'playground-status--error') : '';
+  const canWork = playground && !isWorking;
+  const validationState = useMemo(() => {
+    if (!isTutorial) {
+      return null;
+    }
+
+    const state = validateTutorialStep(activeTutorialStep, files, runResult);
+    if (!state.complete && activeTutorialStep?.validation && completedSteps.has(activeTutorialStep.id)) {
+      return {complete: true, message: activeTutorialStep.validation.successMessage};
+    }
+
+    return state;
+  }, [activeTutorialStep, completedSteps, files, isTutorial, runResult]);
+  const tutorialIndex = activeTutorialStep
+    ? tutorialSteps.findIndex((step) => step.id === activeTutorialStep.id)
+    : -1;
+  const canGoBack = isTutorial && tutorialIndex > 0;
+  const canGoNext = isTutorial &&
+    tutorialIndex >= 0 &&
+    tutorialIndex < tutorialSteps.length - 1 &&
+    (!activeTutorialStep?.validation || validationState?.complete);
+  const statusClass = result || runResult
+    ? (summary.errors === 0 && (!runResult || runResult.ok) ? 'playground-status--ok' : 'playground-status--error')
+    : '';
 
   const applyResult = useCallback((nextResult) => {
     setResult(nextResult);
-    setPanel('problems');
   }, []);
 
   const filesForModel = useCallback((model) => {
@@ -569,9 +716,15 @@ export default function Playground() {
         const loaded = await globalThis.loadNSharpPlayground();
         const catalog = loaded.getCatalog();
         const catalogExamples = (readField(catalog, 'examples', 'Examples') ?? []).map(normalizeExample);
+        const catalogTutorial = (readField(catalog, 'tutorial', 'Tutorial') ?? []).map(normalizeTutorialStep);
         const nextExamples = catalogExamples.length ? catalogExamples : [fallbackExample];
-        const sharedFiles = readSharedFiles();
-        const initialFiles = sharedFiles?.length ? sharedFiles : filesForExample(nextExamples[0]);
+        const initialTutorialStep = catalogTutorial[0] ?? null;
+        const tutorialExample = initialTutorialStep?.exampleId
+          ? nextExamples.find((example) => example.id === initialTutorialStep.exampleId)
+          : null;
+        const initialExample = isTutorial ? (tutorialExample ?? nextExamples[0]) : nextExamples[0];
+        const sharedFiles = isTutorial ? null : readSharedFiles();
+        const initialFiles = sharedFiles?.length ? sharedFiles : filesForExample(initialExample);
         const initialActiveFile = initialFiles[0]?.name ?? 'Program.nl';
 
         if (cancelled) {
@@ -580,7 +733,9 @@ export default function Playground() {
 
         setPlayground(loaded);
         setExamples(nextExamples);
-        setSelectedExample(sharedFiles ? 'shared' : nextExamples[0].id);
+        setTutorialSteps(catalogTutorial);
+        setSelectedTutorialStep(initialTutorialStep?.id ?? null);
+        setSelectedExample(sharedFiles ? 'shared' : initialExample.id);
         setFiles(initialFiles);
         setActiveFile(initialActiveFile);
         setVersion(normalizeVersion(loaded.version()));
@@ -600,7 +755,7 @@ export default function Playground() {
     return () => {
       cancelled = true;
     };
-  }, [loaderUrl]);
+  }, [isTutorial, loaderUrl]);
 
   useEffect(() => {
     if (!playground) {
@@ -663,6 +818,37 @@ export default function Playground() {
     }
   }
 
+  async function runProject() {
+    if (!playground?.runProject) {
+      return;
+    }
+
+    setIsWorking(true);
+    try {
+      const run = normalizeRunResponse(await playground.runProject(files, activeFile));
+      setRunResult(run);
+      setResult(run);
+      setStatus(run.ok ? 'Ran' : 'Run failed');
+      setPanel('output');
+
+      if (isTutorial && activeTutorialStep?.validation) {
+        const nextValidation = validateTutorialStep(activeTutorialStep, files, run);
+        if (nextValidation.complete) {
+          setCompletedSteps((current) => {
+            const next = new Set(current);
+            next.add(activeTutorialStep.id);
+            return next;
+          });
+        }
+      }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+      setStatus('Run failed');
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function runFormat() {
     if (!playground || !activeFileModel) {
       return;
@@ -677,6 +863,7 @@ export default function Playground() {
           file.name === activeFileModel.name ? {...file, code: formatted.formattedCode} : file
         )));
       }
+      setRunResult(null);
       setStatus(formatted.ok ? 'Formatted' : 'Format skipped');
       setPanel('problems');
     } catch (error) {
@@ -707,14 +894,47 @@ export default function Playground() {
   function chooseExample(example) {
     const nextFiles = filesForExample(example);
     setSelectedExample(example.id);
+    setSelectedTutorialStep(null);
     setFiles(nextFiles);
     setActiveFile(nextFiles[0].name);
     setResult(null);
+    setRunResult(null);
     setStatus('Example loaded');
+    setPanel('output');
     clearSharedHash();
   }
 
+  function chooseTutorialStep(step) {
+    const example = examples.find((candidate) => candidate.id === step.exampleId) ?? activeExample ?? examples[0];
+    const nextFiles = filesForExample(example);
+    setSelectedTutorialStep(step.id);
+    setSelectedExample(example.id);
+    setFiles(nextFiles);
+    setActiveFile(nextFiles[0].name);
+    setResult(null);
+    setRunResult(null);
+    setStatus(step.kind === 'exercise' ? 'Exercise loaded' : 'Step loaded');
+    setPanel('guide');
+    clearSharedHash();
+  }
+
+  function moveTutorial(delta) {
+    if (tutorialIndex < 0) {
+      return;
+    }
+
+    const nextStep = tutorialSteps[tutorialIndex + delta];
+    if (nextStep) {
+      chooseTutorialStep(nextStep);
+    }
+  }
+
   function resetExample() {
+    if (isTutorial && activeTutorialStep) {
+      chooseTutorialStep(activeTutorialStep);
+      return;
+    }
+
     if (!activeExample) {
       return;
     }
@@ -726,6 +946,14 @@ export default function Playground() {
     setFiles((current) => current.map((file) => (
       file.name === activeFile ? {...file, code: code ?? ''} : file
     )));
+    setRunResult(null);
+    if (activeTutorialStep?.validation) {
+      setCompletedSteps((current) => {
+        const next = new Set(current);
+        next.delete(activeTutorialStep.id);
+        return next;
+      });
+    }
     setStatus('Edited');
     clearSharedHash();
   }
@@ -758,13 +986,17 @@ export default function Playground() {
 
   return (
     <Layout
-      title="Playground"
-      description="Try N# in the browser with WebAssembly compiler diagnostics, formatting, IntelliSense, and syntax highlighting.">
+      title={isTutorial ? 'Tutorial' : 'Playground'}
+      description={isTutorial
+        ? 'Follow the guided N# tutorial in the browser playground workbench.'
+        : 'Try N# in the browser with WebAssembly compiler diagnostics, formatting, IntelliSense, run output, and syntax highlighting.'}>
       <main className="playground-page">
         <section className="playground-topbar">
           <div>
-            <h1>N# Playground</h1>
-            <p>Browser-based compiler workbench for the first N# tour.</p>
+            <h1>{isTutorial ? 'N# Tutorial' : 'N# Playground'}</h1>
+            <p>{isTutorial
+              ? 'A guided story that uses the same browser workbench as the playground.'
+              : 'Free exploration with browser diagnostics, formatting, IntelliSense, and stdout.'}</p>
           </div>
           <div className="playground-runtime">
             <span className={`playground-status ${statusClass}`}>{status}</span>
@@ -780,10 +1012,24 @@ export default function Playground() {
         )}
 
         <section className="playground-workbench">
-          <aside className="playground-lessons" aria-label="Lessons">
-            <div className="playground-panel-title">Lessons</div>
+          <aside className="playground-lessons" aria-label={isTutorial ? 'Tutorial steps' : 'Samples'}>
+            <div className="playground-panel-title">{isTutorial ? 'Tutorial' : 'Samples'}</div>
             <div className="playground-lesson-list">
-              {examples.map((example, index) => (
+              {isTutorial ? tutorialSteps.map((step, index) => (
+                <button
+                  className={`playground-lesson ${activeTutorialStep?.id === step.id ? 'playground-lesson--active' : ''}`}
+                  key={step.id}
+                  type="button"
+                  onClick={() => chooseTutorialStep(step)}>
+                  <span className="playground-lesson__number">
+                    {completedSteps.has(step.id) ? <CheckCircle2 size={13} aria-hidden="true" /> : index + 1}
+                  </span>
+                  <span>
+                    <span className="playground-lesson__title">{step.title}</span>
+                    <span className="playground-lesson__summary">{step.kind === 'exercise' ? 'Exercise' : 'Story'}</span>
+                  </span>
+                </button>
+              )) : examples.map((example, index) => (
                 <button
                   className={`playground-lesson ${selectedExample === example.id ? 'playground-lesson--active' : ''}`}
                   key={example.id}
@@ -802,14 +1048,29 @@ export default function Playground() {
           <section className="playground-main">
             <div className="playground-context">
               <div>
-                <h2>{activeExample?.title ?? 'Shared Code'}</h2>
-                <p>{activeExample?.goal ?? 'Shared playground code.'}</p>
+                <h2>{isTutorial ? activeTutorialStep?.title : activeExample?.title ?? 'Shared Code'}</h2>
+                <p>{isTutorial
+                  ? activeTutorialStep?.narration
+                  : activeExample?.goal ?? 'Shared playground code.'}</p>
               </div>
-              <div className="playground-concepts">
-                {(activeExample?.concepts ?? []).map((concept) => (
-                  <span key={concept}>{concept}</span>
-                ))}
-              </div>
+              {isTutorial ? (
+                <div className="playground-step-nav">
+                  <button className="playground-action" disabled={!canGoBack} type="button" onClick={() => moveTutorial(-1)}>
+                    <ArrowLeft size={15} aria-hidden="true" />
+                    <span>Back</span>
+                  </button>
+                  <button className="playground-action playground-action--primary" disabled={!canGoNext} type="button" onClick={() => moveTutorial(1)}>
+                    <span>Next</span>
+                    <ArrowRight size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <div className="playground-concepts">
+                  {(activeExample?.concepts ?? []).map((concept) => (
+                    <span key={concept}>{concept}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="playground-editor-panel">
@@ -830,11 +1091,15 @@ export default function Playground() {
                 </div>
 
                 <div className="playground-actions">
-                  <button className="playground-action playground-action--primary" disabled={!canRun} type="button" onClick={runCheck}>
+                  <button className="playground-action playground-action--primary" disabled={!canWork || !playground?.runProject} type="button" onClick={runProject}>
                     <Play size={15} aria-hidden="true" />
+                    <span>Run</span>
+                  </button>
+                  <button className="playground-action" disabled={!canWork} type="button" onClick={runCheck}>
+                    <CheckCircle2 size={15} aria-hidden="true" />
                     <span>Check</span>
                   </button>
-                  <button className="playground-action" disabled={!canRun} type="button" onClick={runFormat}>
+                  <button className="playground-action" disabled={!canWork} type="button" onClick={runFormat}>
                     <Wand2 size={15} aria-hidden="true" />
                     <span>Format</span>
                   </button>
@@ -888,16 +1153,21 @@ export default function Playground() {
 
           <aside className="playground-sidepanel" aria-label="Compiler output">
             <div className="playground-panel-tabs">
+              <button className={panel === 'output' ? 'active' : ''} type="button" onClick={() => setPanel('output')}>
+                Output
+              </button>
               <button className={panel === 'problems' ? 'active' : ''} type="button" onClick={() => setPanel('problems')}>
                 Problems
                 <span>{summary.errors + summary.warnings}</span>
               </button>
-              <button className={panel === 'lesson' ? 'active' : ''} type="button" onClick={() => setPanel('lesson')}>
-                Lesson
+              <button className={panel === 'guide' ? 'active' : ''} type="button" onClick={() => setPanel('guide')}>
+                Guide
               </button>
             </div>
 
-            {panel === 'problems' ? (
+            {panel === 'output' ? (
+              <OutputPanel runResult={runResult} activeExample={activeExample} validationState={validationState} />
+            ) : panel === 'problems' ? (
               <>
                 <div className="playground-summary">
                   <span>{summary.errors} errors</span>
@@ -906,18 +1176,20 @@ export default function Playground() {
                 <DiagnosticList diagnostics={diagnostics} onSelect={selectDiagnostic} />
               </>
             ) : (
-              <div className="playground-lesson-notes">
-                <p>{activeExample?.summary}</p>
-                <p>{activeExample?.cSharpContrast}</p>
-                <div className="playground-note">
-                  <Clipboard size={15} aria-hidden="true" />
-                  <span>Install nlc for build, run, test, NuGet, and filesystem workflows.</span>
-                </div>
-              </div>
+              <GuidePanel
+                activeExample={activeExample}
+                activeTutorialStep={activeTutorialStep}
+                validationState={validationState}
+                isTutorial={isTutorial}
+              />
             )}
           </aside>
         </section>
       </main>
     </Layout>
   );
+}
+
+export default function Playground() {
+  return <PlaygroundWorkbench mode="playground" />;
 }

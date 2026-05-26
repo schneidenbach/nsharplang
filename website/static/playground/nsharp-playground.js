@@ -20,6 +20,7 @@ export async function loadNSharpPlayground() {
         getCatalog: () => JSON.parse(exported.GetCatalog()),
         check: (source) => JSON.parse(exported.Check(source ?? '')),
         checkProject: (files, activeFile) => JSON.parse(exported.CheckProject(encodeFiles(files), activeFile ?? 'Program.nl')),
+        runProject: (files, activeFile) => JSON.parse(exported.RunProject(encodeFiles(files), activeFile ?? 'Program.nl')),
         format: (source, fileName) => JSON.parse(exported.Format(source ?? '', fileName ?? 'Program.nl')),
         complete: (files, fileName, line, column) =>
           JSON.parse(exported.Complete(encodeFiles(files), fileName ?? 'Program.nl', line ?? 1, column ?? 0)),

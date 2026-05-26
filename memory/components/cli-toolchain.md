@@ -115,7 +115,9 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 
 ### Public Browser Playground
 
-The guided first-run tour is part of the public website, not a CLI command. The GitHub Pages deployment builds a WebAssembly-hosted N# compiler workbench with guided lessons, Monaco syntax highlighting, browser diagnostics, formatting, completions, hover, file tabs, and share links. Use the local `nlc` toolchain for build, run, test execution, NuGet restore, filesystem workflows, and editor integration.
+The public website hosts the browser workbench, not a CLI command. `/playground` is a free-form sample explorer with Monaco syntax highlighting, browser diagnostics, formatting, completions, hover, file tabs, share links, and bounded browser-subset `Run` output. `/tutorial` uses the same workbench for a guided story with gated exercises.
+
+Browser `Run` intentionally supports tutorial-scale code only: functions, `print`, simple control flow, records/classes, object initializers, selected string/numeric helpers, and selected match patterns. Use the local `nlc` toolchain for full CLR execution, build, test execution, NuGet restore, filesystem workflows, and editor integration.
 
 ---
 

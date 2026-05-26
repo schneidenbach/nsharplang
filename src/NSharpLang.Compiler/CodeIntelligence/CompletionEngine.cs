@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -129,6 +130,16 @@ public class CompletionEngine
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 
+        // Source-defined types win over CLR types with the same simple name.
+        // This matters for playground samples that define ordinary names like
+        // Console while still keeping System.Console available when no local type
+        // owns the name.
+        if (IsStaticAccess(receiver, semanticModel) && ResolveSourceTypeByName(receiver, snapshot) is { } sourceTypeInfo)
+        {
+            var memberResult = ResolveMemberCompletionsFromTypeInfo(sourceTypeInfo, receiver, snapshot, completions);
+            if (memberResult != null) return memberResult;
+        }
+
         // Try to resolve receiver as a .NET type (static access)
         var resolvedType = TryResolveType(receiver, snapshot);
         if (resolvedType != null)
@@ -161,6 +172,13 @@ public class CompletionEngine
                 var memberResult = ResolveMemberCompletionsFromTypeInfo(receiverType, receiver, snapshot, completions);
                 if (memberResult != null) return memberResult;
             }
+        }
+
+        var textualReceiverType = ResolveReceiverExpressionFromText(receiver, semanticModel, snapshot);
+        if (textualReceiverType != null && !BuiltInTypes.IsUnknown(textualReceiverType))
+        {
+            var memberResult = ResolveMemberCompletionsFromTypeInfo(textualReceiverType, receiver, snapshot, completions);
+            if (memberResult != null) return memberResult;
         }
 
         // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
@@ -270,6 +288,20 @@ public class CompletionEngine
     {
         var typeName = FormatTypeInfo(typeInfo);
 
+        // Prefer source-defined N# members over CLR types with the same simple name.
+        // The Language Server already follows this rule; the shared playground/CLI
+        // engine needs the same behavior so `Person.` does not accidentally bind to
+        // an unrelated loaded CLR type named Person.
+        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
+        if (nsharpMembers.Count > 0)
+        {
+            foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
+            {
+                completions[Pluralize(group.Key)] = group.ToList();
+            }
+            return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
+        }
+
         // For generic types, extract the base name for CLR resolution
         var clrTypeName = typeName;
         if (typeInfo is GenericTypeInfo genericInfo)
@@ -286,17 +318,6 @@ public class CompletionEngine
                 completions[Pluralize(group.Key)] = group.ToList();
             }
             return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
-        }
-
-        // N# type — extract members from declarations
-        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
-        if (nsharpMembers.Count > 0)
-        {
-            foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
-            {
-                completions[Pluralize(group.Key)] = group.ToList();
-            }
-            return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
         }
 
         return null;
@@ -502,12 +523,13 @@ public class CompletionEngine
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)
     {
         var items = new List<CompletionItem>();
-        List<Declaration>? members = typeInfo switch
+        var declaration = ResolveNSharpTypeDeclaration(typeInfo, snapshot);
+        List<Declaration>? members = declaration switch
         {
-            ClassTypeInfo c => c.Declaration.Members,
-            StructTypeInfo s => s.Declaration.Members,
-            RecordTypeInfo r => r.Declaration.Members,
-            InterfaceTypeInfo i => i.Declaration.Members,
+            ClassDeclaration c => c.Members,
+            StructDeclaration s => s.Members,
+            RecordDeclaration r => r.Members,
+            InterfaceDeclaration i => i.Members,
             _ => null
         };
 
@@ -515,11 +537,218 @@ public class CompletionEngine
 
         foreach (var member in members)
         {
-            var item = DeclarationToCompletionItem(member);
+            var item = DeclarationToCompletionItem(member, memberContext: true);
             if (item != null) items.Add(item);
         }
 
         return items;
+    }
+
+    private static TypeInfo? ResolveSourceTypeByName(string name, ProjectSnapshot snapshot)
+        => ResolveNSharpTypeDeclaration(new SimpleTypeInfo(name), snapshot) switch
+        {
+            ClassDeclaration c => new ClassTypeInfo(c),
+            StructDeclaration s => new StructTypeInfo(s),
+            RecordDeclaration r => new RecordTypeInfo(r),
+            InterfaceDeclaration i => new InterfaceTypeInfo(i),
+            UnionDeclaration u => new UnionTypeInfo(u),
+            EnumDeclaration e => new EnumTypeInfo(e),
+            _ => null
+        };
+
+    private TypeInfo? ResolveReceiverExpressionFromText(
+        string receiver,
+        SemanticModel? semanticModel,
+        ProjectSnapshot snapshot)
+    {
+        receiver = receiver.Trim();
+        if (receiver.Length == 0)
+        {
+            return null;
+        }
+
+        if (receiver.EndsWith(")", StringComparison.Ordinal))
+        {
+            var openParen = FindCallOpenParen(receiver);
+            if (openParen > 0)
+            {
+                var callTarget = receiver[..openParen].TrimEnd();
+                var dot = FindLastTopLevelDot(callTarget);
+                if (dot > 0)
+                {
+                    var targetExpression = callTarget[..dot];
+                    var methodName = callTarget[(dot + 1)..];
+                    var targetType = ResolveReceiverExpressionFromText(targetExpression, semanticModel, snapshot);
+                    if (targetType != null)
+                    {
+                        return ResolveMemberReturnType(targetType, methodName, snapshot);
+                    }
+                }
+                else if (semanticModel?.LookupIdentifier(callTarget) is FunctionTypeInfo functionType)
+                {
+                    return GetFunctionReturnType(functionType, snapshot);
+                }
+            }
+        }
+
+        var memberDot = FindLastTopLevelDot(receiver);
+        if (memberDot > 0)
+        {
+            var targetExpression = receiver[..memberDot];
+            var memberName = receiver[(memberDot + 1)..];
+            var targetType = ResolveReceiverExpressionFromText(targetExpression, semanticModel, snapshot);
+            if (targetType != null)
+            {
+                return ResolveMemberReturnType(targetType, memberName, snapshot);
+            }
+        }
+
+        if (semanticModel != null && IsIdentifier(receiver))
+        {
+            var typeInfo = semanticModel.LookupIdentifier(receiver);
+            if (typeInfo != null)
+            {
+                return typeInfo;
+            }
+        }
+
+        if (ResolveSourceTypeByName(receiver, snapshot) is { } sourceType)
+        {
+            return sourceType;
+        }
+
+        if (TryResolveType(receiver, snapshot) is { } clrType)
+        {
+            return new ReflectionTypeInfo(clrType);
+        }
+
+        return null;
+    }
+
+    private TypeInfo? ResolveMemberReturnType(TypeInfo receiverType, string memberName, ProjectSnapshot snapshot)
+    {
+        if (ResolveNSharpTypeDeclaration(receiverType, snapshot) is { } declaration)
+        {
+            var members = declaration switch
+            {
+                ClassDeclaration c => c.Members,
+                StructDeclaration s => s.Members,
+                RecordDeclaration r => r.Members,
+                InterfaceDeclaration i => i.Members,
+                _ => null
+            };
+
+            var function = members?.OfType<FunctionDeclaration>()
+                .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+            if (function != null)
+            {
+                return GetFunctionReturnType(new FunctionTypeInfo(function), snapshot);
+            }
+
+            var field = members?.OfType<FieldDeclaration>()
+                .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+            if (field?.Type != null)
+            {
+                return ResolveTypeReferenceToTypeInfo(field.Type, snapshot);
+            }
+
+            var property = members?.OfType<PropertyDeclaration>()
+                .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+            if (property != null)
+            {
+                return ResolveTypeReferenceToTypeInfo(property.Type, snapshot);
+            }
+        }
+
+        var clrType = receiverType is ReflectionTypeInfo reflectionType
+            ? reflectionType.Type
+            : TryResolveType(FormatTypeInfo(receiverType), snapshot);
+        if (clrType == null)
+        {
+            return null;
+        }
+
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static;
+        var method = clrType.GetMethods(flags)
+            .Where(candidate => !candidate.IsSpecialName)
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+        if (method != null)
+        {
+            return new ReflectionTypeInfo(method.ReturnType);
+        }
+
+        var propertyInfo = clrType.GetProperties(flags)
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+        if (propertyInfo != null)
+        {
+            return new ReflectionTypeInfo(propertyInfo.PropertyType);
+        }
+
+        var fieldInfo = clrType.GetFields(flags)
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal));
+        return fieldInfo == null ? null : new ReflectionTypeInfo(fieldInfo.FieldType);
+    }
+
+    private static Declaration? ResolveNSharpTypeDeclaration(TypeInfo typeInfo, ProjectSnapshot snapshot)
+    {
+        switch (typeInfo)
+        {
+            case ClassTypeInfo c:
+                return c.Declaration;
+            case StructTypeInfo s:
+                return s.Declaration;
+            case RecordTypeInfo r:
+                return r.Declaration;
+            case InterfaceTypeInfo i:
+                return i.Declaration;
+            case UnionTypeInfo u:
+                return u.Declaration;
+        }
+
+        var typeName = FormatTypeInfo(typeInfo);
+        var simpleName = typeName.Contains('.', StringComparison.Ordinal)
+            ? typeName.Split('.').Last()
+            : typeName;
+
+        foreach (var declaration in snapshot.CompilationUnits.Values.SelectMany(unit => unit.Declarations))
+        {
+            var candidateName = declaration switch
+            {
+                ClassDeclaration c => c.Name,
+                StructDeclaration s => s.Name,
+                RecordDeclaration r => r.Name,
+                InterfaceDeclaration i => i.Name,
+                UnionDeclaration u => u.Name,
+                EnumDeclaration e => e.Name,
+                _ => null
+            };
+
+            if (candidateName == null)
+            {
+                continue;
+            }
+
+            if (string.Equals(candidateName, typeName, StringComparison.Ordinal) ||
+                string.Equals(candidateName, simpleName, StringComparison.Ordinal) ||
+                candidateName.EndsWith("." + simpleName, StringComparison.Ordinal))
+            {
+                return declaration;
+            }
+        }
+
+        return null;
+    }
+
+    private static TypeInfo? GetFunctionReturnType(FunctionTypeInfo functionType, ProjectSnapshot snapshot)
+    {
+        if (functionType.ReturnType != null)
+        {
+            return functionType.ReturnType;
+        }
+
+        return functionType.Declaration?.ReturnType == null
+            ? null
+            : ResolveTypeReferenceToTypeInfo(functionType.Declaration.ReturnType, snapshot);
     }
 
     private List<CompletionItem> GetNamespaceCompletions(string ns)
@@ -580,33 +809,158 @@ public class CompletionEngine
     private static string? ExtractReceiver(string beforeCursor)
     {
         var trimmed = beforeCursor.TrimEnd();
-
-        // Find the last dot
-        int dotIndex;
-        if (trimmed.EndsWith("."))
-        {
-            dotIndex = trimmed.Length - 1;
-        }
-        else
-        {
-            dotIndex = trimmed.LastIndexOf('.');
-            if (dotIndex < 0) return null;
-        }
+        var dotIndex = FindLastTopLevelDot(trimmed);
+        if (dotIndex < 0) return null;
 
         // Get the part before the dot
         var withoutDot = trimmed.Substring(0, dotIndex).TrimEnd();
-
-        // Walk backwards to find the receiver identifier
-        var end = withoutDot.Length;
-        var start = end - 1;
-        while (start >= 0 && (char.IsLetterOrDigit(withoutDot[start]) || withoutDot[start] == '_' || withoutDot[start] == '.'))
-        {
-            start--;
-        }
-        start++;
-
-        return start < end ? withoutDot.Substring(start, end - start) : null;
+        return ExtractExpressionSuffix(withoutDot);
     }
+
+    private static string? ExtractExpressionSuffix(string text)
+    {
+        var end = text.Length;
+        var start = end - 1;
+        var parenDepth = 0;
+        var consumed = false;
+
+        while (start >= 0)
+        {
+            var current = text[start];
+            if (current == ')')
+            {
+                parenDepth++;
+                consumed = true;
+                start--;
+                continue;
+            }
+
+            if (current == '(')
+            {
+                if (parenDepth == 0)
+                {
+                    break;
+                }
+
+                parenDepth--;
+                start--;
+                continue;
+            }
+
+            if (parenDepth > 0)
+            {
+                start--;
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(current) || current == '_' || current == '.')
+            {
+                consumed = true;
+                start--;
+                continue;
+            }
+
+            break;
+        }
+
+        if (!consumed || parenDepth != 0)
+        {
+            return null;
+        }
+
+        start++;
+        return start < end ? NormalizeReceiverCalls(text[start..end]) : null;
+    }
+
+    private static string NormalizeReceiverCalls(string expression)
+    {
+        var builder = new StringBuilder(expression.Length);
+        for (var index = 0; index < expression.Length; index++)
+        {
+            var current = expression[index];
+            builder.Append(current);
+            if (current != '(')
+            {
+                continue;
+            }
+
+            var parenDepth = 1;
+            index++;
+            while (index < expression.Length && parenDepth > 0)
+            {
+                if (expression[index] == '(')
+                {
+                    parenDepth++;
+                }
+                else if (expression[index] == ')')
+                {
+                    parenDepth--;
+                }
+
+                index++;
+            }
+
+            builder.Append(')');
+            index--;
+        }
+
+        return builder.ToString();
+    }
+
+    private static int FindCallOpenParen(string expression)
+    {
+        if (!expression.EndsWith(")", StringComparison.Ordinal))
+        {
+            return -1;
+        }
+
+        var parenDepth = 0;
+        for (var index = expression.Length - 1; index >= 0; index--)
+        {
+            if (expression[index] == ')')
+            {
+                parenDepth++;
+            }
+            else if (expression[index] == '(')
+            {
+                parenDepth--;
+                if (parenDepth == 0)
+                {
+                    return index;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FindLastTopLevelDot(string expression)
+    {
+        var parenDepth = 0;
+        for (var index = expression.Length - 1; index >= 0; index--)
+        {
+            var current = expression[index];
+            if (current == ')')
+            {
+                parenDepth++;
+            }
+            else if (current == '(')
+            {
+                parenDepth = Math.Max(0, parenDepth - 1);
+            }
+            else if (current == '.' && parenDepth == 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsIdentifier(string value)
+        => value.Length > 0 &&
+           (char.IsLetter(value[0]) || value[0] == '_') &&
+           value.Skip(1).All(current => char.IsLetterOrDigit(current) || current == '_');
 
     private bool IsStaticAccess(string name, SemanticModel? semanticModel)
     {
@@ -702,9 +1056,9 @@ public class CompletionEngine
         catch { /* assemblies not available */ }
     }
 
-    private static CompletionItem? DeclarationToCompletionItem(Declaration decl) => decl switch
+    private static CompletionItem? DeclarationToCompletionItem(Declaration decl, bool memberContext = false) => decl switch
     {
-        FunctionDeclaration f => new CompletionItem(f.Name, "function",
+        FunctionDeclaration f => new CompletionItem(f.Name, memberContext ? "method" : "function",
             CodeIntelligenceService.FormatTypeReferencePublic(f.ReturnType),
             FormatParameters(f.Parameters), null, f.Modifiers.HasFlag(Ast.Modifiers.Static)),
         ClassDeclaration c => new CompletionItem(c.Name, "class", null, null, null, false),

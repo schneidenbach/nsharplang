@@ -72,7 +72,9 @@ Updated: 2026-05-26
 
 ## Browser Playground
 
-The guided first-run tour lives in the public website playground instead of a local CLI server. The GitHub Pages site deploys a WebAssembly-hosted compiler workbench with guided lessons, Monaco syntax highlighting, diagnostics, formatting, completions, hover, file tabs, and share links. Local `nlc` remains the installable toolchain for build, run, test execution, NuGet restore, filesystem workflows, and editor integration.
+The public website ships a WebAssembly-hosted compiler workbench. `/playground` is the free-form sample explorer with Monaco syntax highlighting, diagnostics, formatting, completions, hover, file tabs, share links, and browser-subset `Run` output. `/tutorial` uses the same workbench for a guided story with gated exercises.
+
+Browser `Run` intentionally supports tutorial-scale code only: functions, `print`, simple control flow, records/classes, object initializers, selected string/numeric helpers, and selected match patterns. Local `nlc` remains the toolchain for full CLR execution, build, test execution, NuGet restore, filesystem workflows, and editor integration.
 
 ## Examples
 

@@ -748,6 +748,14 @@ div[class^='codeBlockContainer_'] {
   max-width: 430px;
 }
 
+.playground-step-nav {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: max-content;
+}
+
 .playground-concepts span {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
@@ -843,7 +851,7 @@ div[class^='codeBlockContainer_'] {
 }
 
 .playground-action:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.58;
 }
 
@@ -874,7 +882,7 @@ div[class^='codeBlockContainer_'] {
 .playground-panel-tabs {
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   height: 40px;
 }
 
@@ -988,6 +996,91 @@ div[class^='codeBlockContainer_'] {
   padding: 14px 12px;
 }
 
+.playground-output {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.playground-run-summary {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 7px 9px;
+}
+
+.playground-run-summary--ok {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.playground-run-summary--error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.playground-stdout,
+.playground-stderr,
+.playground-expected-output pre {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 9px;
+  white-space: pre-wrap;
+}
+
+.playground-stdout {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.playground-stderr {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.playground-expected-output {
+  color: var(--ink-muted);
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+}
+
+.playground-validation {
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  font-size: 12.5px;
+  gap: 8px;
+  line-height: 1.4;
+  padding: 8px 9px;
+}
+
+.playground-validation--ok {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.playground-validation--pending {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
 .playground-lesson-notes {
   color: var(--ink-soft);
   display: grid;
@@ -1010,6 +1103,12 @@ div[class^='codeBlockContainer_'] {
   display: flex;
   gap: 8px;
   padding: 9px;
+}
+
+.playground-note--warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
 }
 
 @media (max-width: 1180px) {
@@ -1058,6 +1157,10 @@ div[class^='codeBlockContainer_'] {
   }
 
   .playground-concepts {
+    justify-content: flex-start;
+  }
+
+  .playground-step-nav {
     justify-content: flex-start;
   }
 
