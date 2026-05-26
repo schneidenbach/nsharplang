@@ -64,6 +64,18 @@ return x + y
     }
 
     [Fact]
+    public void Format_MustExpression()
+    {
+        var input = "func main(input: int?): int{return must input}";
+        var expected = @"func main(input: int?): int {
+    return must input
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_FunctionWithMultipleStatements()
     {
         var input = @"func Calculate(x: int): int {

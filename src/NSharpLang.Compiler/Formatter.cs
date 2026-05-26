@@ -1503,6 +1503,10 @@ public class Formatter
                     FormatExpression(unary.Operand, sb);
                 }
                 break;
+            case MustExpression must:
+                sb.Append("must ");
+                FormatExpression(must.Expression, sb);
+                break;
             case MemberAccessExpression member:
                 FormatExpression(member.Object, sb);
                 sb.Append(member.IsNullConditional ? "?." : ".");

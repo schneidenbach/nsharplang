@@ -316,6 +316,50 @@ func main() {
     }
 
     [Fact]
+    public void UnsafeValueAccess_OffersReviewNeededMustFixAndSuggestion()
+    {
+        var sourceCode = @"func main() {
+    result := maybe.Value
+}";
+        var diagnostic = new Diagnostic(
+            "NL111",
+            "Unsafe '.Value' access 'maybe.Value'",
+            new Location(2, 20),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+
+        var mustFix = Assert.Single(fixes, fix => fix.Safety == FixSafety.ReviewNeeded);
+        Assert.Equal("NL111", mustFix.DiagnosticCode);
+        Assert.Equal(CodeActionKind.QuickFix, mustFix.Kind);
+        Assert.Equal(new TextEdit(2, 14, 2, 25, "must maybe"), Assert.Single(mustFix.Edits));
+
+        var matchSuggestion = Assert.Single(fixes, fix => fix.Safety == FixSafety.SuggestionOnly);
+        Assert.Equal(CodeActionKind.RefactorRewrite, matchSuggestion.Kind);
+        Assert.Empty(matchSuggestion.Edits);
+    }
+
+    [Fact]
+    public void UnsafeValueAccess_MustFixHandlesCallReceiver()
+    {
+        var sourceCode = @"func main() {
+    result := GetMaybe().Value
+}";
+        var diagnostic = new Diagnostic(
+            "NL111",
+            "Unsafe '.Value' access 'GetMaybe().Value'",
+            new Location(2, 24),
+            DiagnosticSeverity.Info);
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+        var mustFix = Assert.Single(fixes, fix => fix.Safety == FixSafety.ReviewNeeded);
+
+        Assert.Equal(new TextEdit(2, 14, 2, 30, "must GetMaybe()"), Assert.Single(mustFix.Edits));
+    }
+
+    [Fact]
     public void CodeFixService_ReturnsNoFixes_ForUnknownDiagnosticCode()
     {
         // Arrange

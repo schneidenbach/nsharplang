@@ -1408,6 +1408,10 @@ internal class LintVisitor
                 VisitExpression(unary.Operand);
                 break;
 
+            case MustExpression must:
+                VisitExpression(must.Expression);
+                break;
+
             case CallExpression call:
                 VisitExpression(call.Callee);
                 foreach (var arg in call.Arguments)

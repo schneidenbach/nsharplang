@@ -384,6 +384,10 @@ internal static class NamespaceQualifiedCompilationMerger
                 {
                     Operand = TransformExpression(unaryExpression.Operand)!
                 },
+                MustExpression mustExpression => mustExpression with
+                {
+                    Expression = TransformExpression(mustExpression.Expression)!
+                },
                 MemberAccessExpression memberAccess => memberAccess with
                 {
                     Object = TransformExpression(memberAccess.Object)!

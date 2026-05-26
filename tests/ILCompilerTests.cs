@@ -1467,6 +1467,72 @@ func processValue(x: int): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteMustOnNullableValue()
+    {
+        var source = @"
+func main(): int {
+    value: int? = 41
+    return (must value) + 1
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_MustOnNullNullableValueThrows()
+    {
+        var source = @"
+func main(): int {
+    value: int? = null
+    return must value
+}";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Equal("must unwrap failed: value was null", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteNullableHasValueAndValueAccess()
+    {
+        var source = @"
+func main(): int {
+    value: int? = 41
+    if value.HasValue {
+        return value.Value + 1
+    }
+    return 0
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteNullableMatchWithPresentBinding()
+    {
+        var source = @"
+func present(): int {
+    value: int? = 41
+    return match value {
+        null => 0,
+        inner => inner + 1
+    }
+}
+
+func absent(): int {
+    value: int? = null
+    return match value {
+        null => 7,
+        inner => inner + 1
+    }
+}";
+
+        Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source, "present")));
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "absent")));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileMatchExpressionWithTypePattern()
     {
         var source = @"

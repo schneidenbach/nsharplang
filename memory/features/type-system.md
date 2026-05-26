@@ -278,6 +278,37 @@ C# interop distinguishes annotated nullable types from oblivious metadata. When 
 referenced C# API has no nullable metadata, query and hover display the imported type as
 `T!` to make the unknown legacy nullability explicit.
 
+`must expr` explicitly unwraps a nullable value:
+
+```
+func RequireAge(age: int?): int {
+    return must age
+}
+```
+
+The expression type is the non-null inner type (`T` for `T?`). At runtime a null value throws `InvalidOperationException("must unwrap failed: value was null")`. This is an explicit operation, not a C#-style null-forgiving assertion, and the analyzer warns when `must` is redundant because the value is already known to be non-null.
+
+Nullable values also expose the familiar presence members:
+
+```
+if age.HasValue {
+    years := age.Value
+}
+```
+
+Use `.HasValue` for guards. Direct unguarded `.Value` access warns because it can throw; prefer `must age` when failing is intended, or a nullable `match` when both cases matter.
+
+```
+label := match name {
+    null => "missing",
+    value => value.ToUpper()
+}
+```
+
+In a nullable match, `null` covers the absent case and an identifier arm such as `value` binds the present value as non-null `T`. The analyzer requires nullable matches to cover both absent and present values unless an unguarded wildcard covers the remainder.
+
+Custom messages on `must` failures are intentionally not part of the current syntax. Use an explicit guard and `throw` when the failure message is domain-specific.
+
 ## Generic Types
 
 ```

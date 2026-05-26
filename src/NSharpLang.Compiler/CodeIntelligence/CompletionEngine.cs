@@ -48,7 +48,7 @@ public class CompletionEngine
         "func", "class", "struct", "record", "interface", "enum", "union",
         "if", "else", "for", "foreach", "while", "return", "break",
         "continue", "match", "switch", "case", "when", "yield", "await", "async",
-        "throw", "try", "catch", "finally", "lock", "new", "this", "base",
+        "throw", "try", "catch", "finally", "lock", "must", "new", "this", "base",
         "import", "namespace", "print", "test", "assert",
         "true", "false", "null", "is", "as", "typeof", "nameof"
     };

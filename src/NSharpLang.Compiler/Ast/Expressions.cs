@@ -83,6 +83,12 @@ public enum UnaryOperator
     Negate, Not, BitwiseNot, PreIncrement, PreDecrement, PostIncrement, PostDecrement, IndexFromEnd
 }
 
+// Explicit nullable unwrap: must value
+public record MustExpression(
+    Expression Expression,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // Member access
 public record MemberAccessExpression(
     Expression Object,

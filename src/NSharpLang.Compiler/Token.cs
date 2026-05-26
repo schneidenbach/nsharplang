@@ -25,6 +25,7 @@ public enum TokenType
     Import,
     Package,
     Let,
+    Must,
     Const,
     Readonly,
     If,

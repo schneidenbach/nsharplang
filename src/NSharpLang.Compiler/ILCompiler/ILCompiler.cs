@@ -2131,6 +2131,7 @@ public partial class ILCompiler
                 || (range.End != null && ContainsNestedFunction(range.End)),
             BinaryExpression binary => ContainsNestedFunction(binary.Left) || ContainsNestedFunction(binary.Right),
             UnaryExpression unary => ContainsNestedFunction(unary.Operand),
+            MustExpression mustExpression => ContainsNestedFunction(mustExpression.Expression),
             MemberAccessExpression memberAccess => ContainsNestedFunction(memberAccess.Object),
             IndexAccessExpression indexAccess => ContainsNestedFunction(indexAccess.Object) || ContainsNestedFunction(indexAccess.Index),
             CallExpression call => ContainsNestedFunction(call.Callee) || call.Arguments.Any(argument => ContainsNestedFunction(argument.Value)),
@@ -2225,6 +2226,7 @@ public partial class ILCompiler
                 || (rangeExpression.End != null && ContainsAwait(rangeExpression.End)),
             BinaryExpression binaryExpression => ContainsAwait(binaryExpression.Left) || ContainsAwait(binaryExpression.Right),
             UnaryExpression unaryExpression => ContainsAwait(unaryExpression.Operand),
+            MustExpression mustExpression => ContainsAwait(mustExpression.Expression),
             MemberAccessExpression memberAccessExpression => ContainsAwait(memberAccessExpression.Object),
             IndexAccessExpression indexAccessExpression => ContainsAwait(indexAccessExpression.Object) || ContainsAwait(indexAccessExpression.Index),
             CallExpression callExpression => ContainsAwait(callExpression.Callee)
@@ -8826,6 +8828,10 @@ public partial class ILCompiler
                 EmitUnaryExpression(unary);
                 break;
 
+            case MustExpression mustExpression:
+                EmitMustExpression(mustExpression);
+                break;
+
             case BinaryExpression binary:
                 EmitBinaryExpression(binary);
                 break;
@@ -9609,6 +9615,80 @@ public partial class ILCompiler
             default:
                 throw new NotImplementedException($"Unary operator {unary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    private void EmitMustExpression(MustExpression mustExpression)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var operandType = GetExpressionType(mustExpression.Expression);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(operandType);
+
+        if (nullableUnderlyingType != null)
+        {
+            EmitExpression(mustExpression.Expression);
+            var nullableLocal = _currentIL.DeclareLocal(operandType);
+            _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+            var hasValueLabel = _currentIL.DefineLabel();
+            EmitNullableHasValue(nullableLocal);
+            _currentIL.Emit(OpCodes.Brtrue, hasValueLabel);
+            EmitNullableMustFailure();
+
+            _currentIL.MarkLabel(hasValueLabel);
+            EmitNullableValue(nullableLocal, nullableUnderlyingType);
+            return;
+        }
+
+        if (!operandType.IsValueType || operandType.IsGenericParameter)
+        {
+            EmitExpression(mustExpression.Expression);
+            var hasValueLabel = _currentIL.DefineLabel();
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Brtrue, hasValueLabel);
+            _currentIL.Emit(OpCodes.Pop);
+            EmitNullableMustFailure();
+            _currentIL.MarkLabel(hasValueLabel);
+            return;
+        }
+
+        EmitExpression(mustExpression.Expression);
+    }
+
+    private void EmitNullableHasValue(LocalBuilder nullableLocal)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var hasValueGetter = nullableLocal.LocalType.GetProperty(nameof(Nullable<int>.HasValue))?.GetMethod
+            ?? throw new InvalidOperationException($"Could not resolve HasValue for {nullableLocal.LocalType}");
+        _currentIL.Emit(OpCodes.Ldloca_S, nullableLocal);
+        _currentIL.Emit(OpCodes.Call, hasValueGetter);
+    }
+
+    private void EmitNullableValue(LocalBuilder nullableLocal, Type underlyingType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var valueGetter = nullableLocal.LocalType.GetProperty(nameof(Nullable<int>.Value))?.GetMethod
+            ?? throw new InvalidOperationException($"Could not resolve Value for {nullableLocal.LocalType}");
+        _currentIL.Emit(OpCodes.Ldloca_S, nullableLocal);
+        _currentIL.Emit(OpCodes.Call, valueGetter);
+
+        if (valueGetter.ReturnType != underlyingType)
+        {
+            EmitValueCoercion(valueGetter.ReturnType, underlyingType, allowExplicitUserDefinedConversions: false);
+        }
+    }
+
+    private void EmitNullableMustFailure()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var ctor = typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve InvalidOperationException(string)");
+        _currentIL.Emit(OpCodes.Ldstr, "must unwrap failed: value was null");
+        _currentIL.Emit(OpCodes.Newobj, ctor);
+        _currentIL.Emit(OpCodes.Throw);
     }
 
     private void EmitIncrementOrDecrement(UnaryExpression unary)
@@ -12246,6 +12326,25 @@ public partial class ILCompiler
             return;
         }
 
+        var nullableObjectType = GetExpressionType(memberAccess.Object);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(nullableObjectType);
+        if (nullableUnderlyingType != null
+            && (memberAccess.MemberName == "HasValue" || memberAccess.MemberName == "Value"))
+        {
+            EmitExpression(memberAccess.Object);
+            var nullableLocal = _currentIL.DeclareLocal(nullableObjectType);
+            _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+            if (memberAccess.MemberName == "HasValue")
+            {
+                EmitNullableHasValue(nullableLocal);
+                return;
+            }
+
+            EmitNullableValue(nullableLocal, nullableUnderlyingType);
+            return;
+        }
+
         if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
         {
             if (staticType is TypeBuilder staticTypeBuilder)
@@ -12315,7 +12414,7 @@ public partial class ILCompiler
         }
 
         // Get the object type
-        var objectType = GetExpressionType(memberAccess.Object);
+        var objectType = nullableObjectType;
         var useAddressReceiver = IsValueTypeLike(objectType);
 
         if (useAddressReceiver)
@@ -12617,6 +12716,7 @@ public partial class ILCompiler
             IdentifierExpression ident => GetIdentifierType(ident),
             RangeExpression => typeof(Range),
             UnaryExpression unary => GetUnaryExpressionType(unary),
+            MustExpression mustExpression => GetMustExpressionType(mustExpression),
             BinaryExpression binary => GetBinaryExpressionType(binary),
             ParenthesizedExpression paren => GetExpressionType(paren.Inner),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
@@ -12728,7 +12828,7 @@ public partial class ILCompiler
                     && !identifierPattern.Name.Contains('.')
                     && !TryResolvePatternType(identifierPattern.Name, out _))
                 {
-                    AddPatternBindingTypeHint(identifierPattern.Name, valueType);
+                    AddPatternBindingTypeHint(identifierPattern.Name, Nullable.GetUnderlyingType(valueType) ?? valueType);
                 }
                 break;
 
@@ -12976,6 +13076,12 @@ public partial class ILCompiler
         };
     }
 
+    private Type GetMustExpressionType(MustExpression mustExpression)
+    {
+        var operandType = GetExpressionType(mustExpression.Expression);
+        return Nullable.GetUnderlyingType(operandType) ?? operandType;
+    }
+
     private Type GetArrayLiteralType(ArrayLiteralExpression arrayLiteral)
     {
         if (TryGetCollectionExpressionEmissionType(_expectedExpressionType, out var collectionType, out _))
@@ -13077,6 +13183,19 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(unwrapNullConditional.Object);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(objectType);
+        if (nullableUnderlyingType != null)
+        {
+            if (unwrapNullConditional.MemberName == "HasValue")
+            {
+                return typeof(bool);
+            }
+
+            if (unwrapNullConditional.MemberName == "Value")
+            {
+                return nullableUnderlyingType;
+            }
+        }
 
         // Check user-defined types first
         if (objectType is TypeBuilder typeBuilder)
@@ -15860,6 +15979,30 @@ public partial class ILCompiler
             case LiteralPattern literalPattern:
                 // Compare value with literal
                 // Stack: [value]
+                var nullableLiteralUnderlyingType = Nullable.GetUnderlyingType(matchValueType);
+                if (nullableLiteralUnderlyingType != null)
+                {
+                    var nullableLocal = _currentIL.DeclareLocal(matchValueType);
+                    _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+                    if (literalPattern.Literal is NullLiteralExpression)
+                    {
+                        EmitNullableHasValue(nullableLocal);
+                        _currentIL.Emit(OpCodes.Brfalse, successLabel);
+                        _currentIL.Emit(OpCodes.Br, failLabel);
+                        break;
+                    }
+
+                    EmitNullableHasValue(nullableLocal);
+                    _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                    EmitNullableValue(nullableLocal, nullableLiteralUnderlyingType);
+                    EmitExpression(literalPattern.Literal);
+                    _currentIL.Emit(OpCodes.Ceq);
+                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                    _currentIL.Emit(OpCodes.Br, failLabel);
+                    break;
+                }
+
                 EmitExpression(literalPattern.Literal);
                 // Stack: [value, literal]
 
@@ -15894,6 +16037,18 @@ public partial class ILCompiler
                 {
                     // Discard pattern - pop the value and jump to success
                     _currentIL.Emit(OpCodes.Pop);
+                    _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                else if (Nullable.GetUnderlyingType(matchValueType) is Type nullableIdentifierUnderlyingType
+                         && !identPattern.Name.Contains('.')
+                         && !TryResolvePatternType(identPattern.Name, out _))
+                {
+                    var nullableLocal = _currentIL.DeclareLocal(matchValueType);
+                    _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+                    EmitNullableHasValue(nullableLocal);
+                    _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                    EmitNullableValue(nullableLocal, nullableIdentifierUnderlyingType);
+                    EmitStorePatternBinding(identPattern.Name, nullableIdentifierUnderlyingType);
                     _currentIL.Emit(OpCodes.Br, successLabel);
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))

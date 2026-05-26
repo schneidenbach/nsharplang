@@ -5842,6 +5842,100 @@ func Hello(): string {
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
     }
 
+    [Fact]
+    public void MustExpression_UnwrapsNullableToInnerType()
+    {
+        AssertNoErrors(@"
+            func Take(value: int): int { return value }
+            func Main(input: int?): int {
+                return Take(must input)
+            }
+        ");
+    }
+
+    [Fact]
+    public void MustExpression_RedundantAfterHasValueGuard_Warns()
+    {
+        var result = Analyze(@"
+            func Main(input: int?): int {
+                if input.HasValue {
+                    return must input
+                }
+                return 0
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.NullabilityWarning
+            && e.Severity == ErrorSeverity.Warning
+            && e.Message.Contains("redundant"));
+    }
+
+    [Fact]
+    public void NullableHasValueGuard_AllowsValueAccessWithoutUnsafeWarning()
+    {
+        var result = Analyze(@"
+            func Main(input: int?): int {
+                if input.HasValue {
+                    return input.Value
+                }
+                return 0
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e =>
+            e.Code == ErrorCode.NullabilityWarning
+            && e.Message.Contains(".Value"));
+    }
+
+    [Fact]
+    public void NullableValueAccess_UnguardedWarns()
+    {
+        var result = Analyze(@"
+            func Main(input: int?): int {
+                return input.Value
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.NullabilityWarning
+            && e.Severity == ErrorSeverity.Warning
+            && e.Message.Contains(".Value"));
+    }
+
+    [Fact]
+    public void NullableMatch_BindsPresentArmAsInnerType()
+    {
+        AssertNoErrors(@"
+            func Main(input: int?): int {
+                return match input {
+                    null => 0,
+                    value => value + 1
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void NullableMatch_MissingNullCoverageErrors()
+    {
+        var result = Analyze(@"
+            func Main(input: int?): int {
+                return match input {
+                    value => value + 1
+                }
+            }
+        ");
+
+        Assert.True(result.HasErrors, "Expected missing nullable match coverage to be an error");
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.NonExhaustiveMatch
+            && e.Message.Contains("null"));
+    }
+
     #endregion
 
     #region Enum Exhaustiveness
