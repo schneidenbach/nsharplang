@@ -10,9 +10,9 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 
 ## P1: IDE Product Workflows
 
-- [003-auto-import-writing-flow.md](003-auto-import-writing-flow.md)
 - [004-workspace-diagnostics-lifecycle.md](004-workspace-diagnostics-lifecycle.md)
 - [005-vscode-editing-and-workflow-evidence.md](005-vscode-editing-and-workflow-evidence.md)
+- [015-query-and-package-completion-parity.md](015-query-and-package-completion-parity.md)
 
 ## P1: Nullability Workflows
 

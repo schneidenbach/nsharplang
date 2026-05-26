@@ -1,16 +1,20 @@
 # N# IntelliSense - How It Works
 
-## ✅ Member Completion for Objects
+## Completion And Auto-Import
 
-The N# VS Code extension provides LSP-backed IntelliSense for supported object member access scenarios.
+The N# VS Code extension provides LSP-backed IntelliSense for identifier completion, auto-import, and supported object member access scenarios.
 
 ### How It Works
 
+When you request identifier completion, the language server ranks local and in-scope symbols first, then importable project and framework symbols. Importable items carry LSP `additionalTextEdits` that insert a missing `import` after existing `namespace`, `package`, and `import` declarations without disturbing the header layout.
+
+When duplicate project symbols share a simple name, completion keeps separate entries with their declaring namespace in the detail text and applies the matching import edit for the selected namespace. Existing unaliased imports suppress duplicate import edits; aliased imports do not, because they do not make the simple name available.
+
 When you type `.` after an object, the extension:
 
-1. **Detects the trigger** (`CompletionHandler.cs:247` - triggers on `.`, `:`, and space)
-2. **Identifies member completion context** (`CompletionHandler.cs:58-66`)
-3. **Extracts the identifier** before the dot (`CompletionHandler.cs:172-231`)
+1. **Detects the trigger** (`CompletionHandler.cs` registers `.`, `:`, and space)
+2. **Identifies member completion context** in the completion handler
+3. **Extracts the identifier** before the dot
 4. **Resolves the type** using `TypeResolver` service
 5. **Loads members** via .NET reflection
 6. **Returns completion items** with:
@@ -44,6 +48,9 @@ builder. // <-- Triggers IntelliSense
 **Features:**
 - ✅ External types (WebApplication, DbContext, Console, etc.)
 - ✅ Local variables and fields
+- ✅ Local and in-scope symbols ranked before importable suggestions
+- ✅ Project-symbol auto-import with duplicate namespace disambiguation
+- ✅ Framework type auto-import with duplicate suppression
 - ✅ Method signatures with parameters
 - ✅ Property types
 - ✅ XML documentation tooltips
@@ -117,7 +124,7 @@ The package script automatically:
 4. Verify `dotnet --version` >= 9.0
 
 **No members showing?**
-- Ensure proper `using` statements in your .nl file
+- Ensure proper `import` statements in your .nl file
 - Check that assemblies are referenced in project.yml
 - Restart VS Code to reload Language Server
 

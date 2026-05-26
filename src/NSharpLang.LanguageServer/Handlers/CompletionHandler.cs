@@ -52,6 +52,13 @@ public class CompletionHandler : CompletionHandlerBase
         ("type", "type alias", "type ${1:Name} = ${0:Type}"),
     };
 
+    private const string SortLocal = "0000";
+    private const string SortProjectInScope = "0100";
+    private const string SortLanguage = "0500";
+    private const string SortExternalInScope = "0600";
+    private const string SortProjectImportable = "0800";
+    private const string SortExternalImportable = "0900";
+
     public CompletionHandler(DocumentManager documentManager, TypeResolver typeResolver, ILogger<CompletionHandler> logger)
     {
         _documentManager = documentManager;
@@ -77,9 +84,6 @@ public class CompletionHandler : CompletionHandlerBase
         var items = new List<CompletionItem>();
 
         // Check if this is member completion (triggered by '.')
-        // Use BOTH trigger character context AND text scanning — the trigger character
-        // is more reliable because the document text may not be updated yet (race condition)
-        // Check if this is member completion (triggered by '.')
         // Use trigger character as primary signal — more reliable than text scanning
         // because the document text may not have the dot yet (race condition with didChange)
         var isMemberAccess = request.Context?.TriggerCharacter == "."
@@ -95,126 +99,17 @@ public class CompletionHandler : CompletionHandlerBase
             }
         }
 
-        // Otherwise, provide general completion items
+        var itemKeys = new HashSet<string>(StringComparer.Ordinal);
+        var inScopeNames = new HashSet<string>(StringComparer.Ordinal);
+        var currentPrefix = doc?.Text != null
+            ? GetCurrentIdentifierPrefix(doc.Text, request.Position.Line, request.Position.Character)
+            : string.Empty;
 
-        // Add keywords
-        items.AddRange(Keywords.Select(k => new CompletionItem
-        {
-            Label = k,
-            Kind = CompletionItemKind.Keyword,
-            Detail = "keyword",
-            InsertText = k
-        }));
-
-        // Add snippet completions for common constructs
-        items.AddRange(Snippets.Select(s => new CompletionItem
-        {
-            Label = s.Label,
-            Kind = CompletionItemKind.Snippet,
-            Detail = s.Detail,
-            InsertText = s.InsertText,
-            InsertTextFormat = InsertTextFormat.Snippet,
-        }));
-
-        // Add primitive types
-        items.AddRange(PrimitiveTypes.Select(t => new CompletionItem
-        {
-            Label = t,
-            Kind = CompletionItemKind.Keyword,
-            Detail = "primitive type",
-            InsertText = t
-        }));
-
-        // Add symbols from the current document (using enhanced symbol info)
-        if (doc?.SymbolsInfo != null)
-        {
-            foreach (var (name, symbolInfo) in doc.SymbolsInfo)
-            {
-                var item = new CompletionItem
-                {
-                    Label = name,
-                    Kind = GetCompletionItemKindFromSymbol(symbolInfo.Kind),
-                    Detail = GetSymbolDetail(symbolInfo),
-                    InsertText = name,
-                    Documentation = !string.IsNullOrEmpty(symbolInfo.Documentation) ? symbolInfo.Documentation : null
-                };
-
-                items.Add(item);
-            }
-        }
-
-        // Add variables and parameters from semantic model
-        if (doc?.SemanticModel != null)
-        {
-            foreach (var (name, typeInfo) in doc.SemanticModel.Variables)
-            {
-                if (!items.Any(i => i.Label == name))
-                {
-                    items.Add(new CompletionItem
-                    {
-                        Label = name,
-                        Kind = CompletionItemKind.Variable,
-                        Detail = $"variable: {typeInfo}",
-                        InsertText = name
-                    });
-                }
-            }
-
-            // Build a set of names that are class/struct members to avoid adding them
-            // as top-level functions (they should only appear via member access)
-            var memberNames = new HashSet<string>();
-            if (doc.SymbolsInfo != null)
-            {
-                foreach (var (_, sym) in doc.SymbolsInfo)
-                {
-                    if (sym.Kind is LanguageServer.Models.SymbolKind.Class or LanguageServer.Models.SymbolKind.Struct
-                        or LanguageServer.Models.SymbolKind.Record or LanguageServer.Models.SymbolKind.Interface)
-                    {
-                        foreach (var member in sym.Members)
-                        {
-                            memberNames.Add(member.Name);
-                        }
-                    }
-                }
-            }
-
-            foreach (var (name, typeInfo) in doc.SemanticModel.Functions)
-            {
-                // Skip class/struct members — they should only appear via dot-access completions
-                if (memberNames.Contains(name)) continue;
-
-                if (!items.Any(i => i.Label == name))
-                {
-                    items.Add(new CompletionItem
-                    {
-                        Label = name,
-                        Kind = CompletionItemKind.Function,
-                        Detail = $"func: {typeInfo}",
-                        InsertText = name
-                    });
-                }
-            }
-        }
-
-        // Add common .NET types
-        var commonTypes = new[]
-        {
-            ("Console", "System.Console", "System"),
-            ("List", "System.Collections.Generic.List<T>", "System.Collections.Generic"),
-            ("Dictionary", "System.Collections.Generic.Dictionary<TKey, TValue>", "System.Collections.Generic"),
-            ("Task", "System.Threading.Tasks.Task", "System.Threading.Tasks"),
-            ("Exception", "System.Exception", "System"),
-            ("DateTime", "System.DateTime", "System"),
-            ("Guid", "System.Guid", "System"),
-            ("Math", "System.Math", "System"),
-            ("String", "System.String", "System"),
-            ("Linq", "System.Linq", "System.Linq")
-        };
-
-        foreach (var (label, detail, importNamespace) in commonTypes)
-        {
-            items.Add(CreateImportableTypeCompletionItem(doc, label, detail, importNamespace));
-        }
+        AddDocumentSymbolCompletionItems(doc, items, itemKeys, inScopeNames);
+        AddSemanticCompletionItems(doc, request.Position.Line, request.Position.Character, items, itemKeys, inScopeNames);
+        AddProjectSymbolCompletionItems(doc, currentPrefix, items, itemKeys, inScopeNames);
+        AddLanguageCompletionItems(items, itemKeys);
+        AddExternalImportableCompletionItems(doc, currentPrefix, items, itemKeys, inScopeNames);
 
         _logger.LogDebug("Providing {Count} completion items for {Uri}", items.Count, uri);
 
@@ -754,22 +649,362 @@ public class CompletionHandler : CompletionHandlerBase
         }).ToList();
     }
 
-    private CompletionItem CreateImportableTypeCompletionItem(
-        Models.DocumentState? doc,
-        string label,
-        string detail,
-        string importNamespace)
+    private void AddLanguageCompletionItems(List<CompletionItem> items, HashSet<string> itemKeys)
     {
-        var additionalTextEdits = BuildAutoImportEdits(doc, importNamespace);
-
-        return new CompletionItem
+        foreach (var keyword in Keywords)
         {
-            Label = label,
-            Kind = CompletionItemKind.Class,
-            Detail = detail,
-            InsertText = label,
-            AdditionalTextEdits = additionalTextEdits
-        };
+            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
+            {
+                Label = keyword,
+                Kind = CompletionItemKind.Keyword,
+                Detail = "keyword",
+                InsertText = keyword,
+                SortText = BuildSortText(SortLanguage, keyword, "keyword")
+            }, $"keyword:{keyword}");
+        }
+
+        foreach (var snippet in Snippets)
+        {
+            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
+            {
+                Label = snippet.Label,
+                Kind = CompletionItemKind.Snippet,
+                Detail = snippet.Detail,
+                InsertText = snippet.InsertText,
+                InsertTextFormat = InsertTextFormat.Snippet,
+                SortText = BuildSortText(SortLanguage, snippet.Label, "snippet")
+            }, $"snippet:{snippet.Label}");
+        }
+
+        foreach (var primitive in PrimitiveTypes)
+        {
+            AddUniqueCompletionItem(items, itemKeys, new CompletionItem
+            {
+                Label = primitive,
+                Kind = CompletionItemKind.Keyword,
+                Detail = "primitive type",
+                InsertText = primitive,
+                SortText = BuildSortText(SortLanguage, primitive, "primitive")
+            }, $"primitive:{primitive}");
+        }
+    }
+
+    private void AddDocumentSymbolCompletionItems(
+        Models.DocumentState? doc,
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        HashSet<string> inScopeNames)
+    {
+        if (doc?.SymbolsInfo == null)
+        {
+            return;
+        }
+
+        foreach (var (name, symbolInfo) in doc.SymbolsInfo)
+        {
+            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
+            {
+                Label = name,
+                Kind = GetCompletionItemKindFromSymbol(symbolInfo.Kind),
+                Detail = GetSymbolDetail(symbolInfo),
+                InsertText = name,
+                Documentation = !string.IsNullOrEmpty(symbolInfo.Documentation) ? symbolInfo.Documentation : null,
+                SortText = BuildSortText(SortLocal, name, "document")
+            });
+        }
+    }
+
+    private void AddSemanticCompletionItems(
+        Models.DocumentState? doc,
+        int line,
+        int character,
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        HashSet<string> inScopeNames)
+    {
+        if (doc?.SemanticModel == null)
+        {
+            return;
+        }
+
+        var semanticModel = doc.SemanticModel;
+        var visibleVariables = semanticModel.Scopes.Count > 0
+            ? semanticModel.GetVisibleVariablesAtPosition(line + 1, character + 1)
+            : new Dictionary<string, TypeInfo>(semanticModel.Variables);
+        foreach (var (name, typeInfo) in semanticModel.Variables)
+        {
+            visibleVariables.TryAdd(name, typeInfo);
+        }
+
+        foreach (var (name, typeInfo) in visibleVariables)
+        {
+            if (semanticModel.Functions.ContainsKey(name))
+            {
+                continue;
+            }
+
+            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
+            {
+                Label = name,
+                Kind = CompletionItemKind.Variable,
+                Detail = $"variable: {typeInfo}",
+                InsertText = name,
+                SortText = BuildSortText(SortLocal, name, "variable")
+            });
+        }
+
+        var memberNames = GetTypeMemberNames(doc);
+        foreach (var (name, typeInfo) in semanticModel.Functions)
+        {
+            if (memberNames.Contains(name))
+            {
+                continue;
+            }
+
+            AddInScopeCompletionItem(items, itemKeys, inScopeNames, name, new CompletionItem
+            {
+                Label = name,
+                Kind = CompletionItemKind.Function,
+                Detail = $"func: {typeInfo}",
+                InsertText = name,
+                SortText = BuildSortText(SortLocal, name, "function")
+            });
+        }
+    }
+
+    private void AddProjectSymbolCompletionItems(
+        Models.DocumentState? doc,
+        string currentPrefix,
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        HashSet<string> inScopeNames)
+    {
+        if (doc?.CompilationUnit == null)
+        {
+            return;
+        }
+
+        var currentFilePath = _documentManager.GetFilePathForUri(doc.Uri);
+        foreach (var symbol in _documentManager.GetProjectSymbolsForCompletion(doc.Uri)
+                     .OrderBy(symbol => symbol.Name, StringComparer.Ordinal)
+                     .ThenBy(symbol => symbol.Namespace ?? string.Empty, StringComparer.Ordinal)
+                     .ThenBy(symbol => symbol.SourceFile, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!NameMatchesPrefix(symbol.Name, currentPrefix))
+            {
+                continue;
+            }
+
+            if (string.Equals(symbol.SourceFile, currentFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var isInScope = IsProjectSymbolInScope(doc, symbol);
+            if (!isInScope && !symbol.IsExported)
+            {
+                continue;
+            }
+
+            if (!isInScope && string.IsNullOrWhiteSpace(symbol.Namespace))
+            {
+                continue;
+            }
+
+            var detail = FormatProjectSymbolDetail(symbol, isInScope);
+            var item = new CompletionItem
+            {
+                Label = symbol.Name,
+                Kind = GetCompletionItemKind(symbol),
+                Detail = detail,
+                InsertText = symbol.Name,
+                SortText = BuildSortText(isInScope ? SortProjectInScope : SortProjectImportable, symbol.Name, symbol.Namespace ?? symbol.SourceFile),
+                AdditionalTextEdits = isInScope || symbol.Namespace == null
+                    ? null
+                    : BuildAutoImportEdits(doc, symbol.Namespace)
+            };
+
+            if (isInScope)
+            {
+                AddInScopeCompletionItem(items, itemKeys, inScopeNames, symbol.Name, item);
+                continue;
+            }
+
+            if (inScopeNames.Contains(symbol.Name))
+            {
+                continue;
+            }
+
+            AddUniqueCompletionItem(items, itemKeys, item,
+                $"project-import:{symbol.Name}:{symbol.Namespace}:{symbol.SourceFile}");
+        }
+    }
+
+    private void AddExternalImportableCompletionItems(
+        Models.DocumentState? doc,
+        string currentPrefix,
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        HashSet<string> inScopeNames)
+    {
+        foreach (var type in _typeResolver.GetImportableTypes(currentPrefix))
+        {
+            var isInScope = IsNamespaceInScope(doc, type.Namespace);
+            var item = new CompletionItem
+            {
+                Label = type.Name,
+                Kind = type.IsInterface ? CompletionItemKind.Interface
+                    : type.IsEnum ? CompletionItemKind.Enum
+                    : CompletionItemKind.Class,
+                Detail = isInScope ? type.FullName : $"{type.FullName} (auto-import {type.Namespace})",
+                InsertText = type.Name,
+                SortText = BuildSortText(isInScope ? SortExternalInScope : SortExternalImportable, type.Name, type.Namespace),
+                AdditionalTextEdits = isInScope ? null : BuildAutoImportEdits(doc, type.Namespace)
+            };
+
+            if (isInScope)
+            {
+                AddInScopeCompletionItem(items, itemKeys, inScopeNames, type.Name, item);
+                continue;
+            }
+
+            if (inScopeNames.Contains(type.Name))
+            {
+                continue;
+            }
+
+            AddUniqueCompletionItem(items, itemKeys, item, $"external-import:{type.Name}");
+        }
+    }
+
+    private static HashSet<string> GetTypeMemberNames(Models.DocumentState doc)
+    {
+        var memberNames = new HashSet<string>(StringComparer.Ordinal);
+        if (doc.SymbolsInfo == null)
+        {
+            return memberNames;
+        }
+
+        foreach (var (_, symbol) in doc.SymbolsInfo)
+        {
+            if (symbol.Kind is LanguageServer.Models.SymbolKind.Class or LanguageServer.Models.SymbolKind.Struct
+                or LanguageServer.Models.SymbolKind.Record or LanguageServer.Models.SymbolKind.Interface)
+            {
+                foreach (var member in symbol.Members)
+                {
+                    memberNames.Add(member.Name);
+                }
+            }
+        }
+
+        return memberNames;
+    }
+
+    private static void AddInScopeCompletionItem(
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        HashSet<string> inScopeNames,
+        string name,
+        CompletionItem item)
+    {
+        if (!inScopeNames.Add(name))
+        {
+            return;
+        }
+
+        AddUniqueCompletionItem(items, itemKeys, item, $"scope:{name}");
+    }
+
+    private static void AddUniqueCompletionItem(
+        List<CompletionItem> items,
+        HashSet<string> itemKeys,
+        CompletionItem item,
+        string key)
+    {
+        if (itemKeys.Add(key))
+        {
+            items.Add(item);
+        }
+    }
+
+    private static bool NameMatchesPrefix(string name, string prefix)
+    {
+        return string.IsNullOrEmpty(prefix)
+            || name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildSortText(string rank, string label, string qualifier)
+    {
+        return $"{rank}_{label.ToLowerInvariant()}_{qualifier.ToLowerInvariant()}";
+    }
+
+    private static string GetCurrentIdentifierPrefix(string text, int line, int character)
+    {
+        var lines = text.Split('\n');
+        if (line < 0 || line >= lines.Length)
+        {
+            return string.Empty;
+        }
+
+        var lineText = lines[line];
+        var end = Math.Clamp(character, 0, lineText.Length);
+        var start = end;
+        while (start > 0 && IsIdentifierPart(lineText[start - 1]))
+        {
+            start--;
+        }
+
+        return lineText[start..end];
+    }
+
+    private static bool IsIdentifierPart(char value)
+    {
+        return char.IsLetterOrDigit(value) || value == '_';
+    }
+
+    private static bool IsProjectSymbolInScope(Models.DocumentState doc, ProjectSymbolInfo symbol)
+    {
+        var compilationUnit = doc.CompilationUnit;
+        if (compilationUnit == null)
+        {
+            return false;
+        }
+
+        var currentNamespace = GetUnitNamespace(compilationUnit);
+        if (string.Equals(symbol.Namespace, currentNamespace, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return symbol.Namespace != null && IsNamespaceAlreadyImported(compilationUnit, symbol.Namespace);
+    }
+
+    private static bool IsNamespaceInScope(Models.DocumentState? doc, string namespaceName)
+    {
+        if (doc?.CompilationUnit == null)
+        {
+            return false;
+        }
+
+        if (string.Equals(GetUnitNamespace(doc.CompilationUnit), namespaceName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return IsNamespaceAlreadyImported(doc.CompilationUnit, namespaceName);
+    }
+
+    private static string? GetUnitNamespace(CompilationUnit? compilationUnit)
+    {
+        return compilationUnit?.Package?.Name ?? compilationUnit?.Namespace?.Name;
+    }
+
+    private static string FormatProjectSymbolDetail(ProjectSymbolInfo symbol, bool isInScope)
+    {
+        var source = symbol.Namespace ?? "<global>";
+        return isInScope
+            ? $"{symbol.Declaration.Kind} from {source}"
+            : $"{symbol.Declaration.Kind} from {source} (auto-import)";
     }
 
     private static TextEditContainer? BuildAutoImportEdits(Models.DocumentState? doc, string importNamespace)
@@ -822,8 +1057,7 @@ public class CompletionHandler : CompletionHandlerBase
             // Trim both ends to handle CRLF line endings (trailing \r) and leading whitespace
             var trimmed = lines[i].Trim();
             // Exact match: "import System" but not "import System.Collections"
-            if (trimmed.Equals(importStatement, StringComparison.Ordinal)
-                || trimmed.StartsWith(importStatement + " ", StringComparison.Ordinal))
+            if (trimmed.Equals(importStatement, StringComparison.Ordinal))
             {
                 return null;
             }
@@ -854,6 +1088,7 @@ public class CompletionHandler : CompletionHandlerBase
     private static bool IsNamespaceAlreadyImported(CompilationUnit compilationUnit, string importNamespace)
     {
         return compilationUnit.Imports.Any(import =>
+            import.Alias == null &&
             string.Equals(import.Namespace, importNamespace, StringComparison.Ordinal));
     }
 
@@ -875,13 +1110,14 @@ public class CompletionHandler : CompletionHandlerBase
         {
             insertLine = Math.Max(insertLine, compilationUnit.Imports[^1].Line + 1);
         }
-        else if (compilationUnit.FileImports.Count > 0)
+
+        if (compilationUnit.FileImports.Count > 0)
         {
             insertLine = Math.Max(insertLine, compilationUnit.FileImports
                 .OfType<FileImport>()
                 .Select(fileImport => fileImport.Line)
                 .DefaultIfEmpty(insertLine)
-                .Min());
+                .Max() + 1);
         }
 
         return insertLine;
@@ -976,7 +1212,23 @@ public class CompletionHandler : CompletionHandlerBase
             InterfaceTypeInfo => CompletionItemKind.Interface,
             EnumTypeInfo => CompletionItemKind.Enum,
             UnionTypeInfo => CompletionItemKind.Class,
+            FunctionTypeInfo => CompletionItemKind.Function,
             _ => CompletionItemKind.Variable
+        };
+    }
+
+    private CompletionItemKind GetCompletionItemKind(ProjectSymbolInfo symbol)
+    {
+        return symbol.Declaration.Kind switch
+        {
+            "class" => CompletionItemKind.Class,
+            "struct" => CompletionItemKind.Struct,
+            "record" => CompletionItemKind.Class,
+            "interface" => CompletionItemKind.Interface,
+            "enum" => CompletionItemKind.Enum,
+            "union" => CompletionItemKind.Class,
+            "function" => CompletionItemKind.Function,
+            _ => GetCompletionItemKind(symbol.Type)
         };
     }
 

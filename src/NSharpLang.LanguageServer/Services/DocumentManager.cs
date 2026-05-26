@@ -593,6 +593,29 @@ public class DocumentManager
         return ResolveSemanticProjectRoot(UriToFilePath(uri));
     }
 
+    /// <summary>
+    /// Converts an LSP document URI into the filesystem path used by compiler services.
+    /// </summary>
+    public string GetFilePathForUri(string uri)
+    {
+        return UriToFilePath(uri);
+    }
+
+    /// <summary>
+    /// Returns all currently known project symbols for completion. This uses open-buffer
+    /// document state so completion can see unsaved project files loaded by the workspace scan.
+    /// </summary>
+    public IReadOnlyList<ProjectSymbolInfo> GetProjectSymbolsForCompletion(string uri)
+    {
+        var filePath = UriToFilePath(uri);
+        var projectRoot = FindProjectRoot(filePath);
+        var projectSymbols = GetOrBuildProjectSymbolTable(projectRoot);
+
+        return projectSymbols.Values
+            .SelectMany(symbols => symbols)
+            .ToList();
+    }
+
     public bool HasUnsavedOpenBuffersInProject(string uri)
     {
         var projectRoot = ResolveSemanticProjectRoot(UriToFilePath(uri));

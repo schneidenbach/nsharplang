@@ -48,6 +48,10 @@ public class TypeResolver
         ["DateTime"] = "System.DateTime",
         ["Guid"] = "System.Guid",
         ["Exception"] = "System.Exception",
+        ["List"] = "System.Collections.Generic.List`1",
+        ["Dictionary"] = "System.Collections.Generic.Dictionary`2",
+        ["HashSet"] = "System.Collections.Generic.HashSet`1",
+        ["IEnumerable"] = "System.Collections.Generic.IEnumerable`1",
         ["Task"] = "System.Threading.Tasks.Task",
         ["CancellationToken"] = "System.Threading.CancellationToken",
     };
@@ -354,6 +358,80 @@ public class TypeResolver
         return results;
     }
 
+    /// <summary>
+    /// Get public CLR types that can be inserted with an import edit.
+    /// Empty-prefix requests return a curated set so general completion stays useful
+    /// without flooding the editor with framework types.
+    /// </summary>
+    public List<ImportableTypeInfo> GetImportableTypes(string prefix, int maxResults = 200)
+    {
+        EnsureAssembliesLoaded();
+
+        prefix = prefix.Trim();
+        var results = new Dictionary<string, ImportableTypeInfo>(StringComparer.Ordinal);
+
+        void AddType(Type? type, bool forceInclude = false)
+        {
+            if (type == null || !type.IsPublic || type.IsNested)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(type.Namespace) || string.IsNullOrWhiteSpace(type.FullName))
+            {
+                return;
+            }
+
+            if (type.Name.StartsWith("<", StringComparison.Ordinal) || type.Name.Contains("__", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var name = GetCompletionTypeName(type);
+            if (!forceInclude && prefix.Length > 0 && !name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            results.TryAdd(type.FullName, new ImportableTypeInfo(
+                name,
+                type.FullName,
+                type.Namespace,
+                type.IsAbstract && type.IsSealed,
+                type.IsInterface,
+                type.IsEnum));
+        }
+
+        foreach (var fullName in CommonShortTypeToFullName.Values)
+        {
+            AddType(ResolveTypeByFullName(fullName), forceInclude: true);
+        }
+
+        if (prefix.Length > 0)
+        {
+            foreach (var assembly in _loadedAssemblies)
+            {
+                var types = GetOrCacheExportedTypes(assembly);
+                if (types == null)
+                {
+                    continue;
+                }
+
+                foreach (var type in types)
+                {
+                    AddType(type);
+                }
+            }
+        }
+
+        return results.Values
+            .OrderBy(type => GetNamespacePriority(type.Namespace))
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ThenBy(type => type.Namespace, StringComparer.Ordinal)
+            .Take(maxResults)
+            .ToList();
+    }
+
     public List<string> GetNamespaceSuggestions(string prefix)
     {
         var namespaces = GetKnownNamespaces();
@@ -478,6 +556,26 @@ public class TypeResolver
         var nextDot = remainder.IndexOf('.');
         nextSegment = nextDot >= 0 ? remainder[..nextDot] : remainder;
         return nextSegment.Length > 0;
+    }
+
+    private static string GetCompletionTypeName(Type type)
+    {
+        var name = type.Name;
+        var backtick = name.IndexOf('`');
+        return backtick >= 0 ? name[..backtick] : name;
+    }
+
+    private static int GetNamespacePriority(string namespaceName)
+    {
+        return namespaceName switch
+        {
+            "System" => 0,
+            "System.Collections.Generic" => 1,
+            "System.Threading.Tasks" => 2,
+            "System.Linq" => 3,
+            _ when namespaceName.StartsWith("System.", StringComparison.Ordinal) => 10,
+            _ => 20
+        };
     }
 
     /// <summary>
@@ -718,6 +816,17 @@ public class TypeResolver
         return types;
     }
 }
+
+/// <summary>
+/// A public CLR type that can be offered as an identifier completion with an import edit.
+/// </summary>
+public sealed record ImportableTypeInfo(
+    string Name,
+    string FullName,
+    string Namespace,
+    bool IsStatic,
+    bool IsInterface,
+    bool IsEnum);
 
 /// <summary>
 /// Represents a member for completion
