@@ -27,6 +27,8 @@ func add(a: int, b: int): int {
 }
 ```
 
+Functions that return a value must declare that return type. Omitting the return type means the function returns `void`.
+
 ### Visibility
 
 Functions follow N#'s convention-based visibility:
@@ -157,6 +159,16 @@ func printMessage(msg: string) {
     Console.WriteLine(msg)
 }
 ```
+
+Returning a value from a void function is an error:
+
+```n#
+func answer() {
+    return 42
+}
+```
+
+Write `func answer(): int` when the function should return `42`.
 
 ### Nullable Return Types
 

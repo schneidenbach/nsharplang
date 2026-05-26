@@ -58,6 +58,32 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///return-value.nl";
+
+        var source = @"
+func Hi() {
+    return 42
+}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.TypeMismatch);
+
+        var message = diagnostic.FormatForTooling(includeCode: true, includeLocation: false);
+        Assert.Contains("NL202: Function 'Hi' returns int but has no return type", message);
+        Assert.Contains("N# treats it as `void`", message);
+        Assert.Contains("Add `: int`", message);
+        Assert.Contains("return 42", message);
+    }
+
+    [Fact]
     public void Diagnostics_MalformedEditingBuffer_PublishesHighSignalProblems()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

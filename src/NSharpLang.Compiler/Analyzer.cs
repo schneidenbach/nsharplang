@@ -28,6 +28,8 @@ public class Analyzer : IDisposable
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
     private List<(string Name, TypeInfo Type, int Line, int Column)> _setupSymbols = new();
     private TypeInfo? _currentReturnType;
+    private FunctionDeclaration? _currentFunction;
+    private bool _currentFunctionReturnTypeWasOmitted;
     private bool _currentFunctionIsAsync;
     private bool _inLoop;
     private bool _inConstructor;
@@ -134,6 +136,8 @@ public class Analyzer : IDisposable
         _suppressNullabilityFlowType = false;
         _reportedNullabilityDiagnostics.Clear();
         _currentReturnType = null;
+        _currentFunction = null;
+        _currentFunctionReturnTypeWasOmitted = false;
         _currentFunctionIsAsync = false;
         _inLoop = false;
         _inConstructor = false;
@@ -473,12 +477,17 @@ public class Analyzer : IDisposable
         }
 
         // Set expected return type
+        var previousFunction = _currentFunction;
+        var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
         var previousFunctionIsAsync = _currentFunctionIsAsync;
-        _currentReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        var functionReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        _currentReturnType = functionReturnType;
+        _currentFunction = func;
+        _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
         _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
         // Record function return type in semantic model for IDE features (scoped)
-        RecordFunctionInCurrentScope(func.Name, _currentReturnType);
+        RecordFunctionInCurrentScope(func.Name, functionReturnType);
 
         // Analyze body
         if (func.Body != null)
@@ -488,8 +497,8 @@ public class Analyzer : IDisposable
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
-            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (IsUnitTaskLikeType(_currentReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
-            if (_currentReturnType != BuiltInTypes.Void && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
+            var isAsyncUnitTask = func.Modifiers.HasFlag(Modifiers.Async) && (IsUnitTaskLikeType(functionReturnType) || IsUnitTaskLikeTypeReference(func.ReturnType));
+            if (functionReturnType != BuiltInTypes.Void && !isIterator && !isAsyncUnitTask && !StatementAlwaysReturns(func.Body))
             {
                 var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
                     ? _sourceLines[func.Line - 1]
@@ -503,7 +512,7 @@ public class Analyzer : IDisposable
                         func.Column,
                         sourceSnippet,
                         func.Name.Length + 5, // "func " + name
-                        _currentReturnType.ToString()
+                        functionReturnType.ToString()
                     );
                     _errors.Add(error);
                 }
@@ -511,7 +520,7 @@ public class Analyzer : IDisposable
                 {
                     Error(
                         ErrorCode.MissingReturn,
-                        $"This function should return '{_currentReturnType}', but not all code paths return a value — make sure every branch ends with a 'return'",
+                        $"This function should return '{functionReturnType}', but not all code paths return a value — make sure every branch ends with a 'return'",
                         func.Line,
                         func.Column);
                 }
@@ -521,33 +530,40 @@ public class Analyzer : IDisposable
         {
             // Expression-bodied method: check expression type matches return type
             var exprType = AnalyzeExpression(func.ExpressionBody);
-            if (_currentReturnType != BuiltInTypes.Void && !IsAssignable(_currentReturnType, exprType))
+            if (functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
             {
-                var sourceSnippet = _sourceLines != null && func.Line > 0 && func.Line <= _sourceLines.Length
-                    ? _sourceLines[func.Line - 1]
+                AddExpressionBodyReturnError(func, exprType);
+            }
+            else if (functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
+            {
+                var sourceSnippet = _sourceLines != null && func.ExpressionBody.Line > 0 && func.ExpressionBody.Line <= _sourceLines.Length
+                    ? _sourceLines[func.ExpressionBody.Line - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
-                    var error = ErrorMessageBuilder.TypeMismatch(
+                    var error = ErrorMessageBuilder.ReturnTypeMismatch(
                         _currentFilePath,
-                        func.Line,
-                        func.Column,
+                        func.ExpressionBody.Line,
+                        func.ExpressionBody.Column,
                         sourceSnippet,
                         func.ExpressionBody.ToString().Length,
+                        func.Name,
                         exprType.ToString(),
-                        _currentReturnType.ToString()
+                        functionReturnType.ToString()
                     );
                     _errors.Add(error);
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"This function should return '{_currentReturnType}', but the expression body gives '{exprType}'", func.Line, func.Column);
+                    Error(ErrorCode.TypeMismatch, $"This function should return '{functionReturnType}', but the expression body gives '{exprType}'", func.Line, func.Column);
                 }
             }
         }
 
         _currentReturnType = null;
+        _currentFunction = previousFunction;
+        _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
         _currentFunctionIsAsync = previousFunctionIsAsync;
         PopScope();
     }
@@ -1442,9 +1458,13 @@ public class Analyzer : IDisposable
 
         // Save current function context
         var previousReturnType = _currentReturnType;
+        var previousFunction = _currentFunction;
+        var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
         var previousFunctionIsAsync = _currentFunctionIsAsync;
         TypeInfo? returnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = returnType;
+        _currentFunction = func;
+        _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
         _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
         // Analyze body
@@ -1458,13 +1478,15 @@ public class Analyzer : IDisposable
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
-                Error($"This function should return '{returnType}', but the expression body gives '{exprType}'",
-                    localFunc.Line, localFunc.Column);
+                Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
+                    func.ExpressionBody.Line, func.ExpressionBody.Column);
             }
         }
 
         // Restore function context
         _currentReturnType = previousReturnType;
+        _currentFunction = previousFunction;
+        _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
         _currentFunctionIsAsync = previousFunctionIsAsync;
 
         PopScope();
@@ -2042,20 +2064,11 @@ public class Analyzer : IDisposable
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
-                    var error = ErrorMessageBuilder.TypeMismatch(
-                        _currentFilePath,
-                        returnStmt.Line,
-                        returnStmt.Column,
-                        sourceSnippet,
-                        6, // "return" keyword length
-                        returnedType.ToString(),
-                        _currentReturnType.ToString()
-                    );
-                    _errors.Add(error);
+                    AddReturnValueMismatchError(returnStmt, sourceSnippet, returnedType, expectedReturnValueType);
                 }
                 else
                 {
-                    Error(ErrorCode.TypeMismatch, $"This function should return '{expectedReturnValueType}', but this return statement gives back '{returnedType}'",
+                    Error(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(returnedType, expectedReturnValueType),
                         returnStmt.Line, returnStmt.Column);
                 }
             }
@@ -2086,6 +2099,101 @@ public class Analyzer : IDisposable
                 }
             }
         }
+    }
+
+    private void AddReturnValueMismatchError(
+        ReturnStatement returnStmt,
+        string sourceSnippet,
+        TypeInfo returnedType,
+        TypeInfo expectedReturnValueType)
+    {
+        var functionName = _currentFunction?.Name ?? "this function";
+        CompilerError error;
+
+        if (_currentReturnType == BuiltInTypes.Void)
+        {
+            error = _currentFunctionReturnTypeWasOmitted
+                ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
+                    _currentFilePath!,
+                    returnStmt.Line,
+                    returnStmt.Column,
+                    sourceSnippet,
+                    6, // "return" keyword length
+                    functionName,
+                    returnedType.ToString())
+                : ErrorMessageBuilder.ReturnValueInVoidFunction(
+                    _currentFilePath!,
+                    returnStmt.Line,
+                    returnStmt.Column,
+                    sourceSnippet,
+                    6, // "return" keyword length
+                    functionName,
+                    returnedType.ToString());
+        }
+        else
+        {
+            error = ErrorMessageBuilder.ReturnTypeMismatch(
+                _currentFilePath!,
+                returnStmt.Line,
+                returnStmt.Column,
+                sourceSnippet,
+                6, // "return" keyword length
+                functionName,
+                returnedType.ToString(),
+                expectedReturnValueType.ToString());
+        }
+
+        _errors.Add(error);
+    }
+
+    private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
+    {
+        var line = func.ExpressionBody?.Line ?? fallbackLine ?? func.Line;
+        var column = func.ExpressionBody?.Column ?? fallbackColumn ?? func.Column;
+        var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
+            ? _sourceLines[line - 1]
+            : null;
+
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            var length = Math.Max(1, func.ExpressionBody?.ToString()?.Length ?? 1);
+            var error = _currentFunctionReturnTypeWasOmitted
+                ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    length,
+                    func.Name,
+                    expressionType.ToString())
+                : ErrorMessageBuilder.ReturnValueInVoidFunction(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    length,
+                    func.Name,
+                    expressionType.ToString());
+            _errors.Add(error);
+        }
+        else
+        {
+            Error(ErrorCode.TypeMismatch, FormatReturnValueMismatchMessage(expressionType, BuiltInTypes.Void), line, column);
+        }
+    }
+
+    private string FormatReturnValueMismatchMessage(TypeInfo returnedType, TypeInfo expectedReturnValueType)
+    {
+        var functionName = _currentFunction?.Name ?? "this function";
+
+        if (_currentReturnType == BuiltInTypes.Void)
+        {
+            return _currentFunctionReturnTypeWasOmitted
+                ? $"Function '{functionName}' has no return type annotation, so it is treated as 'void', but this code gives back '{returnedType}'"
+                : $"Function '{functionName}' is declared to return 'void', but this code gives back '{returnedType}'";
+        }
+
+        return $"Function '{functionName}' should return '{expectedReturnValueType}', but this return statement gives back '{returnedType}'";
     }
 
     private void AnalyzeTryStatement(TryStatement tryStmt)
@@ -6740,8 +6848,12 @@ public class Analyzer : IDisposable
         else if (lambda.BlockBody != null)
         {
             var previousReturnType = _currentReturnType;
+            var previousFunction = _currentFunction;
+            var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
             var previousFunctionIsAsync = _currentFunctionIsAsync;
             _currentReturnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
+            _currentFunction = null;
+            _currentFunctionReturnTypeWasOmitted = false;
             _currentFunctionIsAsync = false;
             try
             {
@@ -6750,6 +6862,8 @@ public class Analyzer : IDisposable
             finally
             {
                 _currentReturnType = previousReturnType;
+                _currentFunction = previousFunction;
+                _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
                 _currentFunctionIsAsync = previousFunctionIsAsync;
             }
             returnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;

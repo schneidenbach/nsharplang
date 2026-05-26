@@ -1350,7 +1350,7 @@ func foo(x: int): int {
 
 - Type annotations use colon syntax (`: type`)
 - Functions use statements, not everything is an expression
-- Functions can return void implicitly (no unit type needed)
+- Functions can return void implicitly (no unit type needed); value-returning functions declare their return type
 - Default parameter values supported
 - Named arguments supported:
   ```

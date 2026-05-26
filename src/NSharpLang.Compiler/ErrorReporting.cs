@@ -810,6 +810,89 @@ public static class ErrorMessageBuilder
     }
 
     /// <summary>
+    /// Create an Elm-style error for a value returned from a function without a return type annotation.
+    /// </summary>
+    public static CompilerError ReturnValueRequiresReturnType(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, string actualType)
+    {
+        var humanExplanation =
+            $"Function `{functionName}` has no return type annotation, so N# treats it as `void`:";
+        var addReturnTypeHint = actualType is "null" or "unknown"
+            ? $"Add an explicit return type after the parameter list if `{functionName}` should return a value"
+            : $"Add `: {actualType}` after the parameter list if `{functionName}` should return this value";
+        var suggestion = actualType is "null" or "unknown"
+            ? $"Add an explicit return type to `{functionName}` or remove the returned value"
+            : $"Add `: {actualType}` to `{functionName}` or remove the returned value";
+
+        var contextualHint =
+            $"This code gives back a value of type `{actualType}` from a function that currently returns nothing.\n" +
+            addReturnTypeHint + ", " +
+            "or remove the value if the function should stay void.";
+
+        return new CompilerError(ErrorCode.TypeMismatch, $"Function '{functionName}' returns {actualType} but has no return type", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = actualType,
+            ExpectedType = "void",
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = suggestion,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style error for a value returned from an explicitly void function.
+    /// </summary>
+    public static CompilerError ReturnValueInVoidFunction(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, string actualType)
+    {
+        var humanExplanation =
+            $"Function `{functionName}` is declared to return `void`, but this code gives back a value:";
+
+        var contextualHint =
+            $"A `void` function cannot return a value of type `{actualType}`. Change the return type if the value matters, " +
+            "or remove the value if the function only performs side effects.";
+
+        return new CompilerError(ErrorCode.TypeMismatch, $"Function '{functionName}' returns a value but is declared void", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = actualType,
+            ExpectedType = "void",
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = $"Change `{functionName}`'s return type or remove the returned value",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style error for a return value that does not match the declared return type.
+    /// </summary>
+    public static CompilerError ReturnTypeMismatch(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, string actualType, string expectedType)
+    {
+        var contextualHint = TypeConversionSuggester.SuggestConversion(actualType, expectedType)
+            ?? $"`{functionName}` is declared to return `{expectedType}`, so every returned value must be assignable to `{expectedType}`.";
+
+        return new CompilerError(ErrorCode.TypeMismatch, $"Function '{functionName}' should return {expectedType} but returns {actualType}", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = actualType,
+            ExpectedType = expectedType,
+            HumanExplanation = $"This return value does not match `{functionName}`'s return type:",
+            ContextualHint = contextualHint,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL202"
+        };
+    }
+
+    /// <summary>
     /// Create an Elm-style undefined variable error
     /// </summary>
     public static CompilerError UndefinedVariable(string fileName, int line, int column, string sourceSnippet,
