@@ -37,7 +37,6 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
-| `nlc tutorial` | Start a loopback-only interactive language walkthrough backed by `nlc query/run/test` | `nlc tutorial --open` |
 
 ### C# Source Migration
 
@@ -114,18 +113,9 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc daemon status` | Show daemon info | `nlc daemon status` |
 | `nlc tree` | Show direct dependency tree from `project.yml`; include transitive NuGet packages when MSBuild can resolve the package graph | `nlc tree --json` |
 
-### Guided Tutorial (`nlc tutorial`)
+### Public Browser Playground
 
-`nlc tutorial` hosts a local ASP.NET Core walkthrough for a first 15-minute N# tour. It writes real lesson projects under a user-local workspace and serves an embedded TypeScript/Monaco browser workbench with N# language registration, file tabs for `Program.nl` and `Program.tests.nl`, Monaco diagnostics/hover/completions/formatting, and a Problems/Output panel. Browser IntelliSense uses a same-origin WebSocket bridge to `NSharpLang.LanguageServer` when available, and the toolbar remains backed by the `nlc` command line:
-
-- diagnostics: `nlc query diagnostics`
-- IntelliSense-style suggestions: `nlc query completions --include-keywords`
-- hover: `nlc query hover`
-- execution: `nlc run`
-- formatting: `nlc format`
-- verification: `nlc test`
-
-The host is intentionally loopback-only (`127.0.0.1`, `localhost`, or `::1`). Use `--workspace <dir>` to choose where lesson projects live, `--reset` to recreate them, `--open` to launch a browser, and `--dry-run` to create/update the workspaces without starting the server.
+The guided first-run tour is part of the public website, not a CLI command. The GitHub Pages deployment builds a WebAssembly-hosted N# compiler workbench with guided lessons, Monaco syntax highlighting, browser diagnostics, formatting, completions, hover, file tabs, and share links. Use the local `nlc` toolchain for build, run, test execution, NuGet restore, filesystem workflows, and editor integration.
 
 ---
 

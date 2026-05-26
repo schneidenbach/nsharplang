@@ -71,3 +71,4 @@ docs/talk/gate-logs/strict-git-worktree-20260517T035200Z/
 # Docusaurus
 website/build/
 website/.docusaurus/
+website/static/playground/wasm/

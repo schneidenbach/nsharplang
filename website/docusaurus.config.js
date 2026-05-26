@@ -61,6 +61,7 @@ const config = {
           src: 'favicon.svg',
         },
         items: [
+          {to: '/playground', label: 'Playground', position: 'left'},
           {
             type: 'docSidebar',
             sidebarId: 'docsSidebar',
@@ -81,6 +82,7 @@ const config = {
           {
             title: 'Learn',
             items: [
+              {label: 'Playground', to: '/playground'},
               {label: 'Getting Started', to: '/docs/getting-started'},
               {label: 'Language Tour', to: '/docs/language-tour'},
               {label: 'CLI Reference', to: '/docs/cli-reference'},
