@@ -678,6 +678,33 @@ public static class QueryCommand
         LocationResult definedAt = new(definition.File, definition.Line, definition.Column);
 
         var results = Service.FindReferences(snapshot, file, line, col);
+        if (results.Count == 0)
+        {
+            const string message =
+                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. " +
+                "No name-based or text-based fallback was used.";
+
+            if (options.UseText)
+            {
+                Console.Error.WriteLine(message);
+            }
+            else
+            {
+                Console.Write(OutputFormatter.ErrorToJson(
+                    "references",
+                    message,
+                    GetProjectRoot(options),
+                    "semanticReferencesUnavailable",
+                    new
+                    {
+                        file = NormalizePath(file),
+                        position = new { line, column = col },
+                        symbol = new { name = symbolName, kind = symbolKind, definedAt }
+                    }));
+            }
+
+            return 1;
+        }
 
         if (options.UseText)
         {

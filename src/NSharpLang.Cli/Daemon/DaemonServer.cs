@@ -425,6 +425,21 @@ public class DaemonServer
         var definedAt = new LocationResult(definition.File, definition.Line, definition.Column);
 
         var results = _service.FindReferences(_snapshot!, file, line, col);
+        if (results.Count == 0)
+        {
+            return OutputFormatter.ErrorToJson(
+                "references",
+                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+                _snapshot!.ProjectRoot,
+                "semanticReferencesUnavailable",
+                new
+                {
+                    file,
+                    position = new { line, column = col },
+                    symbol = new { name = symbolName, kind = symbolKind, definedAt }
+                });
+        }
+
         return OutputFormatter.ReferencesToJson(symbolName, symbolKind, definedAt, results);
     }
 

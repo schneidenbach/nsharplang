@@ -71,7 +71,9 @@ public record Parameter(
     Expression? DefaultValue,
     bool IsThis, // For extension methods
     ParameterModifier Modifier = ParameterModifier.None,
-    List<AttributeNode>? Attributes = null);
+    List<AttributeNode>? Attributes = null,
+    int Line = 0,
+    int Column = 0);
 
 public record TypeParameter(string Name);
 

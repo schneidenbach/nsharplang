@@ -47,6 +47,7 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, HashSet<string>> _projectNamespaceCache = new(); // project root -> declared namespaces/packages
     private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _projectSourceTexts = new(StringComparer.OrdinalIgnoreCase);
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
@@ -65,6 +66,20 @@ public class Analyzer : IDisposable
     public void SetProjectSymbols(Dictionary<string, List<ProjectSymbolInfo>> symbols)
     {
         _projectSymbols = symbols;
+    }
+
+    /// <summary>
+    /// Sets the source texts used by the current project snapshot. This lets semantic
+    /// declarations point at identifier spans even when a referenced file is only
+    /// present through an unsaved editor buffer.
+    /// </summary>
+    public void SetProjectSourceTexts(IReadOnlyDictionary<string, string> sourceTexts)
+    {
+        _projectSourceTexts.Clear();
+        foreach (var (path, text) in sourceTexts)
+        {
+            _projectSourceTexts[Path.GetFullPath(path)] = text;
+        }
     }
 
     /// <summary>
@@ -280,7 +295,8 @@ public class Analyzer : IDisposable
             foreach (var param in test.TableParameters)
             {
                 var paramType = ResolveType(param.Type);
-                DeclareSymbol(param.Name, paramType, test.Line, test.Column);
+                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, test.Line, test.Column);
+                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
 
@@ -429,7 +445,8 @@ public class Analyzer : IDisposable
         foreach (var param in func.Parameters)
         {
             var paramType = ResolveType(param.Type);
-            DeclareSymbol(param.Name, paramType, func.Line, func.Column);
+            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, func.Line, func.Column);
+            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
 
             // Record parameter in semantic model for IDE features (scoped)
             RecordVariableInCurrentScope(param.Name, paramType);
@@ -634,7 +651,7 @@ public class Analyzer : IDisposable
 
         // Add 'this' to scope
         var classType = new ClassTypeInfo(classDecl);
-        DeclareSymbol("this", classType, classDecl.Line, classDecl.Column);
+        DeclareSymbol("this", classType, classDecl.Line, classDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope (C# 12 feature)
         if (classDecl.PrimaryConstructorParameters != null)
@@ -642,7 +659,8 @@ public class Analyzer : IDisposable
             foreach (var param in classDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveType(param.Type);
-                DeclareSymbol(param.Name, paramType, classDecl.Line, classDecl.Column);
+                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, classDecl.Line, classDecl.Column);
+                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
@@ -694,7 +712,7 @@ public class Analyzer : IDisposable
         ResolveTypeReferences(structDecl.Interfaces);
 
         var structType = new StructTypeInfo(structDecl);
-        DeclareSymbol("this", structType, structDecl.Line, structDecl.Column);
+        DeclareSymbol("this", structType, structDecl.Line, structDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope (C# 12 feature)
         if (structDecl.PrimaryConstructorParameters != null)
@@ -702,7 +720,8 @@ public class Analyzer : IDisposable
             foreach (var param in structDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveType(param.Type);
-                DeclareSymbol(param.Name, paramType, structDecl.Line, structDecl.Column);
+                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, structDecl.Line, structDecl.Column);
+                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
@@ -739,7 +758,7 @@ public class Analyzer : IDisposable
         ResolveTypeReferences(recordDecl.Interfaces);
 
         var recordType = new RecordTypeInfo(recordDecl);
-        DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column);
+        DeclareSymbol("this", recordType, recordDecl.Line, recordDecl.Column, recordBindingDeclaration: false);
 
         // Add primary constructor parameters to scope (C# 12 feature)
         if (recordDecl.PrimaryConstructorParameters != null)
@@ -747,7 +766,8 @@ public class Analyzer : IDisposable
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveType(param.Type);
-                DeclareSymbol(param.Name, paramType, recordDecl.Line, recordDecl.Column);
+                var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, recordDecl.Line, recordDecl.Column);
+                DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
             }
         }
@@ -1022,7 +1042,7 @@ public class Analyzer : IDisposable
             var prevReturnType = _currentReturnType;
             _currentReturnType = BuiltInTypes.Void; // Setter returns void
             // Implicitly declare 'value' parameter
-            DeclareSymbol("value", propType, prop.Line, prop.Column);
+            DeclareSymbol("value", propType, prop.Line, prop.Column, recordBindingDeclaration: false);
             RecordVariableInCurrentScope("value", propType);
             AnalyzeStatement(prop.SetBody);
             _currentReturnType = prevReturnType;
@@ -1039,7 +1059,8 @@ public class Analyzer : IDisposable
         foreach (var param in ctor.Parameters)
         {
             var paramType = ResolveType(param.Type);
-            DeclareSymbol(param.Name, paramType, ctor.Line, ctor.Column);
+            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, ctor.Line, ctor.Column);
+            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
         }
 
@@ -1383,7 +1404,8 @@ public class Analyzer : IDisposable
         foreach (var param in func.Parameters)
         {
             var paramType = ResolveType(param.Type);
-            DeclareSymbol(param.Name, paramType, localFunc.Line, localFunc.Column);
+            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, localFunc.Line, localFunc.Column);
+            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
         }
 
@@ -2872,11 +2894,13 @@ public class Analyzer : IDisposable
 
     private SymbolDeclaration CreateSymbolDeclaration(Declaration declaration, string? filePath)
     {
+        var name = GetDeclarationName(declaration) ?? string.Empty;
+        var sourceText = TryGetProjectSourceText(filePath);
         return new SymbolDeclaration(
-            GetDeclarationName(declaration) ?? string.Empty,
+            name,
             filePath,
             declaration.Line,
-            declaration.Column,
+            FindIdentifierNameColumn(sourceText, name, declaration.Line, declaration.Column),
             GetDeclarationKind(declaration));
     }
 
@@ -6155,7 +6179,8 @@ public class Analyzer : IDisposable
                 : expectedSignature?.ParameterTypes != null && paramIndex < expectedSignature.ParameterTypes.Count
                     ? expectedSignature.ParameterTypes[paramIndex]
                     : BuiltInTypes.Unknown;
-            DeclareSymbol(param.Name, paramType, lambda.Line, lambda.Column);
+            var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, lambda.Line, lambda.Column);
+            DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
             parameterTypes.Add(paramType);
         }
@@ -8321,9 +8346,95 @@ public class Analyzer : IDisposable
         }
     }
 
-    private void DeclareSymbol(string name, TypeInfo type, int line, int column, string? declarationKind = null)
+    private int GetDeclarationNameColumn(string name, int line, int fallbackColumn)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return fallbackColumn;
+
+        var sourceText = _sourceLines != null
+            ? string.Join('\n', _sourceLines)
+            : TryGetProjectSourceText(_currentFilePath);
+
+        return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
+    }
+
+    private string? TryGetProjectSourceText(string? filePath)
+    {
+        if (filePath == null)
+            return null;
+
+        var fullPath = Path.GetFullPath(filePath);
+        return _projectSourceTexts.TryGetValue(fullPath, out var sourceText)
+            ? sourceText
+            : null;
+    }
+
+    private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
+    {
+        if (string.IsNullOrWhiteSpace(sourceText) || line <= 0)
+            return fallbackColumn;
+
+        var lines = sourceText.Split('\n');
+        if (line > lines.Length)
+            return fallbackColumn;
+
+        var lineText = lines[line - 1].TrimEnd('\r');
+        if (lineText.Length == 0)
+            return fallbackColumn;
+
+        var start = Math.Clamp(fallbackColumn - 1, 0, lineText.Length);
+        var index = FindWholeIdentifier(lineText, name, start);
+        if (index < 0)
+        {
+            index = FindWholeIdentifier(lineText, name, 0);
+        }
+
+        return index >= 0 ? index + 1 : fallbackColumn;
+    }
+
+    private static int FindWholeIdentifier(string line, string name, int startIndex)
+    {
+        var searchStart = Math.Clamp(startIndex, 0, line.Length);
+        while (searchStart <= line.Length)
+        {
+            var index = line.IndexOf(name, searchStart, StringComparison.Ordinal);
+            if (index < 0)
+                return -1;
+
+            var before = index > 0 ? line[index - 1] : '\0';
+            var afterIndex = index + name.Length;
+            var after = afterIndex < line.Length ? line[afterIndex] : '\0';
+            if (!IsIdentifierCharacter(before) && !IsIdentifierCharacter(after))
+                return index;
+
+            searchStart = index + Math.Max(1, name.Length);
+        }
+
+        return -1;
+    }
+
+    private static bool IsIdentifierCharacter(char value)
+        => char.IsLetterOrDigit(value) || value == '_';
+
+    private static (int Line, int Column) GetParameterDeclarationPosition(
+        Parameter parameter,
+        int fallbackLine,
+        int fallbackColumn)
+        => (
+            parameter.Line > 0 ? parameter.Line : fallbackLine,
+            parameter.Column > 0 ? parameter.Column : fallbackColumn);
+
+    private void DeclareSymbol(
+        string name,
+        TypeInfo type,
+        int line,
+        int column,
+        string? declarationKind = null,
+        bool recordBindingDeclaration = true)
     {
         var currentScope = _scopes.Peek();
+        var nameColumn = GetDeclarationNameColumn(name, line, column);
+        var shouldRecordBindingDeclaration = recordBindingDeclaration;
         if (currentScope.Symbols.TryGetValue(name, out var existing))
         {
             // Allow function overloading: merge into NSharpMethodGroupInfo
@@ -8337,9 +8448,12 @@ public class Analyzer : IDisposable
                         // Upgrade single function to method group
                         currentScope.Symbols[name] = new NSharpMethodGroupInfo(
                             new List<FunctionDeclaration> { existingFunc.Declaration, newFunc.Declaration });
-                        var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
-                        var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
-                        _bindingMap.RecordDeclaration(decl);
+                        if (shouldRecordBindingDeclaration)
+                        {
+                            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
+                            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
+                            _bindingMap.RecordDeclaration(decl);
+                        }
                         return;
                     }
                 }
@@ -8350,9 +8464,12 @@ public class Analyzer : IDisposable
                     {
                         // Add to existing method group
                         group.Declarations.Add(newFunc.Declaration);
-                        var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
-                        var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
-                        _bindingMap.RecordDeclaration(decl);
+                        if (shouldRecordBindingDeclaration)
+                        {
+                            var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
+                            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
+                            _bindingMap.RecordDeclaration(decl);
+                        }
                         return;
                     }
                 }
@@ -8364,12 +8481,15 @@ public class Analyzer : IDisposable
         {
             currentScope.Symbols[name] = type;
 
-            // Record declaration in binding map for semantic references
             var kind = declarationKind ?? TypeInfoToDeclarationKind(type);
-            var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
-            _bindingMap.RecordDeclaration(decl);
-            // Also record the declaration location in the scope for later lookup
-            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, column, kind);
+            if (shouldRecordBindingDeclaration)
+            {
+                // Record declaration in binding map for semantic references
+                var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
+                _bindingMap.RecordDeclaration(decl);
+                // Also record the declaration location in the scope for later lookup
+                currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
+            }
         }
     }
 
@@ -8410,6 +8530,7 @@ public class Analyzer : IDisposable
     private void DeclareType(string name, TypeInfo type, int line, int column)
     {
         var currentScope = _scopes.Peek();
+        var nameColumn = GetDeclarationNameColumn(name, line, column);
         if (currentScope.Types.ContainsKey(name))
         {
             Error($"A type named '{name}' already exists — each type name must be unique", line, column);
@@ -8425,9 +8546,9 @@ public class Analyzer : IDisposable
 
             // Record type declaration in binding map
             var kind = TypeInfoToDeclarationKind(type);
-            var decl = new SymbolDeclaration(name, _currentFilePath, line, column, kind);
+            var decl = new SymbolDeclaration(name, _currentFilePath, line, nameColumn, kind);
             _bindingMap.RecordDeclaration(decl);
-            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, column, kind);
+            currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
         }
     }
 
@@ -8828,12 +8949,13 @@ public class Analyzer : IDisposable
 
         // Parse the imported file
         CompilationUnit? importedUnit = null;
+        string? importedSource = null;
         try
         {
-            var source = System.IO.File.ReadAllText(resolvedPath);
-            var lexer = new Lexer(source, resolvedPath);
+            importedSource = System.IO.File.ReadAllText(resolvedPath);
+            var lexer = new Lexer(importedSource, resolvedPath);
             var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, resolvedPath, source);  // Pass source code
+            var parser = new Parser(tokens, resolvedPath, importedSource);  // Pass source code
             var parseResult = parser.ParseCompilationUnit();
             importedUnit = parseResult.CompilationUnit;
 
@@ -8896,7 +9018,7 @@ public class Analyzer : IDisposable
         }
 
         // Extract public symbols from the imported file
-        var symbols = ExtractPublicSymbols(importedUnit, resolvedPath);
+        var symbols = ExtractPublicSymbols(importedUnit, resolvedPath, importedSource);
 
         // Add symbols to scope
         if (import.Alias != null)
@@ -9361,7 +9483,7 @@ public class Analyzer : IDisposable
         }
     }
 
-    private List<ImportedSymbolInfo> ExtractPublicSymbols(CompilationUnit unit, string filePath)
+    private List<ImportedSymbolInfo> ExtractPublicSymbols(CompilationUnit unit, string filePath, string? sourceText)
     {
         var symbols = new List<ImportedSymbolInfo>();
 
@@ -9402,7 +9524,12 @@ public class Analyzer : IDisposable
                     symbols.Add(new ImportedSymbolInfo(
                         name,
                         typeInfo,
-                        new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl))));
+                        new SymbolDeclaration(
+                            name,
+                            filePath,
+                            decl.Line,
+                            FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
+                            GetDeclarationKind(decl))));
                 }
             }
         }
@@ -9441,7 +9568,7 @@ public class Analyzer : IDisposable
     /// Extract all public (PascalCase) symbols from a compilation unit for project-level auto-discovery.
     /// Static method that doesn't require analyzer state — used by MultiFileCompiler.
     /// </summary>
-    public static List<ProjectSymbolInfo> ExtractProjectSymbols(CompilationUnit unit, string filePath)
+    public static List<ProjectSymbolInfo> ExtractProjectSymbols(CompilationUnit unit, string filePath, string? sourceText = null)
     {
         var symbols = new List<ProjectSymbolInfo>();
         var ns = GetUnitNamespace(unit);
@@ -9487,7 +9614,12 @@ public class Analyzer : IDisposable
                     symbols.Add(new ProjectSymbolInfo(
                         name,
                         typeInfo,
-                        new SymbolDeclaration(name, filePath, decl.Line, decl.Column, GetDeclarationKind(decl)),
+                        new SymbolDeclaration(
+                            name,
+                            filePath,
+                            decl.Line,
+                            FindIdentifierNameColumn(sourceText, name, decl.Line, decl.Column),
+                            GetDeclarationKind(decl)),
                         filePath,
                         ns,
                         IsExportedByCasingOrModifier(name, decl)));

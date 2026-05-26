@@ -706,6 +706,8 @@ public class Parser
                     Advance();
                 }
 
+                var paramLine = Current.Line;
+                var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
                 Consume(TokenType.Colon, "Expected ':' after parameter name");
                 var paramType = ParseTypeReference();
@@ -718,7 +720,7 @@ public class Parser
                 }
 
                 parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier,
-                    attributes.Count > 0 ? attributes : null));
+                    attributes.Count > 0 ? attributes : null, paramLine, paramColumn));
             } while (Match(TokenType.Comma));
         }
 
@@ -1312,10 +1314,12 @@ public class Parser
         {
             do
             {
+                var paramLine = Current.Line;
+                var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
                 Consume(TokenType.Colon, "Expected ':'");
                 var paramType = ParseTypeReference();
-                parameters.Add(new Parameter(paramName, paramType, null, false));
+                parameters.Add(new Parameter(paramName, paramType, null, false, Line: paramLine, Column: paramColumn));
             } while (Match(TokenType.Comma));
         }
 
@@ -2992,6 +2996,8 @@ public class Parser
         // Single parameter lambda: x => expr
         if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
         {
+            var paramLine = Current.Line;
+            var paramColumn = Current.Column;
             var param = Advance().Value;
             Advance(); // consume =>
 
@@ -2999,14 +3005,14 @@ public class Parser
             {
                 var body = ParseBlock();
                 return new LambdaExpression(
-                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false) },
+                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false, Line: paramLine, Column: paramColumn) },
                     null, body, line, column);
             }
             else
             {
                 var exprBody = ParseExpression();
                 return new LambdaExpression(
-                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false) },
+                    new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false, Line: paramLine, Column: paramColumn) },
                     exprBody, null, line, column);
             }
         }
@@ -4424,8 +4430,10 @@ public class Parser
         {
             do
             {
+                var paramLine = Current.Line;
+                var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
-                parameters.Add(new Parameter(paramName, new SimpleTypeReference("var"), null, false));
+                parameters.Add(new Parameter(paramName, new SimpleTypeReference("var"), null, false, Line: paramLine, Column: paramColumn));
             } while (Match(TokenType.Comma));
         }
 

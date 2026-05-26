@@ -662,16 +662,14 @@ func helper(): int {
     [Fact]
     public void References_FindsPersonUsagesAcrossFiles()
     {
-        // Person is declared in Models/Person.nl line 4
+        // Person is declared in Models/Person.nl line 5
         // "record Person {" — "Person" starts at column 8 (1-based)
         // Used in Services/PersonService.nl (multiple times) and Program.nl (multiple times)
         //
-        // NOTE: Cross-file type references currently use the text-based fallback
-        // because the Analyzer's import resolution path doesn't record bindings
-        // into the BindingMap. The BindingMap covers local identifier resolution.
-        // This test verifies the end-to-end result regardless of which path produces it.
+        // Cross-file type references must come from project BindingMap data, not
+        // same-name text search, so comments and unrelated symbols stay invisible.
 
-        var refs = _service.FindReferences(MultiFile, "Models/Person.nl", 4, 8);
+        var refs = _service.FindReferences(MultiFile, "Models/Person.nl", 5, 8);
 
         // Should find at least the declaration + cross-file usages
         Assert.True(refs.Count >= 3,
@@ -800,6 +798,25 @@ func Main() {
         Assert.Contains(refs, r => !r.IsDefinition && r.File.EndsWith("Foo/UseWidget.nl", StringComparison.Ordinal) && r.Line == 4);
         Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/Widget.nl", StringComparison.Ordinal));
         Assert.DoesNotContain(refs, r => r.File.EndsWith("Bar/UseWidget.nl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void References_CommentWord_DoesNotUseTextFallback()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Program.nl", """
+namespace QueryTemp
+
+func Main(): void {
+    let value := 1
+    // value in a comment is not a semantic reference target
+    print(value)
+}
+"""));
+
+        var refs = _service.FindReferences(snapshot, "Program.nl", 5, 8);
+
+        Assert.Empty(refs);
     }
 
     [Fact]
@@ -939,9 +956,8 @@ func Main() {
         // After removing file-path imports, cross-file member resolution through
         // the BindingMap uses namespace imports. The binding for service.GetPeople()
         // resolves through the type of 'service' (PersonService), then finds GetPeople.
-        // NOTE: Currently the BindingMap records the usage site as the declaration
-        // when cross-file resolution via file-path imports is unavailable.
-        // The text-based fallback in FindReferences still finds cross-file usages.
+        // Cross-file member resolution must bind through the receiver type rather
+        // than falling back to a same-spelled local call-site declaration.
         var memberColumn = FindColumnInFile(programPath, 26, "GetPeople");
         var declaration = bindings.GetBindingAt(programPath, 26, memberColumn);
 
@@ -1062,9 +1078,8 @@ func Main() {
 
         var result = _service.FindDefinition(MultiFile, "Program.nl", 26, memberColumn);
 
-        // After file-path imports were removed, cross-file member resolution
-        // falls back to the local binding. The text-based FindReferences still
-        // finds cross-file usages, but FindDefinition resolves to the call site.
+        // Cross-file member resolution binds through the receiver type and should
+        // resolve to the member declaration, not a same-spelled call-site guess.
         Assert.NotNull(result);
         Assert.Equal("GetPeople", result!.Name);
         Assert.Equal("function", result.Kind);

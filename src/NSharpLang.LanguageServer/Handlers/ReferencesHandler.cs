@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
+using OmniSharp.Extensions.JsonRpc.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
@@ -74,41 +75,46 @@ public class ReferencesHandler : ReferencesHandlerBase
                 return Task.FromResult<LocationContainer?>(new LocationContainer(locations));
             }
 
-            // If we have a synchronized snapshot but got no results, the symbol doesn't exist
+            // A synchronized project snapshot is authoritative for references; do
+            // not degrade to text search when the binding map has no precise target.
             if (_documentManager.HasSynchronizedProjectSnapshot(uri))
             {
                 return Task.FromResult<LocationContainer?>(new LocationContainer());
             }
 
-            // Verify the symbol exists before falling back to text search
-            var isKnownSymbol = false;
-            if (doc.SymbolLocations?.ContainsKey(word) == true)
-                isKnownSymbol = true;
-            else if (doc.SemanticModel?.LookupIdentifier(word) != null)
-                isKnownSymbol = true;
-
-            if (!isKnownSymbol)
+            if (_documentManager.HasSemanticProjectContext(uri))
             {
-                _logger.LogDebug("Symbol '{Name}' not found in symbol locations or semantic model", word);
-                return Task.FromResult<LocationContainer?>(new LocationContainer());
+                throw ReferencesUnavailable(
+                    $"References for '{word}' are unavailable because semantic project analysis is degraded. " +
+                    "Save or fix the project files and retry; refusing text-only references to avoid showing unrelated symbols.");
             }
 
-            // Fallback: text-based single-document search
-            var textReferences = _documentManager.FindAllReferences(uri, word);
-            if (textReferences.Count == 0)
+            var documentReferences = _documentManager.FindStrictDocumentReferences(
+                uri,
+                request.Position.Line,
+                request.Position.Character);
+            if (documentReferences == null || documentReferences.Count == 0)
             {
                 return Task.FromResult<LocationContainer?>(new LocationContainer());
             }
 
-            var fallbackLocations = textReferences
+            var documentLocations = documentReferences
                 .Select(r => new Location
                 {
                     Uri = DocumentUri.From(uri),
-                    Range = new LspRange(r.Line, r.Column, r.Line, r.Column + r.Length)
+                    Range = new LspRange(
+                        r.Line - 1,
+                        r.Column - 1,
+                        r.Line - 1,
+                        r.Column - 1 + Math.Max(1, r.Length))
                 })
                 .ToList();
 
-            return Task.FromResult<LocationContainer?>(new LocationContainer(fallbackLocations));
+            return Task.FromResult<LocationContainer?>(new LocationContainer(documentLocations));
+        }
+        catch (RequestFailedException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -124,4 +130,12 @@ public class ReferencesHandler : ReferencesHandlerBase
         return new ReferenceRegistrationOptions();
     }
 
+    private static RequestFailedException ReferencesUnavailable(string message)
+    {
+        return new RequestFailedException(
+            ErrorCodes.RequestFailed,
+            message,
+            RequestFailedException.UnknownRequestId,
+            inner: null!);
+    }
 }

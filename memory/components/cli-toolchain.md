@@ -302,6 +302,27 @@ Member access completion resolves the receiver expression semantically, includin
 
 Add `--include-keywords` to also get keywords, primitives, and modifiers.
 
+### `nlc query references` / `refs` — Semantic References
+
+Returns only binding-map-backed references for the symbol at `--file --pos`. It does not grep text, scan comments, or fall back to simple-name matching; if the selected position cannot be tied to a precise compiler binding, the command returns `ok: false` with `error.code: "semanticReferencesUnavailable"`.
+
+Successful results always include the declaration as a reference entry, so an empty result is never presented as a precise semantic answer.
+
+```bash
+$ nlc query refs --file Program.nl --pos 5:12
+{
+  "schemaVersion": 1,
+  "command": "references",
+  "ok": true,
+  "symbol": { "name": "value", "kind": "local", "definedAt": { "file": "Program.nl", "line": 3, "column": 9 } },
+  "count": 2,
+  "results": [
+    { "file": "Program.nl", "line": 3, "column": 9, "length": 5, "isDefinition": true },
+    { "file": "Program.nl", "line": 4, "column": 11, "length": 5, "isDefinition": false }
+  ]
+}
+```
+
 ### `nlc query inspect` — One Round Trip, Full Context
 
 `inspect` is the LLM-first navigation primitive. It bundles the semantic symbol, resolved type, definition, references summary, and completions for a single cursor position.
@@ -656,6 +677,7 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 - Success responses include `ok: true` and command-specific payloads
 - Failures use `ok: false` plus `error.message`
 - Position-based misses use `error.code: "noSymbol"` plus structured `error.details.file` / `error.details.position`
+- Reference positions that resolve by definition fallback but not by precise binding use `error.code: "semanticReferencesUnavailable"` and do not return text-search guesses
 - `outline` normalizes the file path relative to the project root
 - Project-aware query results normalize file paths to project-relative form where the command can resolve them
 

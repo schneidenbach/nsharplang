@@ -251,8 +251,8 @@ func make(): Config {
         var result = Analyze(source);
         var bindings = Assert.IsType<BindingMap>(result.Bindings);
 
-        // FindAllReferences from the Config declaration (at 'class' keyword position)
-        var declColumn = FindColumn(source, 2, "class");
+        // FindAllReferences from the Config declaration name.
+        var declColumn = FindColumn(source, 2, "Config");
         var (declaration, usages) = bindings.FindAllReferences("test.nl", 2, declColumn);
 
         Assert.NotNull(declaration);
@@ -310,5 +310,50 @@ func use(
         Assert.NotNull(functionPerson);
         Assert.Equal("Person", functionPerson!.Name);
         Assert.Equal(2, functionPerson.Line);
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_FunctionParameter_DeclarationUsesParameterNameSpan()
+    {
+        var source = @"
+func echo(value: int): int {
+    return value
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        var declarationColumn = FindColumn(source, 2, "value");
+        var (declaration, usages) = bindings.FindAllReferences("test.nl", 2, declarationColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("value", declaration!.Name);
+        Assert.Equal(2, declaration.Line);
+        Assert.Equal(declarationColumn, declaration.Column);
+        Assert.Contains(usages, usage => usage.Line == 3 && usage.Column == FindColumn(source, 3, "value"));
+    }
+
+    [Fact]
+    public void AnalyzerBindingMap_LambdaParameter_ShadowedNameDoesNotConflateOuterLocal()
+    {
+        var source = @"
+func test(): void {
+    let value := 1
+    let apply := (value) => value + 1
+    print(value)
+}";
+
+        var result = Analyze(source);
+        var bindings = Assert.IsType<BindingMap>(result.Bindings);
+
+        var lambdaParameterColumn = FindColumn(source, 4, "value");
+        var (declaration, usages) = bindings.FindAllReferences("test.nl", 4, lambdaParameterColumn);
+
+        Assert.NotNull(declaration);
+        Assert.Equal("value", declaration!.Name);
+        Assert.Equal(4, declaration.Line);
+        Assert.Equal(lambdaParameterColumn, declaration.Column);
+        Assert.Contains(usages, usage => usage.Line == 4 && usage.Column == FindColumn(source, 4, "value", occurrence: 2));
+        Assert.DoesNotContain(usages, usage => usage.Line == 5);
     }
 }

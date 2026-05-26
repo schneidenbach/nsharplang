@@ -1579,8 +1579,8 @@ func main(): void
 
         var location = ExtractSingleDefinitionLocation(definition!);
         Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // class IssueService on line 14 (0-indexed: 13)
-        Assert.Equal(0, location.Range.Start.Character);
+        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
+        Assert.Equal(6, location.Range.Start.Character);
     }
 
     [Fact]
@@ -1599,8 +1599,8 @@ func main(): void
 
         var location = ExtractSingleDefinitionLocation(definition!);
         Assert.Equal(new Uri(Path.Combine(_examplesDir, "17-issue-tracker", "backend", "Service.nl")).AbsoluteUri, location.Uri.ToString());
-        Assert.Equal(13, location.Range.Start.Line); // class IssueService on line 14 (0-indexed: 13)
-        Assert.Equal(0, location.Range.Start.Character);
+        Assert.Equal(13, location.Range.Start.Line); // IssueService name on line 14 (0-indexed: 13)
+        Assert.Equal(6, location.Range.Start.Character);
     }
 
     [Fact]
@@ -2670,7 +2670,7 @@ func outer(): void
 
         Assert.Contains(edit.Changes[serviceDocUri], change => change.NewText == "FetchAll" &&
             change.Range.Start.Line == 67 &&
-            change.Range.Start.Character == 4);
+            change.Range.Start.Character == 9);
     }
 
     [Fact]
@@ -2702,7 +2702,7 @@ func main(): void
     }
 
     [Fact]
-    public async Task Rename_StandaloneDuplicateDeclarations_RefusesUnsafeTextRenameAsync()
+    public async Task Rename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test/unsafe-rename.nl";
@@ -2717,10 +2717,18 @@ func other(): void
 
         harness.OpenDocument(uri, source);
 
-        var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.RenameAsync(uri, 2, 8, "renamed"));
-        Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
-        Assert.Contains("unsafe without project semantics", ex.Message);
-        Assert.Contains("No edits were applied", ex.Message);
+        var edit = await harness.RenameAsync(uri, 2, 8, "renamed");
+
+        Assert.NotNull(edit);
+        Assert.NotNull(edit!.Changes);
+        var docEdits = Assert.Single(edit.Changes!);
+        var edits = docEdits.Value.ToList();
+        Assert.Equal(2, edits.Count);
+        Assert.All(edits, e => Assert.Equal("renamed", e.NewText));
+        Assert.Contains(edits, e => e.Range.Start.Line == 2 && e.Range.Start.Character == 8);
+        Assert.Contains(edits, e => e.Range.Start.Line == 3 && e.Range.Start.Character == 10);
+        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 6);
+        Assert.DoesNotContain(edits, e => e.Range.Start.Line == 7);
     }
 
     [Fact]
@@ -4323,7 +4331,7 @@ func Read(widget: Widget): string {
     }
 
     [Fact]
-    public async Task PrepareRename_StandaloneDuplicateDeclarations_RefusesUnsafeTextRenameAsync()
+    public async Task PrepareRename_StandaloneDuplicateDeclarations_UsesStrictDocumentBindingsAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
         var uri = "file:///test/unsafe-prepare-rename.nl";
@@ -4338,10 +4346,11 @@ func other(): void
 
         harness.OpenDocument(uri, source);
 
-        var ex = await Assert.ThrowsAsync<RequestFailedException>(() => harness.PrepareRenameAsync(uri, 2, 8));
-        Assert.Equal(ErrorCodes.RequestFailed, ex.ErrorCode);
-        Assert.Contains("unsafe without project semantics", ex.Message);
-        Assert.Contains("No edits were applied", ex.Message);
+        var result = await harness.PrepareRenameAsync(uri, 2, 8);
+
+        Assert.NotNull(result);
+        Assert.True(result!.IsPlaceholderRange);
+        Assert.Equal("value", result.PlaceholderRange.Placeholder);
     }
 
     [Fact]
