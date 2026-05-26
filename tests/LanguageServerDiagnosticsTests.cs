@@ -180,4 +180,97 @@ func main() {
         Assert.Equal(8, (int)lspDiagnostic.Range.Start.Character);
         Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
     }
+
+    [Fact]
+    public void Diagnostics_UnterminatedStringLiteral_PointsAtLiteralToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unterminated-string.nl";
+
+        var source = """
+func main() {
+    name := "Ada
+    print name
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidLiteral && d.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Contains("closing quote", diagnostic.HumanExplanation, System.StringComparison.OrdinalIgnoreCase);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(12, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(16, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Diagnostics_UnterminatedStringLiteral_WithEscapedQuote_PointsAtLiteralToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unterminated-string-escaped-quote.nl";
+
+        var source = """
+func main() {
+    name := "Ada\"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidLiteral && d.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(6, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(12, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(18, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingClosingParen_PointsAtInsertionPosition()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-paren.nl";
+
+        var source = """
+func main() {
+    print("hello"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.MissingClosingParen && d.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(18, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Contains("closing ')'", diagnostic.HumanExplanation, System.StringComparison.OrdinalIgnoreCase);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(17, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(18, (int)lspDiagnostic.Range.End.Character);
+    }
 }

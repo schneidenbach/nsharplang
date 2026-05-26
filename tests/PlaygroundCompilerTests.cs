@@ -153,6 +153,98 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_UnterminatedStringLiteral_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada
+                print name
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    name := \"Ada", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("triple-quoted string", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedStringLiteral_WithEscapedQuote_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada\"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(6, diagnostic.Length);
+        Assert.Equal("    name := \"Ada\\\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedCharacterLiteral_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                letter := 'a
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated character literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(15, diagnostic.Column);
+        Assert.Equal(2, diagnostic.Length);
+        Assert.Equal("    letter := 'a", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("single character", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_MissingClosingParen_PreservesInsertionSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print("hello"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(18, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    print(\"hello\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Format_ValidProgram_ReturnsFormattedCode()
     {
         var result = new PlaygroundCompiler().Format("func main(){print 5}");

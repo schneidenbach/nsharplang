@@ -61,10 +61,10 @@ func test() {
         var result = Parse(source);
 
         Assert.False(result.Success);
-        Assert.Contains(result.Errors, e => e.Code == ErrorCode.ExpectedToken);
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.MissingClosingParen);
 
-        var error = result.Errors.First(e => e.Code == ErrorCode.ExpectedToken);
-        Assert.Equal(4, error.Line); // Line with missing )
+        var error = result.Errors.First(e => e.Code == ErrorCode.MissingClosingParen);
+        Assert.Equal(3, error.Line); // Line where the ) should have appeared
         Assert.NotNull(error.HumanExplanation);
     }
 
@@ -624,6 +624,94 @@ func test() {
         Assert.Contains("N# uses ':'", diagnostic.Message);
         Assert.Contains("Name: value", diagnostic.ContextualHint);
         Assert.Contains("Name: ...", Assert.Single(diagnostic.Suggestions!));
+    }
+
+    [Fact]
+    public void Parser_UnterminatedStringLiteral_ReportsInvalidLiteralAtOpeningQuote()
+    {
+        var source = """
+func test() {
+    name := "Ada
+    print name
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidLiteral &&
+            error.Message.Contains("Unterminated string literal"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    name := \"Ada", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("triple-quoted string", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_UnterminatedStringLiteral_WithEscapedQuote_ReportsInvalidLiteralAtOpeningQuote()
+    {
+        var source = """
+func test() {
+    name := "Ada\"
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidLiteral &&
+            error.Message.Contains("Unterminated string literal"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(6, diagnostic.Length);
+        Assert.Equal("    name := \"Ada\\\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_UnterminatedCharacterLiteral_ReportsInvalidLiteralAtOpeningQuote()
+    {
+        var source = """
+func test() {
+    letter := 'a
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidLiteral &&
+            error.Message.Contains("Unterminated character literal"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(15, diagnostic.Column);
+        Assert.Equal(2, diagnostic.Length);
+        Assert.Equal("    letter := 'a", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("single character", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_MissingClosingParen_PointsAtInsertionPosition()
+    {
+        var source = """
+func test() {
+    print("hello"
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.MissingClosingParen &&
+            error.Message.Contains("Missing closing ')'"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(18, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    print(\"hello\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

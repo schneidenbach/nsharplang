@@ -3780,11 +3780,16 @@ public class Parser
             return new FloatLiteralExpression(Advance().Value, line, column);
 
         if (Check(TokenType.CharLiteral))
-            return new CharLiteralExpression(Advance().Value, line, column);
+        {
+            var token = Advance();
+            ReportMalformedCharLiteralIfNeeded(token);
+            return new CharLiteralExpression(token.Value, line, column);
+        }
 
         if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
         {
             var token = Advance();
+            ReportMalformedStringLiteralIfNeeded(token);
             if (token.Type == TokenType.StringLiteral && token.Value.StartsWith("$\""))
                 return ParseInterpolatedString(token, line, column);
             if (token.Type == TokenType.InterpolatedRawStringLiteral)
@@ -3949,6 +3954,89 @@ public class Parser
 
         // Return error placeholder
         return new IdentifierExpression("<error>", line, column);
+    }
+
+    private void ReportMalformedStringLiteralIfNeeded(Token token)
+    {
+        if (token.Type != TokenType.StringLiteral || IsCompleteStringLiteral(token.Value))
+            return;
+
+        var isInterpolated = token.Value.StartsWith("$\"", StringComparison.Ordinal);
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            isInterpolated ? "Unterminated interpolated string literal" : "Unterminated string literal",
+            token.Line,
+            token.Column,
+            humanExplanation: isInterpolated
+                ? "This interpolated string starts with `$\"` but reaches the end of the line before a closing quote."
+                : "This string starts with a quote but reaches the end of the line before a closing quote.",
+            hint: "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
+            suggestions: new List<string>
+            {
+                "Add a closing quote",
+                "Use triple quotes for multi-line strings"
+            },
+            length: Math.Max(1, token.Value.Length)
+        );
+    }
+
+    private static bool IsCompleteStringLiteral(string value)
+    {
+        if (value.StartsWith("$\"", StringComparison.Ordinal))
+            return HasUnescapedClosingQuote(value, openingQuoteIndex: 1);
+
+        if (value.StartsWith('"'))
+            return HasUnescapedClosingQuote(value, openingQuoteIndex: 0);
+
+        return true;
+    }
+
+    private static bool HasUnescapedClosingQuote(string value, int openingQuoteIndex)
+    {
+        if (value.Length <= openingQuoteIndex + 1 || value[^1] != '"')
+            return false;
+
+        var backslashCount = 0;
+        for (var i = value.Length - 2; i > openingQuoteIndex && value[i] == '\\'; i--)
+            backslashCount++;
+
+        return backslashCount % 2 == 0;
+    }
+
+    private void ReportMalformedCharLiteralIfNeeded(Token token)
+    {
+        if (IsCompleteCharLiteral(token.Value))
+            return;
+
+        var isEmpty = token.Value == "''";
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            isEmpty ? "Empty character literal" : "Unterminated character literal",
+            token.Line,
+            token.Column,
+            humanExplanation: isEmpty
+                ? "A character literal needs exactly one character between the quotes."
+                : "This character literal starts with a quote but does not have a closing quote.",
+            hint: "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
+            suggestions: new List<string>
+            {
+                "Add the closing quote",
+                "Use double quotes for a string"
+            },
+            length: Math.Max(1, token.Value.Length)
+        );
+    }
+
+    private static bool IsCompleteCharLiteral(string value)
+    {
+        if (value.Length < 3 || value[0] != '\'' || value[^1] != '\'')
+            return false;
+
+        var bodyLength = value.Length - 2;
+        if (bodyLength == 1)
+            return true;
+
+        return bodyLength == 2 && value[1] == '\\';
     }
 
     private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column, bool isRaw = false)
@@ -4937,6 +5025,9 @@ public class Parser
     {
         if (!Check(type))
         {
+            if (TryReportMissingClosingDelimiter(type, out var recoveredToken))
+                return recoveredToken;
+
             var expected = TokenTypeToString(type);
             ReportError(
                 ErrorCode.ExpectedToken,
@@ -4950,6 +5041,58 @@ public class Parser
             return Current; // Don't advance
         }
         return Advance();
+    }
+
+    private bool TryReportMissingClosingDelimiter(TokenType type, out Token recoveredToken)
+    {
+        recoveredToken = Current;
+
+        var (code, expected, opening, hint) = type switch
+        {
+            TokenType.RightParen => (
+                ErrorCode.MissingClosingParen,
+                ")",
+                "(",
+                "Every opening parenthesis '(' needs a matching closing parenthesis ')'."),
+            TokenType.RightBracket => (
+                ErrorCode.MissingClosingBracket,
+                "]",
+                "[",
+                "Every opening bracket '[' needs a matching closing bracket ']'."),
+            _ => default
+        };
+
+        if (code == default)
+            return false;
+
+        var previous = Previous;
+        if (previous.Type == TokenType.Eof)
+            return false;
+
+        if (Current.Type != TokenType.Eof && Current.Line <= previous.Line)
+            return false;
+
+        var length = Math.Max(1, previous.Value.Length);
+        var line = previous.Line;
+        var column = previous.Column + length;
+
+        ReportError(
+            code,
+            $"Missing closing '{expected}'",
+            line,
+            column,
+            humanExplanation: $"I reached the next line while looking for the closing '{expected}' that matches an earlier '{opening}'.",
+            hint: hint,
+            suggestions: new List<string>
+            {
+                $"Add '{expected}' before starting the next line",
+                $"Check the matching '{opening}' in this expression"
+            },
+            length: 1
+        );
+
+        recoveredToken = new Token(type, expected, line, column, previous.FileName);
+        return true;
     }
 
     private string TokenTypeToString(TokenType type)
