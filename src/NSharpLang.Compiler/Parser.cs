@@ -693,6 +693,9 @@ public class Parser
         {
             do
             {
+                if (IsParameterListRecoveryBoundary(Previous))
+                    break;
+
                 var attributes = ParseAttributes();
 
                 var modifier = ParameterModifier.None;
@@ -740,6 +743,15 @@ public class Parser
         Consume(TokenType.RightParen, "Expected ')'");
         return parameters;
     }
+
+    private bool IsParameterListRecoveryBoundary(Token openingToken)
+        => IsAtEnd() ||
+           Check(TokenType.LeftBrace) ||
+           Check(TokenType.RightBrace) ||
+           Check(TokenType.Colon) ||
+           Check(TokenType.Arrow) ||
+           (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater) ||
+           IsContinuationRecoveryBoundary(openingToken);
 
     private List<GenericConstraint>? ParseGenericConstraints()
     {
@@ -3690,6 +3702,9 @@ public class Parser
         {
             do
             {
+                if (IsArgumentListRecoveryBoundary(Previous))
+                    break;
+
                 var modifier = ArgumentModifier.None;
 
                 // Check for ref/out modifier
@@ -3766,6 +3781,17 @@ public class Parser
         Consume(TokenType.RightParen, "Expected ')'");
         return args;
     }
+
+    private bool IsArgumentListRecoveryBoundary()
+        => IsAtEnd() ||
+           Check(TokenType.LeftBrace) ||
+           Check(TokenType.RightBrace) ||
+           Check(TokenType.RightBracket) ||
+           Check(TokenType.Semicolon);
+
+    private bool IsArgumentListRecoveryBoundary(Token openingToken)
+        => IsArgumentListRecoveryBoundary() ||
+           IsContinuationRecoveryBoundary(openingToken);
 
     private Expression ParsePrimaryExpression()
     {
@@ -4594,6 +4620,15 @@ public class Parser
             return new TupleExpression(new List<TupleElement>(), line, column);
         }
 
+        if (IsArgumentListRecoveryBoundary(Previous))
+        {
+            var recoveredToken = Consume(TokenType.RightParen, "Expected ')'");
+            return new ParenthesizedExpression(
+                new IdentifierExpression("<error>", recoveredToken.Line, recoveredToken.Column),
+                line,
+                column);
+        }
+
         // Single element or tuple
         var firstExpr = ParseExpression();
 
@@ -5117,23 +5152,30 @@ public class Parser
         if (previous.Type == TokenType.Eof)
             return false;
 
-        if (Current.Type != TokenType.Eof && Current.Line <= previous.Line)
+        var sameLineBoundary = Current.Type != TokenType.Eof &&
+                               Current.Line == previous.Line &&
+                               IsSameLineMissingClosingDelimiterBoundary(type);
+
+        if (Current.Type != TokenType.Eof && Current.Line <= previous.Line && !sameLineBoundary)
             return false;
 
         var length = Math.Max(1, previous.Value.Length);
-        var line = previous.Line;
-        var column = previous.Column + length;
+        var line = sameLineBoundary ? Current.Line : previous.Line;
+        var column = sameLineBoundary ? Current.Column : previous.Column + length;
+        var found = sameLineBoundary ? Current.Value : null;
 
         ReportError(
             code,
             $"Missing closing '{expected}'",
             line,
             column,
-            humanExplanation: $"I reached the next line while looking for the closing '{expected}' that matches an earlier '{opening}'.",
+            humanExplanation: found is null
+                ? $"I reached the next line while looking for the closing '{expected}' that matches an earlier '{opening}'."
+                : $"I found '{found}' while looking for the closing '{expected}' that matches an earlier '{opening}'.",
             hint: hint,
             suggestions: new List<string>
             {
-                $"Add '{expected}' before starting the next line",
+                found is null ? $"Add '{expected}' before starting the next line" : $"Add '{expected}' before '{found}'",
                 $"Check the matching '{opening}' in this expression"
             },
             length: 1
@@ -5141,6 +5183,23 @@ public class Parser
 
         recoveredToken = new Token(type, expected, line, column, previous.FileName);
         return true;
+    }
+
+    private bool IsSameLineMissingClosingDelimiterBoundary(TokenType type)
+    {
+        return type switch
+        {
+            TokenType.RightParen => Check(TokenType.LeftBrace) ||
+                                    Check(TokenType.RightBrace) ||
+                                    Check(TokenType.RightBracket) ||
+                                    Check(TokenType.Colon) ||
+                                    Check(TokenType.Arrow) ||
+                                    Check(TokenType.Semicolon),
+            TokenType.RightBracket => Check(TokenType.RightBrace) ||
+                                      Check(TokenType.RightParen) ||
+                                      Check(TokenType.Semicolon),
+            _ => false
+        };
     }
 
     private string TokenTypeToString(TokenType type)
@@ -5336,6 +5395,22 @@ public class Parser
             return true;
 
         if (Current.Line <= operatorToken.Line)
+            return false;
+
+        if (IsStatementStartKeyword(Current.Type) ||
+            IsDeclarationKeyword(Current.Type) ||
+            IsModifierKeyword(Current.Type))
+        {
+            return true;
+        }
+
+        return _currentRecoveryBoundaryColumn.HasValue &&
+               Current.Column <= _currentRecoveryBoundaryColumn.Value;
+    }
+
+    private bool IsContinuationRecoveryBoundary(Token openingToken)
+    {
+        if (Current.Line <= openingToken.Line)
             return false;
 
         if (IsStatementStartKeyword(Current.Type) ||

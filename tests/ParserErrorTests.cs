@@ -751,6 +751,48 @@ func test() {
     }
 
     [Fact]
+    public void Parser_UnclosedEmptyCallArgumentList_ReportsMissingParenAtInsertionPosition()
+    {
+        var source = """
+func test() {
+    print(
+    greeting.CompareTo("ter")
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.MissingClosingParen &&
+            error.Message.Contains("Missing closing ')'"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    print(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+    }
+
+    [Fact]
+    public void Parser_UnclosedEmptyFunctionParameterList_ReportsMissingParenAtInsertionPosition()
+    {
+        var source = "func test(\n";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.MissingClosingParen &&
+            error.Message.Contains("Missing closing ')'"));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("func test(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
     {
         // Multiple distinct bad statements inside a single function body

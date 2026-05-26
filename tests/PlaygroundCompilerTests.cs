@@ -279,6 +279,49 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_UnclosedEmptyCallArgumentList_PreservesInsertionSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print(
+                greeting.CompareTo("ter")
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    print(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+    }
+
+    [Fact]
+    public void Check_UnclosedEmptyFunctionParameterList_PreservesInsertionSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main(\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("func main(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Format_ValidProgram_ReturnsFormattedCode()
     {
         var result = new PlaygroundCompiler().Format("func main(){print 5}");
