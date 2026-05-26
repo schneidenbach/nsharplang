@@ -693,6 +693,42 @@ func test() {
     }
 
     [Fact]
+    public void Parser_UnterminatedTripleQuoteStringLiteral_ReportsInvalidLiteralAtOpeningDelimiter()
+    {
+        var source = "func test() {\n    text := \"\"\"hello\nworld\n}\n";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidLiteral &&
+            error.Message.Contains("Unterminated triple-quoted string literal"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(3, diagnostic.Length);
+        Assert.Equal("    text := \"\"\"hello", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_UnterminatedInterpolatedRawStringLiteral_ReportsInvalidLiteralAtOpeningDelimiter()
+    {
+        var source = "func test() {\n    text := $\"\"\"hello {name}\n}\n";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidLiteral &&
+            error.Message.Contains("Unterminated interpolated raw string literal"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    text := $\"\"\"hello {name}", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parser_MissingClosingParen_PointsAtInsertionPosition()
     {
         var source = """

@@ -164,7 +164,8 @@ public record Token(
     string Value,
     int Line,
     int Column,
-    string? FileName = null)
+    string? FileName = null,
+    bool IsTerminated = true)
 {
     public override string ToString() =>
         $"{Type} '{Value}' at {FileName ?? "?"}:{Line}:{Column}";

@@ -222,6 +222,40 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_UnterminatedTripleQuoteStringLiteral_PreservesOpeningDelimiterSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main() {\n    text := \"\"\"hello\nworld\n}\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated triple-quoted string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(3, diagnostic.Length);
+        Assert.Equal("    text := \"\"\"hello", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedInterpolatedRawStringLiteral_PreservesOpeningDelimiterSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main() {\n    text := $\"\"\"hello {name}\n}\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated interpolated raw string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    text := $\"\"\"hello {name}", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Check_MissingClosingParen_PreservesInsertionSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

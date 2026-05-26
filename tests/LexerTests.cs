@@ -145,6 +145,7 @@ public class LexerTests
         var strings = tokens.Where(t => t.Type == TokenType.TripleQuoteStringLiteral).ToList();
         Assert.Single(strings);
         Assert.Equal("This is\na multi-line\nstring", strings[0].Value);
+        Assert.True(strings[0].IsTerminated);
     }
 
     [Fact]
@@ -444,6 +445,18 @@ public class LexerTests
         var tokens = Tokenize(source);
         Assert.Equal(TokenType.StringLiteral, tokens[0].Type);
         Assert.Equal("\"unterminated", tokens[0].Value);
+        Assert.False(tokens[0].IsTerminated);
+    }
+
+    [Fact]
+    public void TestUnterminatedTripleQuoteString()
+    {
+        var source = "\"\"\"unterminated\nraw string";
+        var tokens = Tokenize(source);
+
+        Assert.Equal(TokenType.TripleQuoteStringLiteral, tokens[0].Type);
+        Assert.Equal("unterminated\nraw string", tokens[0].Value);
+        Assert.False(tokens[0].IsTerminated);
     }
 
     [Fact]
@@ -453,6 +466,7 @@ public class LexerTests
         var tokens = Tokenize(source);
         Assert.Equal(TokenType.CharLiteral, tokens[0].Type);
         Assert.Equal("'|'", tokens[0].Value);
+        Assert.True(tokens[0].IsTerminated);
     }
 
     [Fact]
@@ -596,6 +610,18 @@ World
         Assert.StartsWith("$\"\"\"", tokens[0].Value);
         Assert.EndsWith("\"\"\"", tokens[0].Value);
         Assert.Contains("{name}", tokens[0].Value);
+        Assert.True(tokens[0].IsTerminated);
+    }
+
+    [Fact]
+    public void TestUnterminatedInterpolatedRawString()
+    {
+        var source = "$\"\"\"Hello {name}";
+        var tokens = Tokenize(source);
+
+        Assert.Equal(TokenType.InterpolatedRawStringLiteral, tokens[0].Type);
+        Assert.Equal("$\"\"\"Hello {name}", tokens[0].Value);
+        Assert.False(tokens[0].IsTerminated);
     }
 
     [Fact]

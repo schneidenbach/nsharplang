@@ -244,6 +244,60 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_UnterminatedTripleQuoteStringLiteral_PointsAtOpeningDelimiter()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unterminated-triple-string.nl";
+
+        var source = "func main() {\n    text := \"\"\"hello\nworld\n}\n";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidLiteral &&
+                 d.Message.Contains("Unterminated triple-quoted string literal"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(3, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(12, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(15, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Diagnostics_UnterminatedInterpolatedRawStringLiteral_PointsAtOpeningDelimiter()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unterminated-raw-string.nl";
+
+        var source = "func main() {\n    text := $\"\"\"hello {name}\n}\n";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidLiteral &&
+                 d.Message.Contains("Unterminated interpolated raw string literal"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(12, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(16, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_MissingClosingParen_PointsAtInsertionPosition()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

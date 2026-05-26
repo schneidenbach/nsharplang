@@ -43,7 +43,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL102`: ExpectedToken
 - `NL103`: InvalidSyntax
 - `NL104`: UnexpectedEndOfFile
-- `NL105`: InvalidLiteral, including unterminated string and character literals with spans on the literal token
+- `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break recovery pointing at the insertion position when possible
 
 ### Type Errors (200-299)

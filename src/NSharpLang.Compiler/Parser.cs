@@ -3958,7 +3958,29 @@ public class Parser
 
     private void ReportMalformedStringLiteralIfNeeded(Token token)
     {
-        if (token.Type != TokenType.StringLiteral || IsCompleteStringLiteral(token.Value))
+        if (token.Type == TokenType.TripleQuoteStringLiteral)
+        {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated triple-quoted string literal",
+                "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                markerLength: 3);
+            return;
+        }
+
+        if (token.Type == TokenType.InterpolatedRawStringLiteral)
+        {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated interpolated raw string literal",
+                "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                markerLength: 4);
+            return;
+        }
+
+        if (token.Type != TokenType.StringLiteral || (token.IsTerminated && IsCompleteStringLiteral(token.Value)))
             return;
 
         var isInterpolated = token.Value.StartsWith("$\"", StringComparison.Ordinal);
@@ -3977,6 +3999,32 @@ public class Parser
                 "Use triple quotes for multi-line strings"
             },
             length: Math.Max(1, token.Value.Length)
+        );
+    }
+
+    private void ReportMalformedRawStringLiteralIfNeeded(
+        Token token,
+        string message,
+        string humanExplanation,
+        string hint,
+        int markerLength)
+    {
+        if (token.IsTerminated)
+            return;
+
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            message,
+            token.Line,
+            token.Column,
+            humanExplanation: humanExplanation,
+            hint: hint,
+            suggestions: new List<string>
+            {
+                "Add the closing triple quote",
+                "Check where the raw string should end"
+            },
+            length: markerLength
         );
     }
 
@@ -4243,7 +4291,7 @@ public class Parser
                         var tok = subTokens[t];
                         int adjustedLine = tok.Line + exprStartLine - 1;
                         int adjustedColumn = tok.Line == 1 ? tok.Column + exprStartCol - 1 : tok.Column;
-                        subTokens[t] = new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName);
+                        subTokens[t] = new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName, tok.IsTerminated);
                     }
 
                     var subParser = new Parser(subTokens, _fileName);
