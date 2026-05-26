@@ -227,6 +227,28 @@ public class CompletionEngineTests
     }
 
     [Fact]
+    public void GetCompletions_MemberAccess_InterpolatedStringLiteralMembers()
+    {
+        var source = "func main() {\n    $\"this is a string\".\n}";
+        var (engine, snapshot, filePath) = SetupWithSource(source);
+
+        try
+        {
+            var line = 2;
+            var col = source.Split('\n')[line - 1].Length;
+            var result = engine.GetCompletions(snapshot, filePath, line, col);
+
+            Assert.Equal(CompletionContext.MemberAccess, result.Context);
+            Assert.Equal("System.String", result.ReceiverType);
+
+            var allItems = result.Completions.Values.SelectMany(v => v).ToList();
+            Assert.Contains(allItems, c => c.Name == "Length");
+            Assert.Contains(allItems, c => c.Name == "ToUpper");
+        }
+        finally { Cleanup(filePath); }
+    }
+
+    [Fact]
     public void GetCompletions_ChainedMemberAccess_StringCallMembers()
     {
         var source = "func main() {\n    name := \"hello\"\n    name.ToUpper().\n}";
