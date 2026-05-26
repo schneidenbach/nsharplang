@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimmerSingleWarn>true</TrimmerSingleWarn>
+    <NoWarn>$(NoWarn);IL2026;IL2055;IL2060;IL2070;IL2075;IL2104</NoWarn>
+    <RootNamespace>NSharpLang.Playground.Wasm</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NSharpLang.Playground\NSharpLang.Playground.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -6,6 +6,11 @@ on:
       - main
     paths:
       - 'website/**'
+      - 'src/NSharpLang.Compiler/**'
+      - 'src/NSharpLang.Playground/**'
+      - 'src/NSharpLang.Playground.Wasm/**'
+      - 'scripts/build-playground-wasm.sh'
+      - 'global.json'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +38,14 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: website/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build playground WebAssembly
+        run: ./scripts/build-playground-wasm.sh
 
       - name: Install dependencies
         working-directory: website
