@@ -8136,7 +8136,7 @@ public class Analyzer : IDisposable
 
         // Reflection-based type checking: use CLR semantics when both sides are reflection types
         if (resolvedSource is ReflectionTypeInfo srcRefl && resolvedTarget is ReflectionTypeInfo tgtRefl)
-            return tgtRefl.Type.IsAssignableFrom(srcRefl.Type);
+            return IsReflectionAssignableFrom(tgtRefl.Type, srcRefl.Type);
         // Mixed: reflection target + built-in source — convert to MLC type for comparison
         if (resolvedTarget is ReflectionTypeInfo tgtRefl2 && resolvedSource is SimpleTypeInfo)
         {
@@ -8673,10 +8673,109 @@ public class Analyzer : IDisposable
         // Reflection-backed CLR types: walk the actual CLR type hierarchy
         if (source is ReflectionTypeInfo reflSource && target is ReflectionTypeInfo reflTarget)
         {
-            return reflTarget.Type.IsAssignableFrom(reflSource.Type) && reflSource.Type != reflTarget.Type;
+            return !HaveSameReflectionTypeIdentity(reflSource.Type, reflTarget.Type)
+                && IsReflectionAssignableFrom(reflTarget.Type, reflSource.Type);
         }
 
         return false;
+    }
+
+    private static bool IsReflectionAssignableFrom(Type targetType, Type sourceType)
+    {
+        if (HaveSameReflectionTypeIdentity(targetType, sourceType))
+            return true;
+
+        if (targetType.IsAssignableFrom(sourceType))
+            return true;
+
+        foreach (var sourceInterface in GetInterfacesSafe(sourceType))
+        {
+            if (HaveSameReflectionTypeIdentity(targetType, sourceInterface))
+                return true;
+        }
+
+        var baseType = GetBaseTypeSafe(sourceType);
+        while (baseType != null)
+        {
+            if (HaveSameReflectionTypeIdentity(targetType, baseType))
+                return true;
+
+            baseType = GetBaseTypeSafe(baseType);
+        }
+
+        return false;
+    }
+
+    private static bool HaveSameReflectionTypeIdentity(Type left, Type right)
+    {
+        if (left == right)
+            return true;
+
+        if (left.IsByRef || right.IsByRef)
+        {
+            return left.IsByRef
+                && right.IsByRef
+                && HaveSameReflectionTypeIdentity(left.GetElementType()!, right.GetElementType()!);
+        }
+
+        if (left.IsArray || right.IsArray)
+        {
+            return left.IsArray
+                && right.IsArray
+                && left.GetArrayRank() == right.GetArrayRank()
+                && HaveSameReflectionTypeIdentity(left.GetElementType()!, right.GetElementType()!);
+        }
+
+        if (left.IsGenericType || right.IsGenericType)
+        {
+            if (!left.IsGenericType || !right.IsGenericType)
+                return false;
+
+            var leftDefinition = left.IsGenericTypeDefinition ? left : left.GetGenericTypeDefinition();
+            var rightDefinition = right.IsGenericTypeDefinition ? right : right.GetGenericTypeDefinition();
+            if (!HaveSameNonConstructedReflectionTypeIdentity(leftDefinition, rightDefinition))
+                return false;
+
+            if (left.IsGenericTypeDefinition || right.IsGenericTypeDefinition)
+                return left.IsGenericTypeDefinition && right.IsGenericTypeDefinition;
+
+            var leftArguments = left.GetGenericArguments();
+            var rightArguments = right.GetGenericArguments();
+            return leftArguments.Length == rightArguments.Length
+                && leftArguments.Zip(rightArguments).All(pair => HaveSameReflectionTypeIdentity(pair.First, pair.Second));
+        }
+
+        return HaveSameNonConstructedReflectionTypeIdentity(left, right);
+    }
+
+    private static bool HaveSameNonConstructedReflectionTypeIdentity(Type left, Type right)
+    {
+        return string.Equals(left.FullName, right.FullName, StringComparison.Ordinal)
+            && string.Equals(left.Assembly.GetName().Name, right.Assembly.GetName().Name, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<Type> GetInterfacesSafe(Type type)
+    {
+        try
+        {
+            return type.GetInterfaces();
+        }
+        catch
+        {
+            return Array.Empty<Type>();
+        }
+    }
+
+    private static Type? GetBaseTypeSafe(Type type)
+    {
+        try
+        {
+            return type.BaseType;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>

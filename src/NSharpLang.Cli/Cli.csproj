@@ -8,6 +8,8 @@
     <RootNamespace>NSharpLang.Cli</RootNamespace>
 
     <PackageId>NSharpLang.Cli</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>nlc</ToolCommandName>
 
     <!-- Package Metadata -->
     <Version>0.1.0</Version>
