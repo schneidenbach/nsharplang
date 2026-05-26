@@ -249,7 +249,7 @@ func test() {
         var error = result.Errors.FirstOrDefault();
         Assert.NotNull(error);
         Assert.NotNull(error.DocsUrl);
-        Assert.Contains("https://docs.nsharp.dev/errors/", error.DocsUrl);
+        Assert.Contains("https://docs.n-sharp.dev/errors/", error.DocsUrl);
         Assert.Contains($"NL{(int)error.Code:D3}", error.DocsUrl);
     }
 

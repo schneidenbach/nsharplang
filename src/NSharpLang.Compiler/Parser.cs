@@ -5066,7 +5066,7 @@ public class Parser
                 HumanExplanation = humanExplanation,
                 ContextualHint = hint,
                 Suggestions = suggestions,
-                DocsUrl = $"https://docs.nsharp.dev/errors/NL{(int)code:D3}"
+                DocsUrl = $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}"
             };
         }
 

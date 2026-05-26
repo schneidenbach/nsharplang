@@ -102,6 +102,57 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_ObjectInitializerEquals_PreservesOneCharacterSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name: string
+            }
+
+            func main() {
+                user := new User { Name = "Ada" }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
+
+        Assert.Equal(8, diagnostic.Line);
+        Assert.Equal(29, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Contains("colon", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_IncompleteMemberAccess_PointsAtTrailingDot()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada"
+                name.
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected member name"));
+
+        Assert.Equal(5, diagnostic.Line);
+        Assert.Equal(9, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Contains("dot", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL313" ||
+                          diagnostic.Message.Contains("<error>", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Format_ValidProgram_ReturnsFormattedCode()
     {
         var result = new PlaygroundCompiler().Format("func main(){print 5}");

@@ -1322,11 +1322,92 @@ public class Analyzer : IDisposable
         var errorsBefore = _errors.Count;
         AnalyzeExpression(exprStmt.Expression);
 
+        if (ContainsParserErrorPlaceholder(exprStmt.Expression))
+            return;
+
         if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
         {
             ReportInvalidExpressionStatement(exprStmt.Expression);
         }
     }
+
+    private static bool ContainsParserErrorPlaceholder(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression { Name: "<error>" } => true,
+            MemberAccessExpression { MemberName: "<error>" } => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
+            RangeExpression range => (range.Start != null && ContainsParserErrorPlaceholder(range.Start)) ||
+                                     (range.End != null && ContainsParserErrorPlaceholder(range.End)),
+            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
+            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
+                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
+            BinaryExpression binary => ContainsParserErrorPlaceholder(binary.Left) ||
+                                       ContainsParserErrorPlaceholder(binary.Right),
+            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
+                                               ContainsParserErrorPlaceholder(assignment.Value),
+            LambdaExpression lambda => lambda.ExpressionBody != null &&
+                                       ContainsParserErrorPlaceholder(lambda.ExpressionBody),
+            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
+            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
+            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
+            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
+            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
+                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
+            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
+            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
+            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
+            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
+                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
+                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
+            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
+            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
+            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
+                                  (@new.Initializer != null && ContainsParserErrorPlaceholder(@new.Initializer)),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
+                ContainsParserErrorPlaceholder(property.Value)),
+            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
+                                             withExpression.Properties.Any(property =>
+                                                 (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
+                                                 ContainsParserErrorPlaceholder(property.Value)),
+            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
+            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
+                                     match.Cases.Any(matchCase =>
+                                         ContainsParserErrorPlaceholder(matchCase.Pattern) ||
+                                         (matchCase.Guard != null && ContainsParserErrorPlaceholder(matchCase.Guard)) ||
+                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
+            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
+            _ => false
+        };
+    }
+
+    private static bool ContainsParserErrorPlaceholder(Pattern pattern)
+    {
+        return pattern switch
+        {
+            LiteralPattern literal => ContainsParserErrorPlaceholder(literal.Literal),
+            RelationalPattern relational => ContainsParserErrorPlaceholder(relational.Value),
+            UnionCasePattern unionCase => unionCase.Properties?.Any(ContainsParserErrorPlaceholder) == true,
+            ObjectPattern objectPattern => objectPattern.Properties.Any(ContainsParserErrorPlaceholder),
+            ListPattern listPattern => listPattern.Elements.Any(ContainsParserErrorPlaceholder),
+            AndPattern andPattern => ContainsParserErrorPlaceholder(andPattern.Left) ||
+                                     ContainsParserErrorPlaceholder(andPattern.Right),
+            OrPattern orPattern => ContainsParserErrorPlaceholder(orPattern.Left) ||
+                                   ContainsParserErrorPlaceholder(orPattern.Right),
+            NotPattern notPattern => ContainsParserErrorPlaceholder(notPattern.Pattern),
+            PositionalPattern positional => positional.Patterns.Any(ContainsParserErrorPlaceholder),
+            _ => false
+        };
+    }
+
+    private static bool ContainsParserErrorPlaceholder(PropertyPattern property)
+        => property.Pattern != null && ContainsParserErrorPlaceholder(property.Pattern);
 
     private static bool IsValidExpressionStatement(Expression expression)
     {

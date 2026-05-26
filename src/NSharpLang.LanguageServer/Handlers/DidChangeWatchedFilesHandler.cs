@@ -127,26 +127,7 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
     }
 
     private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
-    {
-        var line = Math.Max(0, error.Line - 1);
-        var column = Math.Max(0, error.Column - 1);
-        var length = Math.Max(1, error.Length);
-
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(error.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            length = Math.Max(length, quoteMatch.Groups[1].Value.Length);
-        }
-
-        return new LspDiagnostic
-        {
-            Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(line, column, line, column + length),
-            Severity = error.Severity == ErrorSeverity.Warning ? LspDiagnosticSeverity.Warning : LspDiagnosticSeverity.Error,
-            Code = error.DiagnosticId,
-            Source = "N#",
-            Message = error.FormatForTooling(includeCode: true, includeLocation: false)
-        };
-    }
+        => LspDiagnosticConverter.FromCompilerError(error);
 
     private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
     {

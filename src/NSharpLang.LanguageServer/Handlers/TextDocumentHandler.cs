@@ -148,62 +148,8 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         }
     }
 
-    private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
-    {
-        // Convert compiler error to LSP diagnostic
-        var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
-        var column = Math.Max(0, error.Column - 1);
-
-        // Try to determine the actual token length at the error position
-        int length = GetTokenLengthAtPosition(error, line, column);
-
-        return new LspDiagnostic
-        {
-            Range = new LspRange(line, column, line, column + length),
-            Severity = error.Severity == ErrorSeverity.Warning ? LspDiagnosticSeverity.Warning : LspDiagnosticSeverity.Error,
-            Code = error.DiagnosticId,
-            Source = "N#",
-            Message = error.FormatForTooling(includeCode: true, includeLocation: false)
-        };
-    }
-
-    private int GetTokenLengthAtPosition(CompilerError error, int line0, int column0)
-    {
-        var fallbackLength = Math.Max(1, error.Length);
-
-        // Try to extract a symbol name from the error message (e.g., "'name'", "identifier 'foo'")
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(error.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            return Math.Max(fallbackLength, quoteMatch.Groups[1].Value.Length);
-        }
-
-        // Try to find the token in the source text at the error position
-        var uri = _currentDiagnosticUri;
-        if (uri != null)
-        {
-            var doc = _documentManager.GetDocument(uri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line0 < lines.Length)
-                {
-                    var lineText = lines[line0];
-                    if (column0 < lineText.Length)
-                    {
-                        // Find the end of the current token (identifier or keyword)
-                        int end = column0;
-                        while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
-                            end++;
-                        if (end > column0)
-                            return Math.Max(fallbackLength, end - column0);
-                    }
-                }
-            }
-        }
-
-        return fallbackLength;
-    }
+    private static LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
+        => LspDiagnosticConverter.FromCompilerError(error);
 
     private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
     {
