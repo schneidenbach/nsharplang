@@ -184,6 +184,80 @@ union Result<T> {
 
 Transpiled to abstract base class with nested record cases.
 
+## Anonymous Union Types
+
+Anonymous unions use `A | B` syntax when a value may be one of two concrete types
+without introducing a named `union` declaration:
+
+```
+func Hi(greeting: PrebakedGreeting | string) {
+    // ...
+}
+
+func Choose(flag: bool): int | string {
+    if flag {
+        return 42
+    }
+
+    return "fallback"
+}
+```
+
+Anonymous unions are type references, so they are valid anywhere a type reference is
+valid: parameters, returns, locals, fields, properties, aliases, casts, `is` checks,
+nullable types, arrays, and generic arguments.
+
+### Semantic Rules
+
+- `T` is assignable to `A | B` when `T` is assignable to at least one arm.
+- `A | B` is assignable to `T` when every arm is assignable to `T`.
+- `A | B` is assignable to `C | D` when every source arm is assignable to at least one target arm.
+- Nested anonymous unions are flattened before validation.
+- Duplicate arms are rejected.
+- Subsumed arms such as `object | string` are reported as warnings because the narrower arm is already covered by the wider arm.
+- V1 supports two-arm anonymous unions. Larger anonymous unions report a diagnostic recommending a named `union`.
+
+Named `union` declarations are unchanged. Use a named `union` when cases carry names,
+case-specific fields, or more than two alternatives.
+
+### Runtime and ABI
+
+The public CLR ABI for `A | B` is `NSharpLang.Runtime.Union<A, B>`.
+The runtime package is referenced by the N# SDK automatically, so user projects keep
+the minimal `.csproj` form:
+
+```xml
+<Project Sdk="NSharpLang.Sdk" />
+```
+
+`NSharpLang.Runtime.Union<T0, T1>` is a readonly struct with:
+
+- implicit conversions from both arms
+- `Index`
+- `Value`
+- `Is<T>()`
+- `TryGet<T>(out T value)`
+- `As<T>()`
+- `Match(...)`
+- `Switch(...)`
+- .NET equality and `ToString()` behavior
+
+Public N# methods with anonymous-union parameters also emit C# overload shims so C#
+callers can pass either arm directly:
+
+```n#
+public static func Describe(value: int | string): string {
+    return match value {
+        int number => number.ToString(),
+        string text => text
+    }
+}
+```
+
+The CLR surface includes the canonical `Union<int, string>` method plus overloads
+accepting `int` and `string`. Return types, fields, properties, and generic arguments
+expose `Union<T0, T1>` directly.
+
 ### Enums (Int)
 ```
 enum Status {

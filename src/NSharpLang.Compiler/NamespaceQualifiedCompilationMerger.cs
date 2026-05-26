@@ -620,6 +620,10 @@ internal static class NamespaceQualifiedCompilationMerger
                 {
                     InnerType = TransformTypeReference(nullableType.InnerType)!
                 },
+                UnionTypeReference unionType => unionType with
+                {
+                    Arms = unionType.Arms.Select(arm => TransformTypeReference(arm)!).ToList()
+                },
                 TupleTypeReference tupleType => tupleType with
                 {
                     Elements = tupleType.Elements.Select(element => element with

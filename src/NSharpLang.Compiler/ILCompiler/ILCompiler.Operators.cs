@@ -136,7 +136,8 @@ public partial class ILCompiler
     {
         return type is TypeBuilder or EnumBuilder
             || type.IsGenericParameter
-            || type.ContainsGenericParameters;
+            || type.ContainsGenericParameters
+            || RequiresTypeBuilderMemberResolution(type);
     }
 
     private static bool IsByRefLikeType(Type type)
@@ -324,10 +325,17 @@ public partial class ILCompiler
 
         MethodInfo? bestMethod = null;
         var bestScore = -1;
+        MethodInfo[] candidates;
+        try
+        {
+            candidates = declaringType.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
 
-        foreach (var candidate in declaringType
-                     .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
-                     .Where(method => method.Name == emittedName))
+        foreach (var candidate in candidates.Where(method => method.Name == emittedName))
         {
             var score = GetStaticMethodCandidateScore(candidate, argumentTypes, requiredReturnType);
             if (score <= bestScore)
@@ -649,6 +657,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryEmitRuntimeUnionConversion(sourceType, targetType, allowExplicitUserDefinedConversions))
+        {
+            return;
+        }
+
         var sourceIsUnsupported = IsUnsupportedRuntimeLookupType(sourceType) && !TryGetUserTypeDefinition(sourceType, out _);
         var targetIsUnsupported = IsUnsupportedRuntimeLookupType(targetType) && !TryGetUserTypeDefinition(targetType, out _);
         if (sourceIsUnsupported || targetIsUnsupported)
@@ -707,6 +720,42 @@ public partial class ILCompiler
         }
 
         _currentIL.Emit(OpCodes.Castclass, targetType);
+    }
+
+    private bool TryEmitRuntimeUnionConversion(Type sourceType, Type targetType, bool allowExplicitUserDefinedConversions)
+    {
+        if (_currentIL == null
+            || IsRuntimeUnionType(sourceType)
+            || !TryGetRuntimeUnionArmTypes(targetType, out var targetArms))
+        {
+            return false;
+        }
+
+        var bestArmIndex = -1;
+        var bestScore = 0;
+        for (int i = 0; i < targetArms.Length; i++)
+        {
+            if (!IsParameterTypeCompatible(targetArms[i], sourceType))
+            {
+                continue;
+            }
+
+            var score = GetParameterMatchScore(targetArms[i], sourceType);
+            if (score > bestScore)
+            {
+                bestArmIndex = i;
+                bestScore = score;
+            }
+        }
+
+        if (bestArmIndex < 0)
+        {
+            return false;
+        }
+
+        EmitValueCoercion(sourceType, targetArms[bestArmIndex], allowExplicitUserDefinedConversions);
+        _currentIL.Emit(OpCodes.Call, GetRuntimeUnionImplicitConversionOperator(targetType, bestArmIndex));
+        return true;
     }
 
     private bool TryGetNumericConversionOpcode(Type targetType, out OpCode opcode)

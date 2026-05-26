@@ -172,9 +172,39 @@ result := match maybeAge {
 
 The `null` arm covers absence. A non-qualified identifier arm binds the present value as the non-null inner type, so `age` above has type `int`, not `int?`. Missing either side reports a non-exhaustive nullable match diagnostic. An unguarded `_` arm still covers any remaining nullable case.
 
+### Anonymous Union Exhaustiveness
+
+Anonymous unions are exhausted by covering every arm with an unguarded type pattern:
+
+```
+func Describe(value: int | string): string {
+    return match value {
+        int number => number.ToString(),
+        string text => text
+    }
+}
+```
+
+For `A | B`, a match without `_` must cover both `A` and `B`. A guarded arm does not
+count as full coverage because it only covers values that satisfy the guard. An
+unguarded wildcard or catch-all binding covers any remaining arms.
+
+Type checks also narrow anonymous unions in control flow:
+
+```
+func Length(value: string | byte[]): int {
+    if value is string text {
+        return text.Length
+    }
+
+    // value is narrowed to byte[] here
+    return value.Length
+}
+```
+
 ### When Exhaustiveness is Skipped
 - Non-union types (can't enumerate all possible values)
-- Type patterns (infinite possible types)
+- Type patterns over non-union values (infinite possible types)
 
 ## Nested Property Patterns
 

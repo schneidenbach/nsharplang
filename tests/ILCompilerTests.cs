@@ -67,11 +67,19 @@ public partial class ILCompilerTests
         var loadContext = new AssemblyLoadContext($"ILCompilerTests_{Guid.NewGuid():N}", isCollectible: true);
         var testAssembly = typeof(ILCompilerTests).Assembly;
         var testAssemblyName = testAssembly.GetName().Name;
+        var runtimeAssembly = typeof(NSharpLang.Runtime.Union<,>).Assembly;
+        var runtimeAssemblyName = runtimeAssembly.GetName().Name;
 
         loadContext.Resolving += (_, assemblyName) =>
-            string.Equals(assemblyName.Name, testAssemblyName, StringComparison.Ordinal)
-                ? testAssembly
-                : null;
+        {
+            if (string.Equals(assemblyName.Name, testAssemblyName, StringComparison.Ordinal))
+                return testAssembly;
+
+            if (string.Equals(assemblyName.Name, runtimeAssemblyName, StringComparison.Ordinal))
+                return runtimeAssembly;
+
+            return null;
+        };
 
         return loadContext;
     }
@@ -839,8 +847,8 @@ class Customer {
             Assert.NotNull(customer);
 
             var context = new NullabilityInfoContext();
-            var name = customer!.GetField("Name", BindingFlags.Public | BindingFlags.Instance);
-            var nickname = customer.GetField("Nickname", BindingFlags.Public | BindingFlags.Instance);
+            var name = customer!.GetProperty("Name", BindingFlags.Public | BindingFlags.Instance);
+            var nickname = customer.GetProperty("Nickname", BindingFlags.Public | BindingFlags.Instance);
             var rename = customer.GetMethod("Rename", BindingFlags.Public | BindingFlags.Instance);
 
             Assert.NotNull(name);
@@ -1672,6 +1680,75 @@ record Person {
 
         // Should not throw
         compiler.Compile();
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsExportedClassAndRecordDataMembersAsProperties()
+    {
+        var source = @"
+import System.Collections.Generic
+
+record HttpRequest {
+    Method: string
+    Url: string
+    Headers: Dictionary<string, string> = new Dictionary<string, string>()
+    Body: string
+}
+
+class HttpResponse {
+    StatusCode: int
+    Body: string
+}
+
+func main(): string {
+    request := new HttpRequest {
+        Method: ""GET"",
+        Url: ""https://example.test"",
+        Headers: new Dictionary<string, string>(),
+        Body: """"
+    }
+    request.Headers[""Accept""] = ""text/plain""
+    return request.Headers[""Accept""]
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var requestType = assembly.GetType("HttpRequest");
+            Assert.NotNull(requestType);
+
+            foreach (var propertyName in new[] { "Method", "Url", "Headers", "Body" })
+            {
+                var property = requestType!.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+                Assert.NotNull(property);
+                Assert.Contains(
+                    property!.SetMethod!.ReturnParameter.GetRequiredCustomModifiers(),
+                    modifier => modifier.FullName == "System.Runtime.CompilerServices.IsExternalInit");
+            }
+
+            Assert.DoesNotContain(requestType!.GetFields(BindingFlags.Public | BindingFlags.Instance), field =>
+                field.Name is "Method" or "Url" or "Headers" or "Body");
+
+            GetCustomAttribute(requestType, "System.Runtime.CompilerServices.RequiredMemberAttribute");
+            foreach (var requiredProperty in new[] { "Method", "Url", "Body" })
+            {
+                GetCustomAttribute(requestType.GetProperty(requiredProperty)!, "System.Runtime.CompilerServices.RequiredMemberAttribute");
+            }
+            Assert.DoesNotContain(
+                requestType.GetProperty("Headers")!.CustomAttributes,
+                attribute => attribute.AttributeType.FullName == "System.Runtime.CompilerServices.RequiredMemberAttribute");
+
+            var responseType = assembly.GetType("HttpResponse");
+            Assert.NotNull(responseType);
+            Assert.NotNull(responseType!.GetProperty("StatusCode", BindingFlags.Public | BindingFlags.Instance));
+            Assert.NotNull(responseType.GetProperty("Body", BindingFlags.Public | BindingFlags.Instance));
+            Assert.DoesNotContain(responseType.GetFields(BindingFlags.Public | BindingFlags.Instance), field =>
+                field.Name is "StatusCode" or "Body");
+
+            return true;
+        });
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("text/plain", Assert.IsType<string>(result));
     }
 
     [Fact]
@@ -4049,6 +4126,62 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteDictionaryIndexerGetSetAndNestedAccess()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func main(): string {
+    headers := new Dictionary<string, string>()
+    name := ""Accept""
+    headers[name] = ""text/plain""
+    value := headers[name]
+
+    nested := new Dictionary<string, Dictionary<string, string>>()
+    nested[""outer""] = new Dictionary<string, string>()
+    nested[""outer""][""inner""] = value
+
+    return nested[""outer""][""inner""]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("text/plain", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanBindDictionaryRemoveOverloads()
+    {
+        var ordinaryRemove = @"
+import System.Collections.Generic
+
+func main(): bool {
+    headers := new Dictionary<string, string>()
+    headers[""Accept""] = ""text/plain""
+    removed := headers.Remove(""Accept"")
+    return removed && !headers.ContainsKey(""Accept"")
+}";
+
+        var ordinaryResult = CompileAndInvoke(ordinaryRemove);
+        Assert.True(Assert.IsType<bool>(ordinaryResult));
+
+        var outRemove = @"
+import System.Collections.Generic
+
+func main(): string {
+    headers := new Dictionary<string, string>()
+    headers[""Accept""] = ""text/plain""
+    if headers.Remove(""Accept"", out var removedValue) {
+        return removedValue
+    }
+
+    return ""missing""
+}";
+
+        var outResult = CompileAndInvoke(outRemove);
+        Assert.Equal("text/plain", Assert.IsType<string>(outResult));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecutePositionalPattern()
     {
         var source = @"
@@ -5292,6 +5425,130 @@ file union Result {
                 Assert.NotNull(type);
                 Assert.False(type!.IsPublic);
             }
+
+            return true;
+        });
+    }
+
+    [Fact]
+    public void ILCompiler_CanUseAnonymousUnionParametersAndMatch()
+    {
+        var source = @"
+func Describe(value: int | string): string {
+    return match value {
+        int number => number.ToString(),
+        string text => text
+    }
+}
+
+func main(): string {
+    return Describe(42) + "":"" + Describe(""ready"")
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("42:ready", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanUseAnonymousUnionWithGeneratedTypeArm()
+    {
+        var source = @"
+class PrebakedGreeting {
+    Text: string
+}
+
+func Hi(greeting: PrebakedGreeting | string): string {
+    if greeting is string text {
+        return text
+    }
+
+    return match greeting {
+        PrebakedGreeting prebaked => prebaked.Text,
+        string text => text
+    }
+}
+
+func main(): string {
+    return Hi(""hello"") + "":"" + Hi(new PrebakedGreeting { Text: ""ready"" })
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("hello:ready", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanReturnAndCastAnonymousUnionValues()
+    {
+        var source = @"
+func Choose(flag: bool): int | string {
+    if flag {
+        return 42
+    }
+
+    return ""fallback""
+}
+
+func main(): string {
+    value := Choose(false)
+    text := (string)value
+    if value is string narrowed {
+        return text + "":"" + narrowed
+    }
+
+    return ""missing""
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("fallback:fallback", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanStoreAnonymousUnionInFieldsAndProperties()
+    {
+        var source = @"
+class Holder {
+    Value: int | string
+    Current: int | string => Value
+}
+
+func main(): string {
+    holder := new Holder { Value: ""field"" }
+    return (holder.Value as string) + "":"" + (holder.Current as string)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("field:field", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsPublicOverloadShimsForAnonymousUnionParameters()
+    {
+        var source = @"
+func Describe(value: int | string): string {
+    return match value {
+        int number => number.ToString(),
+        string text => text
+    }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program");
+            Assert.NotNull(program);
+
+            var overloads = program!.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(method => method.Name == "Describe")
+                .ToArray();
+
+            Assert.Contains(overloads, method => method.GetParameters()[0].ParameterType == typeof(int));
+            Assert.Contains(overloads, method => method.GetParameters()[0].ParameterType == typeof(string));
+            Assert.Contains(overloads, method => method.GetParameters()[0].ParameterType.FullName!.StartsWith("NSharpLang.Runtime.Union`2", StringComparison.Ordinal));
+
+            var intOverload = overloads.Single(method => method.GetParameters()[0].ParameterType == typeof(int));
+            var stringOverload = overloads.Single(method => method.GetParameters()[0].ParameterType == typeof(string));
+
+            Assert.Equal("9", intOverload.Invoke(null, new object[] { 9 }));
+            Assert.Equal("ok", stringOverload.Invoke(null, new object[] { "ok" }));
 
             return true;
         });

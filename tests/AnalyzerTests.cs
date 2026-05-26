@@ -79,6 +79,46 @@ public class AnalyzerTests
         Assert.Contains(result.Errors, e => e.Message.Contains(expectedMessage));
     }
 
+    [Fact]
+    public void InstanceMemberResolution_PrefersMemberNamedPathOverImportedType()
+    {
+        AssertNoErrors(@"
+import System.IO
+
+class HttpUrl {
+    Path: string = ""/api/items""
+
+    func ToDisplayString(): string {
+        pathLength := Path.Length
+        return $""{Path}:{pathLength}""
+    }
+}");
+    }
+
+    [Fact]
+    public void ReflectionOverloadResolution_BindsDictionaryRemoveOverloads()
+    {
+        AssertNoErrors(@"
+import System.Collections.Generic
+
+func removeKey(): bool {
+    headers := new Dictionary<string, string>()
+    headers[""Accept""] = ""application/json""
+    return headers.Remove(""Accept"")
+}
+
+func removeKeyAndValue(): string {
+    headers := new Dictionary<string, string>()
+    headers[""Accept""] = ""application/json""
+
+    if headers.Remove(""Accept"", out var removedValue) {
+        return removedValue
+    }
+
+    return ""missing""
+}");
+    }
+
     private void AssertHasParseError(string source, string expectedMessage)
     {
         var lexer = new Lexer(source, "test.nl");
@@ -7746,6 +7786,107 @@ func Identity([CLSCompliant(true)] value: int): int {
 
 func Main() {
     result := Identity(42)
+}
+        ");
+    }
+
+    [Fact]
+    public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
+    {
+        AssertNoErrors(@"
+func Accept(value: int | string): object {
+    return value
+}
+
+func Main() {
+    a := Accept(42)
+    b := Accept(""hello"")
+}
+        ");
+    }
+
+    [Fact]
+    public void AnonymousUnion_RejectsAssignmentWhenNotEveryArmFitsTarget()
+    {
+        AssertHasError(@"
+func Bad(value: int | string): string {
+    return value
+}
+        ", "This function should return 'string'");
+    }
+
+    [Fact]
+    public void AnonymousUnion_AllowsUnionToUnionWhenEverySourceArmFitsTargetArm()
+    {
+        AssertNoErrors(@"
+func Identity(value: int | string): int | string {
+    return value
+}
+        ");
+    }
+
+    [Fact]
+    public void AnonymousUnion_RejectsDuplicateArms()
+    {
+        AssertHasError(@"
+func Bad(value: int | int): void {
+}
+        ", "repeats arm 'int'");
+    }
+
+    [Fact]
+    public void AnonymousUnion_RejectsMoreThanTwoArms()
+    {
+        AssertHasError(@"
+func Bad(value: int | string | bool): void {
+}
+        ", "support exactly two arms in v1");
+    }
+
+    [Fact]
+    public void AnonymousUnion_WarnsForSubsumedArms()
+    {
+        AssertHasWarning(@"
+func Bad(value: object | string): void {
+}
+        ", "already covered by 'object'");
+    }
+
+    [Fact]
+    public void AnonymousUnion_NarrowsElseBranchAfterIsCheck()
+    {
+        AssertNoErrors(@"
+func Describe(value: int | string): int {
+    if value is string text {
+        return text.Length
+    }
+
+    return value + 1
+}
+        ");
+    }
+
+    [Fact]
+    public void AnonymousUnion_MatchRequiresEveryArm()
+    {
+        AssertHasError(@"
+func Describe(value: int | string): int {
+    return match value {
+        int number => number,
+    }
+}
+        ", "missing: string");
+    }
+
+    [Fact]
+    public void AnonymousUnion_MatchIsExhaustiveWhenEveryArmIsCovered()
+    {
+        AssertNoErrors(@"
+func Describe(value: int | string): int {
+    return match value {
+        int number => number,
+        string text => text.Length
+    }
 }
         ");
     }

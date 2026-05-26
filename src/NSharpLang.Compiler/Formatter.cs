@@ -2022,6 +2022,7 @@ public class Formatter
             GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(FormatTypeReference))}>",
             ArrayTypeReference array => $"{FormatTypeReference(array.ElementType)}[]",
             NullableTypeReference nullable => $"{FormatTypeReference(nullable.InnerType)}?",
+            UnionTypeReference union => string.Join(" | ", union.Arms.Select(FormatTypeReference)),
             TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
             FunctionTypeReference func => $"Func<{string.Join(", ", func.ParameterTypes.Concat(new[] { func.ReturnType }).Select(FormatTypeReference))}>",
             _ => throw new InvalidOperationException($"Formatter does not handle type reference: {type.GetType().Name}")

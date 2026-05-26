@@ -598,6 +598,7 @@ internal class LintVisitor
     private readonly List<(string Namespace, int Line, int Column, bool IsFile, string? FilePath)> _allImports = new();
     private readonly HashSet<string> _allCodeIdentifiers = new();
     private readonly HashSet<string> _allMemberAccessNames = new();
+    private readonly Stack<HashSet<string>> _typeMemberNameScopes = new();
 
     // NL015: Track let declarations and assignments within functions
     // Maps variable name → (Line, Col, HasInitializer, InLambda)
@@ -998,24 +999,31 @@ internal class LintVisitor
 
     private void VisitClass(ClassDeclaration classDecl)
     {
-        VisitClassLikeMembers(classDecl.Members, classDecl.Name, classDecl.Line, classDecl.Column);
+        VisitWithTypeMemberScope(classDecl.Members, classDecl.PrimaryConstructorParameters, () =>
+            VisitClassLikeMembers(classDecl.Members, classDecl.Name, classDecl.Line, classDecl.Column));
     }
 
     private void VisitStruct(StructDeclaration structDecl)
     {
-        // Structs don't typically have the same readonly pattern as classes, visit normally
-        foreach (var member in structDecl.Members)
+        VisitWithTypeMemberScope(structDecl.Members, structDecl.PrimaryConstructorParameters, () =>
         {
-            VisitDeclaration(member);
-        }
+            // Structs don't typically have the same readonly pattern as classes, visit normally
+            foreach (var member in structDecl.Members)
+            {
+                VisitDeclaration(member);
+            }
+        });
     }
 
     private void VisitRecord(RecordDeclaration recordDecl)
     {
-        foreach (var member in recordDecl.Members)
+        VisitWithTypeMemberScope(recordDecl.Members, recordDecl.PrimaryConstructorParameters, () =>
         {
-            VisitDeclaration(member);
-        }
+            foreach (var member in recordDecl.Members)
+            {
+                VisitDeclaration(member);
+            }
+        });
     }
 
     private void VisitInterface(InterfaceDeclaration interfaceDecl)
@@ -1023,6 +1031,47 @@ internal class LintVisitor
         foreach (var member in interfaceDecl.Members)
         {
             VisitDeclaration(member);
+        }
+    }
+
+    private void VisitWithTypeMemberScope(
+        List<Declaration> members,
+        List<Parameter>? primaryConstructorParameters,
+        Action visit)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var member in members)
+        {
+            switch (member)
+            {
+                case FieldDeclaration field:
+                    names.Add(field.Name);
+                    break;
+                case PropertyDeclaration property:
+                    names.Add(property.Name);
+                    break;
+                case FunctionDeclaration function:
+                    names.Add(function.Name);
+                    break;
+            }
+        }
+
+        if (primaryConstructorParameters != null)
+        {
+            foreach (var parameter in primaryConstructorParameters)
+            {
+                names.Add(parameter.Name);
+            }
+        }
+
+        _typeMemberNameScopes.Push(names);
+        try
+        {
+            visit();
+        }
+        finally
+        {
+            _typeMemberNameScopes.Pop();
         }
     }
 
@@ -1675,6 +1724,11 @@ internal class LintVisitor
 
     private void CheckMissingImport(IdentifierExpression ident)
     {
+        if (_typeMemberNameScopes.Any(scope => scope.Contains(ident.Name)))
+        {
+            return;
+        }
+
         // NL002: Missing Import
         // Check for common types that might need imports
         var commonTypesMap = new Dictionary<string, string>
@@ -1733,6 +1787,7 @@ internal class LintVisitor
             GenericTypeReference generic => generic.Name,
             NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
+            UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
             _ => null
         };
 
@@ -1784,6 +1839,7 @@ internal class LintVisitor
             GenericTypeReference generic => generic.Name,
             NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
+            UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
             _ => null
         };
     }
@@ -1811,6 +1867,10 @@ internal class LintVisitor
                 break;
             case ArrayTypeReference array:
                 TrackTypeReference(array.ElementType);
+                break;
+            case UnionTypeReference union:
+                foreach (var arm in union.Arms)
+                    TrackTypeReference(arm);
                 break;
             case TupleTypeReference tuple:
                 foreach (var element in tuple.Elements)

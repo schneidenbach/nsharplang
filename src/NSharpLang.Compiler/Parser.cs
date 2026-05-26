@@ -40,11 +40,31 @@ public class Parser
                 namespaceDecl = ParseNamespace();
             }
 
-            // Parse import directives (both namespace and file imports)
+            // Parse package/import directives. Canonical N# uses package-first,
+            // while older sources may still place imports before package.
             var imports = new List<ImportDirective>();
             var fileImports = new List<Statement>();
-            while (Check(TokenType.Import))
+            PackageDeclaration? packageDecl = null;
+            while (Check(TokenType.Package) || Check(TokenType.Import))
             {
+                if (Check(TokenType.Package))
+                {
+                    if (packageDecl != null)
+                    {
+                        ReportError(
+                            ErrorCode.InvalidSyntax,
+                            "Only one package declaration is allowed",
+                            Current.Line,
+                            Current.Column,
+                            humanExplanation: "A source file can belong to a single package.",
+                            hint: "Remove the extra package declaration.",
+                            length: Math.Max(1, Current.Value.Length));
+                    }
+
+                    packageDecl = ParsePackage();
+                    continue;
+                }
+
                 var import = ParseImport();
                 if (import is NamespaceImport nsImport)
                 {
@@ -54,13 +74,6 @@ public class Parser
                 {
                     fileImports.Add(fileImport);
                 }
-            }
-
-            // Parse package declaration (optional)
-            PackageDeclaration? packageDecl = null;
-            if (Check(TokenType.Package))
-            {
-                packageDecl = ParsePackage();
             }
 
             // Parse top-level declarations with error recovery
@@ -1503,6 +1516,46 @@ public class Parser
 
     private TypeReference ParseTypeReference()
     {
+        return ParseUnionTypeReference();
+    }
+
+    private TypeReference ParseUnionTypeReference()
+    {
+        var first = ParsePostfixTypeReference();
+        if (!Check(TokenType.BitwiseOr))
+            return first;
+
+        var arms = new List<TypeReference> { first };
+        var lastToken = Current;
+
+        while (Check(TokenType.BitwiseOr))
+        {
+            Advance();
+            if (IsTypeTerminator(Current.Type))
+            {
+                ReportError(
+                    ErrorCode.InvalidSyntax,
+                    "Expected a type after '|' in anonymous union type",
+                    Current.Line,
+                    Current.Column,
+                    humanExplanation: "Anonymous union types use the form `A | B`, so every `|` must be followed by another type.",
+                    hint: "Add the missing type arm, or remove the trailing `|`.",
+                    length: Math.Max(1, Current.Value.Length));
+                break;
+            }
+
+            arms.Add(ParsePostfixTypeReference());
+            lastToken = Previous;
+        }
+
+        return new UnionTypeReference(arms)
+        {
+            Span = ExtendSpan(first, lastToken)
+        };
+    }
+
+    private TypeReference ParsePostfixTypeReference()
+    {
         var baseType = ParseBaseTypeReference();
 
         // Array type
@@ -1530,12 +1583,26 @@ public class Parser
         return baseType;
     }
 
+    private static bool IsTypeTerminator(TokenType type)
+    {
+        return type is TokenType.Comma
+            or TokenType.RightParen
+            or TokenType.RightBracket
+            or TokenType.RightBrace
+            or TokenType.Newline
+            or TokenType.Eof
+            or TokenType.Assign
+            or TokenType.Semicolon
+            or TokenType.Arrow
+            or TokenType.Colon;
+    }
+
     private TypeReference ParseBaseTypeReference()
     {
         // Tuple type
         if (Check(TokenType.LeftParen))
         {
-            return ParseTupleTypeReference();
+            return ParseParenthesizedOrTupleTypeReference();
         }
 
         // Func<> type
@@ -1584,7 +1651,7 @@ public class Parser
         };
     }
 
-    private TupleTypeReference ParseTupleTypeReference()
+    private TypeReference ParseParenthesizedOrTupleTypeReference()
     {
         var leftParen = Consume(TokenType.LeftParen, "Expected '('");
         var elements = new List<TupleTypeElement>();
@@ -1606,6 +1673,15 @@ public class Parser
         } while (Match(TokenType.Comma));
 
         var rightParen = Consume(TokenType.RightParen, "Expected ')'");
+
+        if (elements.Count == 1 && elements[0].Name is null)
+        {
+            return elements[0].Type with
+            {
+                Span = SpanFromTokens(leftParen, rightParen)
+            };
+        }
+
         return new TupleTypeReference(elements)
         {
             Span = SpanFromTokens(leftParen, rightParen)
@@ -4500,63 +4576,190 @@ public class Parser
 
     private bool IsCastExpression()
     {
-        var saved = _position;
-        try
-        {
-            Advance(); // consume (
+        var position = _position + 1; // Skip '(' without mutating parser state.
+        var splitGreaterDepth = 0;
 
-            if (!Check(TokenType.Identifier))
+        TokenType CurrentType()
+        {
+            if (splitGreaterDepth > 0)
+                return TokenType.Greater;
+
+            return position < _tokens.Count ? _tokens[position].Type : TokenType.Eof;
+        }
+
+        void AdvanceScan()
+        {
+            if (splitGreaterDepth > 0)
+            {
+                splitGreaterDepth--;
+                return;
+            }
+
+            if (position < _tokens.Count)
+                position++;
+        }
+
+        bool ConsumeScan(TokenType type)
+        {
+            if (CurrentType() != type)
                 return false;
 
-            Advance();
+            AdvanceScan();
+            return true;
+        }
 
-            // Handle qualified names like Result.Success
-            while (Check(TokenType.Dot))
+        bool ConsumeGreaterScan()
+        {
+            if (CurrentType() == TokenType.Greater)
             {
-                Advance(); // consume .
-                if (!Check(TokenType.Identifier))
-                    return false;
-                Advance(); // consume identifier
+                AdvanceScan();
+                return true;
             }
 
-            // Simple type cast: (TypeName) or (Qualified.TypeName)
-            if (Check(TokenType.RightParen))
+            if (splitGreaterDepth == 0
+                && position < _tokens.Count
+                && _tokens[position].Type == TokenType.RightShift)
             {
-                // Disambiguate from parenthesized expressions like `(x)`:
-                // casts must be followed by an expression start token.
-                var next = LookAhead(1).Type;
-                return next is
-                    TokenType.Identifier or
-                    TokenType.IntLiteral or
-                    TokenType.FloatLiteral or
-                    TokenType.StringLiteral or
-                    TokenType.True or
-                    TokenType.False or
-                    TokenType.Null or
-                    TokenType.New or
-                    TokenType.This or
-                    TokenType.Base or
-                    TokenType.LeftParen or
-                    TokenType.LeftBracket or
-                    TokenType.Immutable or
-                    TokenType.Plus or
-                    TokenType.Minus or
-                    TokenType.Not or
-                    TokenType.BitwiseNot or
-                    TokenType.Increment or
-                    TokenType.Decrement or
-                    TokenType.Must or
-                    TokenType.Await or
-                    TokenType.Throw;
+                position++;
+                splitGreaterDepth++;
+                return true;
             }
 
-            // Generic or complex type (not supported in cast check yet)
             return false;
         }
-        finally
+
+        bool ScanTypeReference()
         {
-            _position = saved;
+            if (!ScanPostfixTypeReference())
+                return false;
+
+            while (CurrentType() == TokenType.BitwiseOr)
+            {
+                AdvanceScan();
+                if (!ScanPostfixTypeReference())
+                    return false;
+            }
+
+            return true;
         }
+
+        bool ScanPostfixTypeReference()
+        {
+            if (!ScanBaseTypeReference())
+                return false;
+
+            while (CurrentType() == TokenType.LeftBracket
+                   && position + 1 < _tokens.Count
+                   && _tokens[position + 1].Type == TokenType.RightBracket)
+            {
+                AdvanceScan();
+                AdvanceScan();
+            }
+
+            while (CurrentType() == TokenType.Question)
+            {
+                AdvanceScan();
+            }
+
+            return true;
+        }
+
+        bool ScanBaseTypeReference()
+        {
+            if (CurrentType() == TokenType.LeftParen)
+            {
+                AdvanceScan();
+
+                if (CurrentType() == TokenType.RightParen)
+                    return false;
+
+                do
+                {
+                    if (CurrentType() == TokenType.Identifier
+                        && position + 1 < _tokens.Count
+                        && _tokens[position + 1].Type == TokenType.Colon)
+                    {
+                        AdvanceScan();
+                        AdvanceScan();
+                    }
+
+                    if (!ScanTypeReference())
+                        return false;
+                } while (ConsumeScan(TokenType.Comma));
+
+                return ConsumeScan(TokenType.RightParen);
+            }
+
+            if (CurrentType() != TokenType.Identifier)
+                return false;
+
+            AdvanceScan();
+
+            while (ConsumeScan(TokenType.Dot))
+            {
+                if (CurrentType() != TokenType.Identifier)
+                    return false;
+                AdvanceScan();
+            }
+
+            if (ConsumeScan(TokenType.Less))
+            {
+                if (!ScanTypeReference())
+                    return false;
+
+                while (ConsumeScan(TokenType.Comma))
+                {
+                    if (!ScanTypeReference())
+                        return false;
+                }
+
+                if (!ConsumeGreaterScan())
+                    return false;
+            }
+
+            return true;
+        }
+
+        return ScanTypeReference()
+               && CurrentType() == TokenType.RightParen
+               && IsExpressionStart(position + 1 < _tokens.Count ? _tokens[position + 1].Type : TokenType.Eof);
+    }
+
+    private static bool IsExpressionStart(TokenType type)
+    {
+        return type is
+            TokenType.Identifier or
+            TokenType.IntLiteral or
+            TokenType.FloatLiteral or
+            TokenType.CharLiteral or
+            TokenType.StringLiteral or
+            TokenType.TripleQuoteStringLiteral or
+            TokenType.InterpolatedRawStringLiteral or
+            TokenType.True or
+            TokenType.False or
+            TokenType.Null or
+            TokenType.Default or
+            TokenType.New or
+            TokenType.This or
+            TokenType.Base or
+            TokenType.LeftParen or
+            TokenType.LeftBracket or
+            TokenType.Immutable or
+            TokenType.Plus or
+            TokenType.Minus or
+            TokenType.Not or
+            TokenType.BitwiseNot or
+            TokenType.Increment or
+            TokenType.Decrement or
+            TokenType.Must or
+            TokenType.Await or
+            TokenType.Throw or
+            TokenType.Match or
+            TokenType.Typeof or
+            TokenType.Nameof or
+            TokenType.Sizeof or
+            TokenType.Checked or
+            TokenType.Unchecked;
     }
 
     private string ParseOperatorSymbol()
@@ -4659,6 +4862,8 @@ public class Parser
 
     // Helper methods
     private Token Current => _position < _tokens.Count ? _tokens[_position] : _tokens[^1];
+
+    private Token Previous => _position > 0 ? _tokens[_position - 1] : _tokens[0];
 
     private bool IsAtEnd() => Current.Type == TokenType.Eof;
 

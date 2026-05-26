@@ -149,6 +149,48 @@ var calc = new Calculator();
 var result = calc.Add(5, 3);
 ```
 
+### Anonymous Union ABI
+
+Anonymous N# unions use `A | B` syntax but expose
+`NSharpLang.Runtime.Union<A, B>` at the public CLR boundary:
+
+```n#
+public static func Choose(flag: bool): int | string {
+    if flag {
+        return 42
+    }
+
+    return "fallback"
+}
+```
+
+C# callers receive a `Union<int, string>` and can use `Is<T>()`, `TryGet<T>()`,
+`As<T>()`, `Match(...)`, or `Switch(...)`:
+
+```csharp
+var result = Api.Choose(false);
+var text = result.As<string>();
+```
+
+Public methods with anonymous-union parameters emit overload shims for C# callers:
+
+```n#
+public static func Describe(value: int | string): string {
+    return match value {
+        int number => number.ToString(),
+        string text => text
+    }
+}
+```
+
+The canonical CLR method accepts `Union<int, string>`, and shims accept `int` and
+`string`, so C# can call `Describe(123)` or `Describe("ready")` without constructing
+the union manually. Return types, fields, properties, and generic arguments expose the
+runtime union type directly.
+
+The `NSharpLang.Runtime` package is wired into the N# SDK restore graph; users do not
+add runtime references to the minimal N# `.csproj`.
+
 ## Attributes
 
 Use C# attributes:

@@ -312,6 +312,27 @@ class TaskService {
             d.Suggestion.Contains("System.Threading.Tasks"));
     }
 
+    [Fact]
+    public void NL002_NoWarningForInstanceMemberNamedLikeKnownType()
+    {
+        var source = @"
+class HttpUrl {
+    Path: string = ""/api/items""
+
+    func ToDisplayString(): string {
+        pathLength := Path.Length
+        return $""{Path}:{pathLength}""
+    }
+}";
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d =>
+            d.Code == "NL002" &&
+            d.Message.Contains("Path") &&
+            d.Suggestion != null &&
+            d.Suggestion.Contains("System.IO"));
+    }
+
     #endregion
 
     #region NL003: Unnecessary Null Check Tests

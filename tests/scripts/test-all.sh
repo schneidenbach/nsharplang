@@ -225,6 +225,16 @@ else
 fi
 
 section "Step 4: Pack and Install MSBuild SDK"
+echo "Packing runtime to local NuGet feed..."
+mkdir -p "$LOCAL_FEED"
+rm -f "$LOCAL_FEED"/NSharpLang.Runtime.*.nupkg
+remove_nuget_package_cache NSharpLang.Runtime
+if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -o "$LOCAL_FEED" -v q; then
+    handle_success "Runtime packed"
+else
+    handle_error "Runtime pack"
+fi
+
 echo "Packing SDK to local NuGet feed..."
 mkdir -p "$LOCAL_FEED"
 rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
@@ -248,6 +258,7 @@ else
 fi
 
 echo "Clearing N# NuGet package cache entries..."
+remove_nuget_package_cache NSharpLang.Runtime
 remove_nuget_package_cache NSharpLang.Sdk
 remove_nuget_package_cache NSharpLang.Templates
 handle_success "N# NuGet package cache entries cleared"
