@@ -84,6 +84,43 @@ func Hi() {
     }
 
     [Fact]
+    public void Diagnostics_InvalidMemberCallsAndReturnType_AreAllPublished()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///invalid-member-calls.nl";
+
+        var source = """
+package HelloWorld
+
+func Hi() {
+    "asdf".toUp()
+    asdf := "asdf"
+    asdf.sdd()
+    return 42
+}
+""";
+
+        documentManager.MarkEditorOpen(uri);
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var publications = documentManager.GetDiagnosticsToPublish(uri);
+        var diagnostics = Assert.Single(publications).CompilerDiagnostics.ToList();
+
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.UndefinedMember &&
+            diagnostic.Message.Contains("toUp") &&
+            diagnostic.Line == 4);
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.UndefinedMember &&
+            diagnostic.Message.Contains("sdd") &&
+            diagnostic.Line == 6);
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.TypeMismatch &&
+            diagnostic.Message.Contains("returns int but has no return type") &&
+            diagnostic.Line == 7);
+    }
+
+    [Fact]
     public void Diagnostics_MalformedEditingBuffer_PublishesHighSignalProblems()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
