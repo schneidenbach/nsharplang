@@ -44,6 +44,7 @@ compile-debug.log
 node_modules/
 
 # Launch/review transient workspaces
+.claude/worktrees/
 .review-pr117/
 examples/17-issue-tracker/.demo-artifacts/
 docs/talk/gate-logs/clean-remediation-pass1-20260517T000901Z/
