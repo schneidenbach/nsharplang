@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="NSharpInteropLib/NSharpInteropLib.csproj" />
+    <ProjectReference Include="../../src/NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
   </ItemGroup>
 
 </Project>

@@ -21,7 +21,9 @@ keeps compatibility wrappers for stable commands that automation already uses.
 
 These stable command names delegate to implementations in `tests/scripts/`:
 
-- `test-all.sh` - full product verification gate.
+- `test-all.sh` - isolated full product verification gate with a validated
+  content-addressed pass cache. Use `./scripts/test-all.sh --commit` before
+  committing so cached results are not accepted.
 - `smoke-turnkey-install.sh` - local-feed smoke for the public installer.
 - `test-vscode-headless.sh`, `test-vscode-integration.sh` - editor test loops.
 - `replay-template-quickstarts.py` - verifies template README quickstarts.

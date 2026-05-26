@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <RootNamespace>NSharpLang.Runtime</RootNamespace>
 
     <PackageId>NSharpLang.Runtime</PackageId>

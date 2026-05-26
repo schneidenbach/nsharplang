@@ -274,10 +274,20 @@ nlc test
 ## Full Validation (MANDATORY before committing)
 
 ```bash
-./scripts/test-all.sh
+./scripts/test-all.sh --commit
 ```
 
-This script:
+This entrypoint runs the full gate from an isolated temporary copy of the
+repository with separate HOME, temp, NuGet, and npm state. Successful isolated
+runs write a content-addressed cache manifest that includes source content,
+test arguments, selected environment, tool versions, and platform data; when all
+of those inputs still match, follow-up invocations validate the manifest and
+return the recorded green result quickly. Plain `./scripts/test-all.sh` may use
+that cache for development feedback. Before committing or release verification,
+use `./scripts/test-all.sh --commit` (or `--release`) so cached results are not
+accepted.
+
+The full isolated run:
 1. Runs all unit tests (`dotnet test`)
 2. Rebuilds the compiler and SDK
 3. Installs the latest SDK to local NuGet feed
@@ -285,7 +295,7 @@ This script:
 5. Builds ALL example projects with `dotnet build`
 6. Validates everything works end-to-end
 
-**Never commit without test-all.sh passing.**
+**Never commit without `./scripts/test-all.sh --commit` passing.**
 
 ## Continuous Testing
 

@@ -1,595 +1,449 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "========================================="
-echo "N# Comprehensive Test Suite"
-echo "========================================="
-echo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CORE_SCRIPT="$SCRIPT_DIR/test-all-core.sh"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Track failures
-FAILURES=0
-
-get_cpu_count() {
-    if command -v getconf >/dev/null 2>&1; then
-        getconf _NPROCESSORS_ONLN 2>/dev/null && return
-    fi
-    if command -v sysctl >/dev/null 2>&1; then
-        sysctl -n hw.ncpu 2>/dev/null && return
-    fi
-    echo 4
-}
-
-DEFAULT_JOBS=$(get_cpu_count)
-if ! [[ "$DEFAULT_JOBS" =~ ^[0-9]+$ ]] || [ "$DEFAULT_JOBS" -lt 1 ]; then
-    DEFAULT_JOBS=4
+if [ ! -x "$CORE_SCRIPT" ]; then
+    echo "ERROR: missing executable core test gate: $CORE_SCRIPT" >&2
+    exit 1
 fi
-if [ "$DEFAULT_JOBS" -gt 4 ]; then
-    DEFAULT_JOBS=4
-fi
-MAX_JOBS=${TEST_ALL_JOBS:-$DEFAULT_JOBS}
-if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
-    MAX_JOBS=1
-fi
+
+FORCE_RUN="${NSHARP_TEST_ALL_FORCE:-0}"
+KEEP_RUN="${NSHARP_TEST_KEEP_RUN:-0}"
+FRESH_REASON=""
+CORE_ARGS=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            cat <<'EOF'
+Usage: ./scripts/test-all.sh [options]
+
+Runs the full N# product gate from an isolated temporary workspace.
+
+Options:
+  --commit, --pre-commit
+      Fresh isolated run required before committing. Cached results are not accepted.
+  --release
+      Fresh isolated run required for release verification. Cached results are not accepted.
+  --fresh, --no-cache, --rebuild-cache
+      Force a fresh isolated run and refresh the validated cache record on success.
+  --clean
+      Force a fresh isolated run and pass --clean through to the core gate.
+  -h, --help
+      Show this help.
+
+Plain ./scripts/test-all.sh may return a validated cache hit for fast local
+development. Do not use a cached hit as a pre-commit or release verification.
+EOF
+            exit 0
+            ;;
+        --commit|--pre-commit)
+            FORCE_RUN=1
+            FRESH_REASON="pre-commit verification"
+            ;;
+        --release)
+            FORCE_RUN=1
+            FRESH_REASON="release verification"
+            ;;
+        --fresh)
+            FORCE_RUN=1
+            FRESH_REASON="explicit fresh verification"
+            ;;
+        --no-cache|--rebuild-cache)
+            FORCE_RUN=1
+            FRESH_REASON="cache bypass requested"
+            ;;
+        --clean)
+            FORCE_RUN=1
+            FRESH_REASON="clean verification"
+            CORE_ARGS+=("$arg")
+            ;;
+        *)
+            CORE_ARGS+=("$arg")
+            ;;
+    esac
+done
 
 is_enabled() {
-    case "$1" in
+    case "${1:-}" in
         1|true|TRUE|yes|YES|on|ON) return 0 ;;
         *) return 1 ;;
     esac
 }
 
-if [ -z "${NLC_MSBUILD_SINGLE_NODE+x}" ]; then
-    if [ -n "${CODEX_SANDBOX:-}" ]; then
-        NLC_MSBUILD_SINGLE_NODE=1
-    else
-        NLC_MSBUILD_SINGLE_NODE=0
+cache_root() {
+    if [ -n "${NSHARP_TEST_CACHE_ROOT:-}" ]; then
+        printf '%s\n' "$NSHARP_TEST_CACHE_ROOT"
+        return
     fi
-fi
 
-DOTNET_STABLE_FLAGS="--disable-build-servers -nr:false"
-if is_enabled "$NLC_MSBUILD_SINGLE_NODE"; then
-    # Some coding-agent sandboxes allow file writes but deny local IPC socket
-    # binds. Force MSBuild into the in-process, single-node path there.
-    DOTNET_STABLE_FLAGS="$DOTNET_STABLE_FLAGS -m:1 -p:BuildInParallel=false"
-    export DOTNET_CLI_USE_MSBUILD_SERVER=0
-    export DOTNET_CLI_RUN_MSBUILD_OUTOFPROC=0
-    export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=0
-    export MSBUILDDISABLENODEREUSE=1
-    unset MSBUILDNOINPROCNODE
-fi
-
-# Parse arguments
-CLEAN_BUILD=0
-for arg in "$@"; do
-    case "$arg" in
-        --clean) CLEAN_BUILD=1 ;;
+    case "$(uname -s)" in
+        Darwin)
+            printf '%s\n' "$HOME/Library/Caches/NSharpLang/test-all"
+            ;;
+        *)
+            printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/nsharplang/test-all"
+            ;;
     esac
-done
+}
 
-# Function to print section headers
-section() {
+CACHE_ROOT="$(cache_root)"
+RESULTS_ROOT="$CACHE_ROOT/results"
+LOCKS_ROOT="$CACHE_ROOT/locks"
+SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-signature.XXXXXX")"
+LOCK_STALE_SECONDS="${NSHARP_TEST_LOCK_STALE_SECONDS:-7200}"
+if ! [[ "$LOCK_STALE_SECONDS" =~ ^[0-9]+$ ]]; then
+    LOCK_STALE_SECONDS=7200
+fi
+
+cleanup_signature() {
+    rm -f "$SIGNATURE_FILE"
+}
+trap cleanup_signature EXIT
+
+CACHE_KEY="$(
+    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
+import hashlib
+import json
+import os
+import platform
+import subprocess
+import sys
+
+root = os.path.realpath(sys.argv[1])
+signature_path = sys.argv[2]
+args = sys.argv[3:]
+
+
+def run_text(command):
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
+def source_files():
+    git = subprocess.run(
+        ["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if git.returncode == 0:
+        for raw in git.stdout.split(b"\0"):
+            if raw:
+                yield raw.decode("utf-8", "surrogateescape")
+        return
+
+    skipped_dirs = {
+        ".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
+        "artifacts", "server", "out", "nsharp"
+    }
+    for current, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in skipped_dirs]
+        for name in files:
+            yield os.path.relpath(os.path.join(current, name), root)
+
+
+content_hash = hashlib.sha256()
+for relative in sorted(set(source_files())):
+    path = os.path.join(root, relative)
+    if not os.path.isfile(path):
+        continue
+    normalized = relative.replace(os.sep, "/")
+    content_hash.update(normalized.encode("utf-8", "surrogateescape"))
+    content_hash.update(b"\0")
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            content_hash.update(chunk)
+    content_hash.update(b"\0")
+
+tool_versions = {
+    "dotnet": run_text(["dotnet", "--version"]),
+    "node": run_text(["node", "--version"]),
+    "npm": run_text(["npm", "--version"]),
+    "code": (run_text(["code", "--version"]) or "").splitlines()[:2],
+}
+
+env_names = [
+    "VSCODE_TESTS",
+    "TEST_SUITE",
+    "TEST_GREP",
+    "TEST_ALL_JOBS",
+    "NLC_MSBUILD_SINGLE_NODE",
+    "DOTNET_ROOT",
+]
+
+signature = {
+    "schemaVersion": 1,
+    "sourceHash": content_hash.hexdigest(),
+    "args": args,
+    "environment": {name: os.environ.get(name) for name in env_names if os.environ.get(name) is not None},
+    "tools": tool_versions,
+    "platform": {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "release": platform.release(),
+    },
+}
+
+encoded = json.dumps(signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+key = hashlib.sha256(encoded).hexdigest()
+with open(signature_path, "w", encoding="utf-8") as handle:
+    json.dump(signature, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+print(key)
+PY
+)"
+
+CACHE_DIR="$RESULTS_ROOT/$CACHE_KEY"
+MANIFEST_FILE="$CACHE_DIR/manifest.json"
+
+validate_manifest() {
+    [ -f "$MANIFEST_FILE" ] || return 1
+    python3 - "$SIGNATURE_FILE" "$MANIFEST_FILE" "$CACHE_KEY" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    signature = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+ok = (
+    manifest.get("schemaVersion") == 1
+    and manifest.get("key") == sys.argv[3]
+    and manifest.get("coreExitCode") == 0
+    and manifest.get("signature") == signature
+)
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+print_cache_hit() {
+    python3 - "$MANIFEST_FILE" "$CACHE_KEY" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+print("=========================================")
+print("N# Comprehensive Test Suite")
+print("=========================================")
+print()
+print("Validated isolated test cache hit (development fast path)")
+print(f"Cache key: {sys.argv[2][:16]}")
+print(f"Full isolated pass: {manifest.get('completedAtUtc')}")
+print(f"Recorded duration: {manifest.get('durationSeconds')}s")
+print("Fresh run required for commit/release: ./scripts/test-all.sh --commit")
+print()
+print("Validation:")
+print("  - source, test scripts, docs, examples, and templates match")
+print("  - test arguments and selected environment match")
+print("  - tool versions match")
+print("  - cache manifest schema and success marker are valid")
+print()
+print("LAST ISOLATED FULL TEST RUN PASSED (cached validated result)")
+PY
+}
+
+mkdir -p "$RESULTS_ROOT" "$LOCKS_ROOT"
+
+if is_enabled "$FORCE_RUN"; then
+    if [ -z "$FRESH_REASON" ]; then
+        FRESH_REASON="NSHARP_TEST_ALL_FORCE requested"
+    fi
+    echo "Fresh isolated test run required: $FRESH_REASON"
+    echo "Existing cache entries will not satisfy this invocation."
     echo
-    echo -e "${YELLOW}>>> $1${NC}"
-    echo "========================================="
-}
-
-# Function to handle errors
-handle_error() {
-    echo -e "${RED}✗ FAILED: $1${NC}"
-    FAILURES=$((FAILURES + 1))
-}
-
-# Function to handle success
-handle_success() {
-    echo -e "${GREEN}✓ PASSED: $1${NC}"
-}
-
-# Change to repo root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/../.."
-REPO_ROOT=$(pwd)
-CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
-LOCAL_FEED="$HOME/.nsharp/packages"
-NUGET_PACKAGE_CACHE="$HOME/.nuget/packages"
-
-remove_nuget_package_cache() {
-    local package_id="$1"
-    local normalized_id
-    normalized_id=$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')
-    rm -rf "$NUGET_PACKAGE_CACHE/$normalized_id"
-}
-
-section "Step 1: Clean Previous Build Artifacts"
-if [ "$CLEAN_BUILD" = "1" ]; then
-    echo "Cleaning bin/ and obj/ directories..."
-    find . \( -type d -name "bin" -o -type d -name "obj" -o -type d -name "nsharp" \) | while read dir; do
-        if [[ "$dir" == "./node_modules"* ]] || [[ "$dir" == *".vscode-test"* ]] || [[ "$dir" == *"node_modules"* ]]; then
-            continue
-        fi
-        rm -rf "$dir"
-    done
-    handle_success "Cleaned build artifacts"
-else
-    echo "Incremental build (use --clean for full clean)"
-    handle_success "Skipped clean (incremental)"
 fi
 
-section "Step 2: Build N# Compiler"
-echo "Building compiler and CLI..."
-if dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Cli/Cli.csproj -v q; then
-    handle_success "Compiler built"
-else
-    handle_error "Compiler build"
-fi
-
-section "Step 2b: Format Contract Gate"
-echo "Checking canonical formatting for examples, templates, and representative fixtures..."
-FORMAT_OUTPUT=$(mktemp)
-if {
-    dotnet "$CLI_DLL" format --project examples --check
-    dotnet "$CLI_DLL" format --project templates --check
-    dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check
-} > "$FORMAT_OUTPUT" 2>&1; then
-    cat "$FORMAT_OUTPUT"
-    handle_success "Formatting gate"
-else
-    cat "$FORMAT_OUTPUT"
-    handle_error "Formatting gate"
-fi
-rm -f "$FORMAT_OUTPUT"
-
-section "Step 3: Run Unit Tests"
-echo "Running all unit tests..."
-dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate --no-cache -v q
-TEST_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
-    TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
-    if [ -n "$TEST_RESULT" ]; then
-        echo "$TEST_RESULT"
-    fi
-    handle_success "Unit tests passed"
-else
-    cat "$TEST_OUTPUT"
-    handle_error "Unit tests"
-fi
-rm -f "$TEST_OUTPUT"
-
-section "Step 3b: VS Code Integration Tests"
-# Determine whether to run full VS Code tests or the bounded smoke suite.
-# The full suite is intentionally opt-in: it is exhaustive, can exceed launch
-# rehearsal budgets, and currently includes repo-wide/demonstration coverage that
-# is tracked separately from this fast release gate. The default gate still
-# verifies the extension loads and core LSP UX works; set VSCODE_TESTS=full when
-# you explicitly want the exhaustive suite.
-VSCODE_TEST_MODE="${VSCODE_TESTS:-auto}"
-
-if [ "$VSCODE_TEST_MODE" = "auto" ]; then
-    VSCODE_TEST_MODE="smoke"
-    echo "Running bounded VS Code smoke tests for the release gate"
-    echo "  (set VSCODE_TESTS=full to run the exhaustive VS Code suite)"
-fi
-
-if [ "$VSCODE_TEST_MODE" = "skip" ]; then
-    echo -e "${YELLOW}Skipping VS Code tests (VSCODE_TESTS=skip)${NC}"
-else
-    # Check prerequisites
-    VSCODE_SKIP_REASON=""
-    if ! command -v code >/dev/null 2>&1; then
-        VSCODE_SKIP_REASON="VS Code ('code' command) not found on PATH"
-    fi
-    if ! command -v node >/dev/null 2>&1; then
-        VSCODE_SKIP_REASON="Node.js ('node' command) not found on PATH"
-    fi
-
-    if [ -n "$VSCODE_SKIP_REASON" ]; then
-        echo -e "${RED}ERROR: $VSCODE_SKIP_REASON${NC}"
-        echo "VS Code integration tests require:"
-        echo "  - VS Code: https://code.visualstudio.com/"
-        echo "  - Node.js: https://nodejs.org/"
-        echo "  - 'code' CLI: VS Code > Cmd+Shift+P > 'Shell Command: Install code command'"
-        handle_error "VS Code integration tests (missing prerequisites)"
-    else
-        VSCODE_OUTPUT=$(mktemp)
-        if [ "$VSCODE_TEST_MODE" = "smoke" ]; then
-            echo "Running VS Code smoke tests (extension, diagnostics, hover, completion)..."
-            SKIP_LS_BUILD=1 TEST_SUITE="extension,diagnostics,hover,completion" \
-                "$REPO_ROOT/tests/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
-        else
-            echo "Running full VS Code integration tests..."
-            SKIP_LS_BUILD=1 "$REPO_ROOT/tests/scripts/test-vscode-integration.sh" > "$VSCODE_OUTPUT" 2>&1 && VSCODE_OK=1 || VSCODE_OK=0
-        fi
-
-        if [ "$VSCODE_OK" = "1" ]; then
-            PASS_COUNT=$(grep -c '✔' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
-            SKIP_COUNT=$(grep -c 'pending' "$VSCODE_OUTPUT" 2>/dev/null || echo "0")
-            SUMMARY_LINE=$(grep -E '[0-9]+ passing' "$VSCODE_OUTPUT" || echo "")
-            if [ -n "$SUMMARY_LINE" ]; then
-                echo "  $SUMMARY_LINE"
-            fi
-            if [ "$SKIP_COUNT" != "0" ]; then
-                echo "  ($SKIP_COUNT pending/skipped)"
-            fi
-            handle_success "VS Code integration tests ($VSCODE_TEST_MODE)"
-        else
-            cat "$VSCODE_OUTPUT"
-            handle_error "VS Code integration tests ($VSCODE_TEST_MODE)"
-        fi
-        rm -f "$VSCODE_OUTPUT"
-    fi
-fi
-
-section "Step 4: Pack and Install MSBuild SDK"
-echo "Packing runtime to local NuGet feed..."
-mkdir -p "$LOCAL_FEED"
-rm -f "$LOCAL_FEED"/NSharpLang.Runtime.*.nupkg
-remove_nuget_package_cache NSharpLang.Runtime
-if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Runtime/NSharpLang.Runtime.csproj -o "$LOCAL_FEED" -v q; then
-    handle_success "Runtime packed"
-else
-    handle_error "Runtime pack"
-fi
-
-echo "Packing SDK to local NuGet feed..."
-mkdir -p "$LOCAL_FEED"
-rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
-remove_nuget_package_cache NSharpLang.Sdk
-dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate --no-cache -v q
-dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q
-if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
-    handle_success "SDK packed"
-else
-    handle_error "SDK pack"
-fi
-
-section "Step 4b: Pack N# Templates"
-echo "Packing templates to local NuGet feed..."
-rm -f "$LOCAL_FEED"/NSharpLang.Templates.*.nupkg
-remove_nuget_package_cache NSharpLang.Templates
-if dotnet pack $DOTNET_STABLE_FLAGS templates/NSharpLang.Templates.csproj -o "$LOCAL_FEED" -v q; then
-    handle_success "Templates packed"
-else
-    handle_error "Templates pack"
-fi
-
-echo "Clearing N# NuGet package cache entries..."
-remove_nuget_package_cache NSharpLang.Runtime
-remove_nuget_package_cache NSharpLang.Sdk
-remove_nuget_package_cache NSharpLang.Templates
-handle_success "N# NuGet package cache entries cleared"
-
-section "Step 4c: C# Interop Tests"
-echo "Running C# interop tests..."
-INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
-
-if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate --no-cache -v q; then
-    handle_error "C# interop restore"
-fi
-
-INTEROP_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo > "$INTEROP_OUTPUT" 2>&1; then
-    TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
-    if [ -n "$TEST_RESULT" ]; then
-        echo "$TEST_RESULT"
-    fi
-    handle_success "C# interop tests passed"
-else
-    cat "$INTEROP_OUTPUT"
-    handle_error "C# interop tests"
-fi
-rm -f "$INTEROP_OUTPUT"
-
-section "Step 5: Install dotnet new Template"
-echo "Installing NSharpLang.Templates from local N# package cache..."
-if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
-    handle_success "Template package installed"
-else
-    handle_error "Template installation"
-fi
-
-TEMPLATE_LIST=$(dotnet new list nsharp 2>/dev/null || true)
-if echo "$TEMPLATE_LIST" | grep -q "nsharp-console" && echo "$TEMPLATE_LIST" | grep -q "nsharp-webapi"; then
-    handle_success "Console and Web API templates are listed"
-else
-    handle_error "Template listing"
-fi
-
-section "Step 6: Test Template Creation"
-TEMP_DIR=$(mktemp -d)
-echo "Creating test project in $TEMP_DIR..."
-if dotnet new nsharp-console -o "$TEMP_DIR/TestConsoleApp" > /dev/null 2>&1; then
-    handle_success "Template created test project"
-else
-    handle_error "Template creation"
-fi
-
-if dotnet new nsharp-webapi -o "$TEMP_DIR/TestWebApiApp" > /dev/null 2>&1; then
-    handle_success "Web API template created test project"
-else
-    handle_error "Web API template creation"
-fi
-
-if [ -f "$TEMP_DIR/TestConsoleApp/project.yml" ]; then
-    handle_success "project.yml exists"
-else
-    handle_error "project.yml missing"
-fi
-
-# Verify NO .csproj was created by template (csproj-free workflow)
-CSPROJ_COUNT=$(find "$TEMP_DIR/TestConsoleApp" -name "*.csproj" -type f 2>/dev/null | wc -l | tr -d ' ')
-if [ "$CSPROJ_COUNT" = "0" ]; then
-    handle_success "No .csproj in template output (csproj-free)"
-else
-    handle_error "Template should not create .csproj files"
-fi
-
-if [ -f "$TEMP_DIR/TestWebApiApp/project.yml" ]; then
-    handle_success "webapi project.yml exists"
-else
-    handle_error "webapi project.yml missing"
-fi
-
-section "Step 7: Build Template-Generated Project (via nlc build)"
-if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
-    cd "$TEMP_DIR/TestConsoleApp"
-    echo "Building template-generated project with nlc build..."
-    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
-        handle_success "Template project builds (nlc build)"
-    else
-        handle_error "Template project build (nlc build)"
-    fi
-else
-    handle_error "Template project missing"
-fi
-
-if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
-    cd "$TEMP_DIR/TestWebApiApp"
-    echo "Building web API template-generated project with nlc build..."
-    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
-        handle_success "Web API template project builds (nlc build)"
-    else
-        handle_error "Web API template project build (nlc build)"
-    fi
-else
-    handle_error "Web API template project missing"
-fi
-
-cd "$REPO_ROOT"
-rm -rf "$TEMP_DIR"
-
-section "Step 8: Build Example Projects (via nlc build)"
-echo "Using up to $MAX_JOBS parallel workers for project verification..."
-
-# Find all example projects and test fixture projects with project.yml
-EXAMPLE_PROJECTS=$(find examples tests/fixtures -name "project.yml" -type f 2>/dev/null | sort)
-
-if [ -z "$EXAMPLE_PROJECTS" ]; then
-    echo "No example projects found with project.yml"
-else
-    # Pre-build one example to populate the NuGet cache, avoiding parallel restore races
-    FIRST_PROJECT=$(echo "$EXAMPLE_PROJECTS" | head -1)
-    FIRST_DIR=$(dirname "$FIRST_PROJECT")
-    echo "Warming NuGet cache with $FIRST_DIR..."
-    rm -rf "$FIRST_DIR/bin" "$FIRST_DIR/obj" "$FIRST_DIR/nsharp" 2>/dev/null || true
-    rm -f "$FIRST_DIR"/*.g.csproj 2>/dev/null || true
-    (cd "$REPO_ROOT/$FIRST_DIR" && dotnet "$CLI_DLL" build > /dev/null 2>&1) || true
-
-    EXAMPLE_RESULTS_DIR=$(mktemp -d)
-    EXAMPLE_LIST="$EXAMPLE_RESULTS_DIR/items.txt"
-    i=0
-    printf '%s\n' "$EXAMPLE_PROJECTS" | while IFS= read -r project_file; do
-        i=$((i + 1))
-        printf '%04d|%s\n' "$i" "$project_file"
-    done > "$EXAMPLE_LIST"
-
-    xargs -P "$MAX_JOBS" -I{} bash -lc '
-        entry="$1"
-        repo_root="$2"
-        results_dir="$3"
-        cli_dll="$4"
-        idx="${entry%%|*}"
-        project_file="${entry#*|}"
-        project_dir=$(dirname "$project_file")
-        project_name=$(basename "$project_dir")
-        log_file="$results_dir/$idx.log"
-        result_file="$results_dir/$idx.result"
-        work_dir="$repo_root/$project_dir"
-
-        rm -rf "$work_dir/bin" "$work_dir/obj" "$work_dir/nsharp" 2>/dev/null || true
-        # Remove any stale generated .g.csproj files
-        rm -f "$work_dir"/*.g.csproj 2>/dev/null || true
-
-        if (cd "$work_dir" && dotnet "$cli_dll" build > "$log_file" 2>&1); then
-            printf "OK|%s|%s\n" "$project_name" "$project_dir" > "$result_file"
-        else
-            printf "FAIL|%s|%s|%s\n" "$project_name" "$project_dir" "$log_file" > "$result_file"
-        fi
-    ' _ {} "$REPO_ROOT" "$EXAMPLE_RESULTS_DIR" "$CLI_DLL" < "$EXAMPLE_LIST"
-
-    while IFS='|' read -r idx project_file; do
-        result_file="$EXAMPLE_RESULTS_DIR/$idx.result"
-        status=$(cut -d'|' -f1 "$result_file")
-        project_name=$(cut -d'|' -f2 "$result_file")
-        project_dir=$(cut -d'|' -f3 "$result_file")
-
-        echo
-        echo "Building example: $project_name"
-        echo "  Location: $project_dir"
-
-        if [ "$status" = "OK" ]; then
-            handle_success "Example: $project_name"
-        else
-            handle_error "Example: $project_name"
-            echo "  Run manually: cd $project_dir && dotnet \"$CLI_DLL\" build"
-        fi
-    done < "$EXAMPLE_LIST"
-
-    rm -rf "$EXAMPLE_RESULTS_DIR"
-fi
-
-section "Step 9: Build Single-File Examples (CLI-based)"
-
-# Find single .nl files outside of project.yml directories.
-# Do not allowlist failures here: examples are product surface, and unexpected
-# failures must fail this gate instead of being hidden in release evidence.
-# Skip files inside project-based directories (they're tested in Step 8).
-LEGACY_EXAMPLES=""
-while IFS= read -r nl_file; do
-    dir=$(dirname "$nl_file")
-    # Skip if this file or its parent dir has a project.yml
-    [ -f "$dir/project.yml" ] && continue
-    parent=$(dirname "$dir")
-    [ -f "$parent/project.yml" ] && continue
-    LEGACY_EXAMPLES="${LEGACY_EXAMPLES}${nl_file}
-"
-done < <(find examples -name "*.nl" -type f | sort)
-
-if [ -z "$LEGACY_EXAMPLES" ]; then
-    echo "No single-file examples found"
-else
-    echo "Building single-file examples with nlc build..."
-    if [ ! -f "$CLI_DLL" ]; then
-        handle_error "CLI build artifact missing"
-    else
-        LEGACY_RESULTS_DIR=$(mktemp -d)
-        LEGACY_LIST="$LEGACY_RESULTS_DIR/items.txt"
-        i=0
-        printf '%s' "$LEGACY_EXAMPLES" | while IFS= read -r nl_file; do
-            [ -z "$nl_file" ] && continue
-            i=$((i + 1))
-            printf '%04d|%s\n' "$i" "$nl_file"
-        done > "$LEGACY_LIST"
-
-        xargs -P "$MAX_JOBS" -I{} bash -lc '
-            entry="$1"
-            repo_root="$2"
-            results_dir="$3"
-            cli_dll="$4"
-            idx="${entry%%|*}"
-            nl_file="${entry#*|}"
-            example_name=$(basename "$nl_file" .nl)
-            log_file="$results_dir/$idx.log"
-            result_file="$results_dir/$idx.result"
-
-            if dotnet "$cli_dll" build "$nl_file" > "$log_file" 2>&1; then
-                printf "OK|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
-            else
-                printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
-            fi
-        ' _ {} "$REPO_ROOT" "$LEGACY_RESULTS_DIR" "$CLI_DLL" < "$LEGACY_LIST"
-
-        while IFS='|' read -r idx nl_file; do
-            result_file="$LEGACY_RESULTS_DIR/$idx.result"
-            [ ! -f "$result_file" ] && continue
-            status=$(cut -d'|' -f1 "$result_file")
-            example_name=$(cut -d'|' -f2 "$result_file")
-            example_path=$(cut -d'|' -f3 "$result_file")
-
-            echo
-            echo "Building single-file example: $example_name"
-            echo "  Location: $example_path"
-
-            if [ "$status" = "OK" ]; then
-                handle_success "Single-file example: $example_name"
-            else
-                handle_error "Single-file example: $example_name"
-                echo "  Run manually: dotnet \"$CLI_DLL\" build \"$example_path\""
-            fi
-        done < "$LEGACY_LIST"
-
-        rm -rf "$LEGACY_RESULTS_DIR"
-    fi
-fi
-
-section "Step 10: Check Examples (nlc check)"
-echo "Running nlc check on all example directories..."
-echo "This verifies the Language Server won't report false errors."
-
-# Directories to check individually (each is a self-contained project scope).
-# Skip umbrella folders with no direct .nl files and no project.yml; their child
-# projects are checked separately. This keeps the output trustworthy without
-# parent-directory allowlists that mask bad import roots.
-CHECK_DIRS=$(find examples -mindepth 1 -maxdepth 1 -type d | sort)
-# Sub-projects in 12-multi-file-projects need individual checking
-CHECK_DIRS="$CHECK_DIRS
-$(find examples/12-multi-file-projects -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
-# Sub-projects in 17-issue-tracker (backend has its own project.yml)
-CHECK_DIRS="$CHECK_DIRS
-$(find examples/17-issue-tracker -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)"
-# Test fixture projects
-CHECK_DIRS="$CHECK_DIRS
-$(find tests/fixtures -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -v '\.golden' | sort)"
-
-filter_check_dir() {
-    local check_dir="$1"
-    [ -z "$check_dir" ] && return 1
-    [ -f "$check_dir/project.yml" ] && return 0
-    find "$check_dir" -maxdepth 1 -name "*.nl" -type f 2>/dev/null | grep -q .
-}
-
-echo "Using up to $MAX_JOBS parallel workers for nlc check..."
-CHECK_RESULTS_DIR=$(mktemp -d)
-CHECK_LIST="$CHECK_RESULTS_DIR/items.txt"
-i=0
-while IFS= read -r check_dir; do
-    filter_check_dir "$check_dir" || continue
-    i=$((i + 1))
-    printf '%04d|%s\n' "$i" "$check_dir"
-done <<< "$CHECK_DIRS" > "$CHECK_LIST"
-
-xargs -P "$MAX_JOBS" -I{} bash -lc '
-    entry="$1"
-    repo_root="$2"
-    results_dir="$3"
-    cli_dll="$4"
-    idx="${entry%%|*}"
-    check_dir="${entry#*|}"
-    result_file="$results_dir/$idx.result"
-
-    result=$(dotnet "$cli_dll" check "$check_dir/" 2>/dev/null || true)
-    errors=$(echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['\''summary'\'']['\''errors'\''])" 2>/dev/null || echo "?")
-    dir_name=$(echo "$check_dir" | sed "s|examples/||")
-    printf "%s|%s|%s\n" "$errors" "$dir_name" "$check_dir" > "$result_file"
-' _ {} "$REPO_ROOT" "$CHECK_RESULTS_DIR" "$CLI_DLL" < "$CHECK_LIST"
-
-CHECK_FAIL=0
-while IFS='|' read -r idx check_dir_unused; do
-    result_file="$CHECK_RESULTS_DIR/$idx.result"
-    [ ! -f "$result_file" ] && continue
-    errors=$(cut -d'|' -f1 "$result_file")
-    dir_name=$(cut -d'|' -f2 "$result_file")
-
-    if [ "$errors" = "0" ]; then
-        echo -e "  ${GREEN}✓${NC} $dir_name"
-    else
-        echo -e "  ${RED}✗${NC} $dir_name ($errors errors)"
-        CHECK_FAIL=1
-    fi
-done < "$CHECK_LIST"
-
-rm -rf "$CHECK_RESULTS_DIR"
-
-if [ "$CHECK_FAIL" = "0" ]; then
-    handle_success "nlc check on examples"
-else
-    handle_error "nlc check on examples (unexpected errors found)"
-fi
-
-section "Step 11: Summary"
-echo
-if [ $FAILURES -eq 0 ]; then
-    echo -e "${GREEN}=========================================${NC}"
-    echo -e "${GREEN}ALL TESTS PASSED! ✓${NC}"
-    echo -e "${GREEN}=========================================${NC}"
+if ! is_enabled "$FORCE_RUN" && validate_manifest; then
+    print_cache_hit
     exit 0
-else
-    echo -e "${RED}=========================================${NC}"
-    echo -e "${RED}FAILURES: $FAILURES${NC}"
-    echo -e "${RED}=========================================${NC}"
-    exit 1
 fi
+
+LOCK_DIR="$LOCKS_ROOT/$CACHE_KEY.lock"
+LOCK_ACQUIRED=0
+
+release_lock() {
+    if [ "$LOCK_ACQUIRED" = "1" ]; then
+        rm -rf "$LOCK_DIR"
+    fi
+}
+trap 'cleanup_signature; release_lock' EXIT
+
+lock_mtime_seconds() {
+    stat -f %m "$LOCK_DIR" 2>/dev/null || stat -c %Y "$LOCK_DIR" 2>/dev/null || echo 0
+}
+
+remove_stale_lock_if_needed() {
+    if [ -f "$LOCK_DIR/pid" ]; then
+        lock_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        if [[ "$lock_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            echo "Removing stale isolated test cache lock for key ${CACHE_KEY:0:16} (pid $lock_pid is gone)."
+            rm -rf "$LOCK_DIR"
+            return
+        fi
+    fi
+
+    lock_mtime="$(lock_mtime_seconds)"
+    if [[ "$lock_mtime" =~ ^[0-9]+$ ]] && [ "$lock_mtime" -gt 0 ]; then
+        lock_age=$(($(date +%s) - lock_mtime))
+        if [ "$lock_age" -gt "$LOCK_STALE_SECONDS" ]; then
+            echo "Removing stale isolated test cache lock for key ${CACHE_KEY:0:16} (${lock_age}s old)."
+            rm -rf "$LOCK_DIR"
+        fi
+    fi
+}
+
+while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    if ! is_enabled "$FORCE_RUN" && validate_manifest; then
+        print_cache_hit
+        exit 0
+    fi
+    remove_stale_lock_if_needed
+    echo "Waiting for isolated test cache warm-up for key ${CACHE_KEY:0:16}..."
+    sleep 5
+done
+LOCK_ACQUIRED=1
+printf '%s\n' "$$" > "$LOCK_DIR/pid"
+
+if ! is_enabled "$FORCE_RUN" && validate_manifest; then
+    print_cache_hit
+    exit 0
+fi
+
+RUN_PARENT="${NSHARP_TEST_RUN_PARENT:-/tmp}"
+mkdir -p "$RUN_PARENT"
+RUN_ROOT="$(mktemp -d "$RUN_PARENT/nsharp-test-all.${CACHE_KEY:0:12}.XXXXXX")"
+RUN_REPO="$RUN_ROOT/repo"
+RUN_HOME="$RUN_ROOT/home"
+RUN_TMP="$RUN_ROOT/tmp"
+RUN_DEPS="$CACHE_ROOT/dependencies/$CACHE_KEY"
+
+cleanup_run() {
+    if ! is_enabled "$KEEP_RUN"; then
+        rm -rf "$RUN_ROOT"
+    else
+        echo "Keeping isolated test run directory: $RUN_ROOT"
+    fi
+}
+trap 'cleanup_signature; cleanup_run; release_lock' EXIT
+
+copy_source_tree() {
+    mkdir -p "$RUN_REPO"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='**/bin/' \
+            --exclude='**/obj/' \
+            --exclude='**/node_modules/' \
+            --exclude='**/.vscode-test/' \
+            --exclude='**/out/' \
+            --exclude='**/server/' \
+            --exclude='**/nsharp/' \
+            --exclude='.context/' \
+            --exclude='artifacts/' \
+            --exclude='*.nupkg' \
+            --exclude='*.vsix' \
+            "$SOURCE_ROOT/" "$RUN_REPO/"
+    else
+        (
+            cd "$SOURCE_ROOT"
+            tar --exclude='.git' \
+                --exclude='*/bin' \
+                --exclude='*/obj' \
+                --exclude='*/node_modules' \
+                --exclude='*/.vscode-test' \
+                --exclude='*/out' \
+                --exclude='*/server' \
+                --exclude='.context' \
+                --exclude='artifacts' \
+                -cf - .
+        ) | (
+            cd "$RUN_REPO"
+            tar -xf -
+        )
+    fi
+}
+
+echo "Preparing isolated test run"
+echo "  Source: $SOURCE_ROOT"
+echo "  Run:    $RUN_ROOT"
+echo "  Cache:  $CACHE_ROOT"
+echo "  Deps:   $RUN_DEPS"
+echo "  Key:    ${CACHE_KEY:0:16}"
+
+copy_source_tree
+mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
+
+START_TIME="$(date +%s)"
+
+set +e
+(
+    cd "$RUN_REPO"
+    export HOME="$RUN_HOME"
+    export DOTNET_CLI_HOME="$RUN_HOME"
+    export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+    export DOTNET_CLI_TELEMETRY_OPTOUT=1
+    export DOTNET_NOLOGO=1
+    export NUGET_PACKAGES="$RUN_DEPS/nuget/packages"
+    export NPM_CONFIG_CACHE="$RUN_DEPS/npm-cache"
+    export TMPDIR="$RUN_TMP"
+    export TMP="$RUN_TMP"
+    export TEMP="$RUN_TMP"
+    export NSHARP_TEST_ALL_ISOLATED=1
+    "$RUN_REPO/tests/scripts/test-all-core.sh" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"}
+)
+CORE_EXIT=$?
+set -e
+
+END_TIME="$(date +%s)"
+DURATION=$((END_TIME - START_TIME))
+
+if [ "$CORE_EXIT" -ne 0 ]; then
+    echo "Isolated test run failed after ${DURATION}s; cache was not updated." >&2
+    exit "$CORE_EXIT"
+fi
+
+mkdir -p "$CACHE_DIR"
+MANIFEST_TMP="$CACHE_DIR/manifest.json.tmp"
+python3 - "$SIGNATURE_FILE" "$MANIFEST_TMP" "$CACHE_KEY" "$DURATION" <<'PY'
+import datetime as dt
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    signature = json.load(handle)
+
+manifest = {
+    "schemaVersion": 1,
+    "key": sys.argv[3],
+    "coreExitCode": 0,
+    "durationSeconds": int(sys.argv[4]),
+    "completedAtUtc": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+    "signature": signature,
+}
+
+with open(sys.argv[2], "w", encoding="utf-8") as handle:
+    json.dump(manifest, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+mv "$MANIFEST_TMP" "$MANIFEST_FILE"
+
+echo "Stored validated isolated test cache result: ${CACHE_KEY:0:16} (${DURATION}s)"
