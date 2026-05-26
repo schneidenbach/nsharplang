@@ -3030,7 +3030,13 @@ public class Analyzer : IDisposable
         TryRecordMemberBinding(receiverType, member);
 
         // Resolve member on type
-        var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers: IsStaticMemberAccessTarget(member.Object));
+        var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
+        var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers);
+        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member))
+        {
+            ReportUndefinedMember(receiverType, member, includeStaticMembers);
+        }
+
         return member.IsNullConditional ? MakeNullableResult(memberType) : memberType;
     }
 
@@ -3422,6 +3428,224 @@ public class Analyzer : IDisposable
         }
     }
 
+    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member)
+    {
+        if (string.IsNullOrWhiteSpace(member.MemberName) || member.MemberName == "<error>")
+            return false;
+
+        receiverType = ResolveAliasAndMetadata(receiverType);
+        if (BuiltInTypes.IsUnknown(receiverType)
+            || receiverType == BuiltInTypes.Null
+            || receiverType == BuiltInTypes.Never
+            || receiverType == BuiltInTypes.Void
+            || receiverType is FunctionTypeInfo or NSharpMethodGroupInfo or ReflectionMethodGroupInfo
+                or ReflectionMethodInfo or ExternalTypeInfo)
+        {
+            return false;
+        }
+
+        return receiverType switch
+        {
+            SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
+            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null,
+            GenericTypeInfo or ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
+            ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
+            ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
+            ClassTypeInfo or StructTypeInfo or RecordTypeInfo
+                or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
+                or TupleTypeInfo => true,
+            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member),
+            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member),
+            _ => false
+        };
+    }
+
+    private static bool HasReliableReflectionMemberSet(Type type)
+    {
+        var assembly = type.Assembly;
+        return assembly == typeof(object).Assembly
+            || assembly == typeof(Console).Assembly
+            || assembly == typeof(Enumerable).Assembly
+            || (type.Namespace?.StartsWith("System.", StringComparison.Ordinal) == true && !type.IsInterface);
+    }
+
+    private TypeInfo ResolveAliasAndMetadata(TypeInfo typeInfo)
+        => typeInfo switch
+        {
+            AliasTypeInfo alias => ResolveAliasAndMetadata(ResolveType(alias.AliasedType)),
+            ObliviousTypeInfo oblivious => ResolveAliasAndMetadata(oblivious.InnerType),
+            _ => typeInfo
+        };
+
+    private void ReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
+    {
+        var memberColumn = GetMemberNameColumn(member);
+        var length = Math.Max(1, member.MemberName.Length);
+        var typeName = NullabilityMetadata.FormatTypeInfo(receiverType);
+        var similarMembers = FindSimilarMemberNames(receiverType, member.MemberName, includeStaticMembers);
+
+        if (_sourceLines != null && member.Line > 0 && member.Line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.UndefinedMember(
+                _currentFilePath,
+                member.Line,
+                memberColumn,
+                _sourceLines[member.Line - 1],
+                length,
+                member.MemberName,
+                typeName,
+                similarMembers));
+            return;
+        }
+
+        Error(
+            ErrorCode.UndefinedMember,
+            $"Member '{member.MemberName}' not found on type '{typeName}'",
+            member.Line,
+            memberColumn,
+            similarMembers.Count > 0 ? $"Did you mean '{similarMembers[0]}'?" : null,
+            length);
+    }
+
+    private List<string> FindSimilarMemberNames(TypeInfo receiverType, string memberName, bool includeStaticMembers)
+    {
+        var candidates = GetAvailableMemberNames(receiverType, includeStaticMembers)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        return candidates.Count == 0
+            ? new List<string>()
+            : new SmartSuggester(candidates).SuggestSimilarNames(memberName);
+    }
+
+    private List<string> GetAvailableMemberNames(TypeInfo receiverType, bool includeStaticMembers)
+    {
+        receiverType = ResolveAliasAndMetadata(receiverType);
+
+        if (receiverType is NullableTypeInfo nullableType)
+        {
+            var members = new List<string> { "HasValue", "Value" };
+            members.AddRange(GetAvailableMemberNames(nullableType.InnerType, includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
+        {
+            var clrType = TryConvertTypeInfoToClrType(receiverType);
+            if (clrType != null)
+                return GetReflectionMemberNames(clrType, includeStaticMembers);
+        }
+
+        if (receiverType is ReflectionTypeInfo reflectionType)
+        {
+            return GetReflectionMemberNames(reflectionType.Type, includeStaticMembers);
+        }
+
+        if (receiverType is ClassTypeInfo classType)
+        {
+            var members = GetDeclaredMemberNames(classType.Declaration.Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(classType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            if (classType.Declaration.BaseClass != null)
+                members.AddRange(GetAvailableMemberNames(ResolveType(classType.Declaration.BaseClass), includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is StructTypeInfo structType)
+        {
+            var members = GetDeclaredMemberNames(structType.Declaration.Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(structType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is RecordTypeInfo recordType)
+        {
+            var members = GetDeclaredMemberNames(recordType.Declaration.Members);
+            members.AddRange(GetPrimaryConstructorParameterNames(recordType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is InterfaceTypeInfo interfaceType)
+        {
+            var members = GetDeclaredMemberNames(interfaceType.Declaration.Members);
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is EnumTypeInfo enumType)
+            return enumType.Declaration.Members.Select(member => member.Name).ToList();
+
+        if (receiverType is TupleTypeInfo tupleType)
+        {
+            var members = GetTupleMemberNames(tupleType);
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            return members;
+        }
+
+        if (receiverType is UnionTypeInfo { IsAnonymous: true })
+            return new List<string> { "Index", "Value" };
+
+        if (receiverType is UnionTypeInfo { IsAnonymous: false } unionType)
+            return unionType.Declaration!.Cases.Select(unionCase => unionCase.Name).ToList();
+
+        if (receiverType is NewtypeInfo)
+            return new List<string> { "Value", "ToString", "Equals", "GetHashCode" };
+
+        return new List<string>();
+    }
+
+    private static List<string> GetDeclaredMemberNames(IEnumerable<Declaration> members)
+        => members
+            .Select(GetDeclarationName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Cast<string>()
+            .ToList();
+
+    private static IEnumerable<string> GetPrimaryConstructorParameterNames(
+        List<Parameter>? parameters,
+        bool includeStaticMembers)
+    {
+        return includeStaticMembers || parameters == null
+            ? Enumerable.Empty<string>()
+            : parameters.Select(parameter => parameter.Name);
+    }
+
+    private static IEnumerable<string> GetSourceObjectMemberNames(bool includeStaticMembers)
+        => includeStaticMembers
+            ? Enumerable.Empty<string>()
+            : GetReflectionMemberNames(typeof(object), includeStaticMembers);
+
+    private static List<string> GetTupleMemberNames(TupleTypeInfo tupleType)
+    {
+        var members = new List<string>();
+        for (var i = 0; i < tupleType.Elements.Count; i++)
+        {
+            members.Add($"Item{i + 1}");
+            var name = tupleType.Elements[i].Name;
+            if (!string.IsNullOrWhiteSpace(name))
+                members.Add(name);
+        }
+
+        return members;
+    }
+
+    private static List<string> GetReflectionMemberNames(Type type, bool includeStaticMembers)
+    {
+        var flags = BindingFlags.Public | BindingFlags.Instance;
+        if (includeStaticMembers)
+            flags |= BindingFlags.Static;
+
+        return type.GetProperties(flags).Select(property => property.Name)
+            .Concat(type.GetFields(flags).Select(field => field.Name))
+            .Concat(type.GetMethods(flags)
+                .Where(method => !method.IsSpecialName)
+                .Select(method => method.Name))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
     private string? GetDeclarationFileForType(TypeInfo typeInfo) => typeInfo switch
     {
         ClassTypeInfo classType => GetDeclarationFilePath(classType.Declaration.Name, classType.Declaration),
@@ -3595,14 +3819,29 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
+            if (!includeStaticMembers
+                && TryResolvePrimaryConstructorParameter(classType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+            {
+                return primaryConstructorMember;
+            }
+
+            if (includeStaticMembers
+                && TryResolveNestedTypeMember(classType.Declaration.Members, memberName, out var nestedTypeMember))
+            {
+                return nestedTypeMember;
+            }
+
             // If member not found, check base class
             if (classType.Declaration.BaseClass != null)
             {
                 var baseType = ResolveType(classType.Declaration.BaseClass);
-                var baseMember = ResolveMember(baseType, memberName);
+                var baseMember = ResolveMember(baseType, memberName, includeStaticMembers);
                 if (!BuiltInTypes.IsUnknown(baseMember))
                     return baseMember;
             }
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         if (objectType is StructTypeInfo structType)
@@ -3610,6 +3849,21 @@ public class Analyzer : IDisposable
             var resolvedMember = ResolveDeclaredMember(structType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
+
+            if (!includeStaticMembers
+                && TryResolvePrimaryConstructorParameter(structType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+            {
+                return primaryConstructorMember;
+            }
+
+            if (includeStaticMembers
+                && TryResolveNestedTypeMember(structType.Declaration.Members, memberName, out var nestedTypeMember))
+            {
+                return nestedTypeMember;
+            }
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         if (objectType is RecordTypeInfo recordType)
@@ -3617,6 +3871,21 @@ public class Analyzer : IDisposable
             var resolvedMember = ResolveDeclaredMember(recordType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
+
+            if (!includeStaticMembers
+                && TryResolvePrimaryConstructorParameter(recordType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
+            {
+                return primaryConstructorMember;
+            }
+
+            if (includeStaticMembers
+                && TryResolveNestedTypeMember(recordType.Declaration.Members, memberName, out var nestedTypeMember))
+            {
+                return nestedTypeMember;
+            }
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         if (objectType is InterfaceTypeInfo interfaceType)
@@ -3624,6 +3893,24 @@ public class Analyzer : IDisposable
             var resolvedMember = ResolveDeclaredMember(interfaceType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
+
+            if (includeStaticMembers
+                && TryResolveNestedTypeMember(interfaceType.Declaration.Members, memberName, out var nestedTypeMember))
+            {
+                return nestedTypeMember;
+            }
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
+        }
+
+        if (objectType is TupleTypeInfo tupleType)
+        {
+            if (TryResolveTupleMember(tupleType, memberName, out var tupleMember))
+                return tupleMember;
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         if (objectType is EnumTypeInfo)
@@ -3651,8 +3938,8 @@ public class Analyzer : IDisposable
         {
             if (memberName == "Value")
                 return ResolveType(newtypeInfo.UnderlyingType);
-            // For other members (like ToString, Equals, GetHashCode), delegate to the underlying record struct
-            // which will be resolved via reflection at runtime
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         // Handle array types
@@ -3703,6 +3990,125 @@ public class Analyzer : IDisposable
 
         return null;
     }
+
+    private bool TryResolvePrimaryConstructorParameter(
+        List<Parameter>? parameters,
+        string memberName,
+        out TypeInfo memberType)
+    {
+        if (parameters != null)
+        {
+            foreach (var parameter in parameters)
+            {
+                if (parameter.Name == memberName)
+                {
+                    memberType = ResolveType(parameter.Type);
+                    return true;
+                }
+            }
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private bool TryResolveNestedTypeMember(
+        IEnumerable<Declaration> members,
+        string memberName,
+        out TypeInfo memberType)
+    {
+        foreach (var member in members)
+        {
+            if (!IsNestedTypeDeclaration(member) || GetDeclarationName(member) != memberName)
+                continue;
+
+            memberType = CreateTypeInfoForDeclaration(member);
+            return true;
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private bool TryResolveSourceObjectMember(string memberName, out TypeInfo memberType)
+    {
+        var flags = BindingFlags.Public | BindingFlags.Instance;
+
+        var property = typeof(object).GetProperty(memberName, flags);
+        if (property != null)
+        {
+            memberType = NullabilityMetadata.ConvertProperty(property);
+            return true;
+        }
+
+        var field = typeof(object).GetField(memberName, flags);
+        if (field != null)
+        {
+            memberType = NullabilityMetadata.ConvertField(field);
+            return true;
+        }
+
+        var methods = typeof(object).GetMethods(flags)
+            .Where(method => method.Name == memberName && !method.IsSpecialName)
+            .ToArray();
+
+        if (methods.Length == 1)
+        {
+            memberType = new ReflectionMethodInfo(methods[0]);
+            return true;
+        }
+
+        if (methods.Length > 1)
+        {
+            memberType = new ReflectionMethodGroupInfo(methods);
+            return true;
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private static bool TryResolveTupleMember(TupleTypeInfo tupleType, string memberName, out TypeInfo memberType)
+    {
+        for (var i = 0; i < tupleType.Elements.Count; i++)
+        {
+            var element = tupleType.Elements[i];
+            if (memberName == $"Item{i + 1}" || memberName == element.Name)
+            {
+                memberType = element.Type;
+                return true;
+            }
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private static bool IsSystemObjectType(Type type)
+        => type == typeof(object) || string.Equals(type.FullName, "System.Object", StringComparison.Ordinal);
+
+    private static bool IsNestedTypeDeclaration(Declaration declaration)
+        => declaration is ClassDeclaration
+            or StructDeclaration
+            or RecordDeclaration
+            or InterfaceDeclaration
+            or EnumDeclaration
+            or UnionDeclaration
+            or TypeAliasDeclaration
+            or NewtypeDeclaration;
+
+    private static TypeInfo CreateTypeInfoForDeclaration(Declaration declaration) => declaration switch
+    {
+        ClassDeclaration classDecl => new ClassTypeInfo(classDecl),
+        StructDeclaration structDecl => new StructTypeInfo(structDecl),
+        RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl),
+        InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
+        EnumDeclaration enumDecl => new EnumTypeInfo(enumDecl),
+        UnionDeclaration unionDecl => new UnionTypeInfo(unionDecl),
+        TypeAliasDeclaration aliasDecl => new AliasTypeInfo(aliasDecl.Type),
+        NewtypeDeclaration newtypeDecl => new NewtypeInfo(newtypeDecl.Name, newtypeDecl.UnderlyingType),
+        _ => BuiltInTypes.Unknown
+    };
 
     private TypeInfo TryResolveExtensionMethod(TypeInfo targetType, string methodName)
     {
@@ -6602,13 +7008,13 @@ public class Analyzer : IDisposable
 
     private static int GetReflectionMatchScore(Type parameterType, Type argumentType)
     {
-        if (parameterType == argumentType)
+        if (HaveSameReflectionTypeIdentity(parameterType, argumentType))
             return 8;
 
         if (IsImplicitNumericConversion(argumentType, parameterType))
             return 6;
 
-        if (parameterType.IsAssignableFrom(argumentType))
+        if (IsReflectionAssignableFrom(parameterType, argumentType))
             return 4;
 
         return 2;
@@ -6687,7 +7093,7 @@ public class Analyzer : IDisposable
         }
 
         if (!parameterType.ContainsGenericParameters)
-            return parameterType.IsAssignableFrom(argumentType)
+            return IsReflectionAssignableFrom(parameterType, argumentType)
                 || IsImplicitNumericConversion(argumentType, parameterType);
 
         if (parameterType.IsArray)

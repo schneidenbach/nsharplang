@@ -4795,6 +4795,78 @@ func Hello(): string {
     }
 
     [Fact]
+    public void BCL_StringLiteralUnknownMember_ReportsUndefinedMember()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                value := ""asdfasdfasdf"".ToUp()
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.UndefinedMember
+            && e.Message.Contains("ToUp")
+            && e.Message.Contains("string"));
+    }
+
+    [Fact]
+    public void RecordPrimaryConstructorMemberAccess_DoesNotReportUndefinedMember()
+    {
+        var result = AnalyzeWithSource(@"
+            record EmailAddress(value: string) {
+                IsValid: bool => value.Length > 5
+            }
+
+            func Main() {
+                email := new EmailAddress(""user@example.com"")
+                print email.value
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void NestedTypeMemberAccess_DoesNotReportUndefinedMember()
+    {
+        var result = AnalyzeWithSource(@"
+            class BankAccount {
+                enum Status {
+                    Active,
+                    Frozen
+                }
+
+                CurrentStatus: BankAccount.Status
+
+                constructor() {
+                    CurrentStatus = BankAccount.Status.Active
+                }
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void RecordObjectMemberAccess_DoesNotReportUndefinedMember()
+    {
+        var result = AnalyzeWithSource(@"
+            record Point {
+                X: int
+                Y: int
+            }
+
+            func Main() {
+                p1 := new Point { X: 1, Y: 2 }
+                p2 := new Point { X: 1, Y: 2 }
+                print p1.Equals(p2)
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
     public void BCL_MethodCall_WithImplicitNumericWidening_NoNoMatchingOverload()
     {
         var result = AnalyzeWithSource(@"

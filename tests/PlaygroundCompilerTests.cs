@@ -245,6 +245,43 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Complete_MemberAccess_ReturnsStringMembersForInterpolatedStringLiteral()
+    {
+        const string source = """
+            $"this is a string".
+            """;
+
+        var result = new PlaygroundCompiler().Complete(
+            [new PlaygroundFile("Program.nl", source)],
+            "Program.nl",
+            1,
+            ColumnAfter(source, 1, "$\"this is a string\"."));
+
+        Assert.Equal("MemberAccess", result.Context);
+        Assert.Equal("System.String", result.ReceiverType);
+        Assert.Contains(result.Items, item => item.Label == "Length" && item.Kind == "property");
+        Assert.Contains(result.Items, item => item.Label == "ToUpper" && item.Kind == "method");
+    }
+
+    [Fact]
+    public void Check_StringLiteralUnknownMember_ReturnsUndefinedMemberDiagnostic()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print "asdfasdfasdf".ToUp()
+            }
+            """);
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            diagnostic.Code == "NL303"
+            && diagnostic.Message.Contains("ToUp")
+            && diagnostic.Message.Contains("string"));
+    }
+
+    [Fact]
     public void Complete_MemberAccess_ReturnsClrStaticInstanceAndChainedMembers()
     {
         const string source = """

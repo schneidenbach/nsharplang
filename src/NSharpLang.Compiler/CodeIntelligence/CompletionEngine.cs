@@ -124,10 +124,6 @@ public class CompletionEngine
     {
         var memberAccess = FindMemberAccessAtPosition(cu, line, col);
         var receiver = ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
-        if (receiver == null)
-        {
-            return EmptyResult(CompletionContext.MemberAccess);
-        }
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 
@@ -135,15 +131,15 @@ public class CompletionEngine
         // This matters for playground samples that define ordinary names like
         // Console while still keeping System.Console available when no local type
         // owns the name.
-        if (IsStaticAccess(receiver, semanticModel) && ResolveSourceTypeByName(receiver, snapshot) is { } sourceTypeInfo)
+        if (receiver != null && IsStaticAccess(receiver, semanticModel) && ResolveSourceTypeByName(receiver, snapshot) is { } sourceTypeInfo)
         {
             var memberResult = ResolveMemberCompletionsFromTypeInfo(sourceTypeInfo, receiver, snapshot, completions);
             if (memberResult != null) return memberResult;
         }
 
         // Try to resolve receiver as a .NET type (static access)
-        var resolvedType = TryResolveType(receiver, snapshot);
-        if (resolvedType != null)
+        var resolvedType = receiver != null ? TryResolveType(receiver, snapshot) : null;
+        if (receiver != null && resolvedType != null)
         {
             var isStatic = IsStaticAccess(receiver, semanticModel);
             var members = GetTypeMembers(resolvedType, isStatic ? MemberFilter.StaticOnly : MemberFilter.InstanceOnly);
@@ -170,9 +166,15 @@ public class CompletionEngine
             var receiverType = resolver.ResolveExpressionTypeInfo(memberAccess.Object);
             if (receiverType != null && !BuiltInTypes.IsUnknown(receiverType))
             {
-                var memberResult = ResolveMemberCompletionsFromTypeInfo(receiverType, receiver, snapshot, completions);
+                var displayReceiver = receiver ?? FormatReceiverExpression(memberAccess.Object) ?? "<expression>";
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(receiverType, displayReceiver, snapshot, completions);
                 if (memberResult != null) return memberResult;
             }
+        }
+
+        if (receiver == null)
+        {
+            return EmptyResult(CompletionContext.MemberAccess);
         }
 
         var textualReceiverType = ResolveReceiverExpressionFromText(receiver, semanticModel, snapshot);
@@ -444,10 +446,29 @@ public class CompletionEngine
             MemberAccessExpression memberAccess => FormatMemberAccessReceiver(memberAccess),
             CallExpression call => FormatReceiverExpression(call.Callee) is { } callee ? $"{callee}()" : null,
             ParenthesizedExpression paren => FormatReceiverExpression(paren.Inner),
+            StringLiteralExpression literal => literal.Value,
+            InterpolatedStringExpression interpolated => FormatInterpolatedStringReceiver(interpolated),
+            CharLiteralExpression literal => literal.Value,
+            IntLiteralExpression literal => literal.Value,
+            FloatLiteralExpression literal => literal.Value,
+            BoolLiteralExpression literal => literal.Value ? "true" : "false",
+            NullLiteralExpression => "null",
             ThisExpression => "this",
             BaseExpression => "base",
             _ => null
         };
+    }
+
+    private static string FormatInterpolatedStringReceiver(InterpolatedStringExpression expression)
+    {
+        var text = string.Concat(expression.Parts.Select(part => part switch
+        {
+            InterpolatedStringText literal => literal.Text,
+            InterpolatedStringHole => "{...}",
+            _ => string.Empty
+        }));
+
+        return expression.IsRaw ? $"$\"\"\"{text}\"\"\"" : $"$\"{text}\"";
     }
 
     private static string? FormatMemberAccessReceiver(MemberAccessExpression memberAccess)
@@ -570,6 +591,11 @@ public class CompletionEngine
         if (receiver.Length == 0)
         {
             return null;
+        }
+
+        if (TryResolveLiteralReceiverType(receiver) is { } literalType)
+        {
+            return literalType;
         }
 
         if (receiver.EndsWith(")", StringComparison.Ordinal))
@@ -824,6 +850,11 @@ public class CompletionEngine
 
     private static string? ExtractExpressionSuffix(string text)
     {
+        if (TryExtractLiteralExpressionSuffix(text, out var literalReceiver))
+        {
+            return literalReceiver;
+        }
+
         var end = text.Length;
         var start = end - 1;
         var parenDepth = 0;
@@ -876,6 +907,84 @@ public class CompletionEngine
         start++;
         return start < end ? NormalizeReceiverCalls(text[start..end]) : null;
     }
+
+    private static bool TryExtractLiteralExpressionSuffix(string text, out string literalReceiver)
+    {
+        literalReceiver = string.Empty;
+        var tokens = TokenizeCompletionPrefix(text);
+        if (tokens.Count == 0 || !IsLiteralReceiverToken(tokens[^1].Type))
+        {
+            return false;
+        }
+
+        var token = tokens[^1];
+        var tokenStart = Math.Clamp(token.Column - 1, 0, text.Length);
+        literalReceiver = text[tokenStart..].Trim();
+        if (literalReceiver.Length == 0)
+        {
+            literalReceiver = token.Value;
+        }
+
+        return IsCompleteLiteralReceiverToken(token, literalReceiver);
+    }
+
+    private static TypeInfo? TryResolveLiteralReceiverType(string receiver)
+    {
+        var tokens = TokenizeCompletionPrefix(receiver);
+        if (tokens.Count != 1 || !IsCompleteLiteralReceiverToken(tokens[0], receiver.Trim()))
+        {
+            return null;
+        }
+
+        return tokens[0].Type switch
+        {
+            TokenType.StringLiteral or TokenType.TripleQuoteStringLiteral or TokenType.InterpolatedRawStringLiteral => BuiltInTypes.String,
+            TokenType.CharLiteral => BuiltInTypes.Char,
+            TokenType.IntLiteral => BuiltInTypes.Int,
+            TokenType.FloatLiteral => BuiltInTypes.Double,
+            TokenType.True or TokenType.False => BuiltInTypes.Bool,
+            _ => null
+        };
+    }
+
+    private static List<Token> TokenizeCompletionPrefix(string text)
+    {
+        try
+        {
+            return new Lexer(text, "<completion>")
+                .Tokenize()
+                .Where(token => token.Type is not TokenType.Eof
+                    and not TokenType.Newline
+                    and not TokenType.Comment
+                    and not TokenType.MultiLineComment
+                    and not TokenType.XmlDocComment)
+                .ToList();
+        }
+        catch
+        {
+            return new List<Token>();
+        }
+    }
+
+    private static bool IsLiteralReceiverToken(TokenType type)
+        => type is TokenType.StringLiteral
+            or TokenType.TripleQuoteStringLiteral
+            or TokenType.InterpolatedRawStringLiteral
+            or TokenType.CharLiteral
+            or TokenType.IntLiteral
+            or TokenType.FloatLiteral
+            or TokenType.True
+            or TokenType.False;
+
+    private static bool IsCompleteLiteralReceiverToken(Token token, string sourceSuffix)
+        => token.Type switch
+        {
+            TokenType.StringLiteral => token.Value.EndsWith("\"", StringComparison.Ordinal),
+            TokenType.TripleQuoteStringLiteral => sourceSuffix.EndsWith("\"\"\"", StringComparison.Ordinal),
+            TokenType.InterpolatedRawStringLiteral => token.Value.EndsWith("\"\"\"", StringComparison.Ordinal),
+            TokenType.CharLiteral => token.Value.EndsWith("'", StringComparison.Ordinal),
+            _ => true
+        };
 
     private static string NormalizeReceiverCalls(string expression)
     {
