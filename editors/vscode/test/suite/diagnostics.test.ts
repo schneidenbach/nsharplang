@@ -152,6 +152,35 @@ func Main() {
         }
     });
 
+    test('invalid member calls surface as editor diagnostics', async function () {
+        this.timeout(45_000);
+        const { doc, cleanup } = await createTempNlFile(`
+package HelloWorld
+
+func Hi() {
+    "asdf".toUp()
+    asdf := "asdf"
+    asdf.sdd()
+    return 42
+}
+`, '_diag_invalid_members.nl');
+
+        try {
+            const diagnostics = await waitForDiagnosticsToSettle(doc.uri, 20_000);
+            const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+
+            assert.ok(errors.some(d => d.code === 'NL303' && d.message.includes('toUp')),
+                `Expected NL303 diagnostic for toUp:\n${formatDiagnosticErrors(errors)}`);
+            assert.ok(errors.some(d => d.code === 'NL303' && d.message.includes('sdd')),
+                `Expected NL303 diagnostic for sdd:\n${formatDiagnosticErrors(errors)}`);
+            assert.ok(errors.some(d => d.code === 'NL202' && d.message.includes("Function 'Hi' returns int but has no return type")),
+                `Expected NL202 diagnostic for return 42:\n${formatDiagnosticErrors(errors)}`);
+        } finally {
+            await closeAllEditors();
+            cleanup();
+        }
+    });
+
     test('diagnostics clear after fixing syntax error', async function () {
         this.timeout(45_000);
         const { doc, cleanup } = await createTempNlFile(`
