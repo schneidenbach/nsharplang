@@ -1591,7 +1591,8 @@ internal class VisibilityBox {
             Assert.False(type!.IsPublic);
 
             var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            Assert.Contains(fields, field => field.Name == "shown" && field.IsPublic);
+            Assert.Null(type.GetField("shown", BindingFlags.Public | BindingFlags.Instance));
+            Assert.NotNull(type.GetProperty("shown", BindingFlags.Public | BindingFlags.Instance));
             Assert.Contains(fields, field => field.Name == "hidden" && field.IsPrivate);
             Assert.Contains(fields, field => field.Name == "guarded" && field.IsFamily);
             Assert.Contains(fields, field => field.Name == "shared" && field.IsAssembly);

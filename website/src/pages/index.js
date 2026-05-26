@@ -314,7 +314,8 @@ export default function Home() {
             <h1 className="hero__title">N#</h1>
             <p className="hero__lede">Simple by design. Powerful by .NET.</p>
             <div className="hero__buttons">
-              <Link className="btn--primary" to="/docs/getting-started">Get started</Link>
+              <Link className="btn--primary" to="/playground">Try N#</Link>
+              <Link className="btn--secondary" to="/docs/getting-started">Get started</Link>
               <Link className="btn--secondary" to="/examples">Examples</Link>
               <a className="btn--secondary" href="https://github.com/schneidenbach/nsharplang" target="_blank" rel="noopener noreferrer">GitHub</a>
             </div>

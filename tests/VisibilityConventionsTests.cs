@@ -95,7 +95,7 @@ func helper(): int {
             Assert.Contains("public class Exported", stub);
             Assert.Contains("public class explicitlyPublicCamel", stub);
             Assert.Contains("internal class unexported", stub);
-            Assert.Contains("public int Visible;", stub);
+            Assert.Contains("public int Visible { get; set; }", stub);
             Assert.Contains("internal int hidden;", stub);
             Assert.Contains("public int Do()", stub);
             Assert.Contains("public int visibleByModifier()", stub);
@@ -106,6 +106,47 @@ func helper(): int {
             Assert.Contains("private sealed class err", stub);
             Assert.Contains("public static int Helper()", stub);
             Assert.Contains("internal static int helper()", stub);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompilationStubEmitter_EmitsExportedClassAndRecordDataMembersAsProperties()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp_stub_properties_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Http.nl");
+            File.WriteAllText(sourcePath, """
+import System.Collections.Generic
+
+record HttpRequest {
+    Method: string
+    Headers: Dictionary<string, string> = new Dictionary<string, string>()
+    Body: string
+}
+
+class HttpResponse {
+    StatusCode: int
+    body: string
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                new ProjectConfig { OutputType = "library" },
+                new[] { sourcePath });
+
+            Assert.Contains("public required string Method { get; init; }", stub);
+            Assert.Contains("public Dictionary<string, string> Headers { get; init; }", stub);
+            Assert.Contains("public required string Body { get; init; }", stub);
+            Assert.Contains("public int StatusCode { get; set; }", stub);
+            Assert.Contains("internal string body;", stub);
+            Assert.DoesNotContain("public string Method;", stub);
+            Assert.DoesNotContain("public int StatusCode;", stub);
         }
         finally
         {
@@ -295,7 +336,8 @@ union Result {
             Assert.True(explicitlyPublicCamel.IsPublic);
             Assert.False(unexported.IsPublic);
 
-            Assert.True(exported.GetField("Visible", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);
+            Assert.NotNull(exported.GetProperty("Visible", BindingFlags.Public | BindingFlags.Instance));
+            Assert.Null(exported.GetField("Visible", BindingFlags.Public | BindingFlags.Instance));
             Assert.True(exported.GetField("hidden", BindingFlags.NonPublic | BindingFlags.Instance)!.IsAssembly);
             Assert.True(exported.GetMethod("Do", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);
             Assert.True(explicitlyPublicCamel.GetMethod("visibleByModifier", BindingFlags.Public | BindingFlags.Instance)!.IsPublic);

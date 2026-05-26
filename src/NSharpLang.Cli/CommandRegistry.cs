@@ -29,7 +29,6 @@ public static class CommandRegistry
         new CliCommandSpec("fix", "Auto-apply compiler suggestions"),
         new CliCommandSpec("query", "Code intelligence for LLMs and terminals"),
         new CliCommandSpec("daemon", "Background analysis daemon"),
-        new CliCommandSpec("tutorial", "Start the local interactive N# tutorial"),
         new CliCommandSpec("add", "Add a NuGet dependency to project.yml"),
         new CliCommandSpec("tidy", "Identify and remove unused dependencies"),
         new CliCommandSpec("remove", "Remove a dependency from project.yml"),

@@ -92,6 +92,7 @@ public enum ErrorCode
     ObsoleteUsage = 904,
     PossibleNullAccess = 905,
     UnnecessaryTypeAnnotation = 906,
+    NullabilityWarning = 907,
 }
 
 /// <summary>

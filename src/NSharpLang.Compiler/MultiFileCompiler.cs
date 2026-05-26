@@ -655,6 +655,7 @@ public class MultiFileCompiler
         }
         catch (Exception ex)
         {
+            AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly EXCEPTION: {ex}");
             _allErrors.Add(new CompilerError(
                 ErrorCode.InvalidSyntax,
                 $"Failed to emit IL assembly '{assemblyName}': {ex.Message}",

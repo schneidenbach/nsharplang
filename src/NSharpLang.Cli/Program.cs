@@ -47,7 +47,6 @@ partial class Program
             "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
             "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
             "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
-            "tutorial" => TutorialCommand.Execute(args.Skip(1).ToArray()),
             "add" => AddCommand.Execute(args.Skip(1).ToArray()),
             "tidy" => TidyCommand.Execute(args.Skip(1).ToArray()),
             "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
@@ -1279,8 +1278,6 @@ Analysis & Fix:
   fix                  Auto-apply compiler suggestions
   query <cmd>          Code intelligence for LLMs and terminals
   daemon <cmd>         Background analysis daemon
-  tutorial             Start the local interactive N# tutorial
-
 Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
@@ -1305,8 +1302,6 @@ Project:
   env                  Show environment and toolchain info
   doctor               Verify N# CLI, SDK/templates, LSP, and VS Code tooling
   completion <shell>   Generate shell completion scripts
-  tutorial             Local 15-minute walkthrough with N# tooling
-
 Options:
   --version, -V        Show nlc version
   --text               Human-readable output for check/fix/query/lint
@@ -1321,7 +1316,6 @@ Common Workflows:
   nlc add Serilog@3.1.0        Add a dependency
   nlc check                    Fast feedback loop
   nlc doctor                   Verify the installed toolchain
-  nlc tutorial                 Open the local guided language walkthrough
   nlc fix && nlc check         Auto-fix then verify
   nlc build --release          Release configuration/output layout
   nlc export csharp --project . -o ./myapp-csharp

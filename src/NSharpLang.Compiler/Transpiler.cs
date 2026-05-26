@@ -767,27 +767,8 @@ public class Transpiler
             Write($"{modifiers}{returnType} {functionName}{typeParams}({parameters})");
         }
 
-        if (func.Constraints != null && func.Constraints.Count > 0)
-        {
-            foreach (var constraint in func.Constraints)
-            {
-                var parts = new List<string>();
-                // C# ordering: class/struct first
-                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
-                    parts.Add("class");
-                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
-                    parts.Add("struct");
-                // Then interface/type constraints
-                parts.AddRange(constraint.Constraints.Select(TranspileTypeReference));
-                // new() must be last in C#; omit if struct is present (struct implies new() and C# rejects the combination)
-                if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New)
-                    && !constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
-                    parts.Add("new()");
-
-                if (parts.Count > 0)
-                    _output.Append($" where {constraint.TypeParameter} : {string.Join(", ", parts)}");
-            }
-        }
+        var constraints = BuildConstraintClauses(func);
+        _output.Append(constraints);
 
         var reservedPatternNames = CollectReservedPatternBindingNames(func);
         _reservedPatternBindingNames.Push(reservedPatternNames);
@@ -812,6 +793,141 @@ public class Transpiler
         {
             _reservedPatternBindingNames.Pop();
         }
+
+        EmitPublicAnonymousUnionParameterShims(func, modifiers, returnType, typeParams, constraints);
+    }
+
+    private string BuildConstraintClauses(FunctionDeclaration func)
+    {
+        if (func.Constraints == null || func.Constraints.Count == 0)
+            return "";
+
+        var clauses = new StringBuilder();
+        foreach (var constraint in func.Constraints)
+        {
+            var parts = new List<string>();
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+                parts.Add("class");
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                parts.Add("struct");
+
+            parts.AddRange(constraint.Constraints.Select(TranspileTypeReference));
+
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.New)
+                && !constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct))
+                parts.Add("new()");
+
+            if (parts.Count > 0)
+                clauses.Append($" where {constraint.TypeParameter} : {string.Join(", ", parts)}");
+        }
+
+        return clauses.ToString();
+    }
+
+    private void EmitPublicAnonymousUnionParameterShims(
+        FunctionDeclaration func,
+        string modifiers,
+        string returnType,
+        string typeParams,
+        string constraints)
+    {
+        if (_inInterface
+            || func.IsOperatorOverload
+            || func.IsConversionOperator
+            || !modifiers.Contains("public ", StringComparison.Ordinal)
+            || modifiers.Contains("abstract ", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var unionParameters = func.Parameters
+            .Select((parameter, index) => (parameter, index, arms: TryGetTwoArmAnonymousUnion(parameter.Type)))
+            .Where(entry => entry.arms != null)
+            .ToList();
+
+        if (unionParameters.Count == 0)
+            return;
+
+        if (unionParameters.Any(entry => entry.parameter.Modifier is ParameterModifier.Ref or ParameterModifier.Out or ParameterModifier.Params))
+            return;
+
+        var shimModifiers = modifiers
+            .Replace("virtual ", "", StringComparison.Ordinal)
+            .Replace("override ", "", StringComparison.Ordinal)
+            .Replace("abstract ", "", StringComparison.Ordinal)
+            .Replace("async ", "", StringComparison.Ordinal);
+
+        foreach (var armChoice in EnumerateUnionArmChoices(unionParameters))
+        {
+            var parameters = string.Join(", ", func.Parameters.Select((parameter, index) =>
+            {
+                var replacement = armChoice.TryGetValue(index, out var arm) ? arm : parameter.Type;
+                return TranspileParameter(parameter with { Type = replacement });
+            }));
+
+            WriteLine();
+            WriteLine($"{shimModifiers}{returnType} {func.Name}{typeParams}({parameters}){constraints}");
+            WriteLine("{");
+            _indentLevel++;
+
+            var args = string.Join(", ", func.Parameters.Select((parameter, index) =>
+            {
+                var prefix = parameter.Modifier switch
+                {
+                    ParameterModifier.Ref => "ref ",
+                    ParameterModifier.Out => "out ",
+                    _ => ""
+                };
+
+                if (!armChoice.ContainsKey(index))
+                    return prefix + parameter.Name;
+
+                return $"({TranspileTypeReference(parameter.Type)}){parameter.Name}";
+            }));
+
+            var call = $"{func.Name}{typeParams}({args})";
+            if (returnType == "void")
+                WriteLine($"{call};");
+            else
+                WriteLine($"return {call};");
+
+            _indentLevel--;
+            WriteLine("}");
+        }
+    }
+
+    private static List<TypeReference>? TryGetTwoArmAnonymousUnion(TypeReference typeReference)
+    {
+        if (typeReference is not UnionTypeReference union)
+            return null;
+
+        var arms = FlattenUnionTypeReference(union).ToList();
+        return arms.Count == 2 ? arms : null;
+    }
+
+    private static IEnumerable<Dictionary<int, TypeReference>> EnumerateUnionArmChoices(
+        List<(Parameter parameter, int index, List<TypeReference>? arms)> unionParameters)
+    {
+        var choices = new List<Dictionary<int, TypeReference>> { new() };
+        foreach (var (_, index, arms) in unionParameters)
+        {
+            var next = new List<Dictionary<int, TypeReference>>();
+            foreach (var choice in choices)
+            {
+                foreach (var arm in arms!)
+                {
+                    var clone = new Dictionary<int, TypeReference>(choice)
+                    {
+                        [index] = arm
+                    };
+                    next.Add(clone);
+                }
+            }
+
+            choices = next;
+        }
+
+        return choices;
     }
 
     private static HashSet<string> CollectReservedPatternBindingNames(FunctionDeclaration func)
@@ -1472,6 +1588,7 @@ public class Transpiler
             GenericTypeReference generic => $"{GetFullyQualifiedName(generic.Name)}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReferenceForUsing))}>",
             ArrayTypeReference array => $"{TranspileTypeReferenceForUsing(array.ElementType)}[]",
             NullableTypeReference nullable => $"{TranspileTypeReferenceForUsing(nullable.InnerType)}?",
+            UnionTypeReference union => TranspileUnionTypeReference(union, TranspileTypeReferenceForUsing),
             TupleTypeReference tuple => TranspileTupleTypeForUsing(tuple),
             FunctionTypeReference func => TranspileFunctionTypeForUsing(func),
             _ => throw new Exception($"Unsupported type reference in using alias: {typeRef.GetType().Name}")
@@ -2581,6 +2698,7 @@ public class Transpiler
             IdentifierExpression ident => TranspileIdentifierExpression(ident),
             BinaryExpression binary => TranspileBinaryExpression(binary),
             UnaryExpression unary => TranspileUnaryExpression(unary),
+            MustExpression must => TranspileMustExpression(must),
             MemberAccessExpression member => TranspileMemberAccess(member),
             IndexAccessExpression index => TranspileIndexAccess(index),
             CallExpression call => TranspileCallExpression(call),
@@ -2767,9 +2885,42 @@ public class Transpiler
         };
     }
 
+    private string TranspileMustExpression(MustExpression must)
+    {
+        var expr = TranspileExpression(must.Expression);
+        var operandType = GetRecordedExpressionType(must.Expression);
+        var nullableOperandType = GetNullableExpressionType(must.Expression);
+
+        if (nullableOperandType == null
+            && operandType != null
+            && operandType is not NullableTypeInfo
+            && IsValueTypeInfo(operandType))
+        {
+            return expr;
+        }
+
+        return $"({expr} ?? throw new System.InvalidOperationException(\"must unwrap failed: value was null\"))";
+    }
+
     private string TranspileMemberAccess(MemberAccessExpression member)
     {
         var obj = TranspileExpression(member.Object);
+
+        if (GetNullableExpressionType(member.Object) is NullableTypeInfo nullableType)
+        {
+            if (member.MemberName == "HasValue")
+            {
+                return IsValueTypeInfo(nullableType.InnerType)
+                    ? $"{obj}.HasValue"
+                    : $"({obj} != null)";
+            }
+
+            if (member.MemberName == "Value")
+            {
+                return TranspileMustExpression(new MustExpression(member.Object, member.Line, member.Column));
+            }
+        }
+
         var accessor = member.IsNullConditional ? "?." : ".";
         return $"{obj}{accessor}{member.MemberName}";
     }
@@ -3056,6 +3207,7 @@ public class Transpiler
     {
         // Match expressions export to switch expressions in C#
         var value = TranspileExpression(match.Value);
+        var nullableValueType = GetNullableExpressionType(match.Value);
 
         // Check if the match already has a wildcard/catch-all arm
         bool hasWildcardOrCatchAll = match.Cases.Any(c =>
@@ -3067,7 +3219,9 @@ public class Transpiler
         {
             var aliases = new Dictionary<string, string>();
             _activePatternBindingAliases = aliases;
-            var pattern = TranspilePattern(c.Pattern);
+            var pattern = nullableValueType != null
+                ? TranspileNullableMatchPattern(c.Pattern, nullableValueType.InnerType)
+                : TranspilePattern(c.Pattern);
             _activePatternBindingAliases = null;
 
             string expression;
@@ -3125,6 +3279,22 @@ public class Transpiler
         }
 
         return switchExpr;
+    }
+
+    private string TranspileNullableMatchPattern(Pattern pattern, TypeInfo innerType)
+    {
+        if (pattern is IdentifierPattern identifier
+            && identifier.Name != "_"
+            && !identifier.Name.Contains('.'))
+        {
+            var binding = GetPatternBindingAlias(identifier.Name);
+            var innerTypeName = TypeInfoToCSharpName(innerType);
+            return innerTypeName != null
+                ? $"{innerTypeName} {binding}"
+                : $"var {binding} when {binding} != null";
+        }
+
+        return TranspilePattern(pattern);
     }
 
     private string TranspileWithExpression(WithExpression with)
@@ -3336,10 +3506,36 @@ public class Transpiler
             GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
             ArrayTypeReference array => $"{TranspileTypeReference(array.ElementType)}[]",
             NullableTypeReference nullable => $"{TranspileTypeReference(nullable.InnerType)}?",
+            UnionTypeReference union => TranspileUnionTypeReference(union, TranspileTypeReference),
             TupleTypeReference tuple => TranspileTupleType(tuple),
             FunctionTypeReference func => TranspileFunctionType(func),
             _ => throw new Exception($"Unsupported type reference: {typeRef.GetType().Name}")
         };
+    }
+
+    private static string TranspileUnionTypeReference(UnionTypeReference union, Func<TypeReference, string> formatArm)
+    {
+        var arms = FlattenUnionTypeReference(union).ToList();
+        if (arms.Count != 2)
+            return "object";
+
+        return $"NSharpLang.Runtime.Union<{formatArm(arms[0])}, {formatArm(arms[1])}>";
+    }
+
+    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeRef)
+    {
+        if (typeRef is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                foreach (var nested in FlattenUnionTypeReference(arm))
+                    yield return nested;
+            }
+        }
+        else
+        {
+            yield return typeRef;
+        }
     }
 
     private string TranspileSimpleTypeReference(SimpleTypeReference simple)
@@ -3686,6 +3882,7 @@ public class Transpiler
             InterpolatedStringExpression => "string",
             BoolLiteralExpression => "bool",
             NullLiteralExpression => "object", // Null literal - should be caught by analyzer
+            MustExpression must => InferTypeFromExpression(must.Expression),
 
             // Array literals
             ArrayLiteralExpression array when array.Elements.Count > 0 =>
@@ -3742,6 +3939,7 @@ public class Transpiler
             AwaitExpression => true,
             BinaryExpression binary => ContainsAwaitInExpression(binary.Left) || ContainsAwaitInExpression(binary.Right),
             UnaryExpression unary => ContainsAwaitInExpression(unary.Operand),
+            MustExpression must => ContainsAwaitInExpression(must.Expression),
             CallExpression call => ContainsAwaitInExpression(call.Callee) || call.Arguments.Any(arg => ContainsAwaitInExpression(arg.Value)),
             MemberAccessExpression member => ContainsAwaitInExpression(member.Object),
             AssignmentExpression assign => ContainsAwaitInExpression(assign.Target) || ContainsAwaitInExpression(assign.Value),
@@ -3783,6 +3981,31 @@ public class Transpiler
     /// <summary>
     /// Converts a TypeInfo to its C# type name string.
     /// </summary>
+    private TypeInfo? GetRecordedExpressionType(Expression expression)
+    {
+        return _semanticModel != null
+            && _semanticModel.ExpressionTypes.TryGetValue((expression.Line, expression.Column), out var type)
+                ? type
+                : null;
+    }
+
+    private NullableTypeInfo? GetNullableExpressionType(Expression expression)
+    {
+        if (GetRecordedExpressionType(expression) is NullableTypeInfo nullableType)
+        {
+            return nullableType;
+        }
+
+        if (_semanticModel != null && expression is IdentifierExpression identifier)
+        {
+            var declaredType = _semanticModel.LookupIdentifierAtPosition(identifier.Name, expression.Line, expression.Column)
+                ?? _semanticModel.LookupIdentifier(identifier.Name);
+            return declaredType as NullableTypeInfo;
+        }
+
+        return null;
+    }
+
     private string? TypeInfoToCSharpName(TypeInfo typeInfo)
     {
         return typeInfo switch
@@ -3812,7 +4035,11 @@ public class Transpiler
             RecordTypeInfo recordType => recordType.Declaration.Name,
             InterfaceTypeInfo interfaceType => interfaceType.Declaration.Name,
             EnumTypeInfo enumType => enumType.Declaration.Name,
-            UnionTypeInfo unionType => unionType.Declaration.Name,
+            UnionTypeInfo { IsAnonymous: true } unionType when unionType.Arms.Count == 2
+                && TypeInfoToCSharpName(unionType.Arms[0]) is string arm0
+                && TypeInfoToCSharpName(unionType.Arms[1]) is string arm1
+                => $"NSharpLang.Runtime.Union<{arm0}, {arm1}>",
+            UnionTypeInfo unionType => unionType.Declaration!.Name,
             ArrayTypeInfo arrayType => TypeInfoToCSharpName(arrayType.ElementType) is string elemName ? $"{elemName}[]" : null,
             NullableTypeInfo nullable => TypeInfoToCSharpName(nullable.InnerType) is string innerName ? $"{innerName}?" : null,
             ObliviousTypeInfo oblivious => TypeInfoToCSharpName(oblivious.InnerType),
@@ -3838,6 +4065,7 @@ public class Transpiler
                 or "char" or "Char" or "bool" or "Boolean",
             StructTypeInfo => true,
             EnumTypeInfo => true,
+            UnionTypeInfo { IsAnonymous: true } => true,
             ReflectionTypeInfo reflection => reflection.Type.IsValueType,
             NullableTypeInfo => true,
             _ => false

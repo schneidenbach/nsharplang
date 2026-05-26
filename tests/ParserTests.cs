@@ -5645,6 +5645,49 @@ Hello, {person.Name}!
     }
 
     [Fact]
+    public void TestPackageBeforeImports()
+    {
+        var source = @"
+            package NSharp.Http
+
+            import System
+            import System.Collections.Generic
+
+            record HttpRequest {
+                Method: string
+            }
+        ";
+
+        var cu = Parse(source);
+
+        Assert.NotNull(cu.Package);
+        Assert.Equal("NSharp.Http", cu.Package!.Name);
+        Assert.Equal(2, cu.Imports.Count);
+        Assert.Equal("System", cu.Imports[0].Namespace);
+        Assert.Equal("System.Collections.Generic", cu.Imports[1].Namespace);
+        Assert.Single(cu.Declarations);
+    }
+
+    [Fact]
+    public void TestImportsBeforePackageRemainSupported()
+    {
+        var source = @"
+            import System
+
+            package Compat
+
+            func main() {}
+        ";
+
+        var cu = Parse(source);
+
+        Assert.NotNull(cu.Package);
+        Assert.Equal("Compat", cu.Package!.Name);
+        Assert.Single(cu.Imports);
+        Assert.Single(cu.Declarations);
+    }
+
+    [Fact]
     public void TestDottedPackageName()
     {
         var source = @"
@@ -5837,5 +5880,73 @@ func Use(items: List<Person?>[], callback: Func<Person, string>): void {
 
         var callbackPerson = Assert.IsType<SimpleTypeReference>(callbackType.ParameterTypes[0]);
         Assert.Equal(new SourceSpan(5, 49, 5, 55), callbackPerson.Span);
+    }
+
+    [Fact]
+    public void MustExpression_ParsesAsUnaryExpression()
+    {
+        var source = """
+func Test(input: int?) {
+    value := must input
+}
+""";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var valueDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var must = Assert.IsType<MustExpression>(valueDecl.Initializer);
+
+        Assert.IsType<IdentifierExpression>(must.Expression);
+    }
+
+    [Fact]
+    public void AnonymousUnionType_ParsesInSupportedTypePositions()
+    {
+        var source = """
+type Greeting = PrebakedGreeting | string
+
+record Holder {
+    Value: (int | string)[]
+}
+
+func Hi(greeting: PrebakedGreeting | string): List<int | string[]> {
+    casted := (PrebakedGreeting | string)greeting
+    ok := greeting is PrebakedGreeting | string
+    return new List<int | string[]>()
+}
+""";
+
+        var cu = Parse(source);
+
+        var alias = Assert.IsType<TypeAliasDeclaration>(cu.Declarations[0]);
+        var aliasUnion = Assert.IsType<UnionTypeReference>(alias.Type);
+        Assert.Equal(2, aliasUnion.Arms.Count);
+
+        var holder = Assert.IsType<RecordDeclaration>(cu.Declarations[1]);
+        var valueField = Assert.IsType<FieldDeclaration>(holder.Members[0]);
+        var valueArray = Assert.IsType<ArrayTypeReference>(valueField.Type);
+        Assert.IsType<UnionTypeReference>(valueArray.ElementType);
+
+        var hi = Assert.IsType<FunctionDeclaration>(cu.Declarations[2]);
+        Assert.IsType<UnionTypeReference>(hi.Parameters[0].Type);
+
+        var returnType = Assert.IsType<GenericTypeReference>(hi.ReturnType);
+        var returnUnion = Assert.IsType<UnionTypeReference>(returnType.TypeArguments[0]);
+        Assert.IsType<ArrayTypeReference>(returnUnion.Arms[1]);
+
+        var castDecl = Assert.IsType<VariableDeclarationStatement>(hi.Body!.Statements[0]);
+        Assert.IsType<UnionTypeReference>(Assert.IsType<CastExpression>(castDecl.Initializer).TargetType);
+
+        var isDecl = Assert.IsType<VariableDeclarationStatement>(hi.Body.Statements[1]);
+        Assert.IsType<UnionTypeReference>(Assert.IsType<IsExpression>(isDecl.Initializer).Type);
+    }
+
+    [Fact]
+    public void AnonymousUnionType_ReportsMissingRightArm()
+    {
+        AssertHasParseError("""
+func Bad(value: int |): void {
+}
+""", "Expected a type after '|'");
     }
 }

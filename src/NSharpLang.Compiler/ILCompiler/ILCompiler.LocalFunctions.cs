@@ -428,6 +428,29 @@ public partial class ILCompiler
                 var nullableArgumentType = Nullable.GetUnderlyingType(argumentType) ?? argumentType;
                 return TryCollectGenericLocalFunctionBindings(nullableType.InnerType, nullableArgumentType, localTypeParameterNames, typeBindings);
 
+            case UnionTypeReference unionType:
+                if (!IsRuntimeUnionType(argumentType))
+                {
+                    return false;
+                }
+
+                var unionArms = FlattenUnionTypeReference(unionType).ToList();
+                var argumentArms = argumentType.GetGenericArguments();
+                if (unionArms.Count != argumentArms.Length)
+                {
+                    return false;
+                }
+
+                for (var i = 0; i < unionArms.Count; i++)
+                {
+                    if (!TryCollectGenericLocalFunctionBindings(unionArms[i], argumentArms[i], localTypeParameterNames, typeBindings))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+
             case TupleTypeReference tupleType:
                 if (!argumentType.IsGenericType)
                 {
@@ -513,6 +536,17 @@ public partial class ILCompiler
 
             case NullableTypeReference nullableType:
                 return typeof(Nullable<>).MakeGenericType(ResolveGenericLocalFunctionTypeReference(nullableType.InnerType, typeBindings));
+
+            case UnionTypeReference unionType:
+                var unionArms = FlattenUnionTypeReference(unionType).ToList();
+                if (unionArms.Count != 2)
+                {
+                    return typeof(object);
+                }
+
+                return typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(
+                    ResolveGenericLocalFunctionTypeReference(unionArms[0], typeBindings),
+                    ResolveGenericLocalFunctionTypeReference(unionArms[1], typeBindings));
 
             case TupleTypeReference tupleType:
                 var tupleElementTypes = tupleType.Elements

@@ -384,6 +384,10 @@ internal static class NamespaceQualifiedCompilationMerger
                 {
                     Operand = TransformExpression(unaryExpression.Operand)!
                 },
+                MustExpression mustExpression => mustExpression with
+                {
+                    Expression = TransformExpression(mustExpression.Expression)!
+                },
                 MemberAccessExpression memberAccess => memberAccess with
                 {
                     Object = TransformExpression(memberAccess.Object)!
@@ -615,6 +619,10 @@ internal static class NamespaceQualifiedCompilationMerger
                 NullableTypeReference nullableType => nullableType with
                 {
                     InnerType = TransformTypeReference(nullableType.InnerType)!
+                },
+                UnionTypeReference unionType => unionType with
+                {
+                    Arms = unionType.Arms.Select(arm => TransformTypeReference(arm)!).ToList()
                 },
                 TupleTypeReference tupleType => tupleType with
                 {

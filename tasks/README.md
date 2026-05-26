@@ -16,8 +16,9 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 
 ## P1: Nullability Workflows
 
-- [007-nullable-unwrap-and-match-idioms.md](007-nullable-unwrap-and-match-idioms.md)
-- [008-csharp-nullability-interop.md](008-csharp-nullability-interop.md)
+- [015-nullable-ide-and-must-message-polish.md](015-nullable-ide-and-must-message-polish.md)
+- [015-csharp-flow-attribute-narrowing.md](015-csharp-flow-attribute-narrowing.md)
+- [016-csharp-generic-nullability-substitution.md](016-csharp-generic-nullability-substitution.md)
 
 ## P2: CLI, Release, Evidence, Docs
 
@@ -25,6 +26,7 @@ Each task file is a thread-sized vertical slice framed around a shippable user o
 - [010-library-publishing-workflow.md](010-library-publishing-workflow.md)
 - [013-benchmarks-and-launch-evidence.md](013-benchmarks-and-launch-evidence.md)
 - [014-public-playground.md](014-public-playground.md)
+- [015-build-and-test-warning-hygiene.md](015-build-and-test-warning-hygiene.md)
 - [015-dependency-commands-project-yml-parity.md](015-dependency-commands-project-yml-parity.md)
 - [015-native-test-coverage.md](015-native-test-coverage.md)
 - [016-target-runtime-publish-and-apphost.md](016-target-runtime-publish-and-apphost.md)

@@ -35,6 +35,7 @@ public class ExpressionTypeResolver
             IdentifierExpression id => ResolveIdentifierTypeInfo(id.Name),
             MemberAccessExpression memberAccess => ResolveMemberAccessTypeInfo(memberAccess),
             CallExpression call => ResolveCallTypeInfo(call),
+            MustExpression must => ResolveMustTypeInfo(must),
             IntLiteralExpression => BuiltInTypes.Int,
             FloatLiteralExpression => BuiltInTypes.Double,
             CharLiteralExpression => BuiltInTypes.Char,
@@ -240,6 +241,7 @@ public class ExpressionTypeResolver
             IdentifierExpression id => ResolveIdentifierType(id.Name),
             MemberAccessExpression memberAccess => ResolveMemberAccessType(memberAccess),
             CallExpression call => ResolveCallType(call),
+            MustExpression must => ResolveMustType(must),
             IntLiteralExpression => typeof(int),
             FloatLiteralExpression => typeof(double),
             CharLiteralExpression => typeof(char),
@@ -252,6 +254,18 @@ public class ExpressionTypeResolver
         };
     }
 
+    private TypeInfo? ResolveMustTypeInfo(MustExpression must)
+    {
+        var operandType = ResolveExpressionTypeInfo(must.Expression);
+        return operandType is NullableTypeInfo nullable ? nullable.InnerType : operandType;
+    }
+
+    private Type? ResolveMustType(MustExpression must)
+    {
+        var operandType = ResolveExpressionType(must.Expression);
+        return operandType != null ? Nullable.GetUnderlyingType(operandType) ?? operandType : null;
+    }
+
     private TypeInfo ResolveTypeReference(TypeReference typeRef)
     {
         return typeRef switch
@@ -261,6 +275,7 @@ public class ExpressionTypeResolver
                 g.TypeArguments.Select(ResolveTypeReference).ToList()),
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReference(a.ElementType)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReference(n.InnerType)),
+            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(ResolveTypeReference).ToList()),
             _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
         };
     }
@@ -275,6 +290,11 @@ public class ExpressionTypeResolver
             NullableTypeInfo nullable => ResolveNullableTypeInfo(nullable.InnerType),
             ObliviousTypeInfo oblivious => ResolveTypeInfoToClrType(oblivious.InnerType),
             GenericTypeInfo generic => ResolveGenericTypeInfo(generic),
+            UnionTypeInfo { IsAnonymous: true } union when union.Arms.Count == 2
+                => ResolveTypeInfoToClrType(union.Arms[0]) is { } arm0
+                   && ResolveTypeInfoToClrType(union.Arms[1]) is { } arm1
+                    ? typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(arm0, arm1)
+                    : null,
             _ => ResolveTypeFromString(typeInfo.ToString())
         };
     }
@@ -333,11 +353,29 @@ public class ExpressionTypeResolver
             "System.String" => BuiltInTypes.String,
             "System.Void" => BuiltInTypes.Void,
             "System.Object" => BuiltInTypes.Object,
+            _ when type.IsGenericType && type.GetGenericTypeDefinition() == typeof(NSharpLang.Runtime.Union<,>) => new UnionTypeInfo(
+                type.GetGenericArguments().Select(ConvertClrTypeToTypeInfo).ToList()),
             _ when type.IsGenericType => new GenericTypeInfo(
                 type.Name[..type.Name.IndexOf('`')],
                 type.GetGenericArguments().Select(ConvertClrTypeToTypeInfo).ToList()),
             _ => new ReflectionTypeInfo(type)
         };
+    }
+
+    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeReference)
+    {
+        if (typeReference is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                foreach (var nested in FlattenUnionTypeReference(arm))
+                    yield return nested;
+            }
+        }
+        else
+        {
+            yield return typeReference;
+        }
     }
 
     /// <summary>

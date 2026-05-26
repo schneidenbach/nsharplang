@@ -41,6 +41,7 @@
     <ProjectReference Include="..\src\NSharpLang.Cli\Cli.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
     <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.Playground\NSharpLang.Playground.csproj" />
   </ItemGroup>
 
   <ItemGroup>

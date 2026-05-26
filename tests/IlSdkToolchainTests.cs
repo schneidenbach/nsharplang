@@ -105,6 +105,84 @@ func main() {
     }
 
     [Fact]
+    public void DotnetBuild_ResolvesRuntimeForAnonymousUnionAndProjectReferences()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var libraryDir = Path.Combine(tempDir, "UnionLib");
+            Directory.CreateDirectory(libraryDir);
+            File.WriteAllText(Path.Combine(libraryDir, "UnionLib.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+            File.WriteAllText(Path.Combine(libraryDir, "project.yml"), """
+name: UnionLib
+backend: il
+outputType: library
+targetFramework: net10.0
+""");
+            RestoreCommand.Restore(libraryDir, quiet: true);
+            File.WriteAllText(Path.Combine(libraryDir, "UnionApi.nl"), """
+namespace UnionLib
+
+class UnionApi {
+    static func Describe(value: int | string): string {
+        return match value {
+            int number => number.ToString(),
+            string text => text
+        }
+    }
+
+    static func Choose(flag: bool): int | string {
+        if flag {
+            return 42
+        }
+
+        return "runtime"
+    }
+}
+""");
+
+            var consumerDir = Path.Combine(tempDir, "Consumer");
+            Directory.CreateDirectory(consumerDir);
+            File.WriteAllText(Path.Combine(consumerDir, "Consumer.csproj"), $$"""
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="{{Path.Combine("..", "UnionLib", "UnionLib.csproj")}}" />
+  </ItemGroup>
+</Project>
+""");
+            File.WriteAllText(Path.Combine(consumerDir, "Program.cs"), """
+var direct = UnionLib.UnionApi.Describe(7);
+var returned = UnionLib.UnionApi.Choose(false).As<string>();
+Console.WriteLine($"{direct}|{returned}");
+""");
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                consumerDir,
+                "build Consumer.csproj -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var runResult = DotnetRunner.Run(
+                $"run --project \"{Path.Combine(consumerDir, "Consumer.csproj")}\" --no-build",
+                workingDirectory: consumerDir,
+                timeout: TimeSpan.FromMinutes(5));
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("7|runtime", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void DotnetBuild_RetiredTranspileBackend_IsRejected()
     {
         var tempDir = CreateTempDir();
@@ -669,6 +747,76 @@ Console.WriteLine($"{MathUtils.Add(2, 3)}:{square.Area()}");
                 runResult.ExitCode == 0,
                 $"stdout:{Environment.NewLine}{runResult.Stdout}{Environment.NewLine}stderr:{Environment.NewLine}{runResult.Stderr}{Environment.NewLine}output:{Environment.NewLine}{outputFiles}");
             Assert.Contains("5:16", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DotnetBuild_CSharpProjectReferenceLoadsProjectYamlWithoutNlcRestore()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var libraryDir = Path.Combine(tempDir, "NSharpHttp");
+            Directory.CreateDirectory(libraryDir);
+            TestSdkFeed.WriteVersionedSdkProject(libraryDir, "NSharpHttp");
+            File.WriteAllText(Path.Combine(libraryDir, "project.yml"), """
+name: NSharpHttp
+backend: il
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(libraryDir, "Http.nl"), """
+package Interop.Http
+
+record HttpRequest {
+    Method: string
+    Body: string
+}
+""");
+            Assert.False(File.Exists(Path.Combine(libraryDir, "obj", "project.g.props")));
+
+            var consumerDir = Path.Combine(tempDir, "Consumer");
+            Directory.CreateDirectory(consumerDir);
+            File.WriteAllText(Path.Combine(consumerDir, "Consumer.csproj"), $$"""
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="{{Path.Combine("..", "NSharpHttp", "NSharpHttp.csproj")}}" />
+  </ItemGroup>
+</Project>
+""");
+            File.WriteAllText(Path.Combine(consumerDir, "Program.cs"), """
+using Interop.Http;
+
+var request = new HttpRequest
+{
+    Method = "GET",
+    Body = ""
+};
+
+Console.WriteLine($"{request.Method}:{request.Body.Length}");
+""");
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                consumerDir,
+                $"build \"{Path.Combine(consumerDir, "Consumer.csproj")}\" -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var runResult = DotnetRunner.Run(
+                $"run --project \"{Path.Combine(consumerDir, "Consumer.csproj")}\" --no-build",
+                workingDirectory: consumerDir,
+                timeout: TimeSpan.FromMinutes(5));
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("GET:0", runResult.Stdout);
         }
         finally
         {

@@ -60,6 +60,15 @@ internal static class TestSdkFeed
             throw new InvalidOperationException("Failed to build NSharp build tasks.");
         }
 
+        var runtimePackExitCode = RunDotnetNoCapture(
+            repoRoot,
+            $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Runtime", "NSharpLang.Runtime.csproj")}\" -c Release -o \"{feedDir}\" -v q --disable-build-servers",
+            timeout: TimeSpan.FromMinutes(5));
+        if (runtimePackExitCode != 0)
+        {
+            throw new InvalidOperationException("Failed to pack NSharp runtime.");
+        }
+
         var packExitCode = RunDotnetNoCapture(
             repoRoot,
             $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Sdk", "NSharpLang.Sdk.csproj")}\" -c Release -o \"{feedDir}\" -p:Version={version} -v q --disable-build-servers",

@@ -124,6 +124,7 @@ Type inference, duck interfaces, external types, user-defined types.
 **Topics:**
 - Type inference (var, :=, arrays)
 - Duck interfaces and structural typing
+- Anonymous unions (`A | B`) and CLR `Union<T0, T1>` ABI
 - External type resolution (.NET reflection)
 - User-defined types (class, struct, record, union, enum)
 - Type compatibility and conversions

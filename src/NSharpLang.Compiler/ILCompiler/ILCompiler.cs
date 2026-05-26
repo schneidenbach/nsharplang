@@ -75,6 +75,7 @@ public partial class ILCompiler
     private readonly Dictionary<string, PropertyBuilder> _indexers = new();
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
     private readonly Dictionary<FunctionDeclaration, MethodBuilder> _methodBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ConstructorDeclaration, ConstructorBuilder> _constructorBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, List<DeclaredMethodOverload>> _declaredMethodOverloads = new();
     private readonly Dictionary<string, List<DeclaredConstructorOverload>> _declaredConstructorOverloads = new();
@@ -128,6 +129,12 @@ public partial class ILCompiler
 
     private sealed record DeclaredMethodOverload(FunctionDeclaration Declaration, MethodBuilder Builder);
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
+    private sealed record AnonymousUnionShim(
+        MethodBuilder Builder,
+        MethodBuilder Target,
+        FunctionDeclaration Declaration,
+        Type[] OriginalParameterTypes,
+        Type[] ShimParameterTypes);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
         private readonly Type[] _parameterTypes = parameterTypes.ToArray();
@@ -1291,7 +1298,8 @@ public partial class ILCompiler
             }
         }
 
-        if (_compilationUnit.Namespace?.Name is { Length: > 0 } currentNamespace
+        var currentUnitNamespace = _compilationUnit.Namespace?.Name ?? _compilationUnit.Package?.Name;
+        if (currentUnitNamespace is { Length: > 0 } currentNamespace
             && !typeName.StartsWith(currentNamespace + ".", StringComparison.Ordinal))
         {
             yield return $"{currentNamespace}.{typeName}";
@@ -1527,6 +1535,11 @@ public partial class ILCompiler
     {
         try
         {
+            if (parameterTypes != null && RequiresGeneratedMethodSignatureResolution(type, parameterTypes))
+            {
+                return TryGetDeclaredGeneratedRuntimeMethod(type, memberName, bindingFlags, parameterTypes, out method);
+            }
+
             method = parameterTypes == null
                 ? type.GetMethod(memberName, bindingFlags)
                 : type.GetMethod(memberName, bindingFlags, binder: null, parameterTypes, modifiers: null);
@@ -1538,6 +1551,10 @@ public partial class ILCompiler
                 method = TypeBuilder.GetMethod(type, method);
             }
             return method != null;
+        }
+        catch (ArgumentException) when (parameterTypes != null && RequiresGeneratedMethodSignatureResolution(type, parameterTypes))
+        {
+            return TryGetDeclaredGeneratedRuntimeMethod(type, memberName, bindingFlags, parameterTypes, out method);
         }
         catch (AmbiguousMatchException)
         {
@@ -1567,6 +1584,78 @@ public partial class ILCompiler
             method = null;
             return false;
         }
+    }
+
+    private static bool RequiresGeneratedMethodSignatureResolution(Type type, Type[] parameterTypes)
+    {
+        return RequiresTypeBuilderMemberResolution(type)
+            || parameterTypes.Any(RequiresTypeBuilderMemberResolution);
+    }
+
+    private static bool TryGetDeclaredGeneratedRuntimeMethod(
+        Type type,
+        string memberName,
+        BindingFlags bindingFlags,
+        Type[] parameterTypes,
+        out MethodInfo? method)
+    {
+        method = null;
+
+        var searchType = type;
+        var needsRebinding = false;
+        if (type.IsGenericType && !type.IsGenericTypeDefinition && RequiresTypeBuilderMemberResolution(type))
+        {
+            try
+            {
+                searchType = type.GetGenericTypeDefinition();
+                needsRebinding = true;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        MethodInfo[] candidates;
+        try
+        {
+            candidates = searchType.GetMethods(bindingFlags);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        var selected = candidates.FirstOrDefault(candidate =>
+            candidate.Name == memberName
+            && AreMethodParameterTypesEquivalent(type, candidate, parameterTypes));
+        if (selected == null)
+        {
+            return false;
+        }
+
+        method = needsRebinding ? TypeBuilder.GetMethod(type, selected) : selected;
+        return method != null;
+    }
+
+    private static bool AreMethodParameterTypesEquivalent(Type closedType, MethodInfo candidate, Type[] parameterTypes)
+    {
+        var candidateParameters = candidate.GetParameters();
+        if (candidateParameters.Length != parameterTypes.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < candidateParameters.Length; i++)
+        {
+            var candidateParameterType = ResolveGenericSignatureType(closedType, candidateParameters[i].ParameterType);
+            if (!AreTypeIdentitiesEquivalent(candidateParameterType, parameterTypes[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static MethodInfo? ResolveRuntimeMethod(Type type, string memberName, BindingFlags bindingFlags, Type[]? parameterTypes = null)
@@ -2131,6 +2220,7 @@ public partial class ILCompiler
                 || (range.End != null && ContainsNestedFunction(range.End)),
             BinaryExpression binary => ContainsNestedFunction(binary.Left) || ContainsNestedFunction(binary.Right),
             UnaryExpression unary => ContainsNestedFunction(unary.Operand),
+            MustExpression mustExpression => ContainsNestedFunction(mustExpression.Expression),
             MemberAccessExpression memberAccess => ContainsNestedFunction(memberAccess.Object),
             IndexAccessExpression indexAccess => ContainsNestedFunction(indexAccess.Object) || ContainsNestedFunction(indexAccess.Index),
             CallExpression call => ContainsNestedFunction(call.Callee) || call.Arguments.Any(argument => ContainsNestedFunction(argument.Value)),
@@ -2225,6 +2315,7 @@ public partial class ILCompiler
                 || (rangeExpression.End != null && ContainsAwait(rangeExpression.End)),
             BinaryExpression binaryExpression => ContainsAwait(binaryExpression.Left) || ContainsAwait(binaryExpression.Right),
             UnaryExpression unaryExpression => ContainsAwait(unaryExpression.Operand),
+            MustExpression mustExpression => ContainsAwait(mustExpression.Expression),
             MemberAccessExpression memberAccessExpression => ContainsAwait(memberAccessExpression.Object),
             IndexAccessExpression indexAccessExpression => ContainsAwait(indexAccessExpression.Object) || ContainsAwait(indexAccessExpression.Index),
             CallExpression callExpression => ContainsAwait(callExpression.Callee)
@@ -2412,6 +2503,14 @@ public partial class ILCompiler
                 foreach (var parameterType in functionType.ParameterTypes)
                     flags.AddRange(GetNullableAttributeFlags(parameterType, genericParameters));
                 flags.AddRange(GetNullableAttributeFlags(functionType.ReturnType, genericParameters));
+                return flags;
+            }
+
+            case UnionTypeReference unionType:
+            {
+                var flags = new List<byte> { 1 };
+                foreach (var arm in FlattenUnionTypeReference(unionType))
+                    flags.AddRange(GetNullableAttributeFlags(arm, genericParameters));
                 return flags;
             }
 
@@ -3184,6 +3283,22 @@ public partial class ILCompiler
             return true;
         }
 
+        if (TryGetRuntimeUnionArmTypes(parameterType, out var targetUnionArms))
+        {
+            if (TryGetRuntimeUnionArmTypes(argumentType, out var sourceUnionArms))
+            {
+                return sourceUnionArms.All(sourceArm =>
+                    targetUnionArms.Any(targetArm => IsParameterTypeCompatible(targetArm, sourceArm)));
+            }
+
+            return targetUnionArms.Any(arm => IsParameterTypeCompatible(arm, argumentType));
+        }
+
+        if (TryGetRuntimeUnionArmTypes(argumentType, out var argumentUnionArms))
+        {
+            return argumentUnionArms.All(arm => IsParameterTypeCompatible(parameterType, arm));
+        }
+
         if (parameterType.IsGenericParameter)
         {
             return true;
@@ -3252,7 +3367,8 @@ public partial class ILCompiler
         var argumentEnumUnderlyingType = TryGetEnumUnderlyingType(argumentType);
         return IsImplicitNumericConversion(argumentType, parameterType)
             || parameterEnumUnderlyingType == argumentType
-            || argumentEnumUnderlyingType == parameterType;
+            || argumentEnumUnderlyingType == parameterType
+            || ResolveConversionOperator(argumentType, parameterType, allowExplicit: false) != null;
     }
 
     private static bool CanAssignNullToType(Type targetType)
@@ -3265,11 +3381,30 @@ public partial class ILCompiler
         return Nullable.GetUnderlyingType(targetType) != null || targetType.IsGenericParameter;
     }
 
-    private static int GetParameterMatchScore(Type parameterType, Type argumentType)
+    private int GetParameterMatchScore(Type parameterType, Type argumentType)
     {
         if (parameterType == argumentType)
         {
             return 8;
+        }
+
+        if (TryGetRuntimeUnionArmTypes(parameterType, out var targetUnionArms))
+        {
+            var bestArmScore = 0;
+            foreach (var arm in targetUnionArms)
+            {
+                bestArmScore = Math.Max(bestArmScore, GetParameterMatchScore(arm, argumentType));
+            }
+
+            return bestArmScore > 0 ? Math.Min(bestArmScore, 5) : 0;
+        }
+
+        if (TryGetRuntimeUnionArmTypes(argumentType, out var sourceUnionArms))
+        {
+            var sourceArmScores = sourceUnionArms
+                .Select(arm => GetParameterMatchScore(parameterType, arm))
+                .ToArray();
+            return sourceArmScores.All(score => score > 0) ? sourceArmScores.Min() : 0;
         }
 
         if (parameterType.IsGenericParameter)
@@ -3330,6 +3465,11 @@ public partial class ILCompiler
             || (TryGetEnumUnderlyingType(argumentType) == parameterType))
         {
             return 4;
+        }
+
+        if (ResolveConversionOperator(argumentType, parameterType, allowExplicit: false) != null)
+        {
+            return 5;
         }
 
         return 0;
@@ -5806,6 +5946,7 @@ public partial class ILCompiler
             GenericTypeReference genericType => $"G:{genericType.Name}<{string.Join(",", genericType.TypeArguments.Select(GetTypeReferenceIdentity))}>",
             ArrayTypeReference arrayType => $"A:{GetTypeReferenceIdentity(arrayType.ElementType)}",
             NullableTypeReference nullableType => $"N:{GetTypeReferenceIdentity(nullableType.InnerType)}",
+            UnionTypeReference unionType => $"U:({string.Join("|", FlattenUnionTypeReference(unionType).Select(GetTypeReferenceIdentity))})",
             TupleTypeReference tupleType => $"T:({string.Join(",", tupleType.Elements.Select(element => GetTypeReferenceIdentity(element.Type)))})",
             FunctionTypeReference functionType => $"F:({string.Join(",", functionType.ParameterTypes.Select(GetTypeReferenceIdentity))})->{GetTypeReferenceIdentity(functionType.ReturnType)}",
             _ => typeReference.ToString() ?? string.Empty
@@ -6812,12 +6953,14 @@ public partial class ILCompiler
         var emittedMethodName = GetEmittedMethodName(function);
 
         // Create method (without return type and parameter types yet if generic)
-        var methodBuilder = typeBuilder.DefineMethod(
-            emittedMethodName,
-            VisibilityConventions.GetMemberMethodAttributes(function.Name, function.Modifiers)
+        var methodAttributes = VisibilityConventions.GetMemberMethodAttributes(function.Name, function.Modifiers)
             | MethodAttributes.Static
             | MethodAttributes.HideBySig
-            | (function.IsOperatorOverload || function.IsConversionOperator ? MethodAttributes.SpecialName : 0));
+            | (function.IsOperatorOverload || function.IsConversionOperator ? MethodAttributes.SpecialName : 0);
+
+        var methodBuilder = typeBuilder.DefineMethod(
+            emittedMethodName,
+            methodAttributes);
 
         // Define generic parameters if present
         GenericTypeParameterBuilder[]? genericParameters = null;
@@ -6870,6 +7013,123 @@ public partial class ILCompiler
         _methods[function.Name] = methodBuilder;
         _declaredMethodParameters[function.Name] = function.Parameters;
         RegisterDeclaredMethodOverload(function.Name, function, methodBuilder);
+        DeclareAnonymousUnionParameterShims(
+            typeBuilder,
+            function,
+            methodBuilder,
+            methodAttributes,
+            returnType,
+            parameterTypes,
+            genericParameters);
+    }
+
+    private void DeclareAnonymousUnionParameterShims(
+        TypeBuilder typeBuilder,
+        FunctionDeclaration function,
+        MethodBuilder target,
+        MethodAttributes targetAttributes,
+        Type returnType,
+        Type[] originalParameterTypes,
+        GenericTypeParameterBuilder[]? genericParameters)
+    {
+        if (function.IsOperatorOverload
+            || function.IsConversionOperator
+            || function.Modifiers.HasFlag(Modifiers.Abstract)
+            || function.TypeParameters is { Count: > 0 }
+            || (targetAttributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+        {
+            return;
+        }
+
+        var unionParameters = function.Parameters
+            .Select((parameter, index) => (parameter, index, arms: TryGetTwoArmAnonymousUnion(parameter.Type)))
+            .Where(entry => entry.arms != null)
+            .ToList();
+
+        if (unionParameters.Count == 0)
+            return;
+
+        if (unionParameters.Any(entry => entry.parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params))
+            return;
+
+        var shimAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
+        if ((targetAttributes & MethodAttributes.Static) == MethodAttributes.Static)
+            shimAttributes |= MethodAttributes.Static;
+
+        foreach (var choice in EnumerateAnonymousUnionArmChoices(unionParameters))
+        {
+            var shimParameterTypes = function.Parameters
+                .Select((parameter, index) =>
+                    choice.TryGetValue(index, out var arm)
+                        ? ResolveParameterType(parameter with { Type = arm }, genericParameters)
+                        : originalParameterTypes[index])
+                .ToArray();
+
+            var shim = typeBuilder.DefineMethod(
+                target.Name,
+                shimAttributes,
+                returnType,
+                shimParameterTypes);
+            ApplyNullableContextAttribute(shim.SetCustomAttribute);
+
+            if (function.ReturnType != null)
+            {
+                var returnParameter = shim.DefineParameter(0, ParameterAttributes.Retval, null);
+                ApplyNullableAttribute(returnParameter.SetCustomAttribute, function.ReturnType, genericParameters);
+            }
+
+            for (var i = 0; i < function.Parameters.Count; i++)
+            {
+                var parameter = function.Parameters[i];
+                var parameterForAttributes = choice.TryGetValue(i, out var arm)
+                    ? parameter with { Type = arm }
+                    : parameter;
+                var parameterBuilder = shim.DefineParameter(i + 1, GetParameterAttributes(parameter), parameter.Name);
+                ApplyParameterAttributes(parameterBuilder, parameterForAttributes, genericParameters);
+            }
+
+            if (!_anonymousUnionShimsByDeclaration.TryGetValue(function, out var shims))
+            {
+                shims = new List<AnonymousUnionShim>();
+                _anonymousUnionShimsByDeclaration[function] = shims;
+            }
+
+            shims.Add(new AnonymousUnionShim(shim, target, function, originalParameterTypes, shimParameterTypes));
+        }
+    }
+
+    private static List<TypeReference>? TryGetTwoArmAnonymousUnion(TypeReference typeReference)
+    {
+        if (typeReference is not UnionTypeReference union)
+            return null;
+
+        var arms = FlattenUnionTypeReference(union).ToList();
+        return arms.Count == 2 ? arms : null;
+    }
+
+    private static IEnumerable<Dictionary<int, TypeReference>> EnumerateAnonymousUnionArmChoices(
+        List<(Parameter parameter, int index, List<TypeReference>? arms)> unionParameters)
+    {
+        var choices = new List<Dictionary<int, TypeReference>> { new() };
+        foreach (var (_, index, arms) in unionParameters)
+        {
+            var next = new List<Dictionary<int, TypeReference>>();
+            foreach (var choice in choices)
+            {
+                foreach (var arm in arms!)
+                {
+                    var clone = new Dictionary<int, TypeReference>(choice)
+                    {
+                        [index] = arm
+                    };
+                    next.Add(clone);
+                }
+            }
+
+            choices = next;
+        }
+
+        return choices;
     }
 
     /// <summary>
@@ -6982,6 +7242,7 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
+        EmitAnonymousUnionParameterShims(function);
     }
 
     /// <summary>
@@ -8826,6 +9087,10 @@ public partial class ILCompiler
                 EmitUnaryExpression(unary);
                 break;
 
+            case MustExpression mustExpression:
+                EmitMustExpression(mustExpression);
+                break;
+
             case BinaryExpression binary:
                 EmitBinaryExpression(binary);
                 break;
@@ -9609,6 +9874,80 @@ public partial class ILCompiler
             default:
                 throw new NotImplementedException($"Unary operator {unary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    private void EmitMustExpression(MustExpression mustExpression)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var operandType = GetExpressionType(mustExpression.Expression);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(operandType);
+
+        if (nullableUnderlyingType != null)
+        {
+            EmitExpression(mustExpression.Expression);
+            var nullableLocal = _currentIL.DeclareLocal(operandType);
+            _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+            var hasValueLabel = _currentIL.DefineLabel();
+            EmitNullableHasValue(nullableLocal);
+            _currentIL.Emit(OpCodes.Brtrue, hasValueLabel);
+            EmitNullableMustFailure();
+
+            _currentIL.MarkLabel(hasValueLabel);
+            EmitNullableValue(nullableLocal, nullableUnderlyingType);
+            return;
+        }
+
+        if (!operandType.IsValueType || operandType.IsGenericParameter)
+        {
+            EmitExpression(mustExpression.Expression);
+            var hasValueLabel = _currentIL.DefineLabel();
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Brtrue, hasValueLabel);
+            _currentIL.Emit(OpCodes.Pop);
+            EmitNullableMustFailure();
+            _currentIL.MarkLabel(hasValueLabel);
+            return;
+        }
+
+        EmitExpression(mustExpression.Expression);
+    }
+
+    private void EmitNullableHasValue(LocalBuilder nullableLocal)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var hasValueGetter = nullableLocal.LocalType.GetProperty(nameof(Nullable<int>.HasValue))?.GetMethod
+            ?? throw new InvalidOperationException($"Could not resolve HasValue for {nullableLocal.LocalType}");
+        _currentIL.Emit(OpCodes.Ldloca_S, nullableLocal);
+        _currentIL.Emit(OpCodes.Call, hasValueGetter);
+    }
+
+    private void EmitNullableValue(LocalBuilder nullableLocal, Type underlyingType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var valueGetter = nullableLocal.LocalType.GetProperty(nameof(Nullable<int>.Value))?.GetMethod
+            ?? throw new InvalidOperationException($"Could not resolve Value for {nullableLocal.LocalType}");
+        _currentIL.Emit(OpCodes.Ldloca_S, nullableLocal);
+        _currentIL.Emit(OpCodes.Call, valueGetter);
+
+        if (valueGetter.ReturnType != underlyingType)
+        {
+            EmitValueCoercion(valueGetter.ReturnType, underlyingType, allowExplicitUserDefinedConversions: false);
+        }
+    }
+
+    private void EmitNullableMustFailure()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var ctor = typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve InvalidOperationException(string)");
+        _currentIL.Emit(OpCodes.Ldstr, "must unwrap failed: value was null");
+        _currentIL.Emit(OpCodes.Newobj, ctor);
+        _currentIL.Emit(OpCodes.Throw);
     }
 
     private void EmitIncrementOrDecrement(UnaryExpression unary)
@@ -11879,7 +12218,7 @@ public partial class ILCompiler
             objectType,
             "set_Item",
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            parameterTypes: null);
+            new[] { reflectionIndexType, GetIndexAccessType(indexAccess) });
         if (runtimeIndexerSetter != null)
         {
             _currentIL.Emit(runtimeIndexerSetter.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, runtimeIndexerSetter);
@@ -12246,6 +12585,25 @@ public partial class ILCompiler
             return;
         }
 
+        var nullableObjectType = GetExpressionType(memberAccess.Object);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(nullableObjectType);
+        if (nullableUnderlyingType != null
+            && (memberAccess.MemberName == "HasValue" || memberAccess.MemberName == "Value"))
+        {
+            EmitExpression(memberAccess.Object);
+            var nullableLocal = _currentIL.DeclareLocal(nullableObjectType);
+            _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+            if (memberAccess.MemberName == "HasValue")
+            {
+                EmitNullableHasValue(nullableLocal);
+                return;
+            }
+
+            EmitNullableValue(nullableLocal, nullableUnderlyingType);
+            return;
+        }
+
         if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
         {
             if (staticType is TypeBuilder staticTypeBuilder)
@@ -12315,7 +12673,7 @@ public partial class ILCompiler
         }
 
         // Get the object type
-        var objectType = GetExpressionType(memberAccess.Object);
+        var objectType = nullableObjectType;
         var useAddressReceiver = IsValueTypeLike(objectType);
 
         if (useAddressReceiver)
@@ -12502,6 +12860,20 @@ public partial class ILCompiler
 
         var targetType = ResolveType(cast.TargetType, _currentGenericParameters);
         var sourceType = GetExpressionType(cast.Expression);
+
+        if (IsRuntimeUnionType(sourceType) && !AreTypeIdentitiesEquivalent(sourceType, targetType))
+        {
+            if (cast.Kind == CastKind.Safe)
+            {
+                EmitRuntimeUnionTryCast(cast.Expression, sourceType, targetType);
+            }
+            else
+            {
+                EmitRuntimeUnionAsCast(cast.Expression, sourceType, targetType);
+            }
+            return;
+        }
+
         EmitExpression(cast.Expression);
 
         if (cast.Kind == CastKind.Safe)
@@ -12521,6 +12893,13 @@ public partial class ILCompiler
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         var targetType = ResolveType(isExpr.Type, _currentGenericParameters);
+        var sourceType = GetExpressionType(isExpr.Expression);
+        if (IsRuntimeUnionType(sourceType))
+        {
+            EmitRuntimeUnionIsExpression(isExpr, sourceType, targetType);
+            return;
+        }
+
         EmitExpression(isExpr.Expression);
         _currentIL.Emit(OpCodes.Isinst, targetType);
 
@@ -12559,6 +12938,155 @@ public partial class ILCompiler
 
         _currentIL.Emit(OpCodes.Ldnull);
         _currentIL.Emit(OpCodes.Cgt_Un);
+    }
+
+    private void EmitRuntimeUnionAsCast(Expression expression, Type unionType, Type targetType)
+    {
+        var unionLocal = _currentIL!.DeclareLocal(unionType);
+        EmitExpression(expression);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+        _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(unionType, nameof(NSharpLang.Runtime.Union<int, string>.As)).MakeGenericMethod(targetType));
+    }
+
+    private void EmitRuntimeUnionTryCast(Expression expression, Type unionType, Type targetType)
+    {
+        var unionLocal = _currentIL!.DeclareLocal(unionType);
+        var resultLocal = _currentIL.DeclareLocal(targetType);
+        var successLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(expression);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca, resultLocal);
+        _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(unionType, nameof(NSharpLang.Runtime.Union<int, string>.TryGet)).MakeGenericMethod(targetType));
+        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+
+        EmitDefaultValue(targetType);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(successLabel);
+        _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private void EmitRuntimeUnionIsExpression(IsExpression isExpr, Type unionType, Type targetType)
+    {
+        var unionLocal = _currentIL!.DeclareLocal(unionType);
+        EmitExpression(isExpr.Expression);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+
+        if (isExpr.VariableName == null)
+        {
+            _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+            _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(unionType, nameof(NSharpLang.Runtime.Union<int, string>.Is)).MakeGenericMethod(targetType));
+            return;
+        }
+
+        if (_locals == null)
+        {
+            throw new InvalidOperationException("Variable binding in is-expression requires local scope");
+        }
+
+        var local = DeclareNamedLocal(isExpr.VariableName, targetType);
+        if (IsLiftedIdentifier(isExpr.VariableName))
+        {
+            var tempLocal = _currentIL.DeclareLocal(targetType);
+            var endLabel = _currentIL.DefineLabel();
+
+            _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+            _currentIL.Emit(OpCodes.Ldloca, tempLocal);
+            _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(unionType, nameof(NSharpLang.Runtime.Union<int, string>.TryGet)).MakeGenericMethod(targetType));
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Brfalse, endLabel);
+            _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            EmitStoreLiftedLocalValue(local, targetType, leaveValueOnStack: false);
+            _currentIL.MarkLabel(endLabel);
+            return;
+        }
+
+        _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca, local);
+        _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(unionType, nameof(NSharpLang.Runtime.Union<int, string>.TryGet)).MakeGenericMethod(targetType));
+    }
+
+    private static bool IsRuntimeUnionType(Type type)
+    {
+        try
+        {
+            return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(NSharpLang.Runtime.Union<,>);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetRuntimeUnionArmTypes(Type type, out Type[] arms)
+    {
+        if (IsRuntimeUnionType(type))
+        {
+            arms = type.GetGenericArguments();
+            return arms.Length == 2;
+        }
+
+        arms = Array.Empty<Type>();
+        return false;
+    }
+
+    private static MethodInfo GetRuntimeUnionImplicitConversionOperator(Type unionType, int armIndex)
+    {
+        var openMethod = typeof(NSharpLang.Runtime.Union<,>)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .FirstOrDefault(method =>
+            {
+                if (method.Name != "op_Implicit")
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 1
+                    && parameters[0].ParameterType.IsGenericParameter
+                    && parameters[0].ParameterType.GenericParameterPosition == armIndex;
+            })
+            ?? throw new InvalidOperationException($"Could not find runtime union implicit operator for arm {armIndex} on {unionType}.");
+
+        if (RequiresTypeBuilderMemberResolution(unionType))
+        {
+            return TypeBuilder.GetMethod(unionType, openMethod);
+        }
+
+        var arms = unionType.GetGenericArguments();
+        return unionType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                   .FirstOrDefault(method =>
+                   {
+                       if (method.Name != "op_Implicit")
+                       {
+                           return false;
+                       }
+
+                       var parameters = method.GetParameters();
+                       return parameters.Length == 1
+                           && armIndex < arms.Length
+                           && AreTypeIdentitiesEquivalent(parameters[0].ParameterType, arms[armIndex]);
+                   })
+               ?? openMethod;
+    }
+
+    private static MethodInfo GetRuntimeUnionGenericMethod(Type unionType, string methodName)
+    {
+        var openMethod = typeof(NSharpLang.Runtime.Union<,>)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(method => method.Name == methodName && method.IsGenericMethodDefinition)
+            ?? throw new InvalidOperationException($"Could not find runtime union method '{methodName}' on {unionType}.");
+
+        return RequiresTypeBuilderMemberResolution(unionType)
+            ? TypeBuilder.GetMethod(unionType, openMethod)
+            : unionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(method => method.Name == methodName && method.IsGenericMethodDefinition)
+                ?? openMethod;
     }
 
     private void EmitTypeOfExpression(TypeOfExpression typeOfExpr)
@@ -12617,6 +13145,7 @@ public partial class ILCompiler
             IdentifierExpression ident => GetIdentifierType(ident),
             RangeExpression => typeof(Range),
             UnaryExpression unary => GetUnaryExpressionType(unary),
+            MustExpression mustExpression => GetMustExpressionType(mustExpression),
             BinaryExpression binary => GetBinaryExpressionType(binary),
             ParenthesizedExpression paren => GetExpressionType(paren.Inner),
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
@@ -12728,7 +13257,7 @@ public partial class ILCompiler
                     && !identifierPattern.Name.Contains('.')
                     && !TryResolvePatternType(identifierPattern.Name, out _))
                 {
-                    AddPatternBindingTypeHint(identifierPattern.Name, valueType);
+                    AddPatternBindingTypeHint(identifierPattern.Name, Nullable.GetUnderlyingType(valueType) ?? valueType);
                 }
                 break;
 
@@ -12976,6 +13505,12 @@ public partial class ILCompiler
         };
     }
 
+    private Type GetMustExpressionType(MustExpression mustExpression)
+    {
+        var operandType = GetExpressionType(mustExpression.Expression);
+        return Nullable.GetUnderlyingType(operandType) ?? operandType;
+    }
+
     private Type GetArrayLiteralType(ArrayLiteralExpression arrayLiteral)
     {
         if (TryGetCollectionExpressionEmissionType(_expectedExpressionType, out var collectionType, out _))
@@ -13077,6 +13612,19 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(unwrapNullConditional.Object);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(objectType);
+        if (nullableUnderlyingType != null)
+        {
+            if (unwrapNullConditional.MemberName == "HasValue")
+            {
+                return typeof(bool);
+            }
+
+            if (unwrapNullConditional.MemberName == "Value")
+            {
+                return nullableUnderlyingType;
+            }
+        }
 
         // Check user-defined types first
         if (objectType is TypeBuilder typeBuilder)
@@ -13558,6 +14106,17 @@ public partial class ILCompiler
                 : innerType;
         }
 
+        if (typeRef is UnionTypeReference unionType)
+        {
+            var arms = FlattenUnionTypeReference(unionType).ToList();
+            if (arms.Count != 2)
+                return typeof(object);
+
+            return typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(
+                ResolveType(arms[0], genericTypeArguments),
+                ResolveType(arms[1], genericTypeArguments));
+        }
+
         if (typeRef is TupleTypeReference tupleType)
         {
             var elementTypes = tupleType.Elements
@@ -13688,6 +14247,17 @@ public partial class ILCompiler
                 : innerType;
         }
 
+        if (typeRef is UnionTypeReference unionType)
+        {
+            var arms = FlattenUnionTypeReference(unionType).ToList();
+            if (arms.Count != 2)
+                return typeof(object);
+
+            return typeof(NSharpLang.Runtime.Union<,>).MakeGenericType(
+                ResolveType(arms[0], genericParameters),
+                ResolveType(arms[1], genericParameters));
+        }
+
         if (typeRef is TupleTypeReference tupleType)
         {
             var elementTypes = tupleType.Elements
@@ -13717,6 +14287,22 @@ public partial class ILCompiler
         }
 
         return typeof(object);
+    }
+
+    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeReference)
+    {
+        if (typeReference is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                foreach (var nestedArm in FlattenUnionTypeReference(arm))
+                    yield return nestedArm;
+            }
+        }
+        else
+        {
+            yield return typeReference;
+        }
     }
 
     private bool TryEnsureUserTypeDeclared(string name)
@@ -14712,7 +15298,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    DeclareField(typeBuilder, fieldDecl);
+                    DeclareField(typeBuilder, fieldDecl, FieldOwnerKind.Class);
                     break;
                 case ConstructorDeclaration ctorDecl:
                     DeclareConstructor(typeBuilder, ctorDecl);
@@ -14729,7 +15315,7 @@ public partial class ILCompiler
             }
         }
 
-        ApplyRequiredMemberTypeAttribute(typeBuilder, classDecl.Members);
+        ApplyRequiredMemberTypeAttribute(typeBuilder, classDecl.Members, FieldOwnerKind.Class);
 
         DeclareNestedTypeMembers(classDecl.Members, typeName);
 
@@ -14764,7 +15350,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    DeclareField(typeBuilder, fieldDecl);
+                    DeclareField(typeBuilder, fieldDecl, FieldOwnerKind.Struct);
                     break;
                 case ConstructorDeclaration ctorDecl:
                     DeclareConstructor(typeBuilder, ctorDecl);
@@ -14781,7 +15367,7 @@ public partial class ILCompiler
             }
         }
 
-        ApplyRequiredMemberTypeAttribute(typeBuilder, structDecl.Members);
+        ApplyRequiredMemberTypeAttribute(typeBuilder, structDecl.Members, FieldOwnerKind.Struct);
 
         DeclareNestedTypeMembers(structDecl.Members, typeName);
 
@@ -14806,13 +15392,42 @@ public partial class ILCompiler
         return GetExpressionType(fieldDecl.Initializer);
     }
 
-    private static bool ShouldEmitFieldAsAutoProperty(FieldDeclaration fieldDecl)
+    private enum FieldOwnerKind
     {
-        return fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Required)
-            || fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Init);
+        Class,
+        Struct,
+        Record
     }
 
-    private void DeclareFieldAsAutoProperty(TypeBuilder typeBuilder, FieldDeclaration fieldDecl, Type fieldType)
+    private readonly record struct FieldEmission(PropertyModifier PropertyModifier, bool EmitsAsAutoProperty);
+
+    private static FieldEmission GetFieldEmission(FieldDeclaration fieldDecl, FieldOwnerKind ownerKind)
+    {
+        var propertyModifier = fieldDecl.PropertyModifier;
+        var isExportedClassOrRecordMember = ownerKind is FieldOwnerKind.Class or FieldOwnerKind.Record
+            && VisibilityConventions.IsExportedIdentifier(fieldDecl.Name, fieldDecl.Modifiers);
+
+        if (ownerKind == FieldOwnerKind.Record && isExportedClassOrRecordMember)
+        {
+            propertyModifier |= PropertyModifier.Init;
+            if (fieldDecl.Initializer == null)
+            {
+                propertyModifier |= PropertyModifier.Required;
+            }
+        }
+
+        var emitsAsAutoProperty = isExportedClassOrRecordMember
+            || propertyModifier.HasFlag(PropertyModifier.Required)
+            || propertyModifier.HasFlag(PropertyModifier.Init);
+
+        return new FieldEmission(propertyModifier, emitsAsAutoProperty);
+    }
+
+    private void DeclareFieldAsAutoProperty(
+        TypeBuilder typeBuilder,
+        FieldDeclaration fieldDecl,
+        Type fieldType,
+        PropertyModifier effectivePropertyModifier)
     {
         var propertyBuilder = typeBuilder.DefineProperty(
             fieldDecl.Name,
@@ -14825,7 +15440,7 @@ public partial class ILCompiler
             ApplyNullableAttribute(propertyBuilder.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
         }
 
-        if (fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Required))
+        if (effectivePropertyModifier.HasFlag(PropertyModifier.Required))
         {
             ApplyRequiredMemberAttribute(propertyBuilder.SetCustomAttribute);
         }
@@ -14834,7 +15449,7 @@ public partial class ILCompiler
         var backingField = typeBuilder.DefineField(
             backingFieldName,
             fieldType,
-            FieldAttributes.Private | (fieldDecl.Modifiers.HasFlag(Modifiers.Static) ? FieldAttributes.Static : 0));
+            FieldAttributes.Assembly | (fieldDecl.Modifiers.HasFlag(Modifiers.Static) ? FieldAttributes.Static : 0));
         if (fieldDecl.Type != null)
         {
             ApplyNullableAttribute(backingField.SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
@@ -14858,8 +15473,8 @@ public partial class ILCompiler
             ApplyNullableAttribute(getMethod.DefineParameter(0, ParameterAttributes.Retval, null).SetCustomAttribute, fieldDecl.Type, GetTypeGenericParameters(typeBuilder));
         }
 
-        var hasInitSetter = fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Init)
-            || fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Readonly);
+        var hasInitSetter = effectivePropertyModifier.HasFlag(PropertyModifier.Init)
+            || effectivePropertyModifier.HasFlag(PropertyModifier.Readonly);
         MethodBuilder setMethod;
         if (hasInitSetter)
         {
@@ -14894,16 +15509,18 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, $"get_{fieldDecl.Name}")] = getMethod;
         _methods[GetMethodKey(typeBuilder, $"set_{fieldDecl.Name}")] = setMethod;
+        _fields[GetFieldKey(typeBuilder, fieldDecl.Name)] = backingField;
         _fields[GetFieldKey(typeBuilder, backingFieldName)] = backingField;
     }
 
-    private void DeclareField(TypeBuilder typeBuilder, FieldDeclaration fieldDecl)
+    private void DeclareField(TypeBuilder typeBuilder, FieldDeclaration fieldDecl, FieldOwnerKind ownerKind)
     {
         var fieldType = ResolveFieldDeclarationType(fieldDecl, typeBuilder);
+        var fieldEmission = GetFieldEmission(fieldDecl, ownerKind);
 
-        if (ShouldEmitFieldAsAutoProperty(fieldDecl))
+        if (fieldEmission.EmitsAsAutoProperty)
         {
-            DeclareFieldAsAutoProperty(typeBuilder, fieldDecl, fieldType);
+            DeclareFieldAsAutoProperty(typeBuilder, fieldDecl, fieldType, fieldEmission.PropertyModifier);
             return;
         }
 
@@ -15085,19 +15702,19 @@ public partial class ILCompiler
         }
     }
 
-    private static bool HasRequiredMembers(IEnumerable<Declaration> members)
+    private static bool HasRequiredMembers(IEnumerable<Declaration> members, FieldOwnerKind ownerKind)
     {
         return members.Any(member => member switch
         {
-            FieldDeclaration fieldDecl => fieldDecl.PropertyModifier.HasFlag(PropertyModifier.Required),
+            FieldDeclaration fieldDecl => GetFieldEmission(fieldDecl, ownerKind).PropertyModifier.HasFlag(PropertyModifier.Required),
             PropertyDeclaration propDecl => propDecl.PropertyModifier.HasFlag(PropertyModifier.Required),
             _ => false
         });
     }
 
-    private void ApplyRequiredMemberTypeAttribute(TypeBuilder typeBuilder, IEnumerable<Declaration> members)
+    private void ApplyRequiredMemberTypeAttribute(TypeBuilder typeBuilder, IEnumerable<Declaration> members, FieldOwnerKind ownerKind)
     {
-        if (!HasRequiredMembers(members))
+        if (!HasRequiredMembers(members, ownerKind))
         {
             return;
         }
@@ -15234,6 +15851,14 @@ public partial class ILCompiler
         _methods[GetMethodKey(typeBuilder, funcDecl.Name)] = methodBuilder;
         _declaredMethodParameters[GetMethodKey(typeBuilder, funcDecl.Name)] = funcDecl.Parameters;
         RegisterDeclaredMethodOverload(GetMethodKey(typeBuilder, funcDecl.Name), funcDecl, methodBuilder);
+        DeclareAnonymousUnionParameterShims(
+            typeBuilder,
+            funcDecl,
+            methodBuilder,
+            methodAttributes,
+            returnType,
+            parameterTypes,
+            typeGenericParameters);
 
         foreach (var interfaceMethod in interfaceMethods)
         {
@@ -15272,7 +15897,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    EmitFieldBody(typeBuilder, fieldDecl);
+                    EmitFieldBody(typeBuilder, fieldDecl, FieldOwnerKind.Class);
                     break;
                 case ConstructorDeclaration ctorDecl:
                     EmitConstructorBody(typeBuilder, ctorDecl, classDecl.Members);
@@ -15318,7 +15943,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    EmitFieldBody(typeBuilder, fieldDecl);
+                    EmitFieldBody(typeBuilder, fieldDecl, FieldOwnerKind.Struct);
                     break;
                 case ConstructorDeclaration ctorDecl:
                     EmitConstructorBody(typeBuilder, ctorDecl, structDecl.Members);
@@ -15340,7 +15965,7 @@ public partial class ILCompiler
         _currentTypeBuilder = null;
     }
 
-    private void EmitDeclaredInstanceFieldInitializers(TypeBuilder typeBuilder, IEnumerable<Declaration> members)
+    private void EmitDeclaredInstanceFieldInitializers(TypeBuilder typeBuilder, IEnumerable<Declaration> members, FieldOwnerKind ownerKind)
     {
         if (_currentIL == null)
         {
@@ -15354,7 +15979,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            var storageKey = ShouldEmitFieldAsAutoProperty(fieldDecl)
+            var storageKey = GetFieldEmission(fieldDecl, ownerKind).EmitsAsAutoProperty
                 ? GetFieldKey(typeBuilder, $"<{fieldDecl.Name}>k__BackingField")
                 : GetFieldKey(typeBuilder, fieldDecl.Name);
             if (!_fields.TryGetValue(storageKey, out var storageField))
@@ -15368,9 +15993,9 @@ public partial class ILCompiler
         }
     }
 
-    private void EmitFieldBody(TypeBuilder typeBuilder, FieldDeclaration fieldDecl)
+    private void EmitFieldBody(TypeBuilder typeBuilder, FieldDeclaration fieldDecl, FieldOwnerKind ownerKind)
     {
-        if (!ShouldEmitFieldAsAutoProperty(fieldDecl))
+        if (!GetFieldEmission(fieldDecl, ownerKind).EmitsAsAutoProperty)
         {
             return;
         }
@@ -15439,7 +16064,7 @@ public partial class ILCompiler
 
         if (members != null)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members);
+            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, FieldOwnerKind.Class);
         }
 
         // Return
@@ -15486,7 +16111,7 @@ public partial class ILCompiler
 
         if (members != null)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members);
+            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
 
         _currentIL.Emit(OpCodes.Ret);
@@ -15522,7 +16147,7 @@ public partial class ILCompiler
 
         if (members != null)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members);
+            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, typeBuilder.BaseType == typeof(ValueType) ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
 
         // Emit constructor body
@@ -15534,6 +16159,52 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
+    }
+
+    private void EmitAnonymousUnionParameterShims(FunctionDeclaration function)
+    {
+        if (!_anonymousUnionShimsByDeclaration.TryGetValue(function, out var shims))
+            return;
+
+        foreach (var shim in shims)
+        {
+            EmitAnonymousUnionParameterShim(shim);
+        }
+    }
+
+    private void EmitAnonymousUnionParameterShim(AnonymousUnionShim shim)
+    {
+        var savedIl = _currentIL;
+        var savedGenericParameters = _currentGenericParameters;
+
+        _currentIL = shim.Builder.GetILGenerator();
+        _currentGenericParameters = null;
+
+        var targetIsStatic = shim.Target.IsStatic;
+        var shimArgIndex = 0;
+        if (!targetIsStatic)
+        {
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            shimArgIndex = 1;
+        }
+
+        for (var i = 0; i < shim.Declaration.Parameters.Count; i++)
+        {
+            _currentIL.Emit(OpCodes.Ldarg, shimArgIndex + i);
+
+            var shimParameterType = shim.ShimParameterTypes[i];
+            var originalParameterType = shim.OriginalParameterTypes[i];
+            if (!AreTypeIdentitiesEquivalent(shimParameterType, originalParameterType))
+            {
+                EmitValueCoercion(shimParameterType, originalParameterType, allowExplicitUserDefinedConversions: false);
+            }
+        }
+
+        _currentIL.Emit(OpCodes.Call, shim.Target);
+        _currentIL.Emit(OpCodes.Ret);
+
+        _currentIL = savedIl;
+        _currentGenericParameters = savedGenericParameters;
     }
 
     /// <summary>
@@ -15860,6 +16531,30 @@ public partial class ILCompiler
             case LiteralPattern literalPattern:
                 // Compare value with literal
                 // Stack: [value]
+                var nullableLiteralUnderlyingType = Nullable.GetUnderlyingType(matchValueType);
+                if (nullableLiteralUnderlyingType != null)
+                {
+                    var nullableLocal = _currentIL.DeclareLocal(matchValueType);
+                    _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+
+                    if (literalPattern.Literal is NullLiteralExpression)
+                    {
+                        EmitNullableHasValue(nullableLocal);
+                        _currentIL.Emit(OpCodes.Brfalse, successLabel);
+                        _currentIL.Emit(OpCodes.Br, failLabel);
+                        break;
+                    }
+
+                    EmitNullableHasValue(nullableLocal);
+                    _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                    EmitNullableValue(nullableLocal, nullableLiteralUnderlyingType);
+                    EmitExpression(literalPattern.Literal);
+                    _currentIL.Emit(OpCodes.Ceq);
+                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                    _currentIL.Emit(OpCodes.Br, failLabel);
+                    break;
+                }
+
                 EmitExpression(literalPattern.Literal);
                 // Stack: [value, literal]
 
@@ -15894,6 +16589,18 @@ public partial class ILCompiler
                 {
                     // Discard pattern - pop the value and jump to success
                     _currentIL.Emit(OpCodes.Pop);
+                    _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                else if (Nullable.GetUnderlyingType(matchValueType) is Type nullableIdentifierUnderlyingType
+                         && !identPattern.Name.Contains('.')
+                         && !TryResolvePatternType(identPattern.Name, out _))
+                {
+                    var nullableLocal = _currentIL.DeclareLocal(matchValueType);
+                    _currentIL.Emit(OpCodes.Stloc, nullableLocal);
+                    EmitNullableHasValue(nullableLocal);
+                    _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                    EmitNullableValue(nullableLocal, nullableIdentifierUnderlyingType);
+                    EmitStorePatternBinding(identPattern.Name, nullableIdentifierUnderlyingType);
                     _currentIL.Emit(OpCodes.Br, successLabel);
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))
@@ -16060,6 +16767,31 @@ public partial class ILCompiler
         if (_currentIL == null)
         {
             throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (IsRuntimeUnionType(matchValueType))
+        {
+            var unionLocal = _currentIL.DeclareLocal(matchValueType);
+            _currentIL.Emit(OpCodes.Stloc, unionLocal);
+
+            if (bindingName == null)
+            {
+                _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+                _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(matchValueType, nameof(NSharpLang.Runtime.Union<int, string>.Is)).MakeGenericMethod(patternType));
+                _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                _currentIL.Emit(OpCodes.Br, failLabel);
+                return;
+            }
+
+            var valueLocal = _currentIL.DeclareLocal(patternType);
+            _currentIL.Emit(OpCodes.Ldloca, unionLocal);
+            _currentIL.Emit(OpCodes.Ldloca, valueLocal);
+            _currentIL.Emit(OpCodes.Call, GetRuntimeUnionGenericMethod(matchValueType, nameof(NSharpLang.Runtime.Union<int, string>.TryGet)).MakeGenericMethod(patternType));
+            _currentIL.Emit(OpCodes.Brfalse, failLabel);
+            _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            EmitStorePatternBinding(bindingName, patternType);
+            _currentIL.Emit(OpCodes.Br, successLabel);
+            return;
         }
 
         if (matchValueType.IsValueType || matchValueType.IsGenericParameter)
@@ -16932,7 +17664,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    DeclareField(typeBuilder, fieldDecl);
+                    DeclareField(typeBuilder, fieldDecl, FieldOwnerKind.Record);
                     break;
                 case ConstructorDeclaration ctorDecl:
                     DeclareConstructor(typeBuilder, ctorDecl);
@@ -16949,7 +17681,7 @@ public partial class ILCompiler
             }
         }
 
-        ApplyRequiredMemberTypeAttribute(typeBuilder, recordDecl.Members);
+        ApplyRequiredMemberTypeAttribute(typeBuilder, recordDecl.Members, FieldOwnerKind.Record);
 
         // Declare Equals(object) override
         var equalsMethod = typeBuilder.DefineMethod(
@@ -17062,7 +17794,7 @@ public partial class ILCompiler
                     }
                 }
 
-                EmitDeclaredInstanceFieldInitializers(typeBuilder, recordDecl.Members);
+                EmitDeclaredInstanceFieldInitializers(typeBuilder, recordDecl.Members, FieldOwnerKind.Record);
                 _currentIL.Emit(OpCodes.Ret);
                 ClearMethodContext();
                 _currentGenericParameters = null;
@@ -17090,7 +17822,7 @@ public partial class ILCompiler
                     _currentIL.Emit(OpCodes.Call, baseCtor);
                 }
 
-                EmitDeclaredInstanceFieldInitializers(typeBuilder, recordDecl.Members);
+                EmitDeclaredInstanceFieldInitializers(typeBuilder, recordDecl.Members, FieldOwnerKind.Record);
                 _currentIL.Emit(OpCodes.Ret);
                 ClearMethodContext();
                 _currentGenericParameters = null;
@@ -17112,7 +17844,7 @@ public partial class ILCompiler
             switch (member)
             {
                 case FieldDeclaration fieldDecl:
-                    EmitFieldBody(typeBuilder, fieldDecl);
+                    EmitFieldBody(typeBuilder, fieldDecl, FieldOwnerKind.Record);
                     break;
                 case FunctionDeclaration funcDecl:
                     EmitMethodBody(typeBuilder, funcDecl);

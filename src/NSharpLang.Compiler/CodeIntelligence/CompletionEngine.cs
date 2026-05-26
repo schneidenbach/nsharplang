@@ -48,7 +48,7 @@ public class CompletionEngine
         "func", "class", "struct", "record", "interface", "enum", "union",
         "if", "else", "for", "foreach", "while", "return", "break",
         "continue", "match", "switch", "case", "when", "yield", "await", "async",
-        "throw", "try", "catch", "finally", "lock", "new", "this", "base",
+        "throw", "try", "catch", "finally", "lock", "must", "new", "this", "base",
         "import", "namespace", "print", "test", "assert",
         "true", "false", "null", "is", "as", "typeof", "nameof"
     };
@@ -363,8 +363,25 @@ public class CompletionEngine
                 g.TypeArguments.Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
+            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(a => ResolveTypeReferenceToTypeInfo(a, snapshot)).ToList()),
             _ => new SimpleTypeInfo("unknown")
         };
+    }
+
+    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeRef)
+    {
+        if (typeRef is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                foreach (var nested in FlattenUnionTypeReference(arm))
+                    yield return nested;
+            }
+        }
+        else
+        {
+            yield return typeRef;
+        }
     }
 
     private static MemberAccessExpression? FindMemberAccessAtPosition(CompilationUnit cu, int line, int col)

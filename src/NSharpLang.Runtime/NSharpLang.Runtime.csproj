@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NSharpLang.Runtime</RootNamespace>
+
+    <PackageId>NSharpLang.Runtime</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>N# Team</Authors>
+    <Description>Runtime support library for N# language features</Description>
+    <PackageTags>nsharp;dotnet;runtime;union</PackageTags>
+    <PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+</Project>

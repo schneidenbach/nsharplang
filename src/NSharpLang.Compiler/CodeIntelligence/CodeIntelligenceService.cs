@@ -507,6 +507,7 @@ public class CodeIntelligenceService
     {
         SimpleTypeReference s => s.Name,
         GenericTypeReference g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(FormatTypeRef))}>",
+        UnionTypeReference u => string.Join(" | ", u.Arms.Select(FormatTypeRef)),
         NullableTypeReference n => $"{FormatTypeRef(n.InnerType)}?",
         ArrayTypeReference a => $"{FormatTypeRef(a.ElementType)}[]",
         null => "void",
@@ -1152,7 +1153,9 @@ public class CodeIntelligenceService
             RecordTypeInfo recordType => FindMemberDeclarationSymbol(snapshot, recordType.Declaration, memberName),
             InterfaceTypeInfo interfaceType => FindMemberDeclarationSymbol(snapshot, interfaceType.Declaration, memberName),
             EnumTypeInfo enumType => FindMemberDeclarationSymbol(snapshot, enumType.Declaration, memberName),
-            UnionTypeInfo unionType => FindMemberDeclarationSymbol(snapshot, unionType.Declaration, memberName),
+            UnionTypeInfo unionType => unionType.Declaration != null
+                ? FindMemberDeclarationSymbol(snapshot, unionType.Declaration, memberName)
+                : null,
             AliasTypeInfo aliasType => FindMemberDeclarationSymbol(snapshot, ResolveTypeReferenceToTypeInfo(aliasType.AliasedType, snapshot), memberName),
             NullableTypeInfo nullableType => FindMemberDeclarationSymbol(snapshot, nullableType.InnerType, memberName),
             ObliviousTypeInfo obliviousType => FindMemberDeclarationSymbol(snapshot, obliviousType.InnerType, memberName),
@@ -1963,8 +1966,25 @@ public class CodeIntelligenceService
                 g.TypeArguments.Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReferenceToTypeInfo(a.ElementType, snapshot)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReferenceToTypeInfo(n.InnerType, snapshot)),
+            UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(t => ResolveTypeReferenceToTypeInfo(t, snapshot)).ToList()),
             _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
         };
+    }
+
+    private static IEnumerable<TypeReference> FlattenUnionTypeReference(TypeReference typeRef)
+    {
+        if (typeRef is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                foreach (var nested in FlattenUnionTypeReference(arm))
+                    yield return nested;
+            }
+        }
+        else
+        {
+            yield return typeRef;
+        }
     }
 
     private TypeInfo? FindNamedTypeInfo(ProjectSnapshot snapshot, string name)
@@ -2018,6 +2038,7 @@ public class CodeIntelligenceService
             GenericTypeReference g => g.Name,
             NullableTypeReference n => GetTypeReferenceName(n.InnerType),
             ArrayTypeReference a => GetTypeReferenceName(a.ElementType),
+            UnionTypeReference u => string.Join(" | ", u.Arms.Select(FormatTypeReference)),
             _ => null
         };
     }
@@ -2031,7 +2052,8 @@ public class CodeIntelligenceService
             RecordTypeInfo r => r.Declaration.Name,
             InterfaceTypeInfo i => i.Declaration.Name,
             EnumTypeInfo e => e.Declaration.Name,
-            UnionTypeInfo u => u.Declaration.Name,
+            UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),
+            UnionTypeInfo u => u.Declaration!.Name,
             ReflectionTypeInfo r => r.Type.Name,
             _ => fallback
         };
@@ -2049,6 +2071,7 @@ public class CodeIntelligenceService
         GenericTypeReference g => $"{g.Name}<{string.Join(", ", g.TypeArguments.Select(t => FormatTypeReference(t)))}>",
         ArrayTypeReference a => $"{FormatTypeReference(a.ElementType)}[]",
         NullableTypeReference n => $"{FormatTypeReference(n.InnerType)}?",
+        UnionTypeReference u => string.Join(" | ", u.Arms.Select(FormatTypeReference)),
         TupleTypeReference t => $"({string.Join(", ", t.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
         FunctionTypeReference f => $"({string.Join(", ", f.ParameterTypes.Select(FormatTypeReference))}) -> {FormatTypeReference(f.ReturnType)}",
         _ => typeRef.ToString() ?? "unknown"

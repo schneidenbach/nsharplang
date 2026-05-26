@@ -347,6 +347,11 @@ public record ArrayTypeReference(TypeReference ElementType) : TypeReference;
 
 public record NullableTypeReference(TypeReference InnerType) : TypeReference;
 
+public record UnionTypeReference(List<TypeReference> Arms) : TypeReference
+{
+    public override string ToString() => string.Join(" | ", Arms);
+}
+
 public record TupleTypeReference(List<TupleTypeElement> Elements) : TypeReference;
 
 public record TupleTypeElement(TypeReference Type, string? Name);

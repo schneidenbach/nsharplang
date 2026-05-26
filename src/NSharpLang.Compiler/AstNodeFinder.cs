@@ -171,6 +171,10 @@ public class AstNodeFinder
                     VisitExpression(unary.Operand);
                     break;
 
+                case MustExpression must:
+                    VisitExpression(must.Expression);
+                    break;
+
                 case CallExpression call:
                     VisitExpression(call.Callee);
                     if (FoundExpression != null && FoundExpression != call) return;
