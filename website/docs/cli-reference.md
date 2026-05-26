@@ -22,7 +22,7 @@ Updated: 2026-05-25
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
-| `nlc test` | Run `.tests.nl` suites through the xUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
+| `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
 | `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
@@ -39,7 +39,7 @@ Updated: 2026-05-25
 | `nlc tidy` | Identify and remove unused dependencies | `--project` | `nlc tidy` |
 | `nlc remove <package>` | Remove a dependency from `project.yml` | package name | `nlc remove Serilog` |
 | `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
-| `nlc publish` | Publish project for deployment | `--project`, `--configuration`, `--runtime` | `nlc publish -c Release` |
+| `nlc publish` | Publish framework-dependent deployment artifacts | `--project`, `--configuration`, `--output`, current-host `--runtime` | `nlc publish -c Release --output ./dist` |
 | `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
 | `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
@@ -130,6 +130,15 @@ nlc format --check --project ./migrated-nsharp
 nlc test --project ./migrated-nsharp
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
+
+## Build, Test, And Publish Truth
+
+- `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
+- `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.
+- `nlc publish --runtime <rid>` is supported only when `<rid>` is the current host runtime. It adds a small framework-dependent launcher beside the `.dll`.
+- Cross-runtime publish requests fail before building and report both the requested RID and the current host RID.
+- `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
 
 ## AI-Assisted C# Migration Loop
@@ -334,11 +343,11 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Build project | `go build` | `cargo build` | `5` | `nlc build` works for project roots |
 | Run project | `go run .` | `cargo run` | `5` | `nlc run` supports project execution |
 | Build single file | `go build file.go` | n/a | `5` | `nlc build file.nl` |
-| Cross-compile | `GOOS=linux go build` | `cargo build --target` | `1` | Future work; depends on .NET targeting |
-| Release build | implicit | `cargo build --release` | `4` | `nlc build --release` is exposed; runtime/target publishing still needs scenario evidence |
+| Cross-compile | `GOOS=linux go build` | `cargo build --target` | `1` | Unsupported in `nlc publish`; cross-runtime requests fail with guidance |
+| Release build | implicit | `cargo build --release` | `4` | `nlc build --release` selects Release configuration/output layout; no separate IL optimizer yet |
 | Clean | `go clean` | `cargo clean` | `5` | `nlc clean`, `nlc clean --all` |
-| Verbose output | `-v` | `-v` | `2` | Not a first-class `nlc build -v` path yet |
-| Build timing | shell `time` / `--timings` | `--timings` | `2` | External timing works; built-in report not exposed |
+| Verbose output | `-v` | `-v` | `4` | `nlc build --verbose` is available; short `-v` alias is not |
+| Build timing | shell `time` / `--timings` | `--timings` | `4` | `nlc build --timings` emits phase timings; no JSON timing schema yet |
 
 ### Type Check
 
@@ -373,7 +382,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Test skip | `t.Skip()` | `#[ignore]` | `5` | `test "desc" skip "reason" { }` |
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
-| Test coverage | `-cover` | external tools | Planned | Native coverage reporting is not part of the current `nlc test` path |
+| Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
 | Benchmark | `-bench` | `cargo bench` | `1` | Future work |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
@@ -384,9 +393,9 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 
 These remain intentionally out of scope for this pass:
 
-- Cross-compilation
-- First-class release builds
-- Nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
-- Coverage reporting
+- Cross-runtime and self-contained publish
+- A separate IL optimizer for release builds
+- Dependency tree visualization, including nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
+- Native coverage reporting
 - Benchmark execution
-- Built-in build timing reports
+- Machine-readable build timing reports

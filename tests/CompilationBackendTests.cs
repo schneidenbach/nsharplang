@@ -627,6 +627,45 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_ReleaseUsesReleaseOutputLayout()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: ReleaseLayout
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "release layout"
+}
+""");
+
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--release"));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful! (il, release)", stdout);
+            Assert.Contains(NormalizePath(Path.Combine("bin", "Release", "net10.0", "ReleaseLayout.dll")), NormalizePath(stdout));
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.True(File.Exists(Path.Combine(tempDir, "bin", "Release", "net10.0", "ReleaseLayout.dll")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "bin", "Release", "net10.0", "ReleaseLayout.runtimeconfig.json")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_ProjectWithoutBackend_DefaultsToIlAndProducesRunnableArtifacts()
     {
         var tempDir = CreateTempDir();
@@ -748,6 +787,37 @@ test "addition works" {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("passed").GetInt32());
             Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TestCommand_CoverageJson_ReturnsUnsupportedErrorBeforeDiscovery()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CoverageUnavailable
+backend: il
+outputType: library
+targetFramework: net10.0
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("test", "--project", tempDir, "--coverage", "--json"));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("test", doc.RootElement.GetProperty("command").GetString());
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Contains("Coverage collection is not available in nlc test yet", doc.RootElement.GetProperty("error").GetString());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("total").GetInt32());
         }
         finally
         {
@@ -934,7 +1004,7 @@ func main() {
     }
 
     [Fact]
-    public void PublishCommand_BackendOverrideToIl_SupportsSelfContainedOutput()
+    public void PublishCommand_SelfContainedOutput_ReturnsHelpfulUnsupportedMessage()
     {
         var tempDir = CreateTempDir();
         var originalDirectory = Directory.GetCurrentDirectory();
@@ -966,19 +1036,53 @@ func main() {
                     "--self-contained",
                     "--output", publishDir));
 
-            Assert.True(exitCode == 0, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
-            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
-            Assert.Contains("Publish successful!", stdout);
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Publishing project in", stdout);
+            Assert.Contains("Self-contained publish is not available in nlc publish yet", stderr);
+            Assert.Contains("framework-dependent artifacts", stderr);
+            Assert.False(Directory.Exists(publishDir));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
 
-            var publishedApp = GetPublishedAppPath(publishDir, "SelfContainedIlPublish");
-            Assert.True(File.Exists(publishedApp), publishedApp);
-            Assert.True(File.Exists(Path.Combine(publishDir, "SelfContainedIlPublish.dll")));
-            Assert.True(Directory.GetFiles(publishDir, "System.Private.CoreLib.dll").Length > 0);
-            Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
+    [Fact]
+    public void PublishCommand_CrossRuntimeOutput_ReturnsHelpfulUnsupportedMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var requestedRuntime = GetDifferentRuntimeIdentifier();
 
-            var runResult = DotnetRunner.RunProcess(publishedApp, "", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("self-contained il publish", runResult.Stdout);
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CrossRuntimeIlPublish
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "cross runtime il publish"
+}
+""");
+
+            var publishDir = Path.Combine(tempDir, "publish-cross-runtime");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("publish", "--backend", "il", "--runtime", requestedRuntime, "--output", publishDir));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Publishing project in", stdout);
+            Assert.Contains("Cross-runtime publish is not available in nlc publish yet", stderr);
+            Assert.Contains($"Requested runtime '{requestedRuntime}'", stderr);
+            Assert.Contains(RuntimeInformation.RuntimeIdentifier, stderr);
+            Assert.False(Directory.Exists(publishDir));
         }
         finally
         {
@@ -1329,9 +1433,18 @@ class Program {
     private static string GetPublishedAppPath(string publishDir, string assemblyName)
     {
         var executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? $"{assemblyName}.exe"
+            ? $"{assemblyName}.cmd"
             : assemblyName;
         return Path.Combine(publishDir, executableName);
+    }
+
+    private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static string GetDifferentRuntimeIdentifier()
+    {
+        var current = RuntimeInformation.RuntimeIdentifier;
+        var candidates = new[] { "linux-x64", "osx-arm64", "win-x64" };
+        return candidates.First(candidate => !string.Equals(candidate, current, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void CreateProjectReferenceFixture(string projectRoot)

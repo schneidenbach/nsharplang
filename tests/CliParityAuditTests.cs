@@ -170,6 +170,8 @@ func main() {
         Assert.Contains("Compilation backend: il", stdout);
         Assert.Contains("--filter", stdout);
         Assert.Contains("--verbose", stdout);
+        Assert.Contains("--coverage", stdout);
+        Assert.Contains("Coverage collection is not available", stdout);
     }
 
     [Fact]
@@ -777,6 +779,20 @@ func benchMultiply() {
             && stdout.Contains("Compilation backend: il")
             && (stdout.Contains("Transpile") || stdout.Contains("Compile") || stdout.Contains("timings")),
             $"Expected --timings and phase breakdown in build --help but got: {stdout}");
+    }
+
+    [Fact]
+    public void PublishCommand_Help_StatesSupportedAndUnsupportedTargetShapes()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("publish", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Current host runtime only", stdout);
+        Assert.Contains("Portable framework-dependent", stdout);
+        Assert.Contains("Cross-runtime publishing", stdout);
+        Assert.Contains("Self-contained apphost/runtime bundles", stdout);
     }
 
     [Fact]

@@ -5,15 +5,15 @@ import System.Collections.Generic
 
 // File-scoped class - only visible in this file
 file class InternalCache {
-    _data: Dictionary<string, string> = new Dictionary<string, string>()
+    data: Dictionary<string, string> = new Dictionary<string, string>()
 
     func Set(key: string, value: string) {
-        _data[key] = value
+        data[key] = value
     }
 
     func Get(key: string): string? {
-        if _data.ContainsKey(key) {
-            return _data[key]
+        if data.ContainsKey(key) {
+            return data[key]
         }
 
         return null
@@ -24,10 +24,6 @@ file class InternalCache {
 file struct ValidationResult {
     IsValid: bool
     ErrorMessage: string
-
-    static func Success(): ValidationResult {
-        return new ValidationResult { IsValid: true, ErrorMessage: "" }
-    }
 
     static func Failure(message: string): ValidationResult {
         return new ValidationResult { IsValid: false, ErrorMessage: message }
@@ -86,7 +82,7 @@ file class UsernameValidator: IValidator {
             return ValidationResult.Failure("Username must be at most 20 characters")
         }
 
-        return ValidationResult.Success()
+        return new ValidationResult { IsValid: true, ErrorMessage: "" }
     }
 }
 
