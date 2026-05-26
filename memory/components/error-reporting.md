@@ -18,7 +18,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 ### Key Classes
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
-- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
+- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
 - **`ErrorSuggestions`** — Fallback suggestions keyed by error code
@@ -48,7 +48,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 ### Type Errors (200-299)
 - `NL201`: TypeNotFound
-- `NL202`: TypeMismatch (assignment, return, argument)
+- `NL202`: TypeMismatch (assignment, return, argument; return diagnostics distinguish omitted return type, explicit void, and wrong non-void return type)
 - `NL203`: CannotInferType
 - `NL204-208`: InvalidCast, AmbiguousType, CannotResolveType, InvalidTypeArgument, GenericConstraintViolation
 

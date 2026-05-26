@@ -249,7 +249,7 @@ func removeKeyAndValue(): string {
             func GetName(): string {
                 return 42
             }
-        ", "return statement gives back");
+        ", "should return 'string'");
     }
 
     [Fact]
@@ -259,7 +259,25 @@ func removeKeyAndValue(): string {
             func DoNothing() {
                 return 42
             }
-        ", "return statement gives back");
+        ", "no return type annotation");
+    }
+
+    [Fact]
+    public void ExplicitVoidFunctionReturnValue_Error()
+    {
+        AssertHasError(@"
+            func DoNothing(): void {
+                return 42
+            }
+        ", "declared to return 'void'");
+    }
+
+    [Fact]
+    public void ExpressionBodiedFunctionWithoutReturnType_ReturnValue_Error()
+    {
+        AssertHasError(@"
+            func Answer() => 42
+        ", "no return type annotation");
     }
 
     [Fact]
@@ -7812,7 +7830,7 @@ func Main() {
 func Bad(value: int | string): string {
     return value
 }
-        ", "This function should return 'string'");
+        ", "should return 'string'");
     }
 
     [Fact]

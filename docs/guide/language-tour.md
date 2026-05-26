@@ -25,6 +25,7 @@ let maxRetries := 3
 ## Functions
 
 Functions use the `func` keyword. Parameters are `name: type`, return type comes after the parameter list.
+If a function returns a value, declare the return type. No return type means `void`.
 
 ```n#
 func add(a: int, b: int): int {

@@ -144,6 +144,28 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void ReturnValueRequiresReturnType_FormatForTooling_ExplainsImplicitVoid()
+    {
+        var error = ErrorMessageBuilder.ReturnValueRequiresReturnType(
+            "test.nl",
+            3,
+            5,
+            "    return 42",
+            6,
+            "Hi",
+            "int"
+        );
+
+        var formatted = error.FormatForTooling(includeCode: true, includeLocation: false);
+
+        Assert.Contains("NL202: Function 'Hi' returns int but has no return type", formatted);
+        Assert.Contains("Function `Hi` has no return type annotation", formatted);
+        Assert.Contains("expected: void", formatted);
+        Assert.Contains("Add `: int`", formatted);
+        Assert.DoesNotContain("These types are not compatible", formatted);
+    }
+
+    [Fact]
     public void ErrorSuggestions_TypeNotFound_ReturnsHelpfulMessage()
     {
         var suggestion = ErrorSuggestions.GetSuggestion(ErrorCode.TypeNotFound);
