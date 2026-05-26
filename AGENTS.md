@@ -49,8 +49,8 @@ This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tool
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
-ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./scripts/test-all.sh`. This is MANDATORY.
-ALWAYS: RUN `./scripts/test-all.sh` BEFORE COMMITTING ANY CODE. If it fails, fix the failures first!
+ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./scripts/test-all.sh`. This is MANDATORY. A cached pass is acceptable for local development feedback only.
+ALWAYS: RUN `./scripts/test-all.sh --commit` BEFORE COMMITTING ANY CODE. This forces a fresh isolated full-suite run; cached results are not accepted for commits. If it fails, fix the failures first!
 ALWAYS: The test-all.sh script:
   - Runs all unit tests (`dotnet test`)
   - Rebuilds the compiler and SDK
@@ -60,7 +60,7 @@ ALWAYS: The test-all.sh script:
   - Validates everything works end-to-end
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
-ALWAYS: `git commit` after you've written any code AND verified `./test-all.sh` passes!!
+ALWAYS: `git commit` after you've written any code AND verified `./scripts/test-all.sh --commit` passes!!
 
 ## VS Code Extension Development Workflow
 

@@ -12,15 +12,53 @@ fi
 
 FORCE_RUN="${NSHARP_TEST_ALL_FORCE:-0}"
 KEEP_RUN="${NSHARP_TEST_KEEP_RUN:-0}"
+FRESH_REASON=""
 CORE_ARGS=()
 
 for arg in "$@"; do
     case "$arg" in
+        --help|-h)
+            cat <<'EOF'
+Usage: ./scripts/test-all.sh [options]
+
+Runs the full N# product gate from an isolated temporary workspace.
+
+Options:
+  --commit, --pre-commit
+      Fresh isolated run required before committing. Cached results are not accepted.
+  --release
+      Fresh isolated run required for release verification. Cached results are not accepted.
+  --fresh, --no-cache, --rebuild-cache
+      Force a fresh isolated run and refresh the validated cache record on success.
+  --clean
+      Force a fresh isolated run and pass --clean through to the core gate.
+  -h, --help
+      Show this help.
+
+Plain ./scripts/test-all.sh may return a validated cache hit for fast local
+development. Do not use a cached hit as a pre-commit or release verification.
+EOF
+            exit 0
+            ;;
+        --commit|--pre-commit)
+            FORCE_RUN=1
+            FRESH_REASON="pre-commit verification"
+            ;;
+        --release)
+            FORCE_RUN=1
+            FRESH_REASON="release verification"
+            ;;
+        --fresh)
+            FORCE_RUN=1
+            FRESH_REASON="explicit fresh verification"
+            ;;
         --no-cache|--rebuild-cache)
             FORCE_RUN=1
+            FRESH_REASON="cache bypass requested"
             ;;
         --clean)
             FORCE_RUN=1
+            FRESH_REASON="clean verification"
             CORE_ARGS+=("$arg")
             ;;
         *)
@@ -207,10 +245,11 @@ print("=========================================")
 print("N# Comprehensive Test Suite")
 print("=========================================")
 print()
-print("Validated isolated test cache hit")
+print("Validated isolated test cache hit (development fast path)")
 print(f"Cache key: {sys.argv[2][:16]}")
 print(f"Full isolated pass: {manifest.get('completedAtUtc')}")
 print(f"Recorded duration: {manifest.get('durationSeconds')}s")
+print("Fresh run required for commit/release: ./scripts/test-all.sh --commit")
 print()
 print("Validation:")
 print("  - source, test scripts, docs, examples, and templates match")
@@ -218,11 +257,20 @@ print("  - test arguments and selected environment match")
 print("  - tool versions match")
 print("  - cache manifest schema and success marker are valid")
 print()
-print("ALL TESTS PASSED! (cached isolated result)")
+print("LAST ISOLATED FULL TEST RUN PASSED (cached validated result)")
 PY
 }
 
 mkdir -p "$RESULTS_ROOT" "$LOCKS_ROOT"
+
+if is_enabled "$FORCE_RUN"; then
+    if [ -z "$FRESH_REASON" ]; then
+        FRESH_REASON="NSHARP_TEST_ALL_FORCE requested"
+    fi
+    echo "Fresh isolated test run required: $FRESH_REASON"
+    echo "Existing cache entries will not satisfy this invocation."
+    echo
+fi
 
 if ! is_enabled "$FORCE_RUN" && validate_manifest; then
     print_cache_hit

@@ -14,7 +14,8 @@ automation, and agent instructions already call those paths.
   copy with isolated HOME, temp, NuGet, and npm state; successful runs write a
   content-addressed cache record so unchanged follow-up runs can validate and
   return quickly. Use `--no-cache`, `--rebuild-cache`, or `--clean` to force a
-  fresh isolated run.
+  fresh isolated run. Use `./scripts/test-all.sh --commit` before committing;
+  cached results are only for development feedback.
 - `test-all-core.sh` - implementation of the full product gate. Call through
   `./scripts/test-all.sh` so isolation and cache validation stay consistent.
 - `test-vscode-integration.sh` - VS Code extension integration test harness.
