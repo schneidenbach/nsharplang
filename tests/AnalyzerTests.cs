@@ -512,6 +512,36 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void ArrayRangeIndexAccess_ReturnsArrayType()
+    {
+        AssertNoErrors(@"
+            func PrintArray(arr: int[]) {
+            }
+
+            func Main() {
+                numbers := [1, 2, 3, 4, 5]
+                firstTwo := numbers[..2]
+                PrintArray(firstTwo)
+            }
+        ");
+    }
+
+    [Fact]
+    public void StringRangeIndexAccess_ReturnsStringType()
+    {
+        AssertNoErrors(@"
+            func PrintString(value: string) {
+            }
+
+            func Main() {
+                text := ""hello""
+                firstTwo := text[..2]
+                PrintString(firstTwo)
+            }
+        ");
+    }
+
+    [Fact]
     public void FunctionCall_Valid()
     {
         AssertNoErrors(@"
@@ -5619,6 +5649,100 @@ func Hello(): string {
                 }
             }
         ");
+    }
+
+    [Fact]
+    public void Nullability_PossibleDereferenceReportsStableError()
+    {
+        var result = Analyze(@"
+            func Main() {
+                x: string? = ""hello""
+                len := x.Length
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.PossibleNullAccess &&
+            e.DiagnosticId == "NL905" &&
+            e.Severity == ErrorSeverity.Error &&
+            e.Message.Contains("Possible null dereference"));
+    }
+
+    [Fact]
+    public void Nullability_GuardClauseNarrowsAfterEarlyReturn()
+    {
+        var result = Analyze(@"
+            func LengthOrZero(x: string?): int {
+                if x == null {
+                    return 0
+                }
+
+                return x.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_AssignmentInvalidatesPriorGuardFact()
+    {
+        var result = Analyze(@"
+            func Main() {
+                x: string? = ""hello""
+                if x == null {
+                    return
+                }
+
+                x = null
+                len := x.Length
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.PossibleNullAccess &&
+            e.Severity == ErrorSeverity.Error &&
+            e.Message.Contains("`x` is null"));
+    }
+
+    [Fact]
+    public void Nullability_StableMemberPathGuardNarrowsValueUse()
+    {
+        var result = Analyze(@"
+            record Person {
+                Name: string?
+            }
+
+            func Read(p: Person): string {
+                if p.Name == null {
+                    return """"
+                }
+
+                name: string = p.Name
+                return name
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_LoopConditionNarrowsBody()
+    {
+        var result = Analyze(@"
+            func Main() {
+                x: string? = ""hello""
+                while x != null {
+                    len := x.Length
+                    x = null
+                }
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
     }
 
     #endregion

@@ -532,6 +532,32 @@ func helper(): int {
     }
 
     [Fact]
+    public void Nullability_DiagnosticsAndTypeQueryExposeMaybeNullState()
+    {
+        var snapshot = LoadTemporaryProject(("Program.nl", """
+func Main() {
+    x: string? = "hello"
+    len := x.Length
+}
+"""));
+
+        var diagnostics = _service.GetDiagnostics(snapshot, "Program.nl");
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == "NL905" &&
+            diagnostic.Severity == "error" &&
+            diagnostic.Suggestion != null &&
+            diagnostic.Suggestion.Contains("?.", StringComparison.Ordinal));
+
+        var filePath = Path.Combine(snapshot.ProjectRoot, "Program.nl");
+        var line = FindLineInFile(filePath, "x.Length");
+        var column = FindColumnInFile(filePath, line, "x");
+
+        var type = _service.GetTypeAtPosition(snapshot, "Program.nl", line, column);
+        Assert.NotNull(type);
+        Assert.Equal("maybeNull", type!.Nullability);
+    }
+
+    [Fact]
     public void Json_Outline_HasOutlineArray()
     {
         var outline = _service.GetOutline(HelloWorld, "Program.nl");

@@ -627,6 +627,31 @@ func main() {
         Assert.Equal(FixSafety.Safe, fixes[0].Safety);
     }
 
+    [Fact]
+    public void PossibleNullAccess_OffersReviewNeededAndSuggestionOnlyActions()
+    {
+        var sourceCode = @"func main() {
+    x: string? = ""hello""
+    len := x.Length
+}";
+        var diagnostic = new Diagnostic(
+            "NL905",
+            "Possible null dereference: 'x' is maybe-null",
+            new Location(3, 13),
+            DiagnosticSeverity.Error,
+            "Use '?.'");
+
+        var ast = ParseCode(sourceCode);
+        var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
+
+        Assert.Contains(fixes, fix =>
+            fix.Safety == FixSafety.ReviewNeeded &&
+            fix.Edits.Count == 1 &&
+            fix.Edits[0].NewText == "?.");
+        Assert.Contains(fixes, fix => fix.Safety == FixSafety.SuggestionOnly && fix.Title.Contains("guard"));
+        Assert.Contains(fixes, fix => fix.Safety == FixSafety.SuggestionOnly && fix.Title.Contains("fallback"));
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private CompilationUnit ParseCode(string code)

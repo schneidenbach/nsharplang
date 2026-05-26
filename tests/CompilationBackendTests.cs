@@ -12,6 +12,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
+[Collection("ProcessState")]
 public class CompilationBackendTests
 {
     [Fact]

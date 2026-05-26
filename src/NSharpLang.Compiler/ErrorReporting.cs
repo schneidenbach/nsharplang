@@ -85,12 +85,12 @@ public enum ErrorCode
     DuckInterfaceMismatch = 805,
     ConstructorError = 806,
 
-    // Warnings (900-999)
+    // Compiler diagnostics (900-999)
     UnusedVariable = 901,
     UnreachableCode = 902,
     VisibilityConventionWarning = 903,
     ObsoleteUsage = 904,
-    NullabilityWarning = 905,
+    PossibleNullAccess = 905,
     UnnecessaryTypeAnnotation = 906,
 }
 

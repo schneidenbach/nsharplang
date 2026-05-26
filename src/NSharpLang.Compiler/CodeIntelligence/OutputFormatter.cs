@@ -388,6 +388,8 @@ public static class OutputFormatter
         if (result.Type != null)
         {
             sb.AppendLine($"Type: {result.Type.ResolvedType} ({result.Type.Kind})");
+            if (!string.IsNullOrWhiteSpace(result.Type.Nullability))
+                sb.AppendLine($"  Nullability: {result.Type.Nullability}");
         }
         else
         {
@@ -627,7 +629,7 @@ public static class OutputFormatter
                 ? new InspectSummarySymbolResult(result.Symbol.Name, result.Symbol.Kind)
                 : null,
             result.Type != null
-                ? new InspectSummaryTypeResult(result.Type.Name, result.Type.ResolvedType, result.Type.Kind)
+                ? new InspectSummaryTypeResult(result.Type.Name, result.Type.ResolvedType, result.Type.Kind, result.Type.Nullability)
                 : null,
             definition,
             new InspectSummaryReferencesResult(
@@ -1224,6 +1226,8 @@ public static class OutputFormatter
         var sb = new StringBuilder();
         sb.AppendLine($"At {file}:{line}:{col}:");
         sb.AppendLine($"  {result.Name}: {result.ResolvedType} ({result.Kind})");
+        if (!string.IsNullOrWhiteSpace(result.Nullability))
+            sb.AppendLine($"  Nullability: {result.Nullability}");
         if (result.Definition != null)
         {
             sb.AppendLine($"  Defined at: {result.Definition.File}:{result.Definition.Line}:{result.Definition.Column}");

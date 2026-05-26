@@ -12,6 +12,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
+[Collection("ProcessState")]
 public class CliCommandTests
 {
     private static readonly string HelloWorldProject = Path.Combine(FindExamplesDir(), "01-hello-world");

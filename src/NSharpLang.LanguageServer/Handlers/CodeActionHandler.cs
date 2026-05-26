@@ -115,10 +115,6 @@ public class CodeActionHandler : CodeActionHandlerBase
         LspDiagnostic lspDiagnostic,
         DocumentState doc)
     {
-        // Find matching diagnostic from the linter
-        if (doc.LinterDiagnostics == null)
-            return null;
-
         var line = (int)lspDiagnostic.Range.Start.Line + 1; // Convert to 1-based
         var column = (int)lspDiagnostic.Range.Start.Character + 1;
 
@@ -127,10 +123,28 @@ public class CodeActionHandler : CodeActionHandlerBase
         if (code == null)
             return null;
 
-        return doc.LinterDiagnostics.FirstOrDefault(d =>
+        var linterDiagnostic = doc.LinterDiagnostics?.FirstOrDefault(d =>
             d.Code == code &&
             d.Location.Line == line &&
             d.Location.Column == column);
+
+        if (linterDiagnostic != null)
+            return linterDiagnostic;
+
+        var compilerError = doc.Diagnostics?.FirstOrDefault(d =>
+            d.DiagnosticId == code &&
+            d.Line == line &&
+            d.Column == column);
+
+        if (compilerError == null)
+            return null;
+
+        return new CompilerDiagnostic(
+            compilerError.DiagnosticId,
+            compilerError.Message,
+            new Compiler.Location(compilerError.Line, compilerError.Column, compilerError.FileName),
+            compilerError.Severity == ErrorSeverity.Error ? Compiler.DiagnosticSeverity.Error : Compiler.DiagnosticSeverity.Warning,
+            compilerError.Suggestion ?? compilerError.ContextualHint);
     }
 
     private LspCodeAction ConvertToLspCodeAction(

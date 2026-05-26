@@ -87,6 +87,7 @@ public class CodeFixService
         _providers.Add(new AddMissingImportCodeFixProvider());
         _providers.Add(new RemoveUnusedVariableCodeFixProvider());
         _providers.Add(new RemoveUnnecessaryNullCheckCodeFixProvider());
+        _providers.Add(new PossibleNullAccessCodeFixProvider());
         _providers.Add(new AddCommentToEmptyCatchCodeFixProvider());
         _providers.Add(new ConvertToInterpolationCodeFixProvider());
         _providers.Add(new RemoveUnusedImportCodeFixProvider());
@@ -346,6 +347,97 @@ public class RemoveUnnecessaryNullCheckCodeFixProvider : CodeFixProvider
             conditionEnd--;
 
         return conditionStart < conditionEnd;
+    }
+}
+
+/// <summary>
+/// Code actions for NL905: possible null access.
+/// The null-conditional edit changes result nullability, so it requires review.
+/// Guard/fallback/assertion options are suggestion-only because they need intent.
+/// </summary>
+public class PossibleNullAccessCodeFixProvider : CodeFixProvider
+{
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL905" };
+
+    public override List<CodeAction> GetCodeActions(
+        Diagnostic diagnostic,
+        CompilationUnit ast,
+        string sourceCode)
+    {
+        var actions = new List<CodeAction>();
+        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
+        var line = diagnostic.Location.Line;
+
+        if (line > 0 && line <= sourceLines.Length)
+        {
+            var sourceLine = sourceLines[line - 1];
+            var operatorIndex = FindNullAccessOperator(sourceLine, Math.Max(0, diagnostic.Location.Column - 1));
+            if (operatorIndex >= 0)
+            {
+                if (sourceLine[operatorIndex] == '.')
+                {
+                    actions.Add(new CodeAction(
+                        "Use null-conditional access (review result nullability)",
+                        "NL905",
+                        new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, "?.") },
+                        CodeActionKind.QuickFix,
+                        FixSafety.ReviewNeeded));
+                }
+                else if (sourceLine[operatorIndex] == '[')
+                {
+                    actions.Add(new CodeAction(
+                        "Use null-conditional index access (review result nullability)",
+                        "NL905",
+                        new List<TextEdit> { new(line, operatorIndex, line, operatorIndex + 1, "?[") },
+                        CodeActionKind.QuickFix,
+                        FixSafety.ReviewNeeded));
+                }
+            }
+        }
+
+        actions.Add(new CodeAction(
+            "Add a guard before using the maybe-null value",
+            "NL905",
+            new List<TextEdit>(),
+            CodeActionKind.QuickFix,
+            FixSafety.SuggestionOnly));
+
+        actions.Add(new CodeAction(
+            "Add a fallback with ?? after a safe access",
+            "NL905",
+            new List<TextEdit>(),
+            CodeActionKind.QuickFix,
+            FixSafety.SuggestionOnly));
+
+        actions.Add(new CodeAction(
+            "Assert non-null only after proving the value is present",
+            "NL905",
+            new List<TextEdit>(),
+            CodeActionKind.QuickFix,
+            FixSafety.SuggestionOnly));
+
+        return actions;
+    }
+
+    private static int FindNullAccessOperator(string sourceLine, int diagnosticColumn)
+    {
+        if (diagnosticColumn >= 0 && diagnosticColumn < sourceLine.Length)
+        {
+            if (sourceLine[diagnosticColumn] is '.' or '[')
+                return diagnosticColumn;
+        }
+
+        for (var i = Math.Min(diagnosticColumn, sourceLine.Length - 1); i >= 0; i--)
+        {
+            if (sourceLine[i] is '.' or '[')
+            {
+                if (i > 0 && sourceLine[i - 1] == '?')
+                    return -1;
+                return i;
+            }
+        }
+
+        return -1;
     }
 }
 
