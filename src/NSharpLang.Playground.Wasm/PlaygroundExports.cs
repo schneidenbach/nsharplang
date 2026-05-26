@@ -33,6 +33,12 @@ public static partial class PlaygroundExports
             PlaygroundJsonContext.Default.PlaygroundFormatResponse);
 
     [JSExport]
+    public static string RunProject(string filesJson, string activeFile)
+        => Serialize(
+            Compiler.RunProject(ParseFiles(filesJson), activeFile),
+            PlaygroundJsonContext.Default.PlaygroundRunResponse);
+
+    [JSExport]
     public static string Complete(string filesJson, string fileName, int line, int column)
         => Serialize(
             Compiler.Complete(ParseFiles(filesJson), fileName, line, column),
@@ -72,6 +78,7 @@ public sealed record PlaygroundVersionResponse(int SchemaVersion, string Compile
 [JsonSerializable(typeof(PlaygroundCatalogResponse))]
 [JsonSerializable(typeof(PlaygroundCheckResponse))]
 [JsonSerializable(typeof(PlaygroundFormatResponse))]
+[JsonSerializable(typeof(PlaygroundRunResponse))]
 [JsonSerializable(typeof(PlaygroundCompletionResponse))]
 [JsonSerializable(typeof(PlaygroundHoverResponse))]
 [JsonSerializable(typeof(PlaygroundVersionResponse))]

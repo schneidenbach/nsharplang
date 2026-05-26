@@ -10,7 +10,7 @@ namespace NSharpLang.Playground;
 
 public sealed class PlaygroundCompiler
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
     public const int MaxSourceLength = 64 * 1024;
     public const int MaxProjectSourceLength = 128 * 1024;
     private const string DefaultFileName = "Program.nl";
@@ -35,6 +35,7 @@ public sealed class PlaygroundCompiler
             PlaygroundExamples.DefaultId,
             PlaygroundExamples.EstimatedMinutes,
             PlaygroundExamples.All,
+            PlaygroundExamples.Tutorial,
             new PlaygroundCapabilities(
                 RunsInBrowser: true,
                 SupportsDiagnostics: true,
@@ -42,12 +43,13 @@ public sealed class PlaygroundCompiler
                 SupportsCompletions: true,
                 SupportsHover: true,
                 SupportsSyntaxHighlighting: true,
-                SupportsExecution: false,
+                SupportsExecution: true,
                 SupportsTests: false,
                 Limitations:
                 [
-                    "The hosted playground runs compiler analysis, formatting, completions, hover, and syntax highlighting entirely in the browser.",
-                    "Build, run, test execution, NuGet restore, and filesystem workflows require the local nlc toolchain.",
+                    "The hosted playground runs compiler analysis, formatting, completions, hover, syntax highlighting, and a bounded execution subset entirely in the browser.",
+                    "The Run button supports tutorial-scale code: functions, print, simple control flow, records/classes, object initializers, string/numeric helpers, and selected match patterns.",
+                    "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain.",
                     "External assembly resolution is intentionally bounded for browser reliability."
                 ]));
 
@@ -243,6 +245,105 @@ public sealed class PlaygroundCompiler
             Hover: hover,
             Diagnostics: diagnostics,
             Summary: summary);
+    }
+
+    public PlaygroundRunResponse RunProject(IEnumerable<PlaygroundFile>? files, string? activeFile = null)
+    {
+        var normalizedFiles = NormalizeFiles(files);
+        var normalizedActiveFile = NormalizeExistingFileName(activeFile, normalizedFiles);
+        var analysis = AnalyzeProject(normalizedFiles);
+        var diagnostics = Deduplicate(analysis.Diagnostics);
+        var summary = Summarize(diagnostics);
+
+        if (summary.Errors > 0)
+        {
+            return new PlaygroundRunResponse(
+                SchemaVersion,
+                Ok: false,
+                File: normalizedActiveFile,
+                ExitCode: 1,
+                Stdout: string.Empty,
+                Stderr: "Run skipped because the program has compiler errors.",
+                UnsupportedReason: null,
+                Diagnostics: diagnostics,
+                Summary: summary);
+        }
+
+        if (analysis.Snapshot == null)
+        {
+            var failedDiagnostics = Deduplicate(diagnostics.Concat([
+                new PlaygroundDiagnostic(
+                    Code: "PG200",
+                    Severity: "error",
+                    Message: "Run skipped because the browser compiler could not build an executable snapshot.",
+                    File: normalizedActiveFile,
+                    Line: 1,
+                    Column: 1,
+                    Length: 1,
+                    SourceSnippet: null,
+                    Explanation: "The browser runner needs a successfully parsed and analyzed project snapshot before execution.",
+                    Suggestion: "Use the local nlc toolchain for this program, or simplify it for the hosted playground.",
+                    Hint: null)
+            ]));
+            return BuildFailedRunResponse(normalizedActiveFile, failedDiagnostics, "No executable snapshot was available.", unsupportedReason: null);
+        }
+
+        try
+        {
+            var orderedUnits = analysis.Snapshot.SourceFiles
+                .Select(path => analysis.Snapshot.CompilationUnits.TryGetValue(path, out var unit) ? unit : null)
+                .Where(unit => unit != null)
+                .Cast<CompilationUnit>()
+                .ToArray();
+            var runner = new PlaygroundRunner(orderedUnits);
+            var run = runner.Run();
+            return new PlaygroundRunResponse(
+                SchemaVersion,
+                Ok: run.ExitCode == 0,
+                File: normalizedActiveFile,
+                ExitCode: run.ExitCode,
+                Stdout: run.Stdout,
+                Stderr: run.Stderr,
+                UnsupportedReason: null,
+                Diagnostics: diagnostics,
+                Summary: summary);
+        }
+        catch (PlaygroundRunUnsupportedException ex)
+        {
+            var runDiagnostics = Deduplicate(diagnostics.Concat([
+                new PlaygroundDiagnostic(
+                    Code: ex.Code,
+                    Severity: "error",
+                    Message: ex.Message,
+                    File: normalizedActiveFile,
+                    Line: 1,
+                    Column: 1,
+                    Length: 1,
+                    SourceSnippet: null,
+                    Explanation: "The hosted playground intentionally runs a bounded browser execution subset.",
+                    Suggestion: "Install nlc locally for full CLR execution, or try one of the smaller runnable samples.",
+                    Hint: "Diagnostics, formatting, hover, and completions still work for this code in the browser.")
+            ]));
+            return BuildFailedRunResponse(normalizedActiveFile, runDiagnostics, ex.Message, unsupportedReason: ex.Message);
+        }
+        catch (Exception ex)
+        {
+            var runDiagnostics = Deduplicate(diagnostics.Concat([
+                new PlaygroundDiagnostic(
+                    Code: "PG299",
+                    Severity: "error",
+                    Message: $"Run failed: {ex.Message}",
+                    File: normalizedActiveFile,
+                    Line: 1,
+                    Column: 1,
+                    Length: 1,
+                    SourceSnippet: null,
+                    Explanation: "The browser runner hit an unexpected execution failure.",
+                    Suggestion: "If this is reproducible, file an issue with the sample source.",
+                    Hint: null)
+            ]));
+            return BuildFailedRunResponse(normalizedActiveFile, runDiagnostics, ex.Message, unsupportedReason: null);
+        }
     }
 
     private static ProjectAnalysis AnalyzeProject(IReadOnlyList<PlaygroundFile> files)
@@ -616,6 +717,25 @@ public sealed class PlaygroundCompiler
             Ok: summary.Errors == 0,
             File: fileName,
             Diagnostics: deduplicated,
+            Summary: summary);
+    }
+
+    private static PlaygroundRunResponse BuildFailedRunResponse(
+        string fileName,
+        IReadOnlyList<PlaygroundDiagnostic> diagnostics,
+        string stderr,
+        string? unsupportedReason)
+    {
+        var summary = Summarize(diagnostics);
+        return new PlaygroundRunResponse(
+            SchemaVersion,
+            Ok: false,
+            File: fileName,
+            ExitCode: 2,
+            Stdout: string.Empty,
+            Stderr: stderr,
+            UnsupportedReason: unsupportedReason,
+            Diagnostics: diagnostics,
             Summary: summary);
     }
 

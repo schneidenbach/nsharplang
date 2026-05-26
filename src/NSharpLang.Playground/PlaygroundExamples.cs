@@ -32,7 +32,8 @@ public static class PlaygroundExamples
             test "greets by name" {
                 assert Greeting("N#") == "Hello, N#!"
             }
-            """),
+            """,
+            "Hello, N#!\n"),
 
         new(
             "02-values-functions",
@@ -63,7 +64,8 @@ public static class PlaygroundExamples
             test "computes total with tax" {
                 assert TotalWithTax(25.0, 0.08) == 27.0
             }
-            """),
+            """,
+            "Coffee: $27\n"),
 
         new(
             "03-types-visibility",
@@ -111,7 +113,8 @@ public static class PlaygroundExamples
                 assert done.Done == true
                 assert done.Title == "Ship"
             }
-            """),
+            """,
+            "task #1: Try N# (done)\n"),
 
         new(
             "04-unions-patterns",
@@ -148,7 +151,8 @@ public static class PlaygroundExamples
                 assert Describe(new LookupResult.Found("Ada", 99)) == "Ada: 99"
                 assert Describe(new LookupResult.Missing(7)) == "Missing player #7"
             }
-            """),
+            """,
+            "Ada: 99\nMissing player #404\n"),
 
         new(
             "05-duck-typing",
@@ -193,33 +197,34 @@ public static class PlaygroundExamples
                 assert Welcome(new FriendlyGreeter(), "Ada") == "Welcome, Ada."
                 assert Welcome(new ExcitedGreeter(), "Grace") == "WELCOME, GRACE!"
             }
-            """),
+            """,
+            "Welcome, Ada.\nWELCOME, GRACE!\n"),
 
         new(
             "06-collections-linq",
-            "Collections and LINQ",
-            "Use array literals, lambdas, LINQ, ranges, and indexes.",
+            "Collections and Iteration",
+            "Use array literals, foreach, and CLR collection members.",
             1,
-            "Ask for completions after numbers. or evens. to see .NET members through N#.",
-            ["arrays", "LINQ", "lambdas", "ranges", "index from end", "C# interop"],
-            "N# keeps .NET collections and LINQ available instead of inventing a separate collection world.",
+            "Ask for completions after numbers. to see array members through N#.",
+            ["arrays", "foreach", "collection members", "C# interop"],
+            "N# keeps .NET collections available instead of inventing a separate collection world.",
             """
-            import System.Linq
-
             package Tutorial
 
             func SumEven(numbers: int[]): int {
-                return numbers.Where(n => n % 2 == 0).Sum()
-            }
-
-            func Middle(numbers: int[]): int[] {
-                return numbers[1..^1]
+                total := 0
+                foreach number in numbers {
+                    if number % 2 == 0 {
+                        total = total + number
+                    }
+                }
+                return total
             }
 
             func main() {
                 numbers := [1, 2, 3, 4, 5, 6]
                 print $"Even sum: {SumEven(numbers)}"
-                print $"Last item: {numbers[^1]}"
+                print $"Count: {numbers.Length}"
             }
             """,
             """
@@ -228,7 +233,8 @@ public static class PlaygroundExamples
             test "sums even numbers" {
                 assert SumEven([1, 2, 3, 4, 5, 6]) == 12
             }
-            """),
+            """,
+            "Even sum: 12\nCount: 6\n"),
 
         new(
             "07-error-handling",
@@ -239,8 +245,6 @@ public static class PlaygroundExamples
             ["error tuples", "exceptions", "null", "control flow"],
             "N# embraces .NET exceptions but gives a Go-like call-site shape when you want it.",
             """
-            import System
-
             package Tutorial
 
             func Divide(a: int, b: int): int {
@@ -279,16 +283,13 @@ public static class PlaygroundExamples
             "Async and .NET Interop",
             "Call the BCL directly and let async return types stay terse.",
             1,
-            "Hover over LoadMessage and Task.Delay to see N# and .NET symbols together.",
-            ["async", "await", "Task", ".NET interop", "imports"],
+            "Hover over LoadMessage and await to see async types in the browser tooling loop.",
+            ["async", "await", "Task", ".NET interop"],
             "N# async functions read tersely while still producing normal .NET tasks for C# callers.",
             """
-            import System.Threading.Tasks
-
             package Tutorial
 
             async func LoadMessage(name: string): string {
-                await Task.Delay(10)
                 return $"Loaded profile for {name}"
             }
 
@@ -347,7 +348,8 @@ public static class PlaygroundExamples
                 assert Calculator.Clamp(-5, 0, 10) == 0
                 assert Calculator.Clamp(12, 0, 10) == 10
             }
-            """),
+            """,
+            "5\n"),
 
         new(
             "10-tooling-loop",
@@ -384,7 +386,69 @@ public static class PlaygroundExamples
                 assert Explain(new CommandResult { Command: "nlc check", Ok: true }) == "nlc check passed"
                 assert Explain(new CommandResult { Command: "nlc test", Ok: false }) == "nlc test needs attention"
             }
-            """)
+            """,
+            "nlc check passed\n")
+    ];
+
+    public static readonly IReadOnlyList<PlaygroundTutorialStep> Tutorial =
+    [
+        new(
+            "welcome",
+            "Welcome",
+            "info",
+            "Hi, welcome to the N# playground! This tutorial is designed for existing software engineers to jump into the language and its features. Let's walk through each of the features now.",
+            "01-hello-world",
+            null),
+        new(
+            "print-keyword",
+            "The print Keyword",
+            "info",
+            "Let's start by introducing the print keyword. It maps to Console.WriteLine, so small programs can write output without ceremony.",
+            "01-hello-world",
+            null),
+        new(
+            "print-exercise",
+            "Print Exercise",
+            "exercise",
+            "Change the greeting so the program prints Hello, Playground! Run it before moving on.",
+            "01-hello-world",
+            new PlaygroundTutorialValidation(
+                "output",
+                "Hello, Playground!\n",
+                "Playground",
+                "The output matches the expected greeting.")),
+        new(
+            "classes-records",
+            "Classes and Records",
+            "info",
+            "Here's what records and classes look like. Records carry data, classes carry behavior, and both still emit normal CLR-friendly shapes.",
+            "03-types-visibility",
+            null),
+        new(
+            "visibility",
+            "Visibility",
+            "info",
+            "Here's how visibility works: PascalCase members are exported, while camelCase members stay implementation details. Try completions on todo. or formatter. to see the public shape.",
+            "03-types-visibility",
+            null),
+        new(
+            "class-exercise",
+            "Class Exercise",
+            "exercise",
+            "Change the formatter prefix from task to issue. Run it and confirm the output reflects the new class state.",
+            "03-types-visibility",
+            new PlaygroundTutorialValidation(
+                "output",
+                "issue #1: Try N# (done)\n",
+                "issue",
+                "The formatter now uses the requested prefix.")),
+        new(
+            "tooling-loop",
+            "The Tooling Loop",
+            "info",
+            "The same compiler semantics power diagnostics, formatting, completions, hover, the CLI, and this browser workbench.",
+            "10-tooling-loop",
+            null)
     ];
 
     public static string DefaultId => All[0].Id;

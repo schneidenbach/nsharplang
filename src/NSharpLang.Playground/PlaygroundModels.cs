@@ -7,6 +7,7 @@ public sealed record PlaygroundCatalogResponse(
     string DefaultExampleId,
     int EstimatedMinutes,
     IReadOnlyList<PlaygroundExample> Examples,
+    IReadOnlyList<PlaygroundTutorialStep> Tutorial,
     PlaygroundCapabilities Capabilities);
 
 public sealed record PlaygroundCapabilities(
@@ -29,10 +30,25 @@ public sealed record PlaygroundExample(
     IReadOnlyList<string> Concepts,
     string CSharpContrast,
     string Code,
-    string? TestsCode)
+    string? TestsCode,
+    string? ExpectedOutput = null)
 {
     public bool HasTests => !string.IsNullOrWhiteSpace(TestsCode);
 }
+
+public sealed record PlaygroundTutorialStep(
+    string Id,
+    string Title,
+    string Kind,
+    string Narration,
+    string? ExampleId,
+    PlaygroundTutorialValidation? Validation);
+
+public sealed record PlaygroundTutorialValidation(
+    string Type,
+    string? ExpectedOutput,
+    string? RequiredText,
+    string SuccessMessage);
 
 public sealed record PlaygroundFile(
     string Name,
@@ -85,6 +101,17 @@ public sealed record PlaygroundHover(
     string? Documentation,
     string? DefinedIn,
     string Kind);
+
+public sealed record PlaygroundRunResponse(
+    int SchemaVersion,
+    bool Ok,
+    string File,
+    int ExitCode,
+    string Stdout,
+    string? Stderr,
+    string? UnsupportedReason,
+    IReadOnlyList<PlaygroundDiagnostic> Diagnostics,
+    PlaygroundSummary Summary);
 
 public sealed record PlaygroundSummary(
     int Errors,
