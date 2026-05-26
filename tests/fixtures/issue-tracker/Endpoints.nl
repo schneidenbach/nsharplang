@@ -59,6 +59,7 @@ class Routes {
         json := JsonSerializer.Serialize<object>(issue, jsonOptions)
         return context.Response.WriteAsync(json)
     }
+
     func IsPriorityName(priority: string): bool {
         return priority == "Low" || priority == "Medium" || priority == "High" || priority == "Critical"
     }

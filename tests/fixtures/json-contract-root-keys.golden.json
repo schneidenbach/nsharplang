@@ -138,6 +138,19 @@
     "results",
     "fixesApplied"
   ],
+  "tree": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "project",
+    "maxDepth",
+    "capabilities",
+    "dependencies",
+    "transitiveDependencies",
+    "summary",
+    "limitations"
+  ],
   "lint": [
     "schemaVersion",
     "command",

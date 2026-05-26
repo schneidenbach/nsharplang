@@ -109,6 +109,7 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc daemon start` | Start background analysis daemon | `nlc daemon start` |
 | `nlc daemon stop` | Stop daemon | `nlc daemon stop` |
 | `nlc daemon status` | Show daemon info | `nlc daemon status` |
+| `nlc tree` | Show direct dependency tree from `project.yml`; include transitive NuGet packages when MSBuild can resolve the package graph | `nlc tree --json` |
 
 ### Guided Tutorial (`nlc tutorial`)
 
@@ -524,6 +525,24 @@ nlc format --stdin < Program.nl
 - `--check` is the preferred CI flag
 - `--verify-no-changes` remains as a compatibility alias
 - `--diff` prints unified hunks against the formatter output
+- `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic/migration fixtures are not part of that gate.
+
+### `nlc tree` — Dependency Tree
+
+`tree` is an active dependency-inspection command, not future work:
+
+```bash
+nlc tree
+nlc tree --depth 1
+nlc tree --json
+```
+
+Behavior:
+
+- In csproj-free projects, `nlc tree` reads `project.yml` and lists direct runtime dependencies (`nuget`, `framework`, `project`, and `dll` references).
+- If a minimal MSBuild project file is present and `dotnet list package` succeeds, `nlc tree` restores the `project.yml` projection and asks `dotnet list package --include-transitive --format json` for direct and transitive NuGet packages.
+- JSON output uses schema version `2` and exposes `capabilities.transitiveNuGetDependencies` plus `limitations[]` so automation can distinguish "direct dependency list available" from "full transitive NuGet graph available."
+- The command does not yet reconstruct nested package-to-package edges for csproj-free `project.yml` projects without an MSBuild project file; it names that limitation precisely instead of treating the entire command as absent.
 
 ### `nlc test` — Filtered, Developer-Friendly Test Runs
 
@@ -636,7 +655,7 @@ $ nlc query symbols
 
 ## JSON Schema Discipline
 
-All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned envelope:
+All `nlc check`, `nlc fix`, `nlc lint`, and `nlc tree --json` commands output JSON with a versioned envelope:
 
 ```json
 {
@@ -665,6 +684,7 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 - `command`
 - `projectRoot`
 - `dryRun`
+- `includeReviewNeeded`
 - `ok`
 - `filesModified`
 - `results`
@@ -677,6 +697,20 @@ All `nlc check`, `nlc fix`, and `nlc lint` commands output JSON with a versioned
 - `ok`
 - `results`
 - `summary`
+
+`tree` envelope (`schemaVersion: 2`):
+- `command`
+- `ok`
+- `projectRoot`
+- `project`
+- `maxDepth`
+- `capabilities`
+- `dependencies`
+- `transitiveDependencies`
+- `summary`
+- `limitations`
+
+Migration note: the earlier tree JSON wrapper exposed raw `dotnet list package` output under `packages` when a `.csproj` was present. Schema version `2` replaces that with stable `dependencies` / `transitiveDependencies`, explicit `capabilities`, and project.yml support for csproj-free projects.
 
 `query` expectations:
 - Success responses include `ok: true` and command-specific payloads
