@@ -277,7 +277,15 @@ nlc test
 ./scripts/test-all.sh
 ```
 
-This script:
+This entrypoint runs the full gate from an isolated temporary copy of the
+repository with separate HOME, temp, NuGet, and npm state. Successful isolated
+runs write a content-addressed cache manifest that includes source content,
+test arguments, selected environment, tool versions, and platform data; when all
+of those inputs still match, follow-up invocations validate the manifest and
+return the recorded green result quickly. Use `--no-cache`, `--rebuild-cache`,
+or `--clean` when a fresh isolated run is required.
+
+The full isolated run:
 1. Runs all unit tests (`dotnet test`)
 2. Rebuilds the compiler and SDK
 3. Installs the latest SDK to local NuGet feed

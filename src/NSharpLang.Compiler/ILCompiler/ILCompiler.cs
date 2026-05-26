@@ -24,6 +24,20 @@ public partial class ILCompiler
 {
     private const string ThisCaptureName = "<>this";
 
+    private static string GetNuGetPackagesRoot()
+    {
+        var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.GetFullPath(configuredRoot);
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".nuget",
+            "packages");
+    }
+
     private readonly struct BranchTarget(Label label, bool useLeave)
     {
         public Label Label { get; } = label;
@@ -261,8 +275,7 @@ public partial class ILCompiler
             return;
         }
 
-        var homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var packageDirectory = Path.Combine(homeDirectory, ".nuget", "packages", packageName.ToLowerInvariant());
+        var packageDirectory = Path.Combine(GetNuGetPackagesRoot(), packageName.ToLowerInvariant());
         if (!Directory.Exists(packageDirectory))
         {
             TryLoadAssemblyByName(packageName);

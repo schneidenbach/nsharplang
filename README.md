@@ -222,6 +222,11 @@ dotnet test tests/Tests.csproj
 ./scripts/test-all.sh
 ```
 
+`./scripts/test-all.sh` runs the full gate in an isolated temporary workspace
+with separate HOME/temp/package state and validates a content-addressed pass
+cache before returning a cached result. Use `--no-cache`, `--rebuild-cache`, or
+`--clean` to force a fresh isolated run.
+
 Do not claim the whole product is launch-ready/full-suite-green unless `./scripts/test-all.sh` completes cleanly in the target environment.
 
 ## CI/CD

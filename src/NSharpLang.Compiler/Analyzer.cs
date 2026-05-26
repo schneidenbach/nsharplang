@@ -72,6 +72,20 @@ public class Analyzer : IDisposable
         _projectSymbols = symbols;
     }
 
+    private static string GetNuGetPackagesRoot()
+    {
+        var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        if (!string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.GetFullPath(configuredRoot);
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".nuget",
+            "packages");
+    }
+
     /// <summary>
     /// Sets the source texts used by the current project snapshot. This lets semantic
     /// declarations point at identifier spans even when a referenced file is only
@@ -10377,8 +10391,7 @@ public class Analyzer : IDisposable
         }
 
         // Try NuGet cache
-        var nugetCache = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        nugetCache = Path.Combine(nugetCache, ".nuget", "packages", packageName.ToLowerInvariant());
+        var nugetCache = Path.Combine(GetNuGetPackagesRoot(), packageName.ToLowerInvariant());
 
         if (Directory.Exists(nugetCache))
         {
@@ -10608,9 +10621,7 @@ public class Analyzer : IDisposable
             }
 
             // Search NuGet cache
-            var nugetRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".nuget", "packages");
+            var nugetRoot = Analyzer.GetNuGetPackagesRoot();
 
             var nugetExact = Path.Combine(nugetRoot, simpleName.ToLowerInvariant());
             var found = TryLoadFromNuGetPackageDir(context, nugetExact, simpleName);

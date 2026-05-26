@@ -310,12 +310,12 @@ func main() {
             return;
         }
 
-        var (exitCode, stdout, _) = CaptureConsole(() =>
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
             CheckCommand.Execute(new[] { "--project", projectPath }));
 
         var doc = JsonDocument.Parse(stdout);
         var errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
-        Assert.Equal(0, errors);
+        Assert.True(errors == 0, $"Expected no errors from nlc check. Exit code: {exitCode}\nstdout:\n{stdout}\nstderr:\n{stderr}");
     }
 
     [Theory]
