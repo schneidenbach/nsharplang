@@ -1427,6 +1427,27 @@ class User {
     }
 
     [Fact]
+    public void Diagnostics_DefaultParserSpan_UsesVisibleTokenSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unsupported-enum-backing-type.nl";
+
+        var source = "enum Status: decimal { Open }";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.UnexpectedToken &&
+                          diagnostic.Message.Contains("Unsupported enum backing type"));
+
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 14, length: "decimal".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 13, endCharacter: 20);
+    }
+
+    [Fact]
     public void LinterDiagnostics_UnusedShorthandVariable_UsesVariableNameSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

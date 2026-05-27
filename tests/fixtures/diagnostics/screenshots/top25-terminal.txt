@@ -75,10 +75,10 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
 
-── [NL101] ERROR ──────────── parser/missing-argument.nl:3:18 ──
+── [NL101] ERROR ──────────── parser/missing-argument.nl:3:17 ──
 
-    3 | print(, name)
-      |                  ^
+    3 |     print(name, )
+      |                 ^
 
 [parser] Unexpected token ')'
 
@@ -91,7 +91,7 @@ See: https://docs.n-sharp.dev/errors/parser/NL101
 ── [NL102] ERROR ───── parser/missing-parameter-colon.nl:1:12 ──
 
     1 | func greet(name string) {
-      |            ^
+      |            ^^^^
 
 [parser] Expected ':' after parameter name
 
@@ -128,7 +128,7 @@ See: https://docs.n-sharp.dev/errors/parser/NL104
 ── [NL106] ERROR ────────── parser/missing-match-brace.nl:7:1 ──
 
     7 | match status {
-      | ^
+      | ^^^^^
 
 [parser] Missing closing brace
 
@@ -294,10 +294,10 @@ Suggestion: Remove the import or use a symbol from it.
 
 See: https://docs.n-sharp.dev/errors/linter/NL010
 
-── [NL003] WARNING ───── linter/unnecessary-null-check.nl:3:8 ──
+── [NL003] WARNING ───── linter/unnecessary-null-check.nl:3:4 ──
 
     3 | if name != null {
-      |        ^^^^^
+      |    ^^^^
 
 [linter] Unnecessary null check on non-nullable value
 
@@ -320,10 +320,10 @@ Suggestion: Remove `async` or await the asynchronous operation that should drive
 
 See: https://docs.n-sharp.dev/errors/linter/NL004
 
-── [NL005] INFO ────────── linter/use-pattern-matching.nl:3:5 ──
+── [NL005] INFO ────────── linter/use-pattern-matching.nl:3:1 ──
 
     3 | if value is string {
-      |     ^^
+      | ^^
 
 [linter] Use pattern matching
 

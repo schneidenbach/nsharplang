@@ -54,6 +54,30 @@ public class DiagnosticGoldenTests
         });
     }
 
+    [Fact]
+    public void Top25Diagnostics_SpansStartOnVisibleTokensAndCoverIdentifierTokens()
+    {
+        foreach (var diagnostic in Top25Diagnostics())
+        {
+            if (string.IsNullOrEmpty(diagnostic.Source))
+                continue;
+
+            Assert.InRange(diagnostic.Column, 1, diagnostic.Source.Length);
+            var start = diagnostic.Column - 1;
+            var startChar = diagnostic.Source[start];
+
+            Assert.False(char.IsWhiteSpace(startChar),
+                $"{diagnostic.Code} in {diagnostic.File} starts on whitespace at column {diagnostic.Column}.");
+
+            if (!IsIdentifierStart(startChar))
+                continue;
+
+            var identifierLength = IdentifierLengthAt(diagnostic.Source, start);
+            Assert.True(diagnostic.Length >= identifierLength,
+                $"{diagnostic.Code} in {diagnostic.File} underlines {diagnostic.Length} character(s), but should cover identifier `{diagnostic.Source.Substring(start, identifierLength)}`.");
+        }
+    }
+
     private static string BuildTop25Snapshot()
     {
         var diagnostics = Top25Diagnostics()
@@ -91,11 +115,11 @@ public class DiagnosticGoldenTests
 
     private static IEnumerable<GoldenDiagnostic> Top25Diagnostics()
     {
-        yield return Parser("NL101", "Unexpected token ')'", "parser/missing-argument.nl", 3, 18, 1,
-            "print(, name)",
+        yield return Parser("NL101", "Unexpected token ')'", "parser/missing-argument.nl", 3, 17, 1,
+            "    print(name, )",
             "The parser found `)` while it was still looking for an expression argument.",
             "Add the missing expression before `)` or remove the dangling comma.");
-        yield return Parser("NL102", "Expected ':' after parameter name", "parser/missing-parameter-colon.nl", 1, 12, 1,
+        yield return Parser("NL102", "Expected ':' after parameter name", "parser/missing-parameter-colon.nl", 1, 12, 4,
             "func greet(name string) {",
             "Function parameters use `name: Type`; without the colon, the type name is parsed in the wrong slot.",
             "Write `func greet(name: string) { ... }`.");
@@ -107,7 +131,7 @@ public class DiagnosticGoldenTests
             "",
             "The file ended before the parser found the closing `}` for the current block.",
             "Add the missing closing brace and re-run `nlc check`.");
-        yield return Parser("NL106", "Missing closing brace", "parser/missing-match-brace.nl", 7, 1, 1,
+        yield return Parser("NL106", "Missing closing brace", "parser/missing-match-brace.nl", 7, 1, 5,
             "match status {",
             "A block started here but never closed, so later code may be attached to the wrong scope.",
             "Close the block with `}` at the indentation level where the construct began.");
@@ -160,7 +184,7 @@ public class DiagnosticGoldenTests
             "import System.Linq",
             "Unused imports make dependency intent harder to read and can mask stale code.",
             "Remove the import or use a symbol from it.");
-        yield return Linter("NL003", "Unnecessary null check on non-nullable value", "linter/unnecessary-null-check.nl", 3, 8, 5,
+        yield return Linter("NL003", "Unnecessary null check on non-nullable value", "linter/unnecessary-null-check.nl", 3, 4, 4,
             "if name != null {",
             "The value is already known to be non-nullable, so the condition adds noise without protecting anything.",
             "Delete the null check and keep the useful branch body.");
@@ -168,7 +192,7 @@ public class DiagnosticGoldenTests
             "async func Load(): Task<int> {",
             "An async function with no await usually does not need the async state machine.",
             "Remove `async` or await the asynchronous operation that should drive this function.");
-        yield return Linter("NL005", "Use pattern matching", "linter/use-pattern-matching.nl", 3, 5, 2,
+        yield return Linter("NL005", "Use pattern matching", "linter/use-pattern-matching.nl", 3, 1, 2,
             "if value is string {",
             "A chain of type or shape checks is easier to audit when expressed as one match.",
             "Rewrite the branch as a `match` when several related cases are being handled.");
@@ -204,6 +228,18 @@ public class DiagnosticGoldenTests
         => new("linter", code, message, file, line, column, length, source, explanation, help, DocsUrl("linter", code));
 
     private static string DocsUrl(string category, string code) => $"https://docs.n-sharp.dev/errors/{category}/{code}";
+
+    private static bool IsIdentifierStart(char ch)
+        => char.IsLetter(ch) || ch == '_';
+
+    private static int IdentifierLengthAt(string source, int start)
+    {
+        var end = start;
+        while (end < source.Length && (char.IsLetterOrDigit(source[end]) || source[end] == '_'))
+            end++;
+
+        return Math.Max(1, end - start);
+    }
 
     private static void UpdateGoldensIfRequested(string actual)
     {

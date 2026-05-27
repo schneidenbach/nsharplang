@@ -1086,6 +1086,25 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_DefaultParserSpan_PreservesVisibleTokenSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            enum Status: decimal {
+                Open
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101" &&
+                          diagnostic.Message.Contains("Unsupported enum backing type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 14, length: "decimal".Length);
+        Assert.Equal("enum Status: decimal {", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
     public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

@@ -254,6 +254,23 @@ class User {
     }
 
     [Fact]
+    public void Parser_DefaultDiagnosticSpan_CoversVisibleToken()
+    {
+        var source = "enum Status: decimal { Open }";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.UnexpectedToken &&
+                     error.Message.Contains("Unsupported enum backing type"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(14, error.Column);
+        Assert.Equal("decimal".Length, error.Length);
+        Assert.Equal(source, error.SourceSnippet);
+    }
+
+    [Fact]
     public void Parser_ReturnsCorrectErrorCode_UnexpectedToken()
     {
         var source = "class Test { ] }"; // Random closing bracket
