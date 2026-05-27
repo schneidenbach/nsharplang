@@ -652,14 +652,66 @@ func test() {
             error.Code == ErrorCode.ExpectedToken &&
             error.Message.Contains("Expected an expression to print after 'print'"));
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(10, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Equal("    print", diagnostic.SourceSnippet);
         Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
 
         var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
         Assert.Contains(function.Body!.Statements, statement =>
             statement is VariableDeclarationStatement { Name: "greeting" });
+    }
+
+    [Fact]
+    public void Parser_ForeachMissingIn_UnderlinesForeachKeywordAndContinues()
+    {
+        var source = """
+func test() {
+    foreach item items {
+        print item
+    }
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected 'in' between the loop variable and collection"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("foreach".Length, diagnostic.Length);
+        Assert.Equal("    foreach item items {", diagnostic.SourceSnippet);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        Assert.Contains(function.Body!.Statements, statement =>
+            statement is ForeachStatement { VariableName: "item" });
+    }
+
+    [Fact]
+    public void Parser_ForInMissingIn_UnderlinesForKeywordAndContinues()
+    {
+        var source = """
+func test() {
+    for item items {
+        print item
+    }
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected 'in' between the loop variable and collection"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("for".Length, diagnostic.Length);
+        Assert.Equal("    for item items {", diagnostic.SourceSnippet);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        var forStatement = Assert.Single(function.Body!.Statements.OfType<ForStatement>());
+        Assert.IsType<ForeachStatement>(forStatement.Body);
     }
 
     [Fact]

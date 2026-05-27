@@ -718,4 +718,51 @@ func main() {
         Assert.Equal(11, (int)lspDiagnostic.Range.Start.Character);
         Assert.Equal(12, (int)lspDiagnostic.Range.End.Character);
     }
+
+    [Fact]
+    public void Diagnostics_MissingKeywordsAndKeywordExpressions_UseVisibleKeywordSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-keyword-spans.nl";
+
+        var source = """
+func main() {
+    foreach item items {
+        print item
+    }
+
+    if {
+        print "missing condition"
+    }
+
+    print
+        value := 1
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var missingIn = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected 'in' between the loop variable and collection"));
+        AssertDiagnosticSpan(missingIn, line: 2, column: 5, length: "foreach".Length);
+        AssertLspRange(missingIn, line0: 1, startCharacter: 4, endCharacter: 11);
+
+        var missingIfCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'if'"));
+        AssertDiagnosticSpan(missingIfCondition, line: 6, column: 5, length: "if".Length);
+        AssertLspRange(missingIfCondition, line0: 5, startCharacter: 4, endCharacter: 6);
+
+        var missingPrintExpression = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected an expression to print after 'print'"));
+        AssertDiagnosticSpan(missingPrintExpression, line: 10, column: 5, length: "print".Length);
+        AssertLspRange(missingPrintExpression, line0: 9, startCharacter: 4, endCharacter: 9);
+    }
 }

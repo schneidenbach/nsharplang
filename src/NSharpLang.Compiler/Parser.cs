@@ -2245,7 +2245,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.For, "Expected 'for'");
+        var forToken = Consume(TokenType.For, "Expected 'for'");
 
         // Check for foreach-style: for item in collection
         if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In)
@@ -2259,6 +2259,19 @@ public class Parser
             var body = ParseStatement();
             return new ForStatement(null, null, null,
                 new ForeachStatement(varName, collection, body, line, column), line, column);
+        }
+
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier)
+        {
+            var variableToken = Advance();
+            var inToken = ReportMissingInKeywordAndRecover(forToken, variableToken, "This for-in statement");
+            var collection = ParseRequiredExpressionAfter(
+                inToken,
+                expectedDescription: "a collection expression",
+                ownerDescription: "This for-in statement");
+            var body = ParseStatement();
+            return new ForStatement(null, null, null,
+                new ForeachStatement(variableToken.Value, collection, body, line, column), line, column);
         }
 
         // C-style for loop
@@ -2330,13 +2343,16 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Foreach, "Expected 'foreach'");
+        var foreachToken = Consume(TokenType.Foreach, "Expected 'foreach'");
 
         // Allow optional parentheses: foreach (x in y) or foreach x in y
         var hasParens = Match(TokenType.LeftParen);
 
+        var variableToken = Current;
         var varName = ConsumeIdentifier("Expected variable name");
-        var inToken = Consume(TokenType.In, "Expected 'in'");
+        var inToken = Check(TokenType.In)
+            ? Consume(TokenType.In, "Expected 'in'")
+            : ReportMissingInKeywordAndRecover(foreachToken, variableToken, "This foreach statement");
         var collection = ParseRequiredExpressionAfter(
             inToken,
             expectedDescription: "a collection expression",
@@ -2357,13 +2373,16 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
         Consume(TokenType.Await, "Expected 'await'");
-        Consume(TokenType.Foreach, "Expected 'foreach'");
+        var foreachToken = Consume(TokenType.Foreach, "Expected 'foreach'");
 
         // Allow optional parentheses: await foreach (x in y) or await foreach x in y
         var hasParens = Match(TokenType.LeftParen);
 
+        var variableToken = Current;
         var varName = ConsumeIdentifier("Expected variable name");
-        var inToken = Consume(TokenType.In, "Expected 'in'");
+        var inToken = Check(TokenType.In)
+            ? Consume(TokenType.In, "Expected 'in'")
+            : ReportMissingInKeywordAndRecover(foreachToken, variableToken, "This await foreach statement");
         var collection = ParseRequiredExpressionAfter(
             inToken,
             expectedDescription: "a collection expression",
@@ -3269,11 +3288,14 @@ public class Parser
             return ParseExpression();
 
         var markerColumn = anchorToken.Column + Math.Max(1, anchorToken.Value.Length);
+        var underlineAnchor = ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken);
+        var diagnosticColumn = underlineAnchor ? anchorToken.Column : markerColumn;
+        var diagnosticLength = underlineAnchor ? Math.Max(1, anchorToken.Value.Length) : 1;
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected {expectedDescription} after '{anchorToken.Value}'",
             anchorToken.Line,
-            markerColumn,
+            diagnosticColumn,
             humanExplanation: $"{ownerDescription} needs {expectedDescription} after '{anchorToken.Value}'.",
             hint: "Finish the expression before starting the next statement.",
             suggestions: new List<string>
@@ -3281,9 +3303,47 @@ public class Parser
                 $"Add {expectedDescription} after '{anchorToken.Value}'",
                 $"Remove '{anchorToken.Value}' until the expression is ready"
             },
-            length: 1);
+            length: diagnosticLength);
 
         return new IdentifierExpression("<error>", anchorToken.Line, markerColumn);
+    }
+
+    private static bool ShouldUnderlineAnchorForMissingRequiredExpression(Token anchorToken)
+    {
+        return anchorToken.Type switch
+        {
+            TokenType.If or
+            TokenType.While or
+            TokenType.Foreach or
+            TokenType.Switch or
+            TokenType.Print or
+            TokenType.Throw or
+            TokenType.Yield or
+            TokenType.Using or
+            TokenType.Lock or
+            TokenType.In => true,
+            _ => false
+        };
+    }
+
+    private Token ReportMissingInKeywordAndRecover(Token loopKeywordToken, Token variableToken, string ownerDescription)
+    {
+        var expected = TokenTypeToString(TokenType.In);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected '{expected}' between the loop variable and collection",
+            loopKeywordToken.Line,
+            loopKeywordToken.Column,
+            humanExplanation: $"{ownerDescription} needs the '{expected}' keyword between the loop variable and the collection.",
+            hint: $"Write `{loopKeywordToken.Value} {variableToken.Value} {expected} ...`.",
+            suggestions: new List<string>
+            {
+                $"Add '{expected}' after '{variableToken.Value}'"
+            },
+            length: Math.Max(1, loopKeywordToken.Value.Length));
+
+        var recoveredColumn = variableToken.Column + Math.Max(1, variableToken.Value.Length) + 1;
+        return new Token(TokenType.In, expected, variableToken.Line, recoveredColumn, variableToken.FileName);
     }
 
     private bool IsMissingRequiredExpressionBoundary(Token anchorToken)

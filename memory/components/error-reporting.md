@@ -44,6 +44,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
 - General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
+- Missing required expressions after visible statement keywords (`if`, `while`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after operators or assignment anchors still use insertion spans after the anchor.
 
 ## Error Codes
 
@@ -54,7 +55,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL104`: UnexpectedEndOfFile
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at the insertion position when possible
-- Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, and similar anchors recover at the insertion position instead of consuming the next statement, including statements that VS Code auto-indents after a dangling anchor
+- Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, and similar anchors recover without consuming the next statement, including statements that VS Code auto-indents after a dangling anchor. Operator and initializer anchors point at the insertion position; keyword anchors underline the visible keyword.
 
 ### Type Errors (200-299)
 - `NL201`: TypeNotFound

@@ -586,6 +586,42 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MissingKeywordsAndKeywordExpressions_PreserveVisibleKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                foreach item items {
+                    print item
+                }
+
+                if {
+                    print "missing condition"
+                }
+
+                print
+                    value := 1
+            }
+            """);
+
+        var missingIn = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected 'in' between the loop variable and collection"));
+        AssertPlaygroundSpan(missingIn, line: 4, column: 5, length: "foreach".Length);
+
+        var missingIfCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'if'"));
+        AssertPlaygroundSpan(missingIfCondition, line: 8, column: 5, length: "if".Length);
+
+        var missingPrintExpression = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an expression to print after 'print'"));
+        AssertPlaygroundSpan(missingPrintExpression, line: 12, column: 5, length: "print".Length);
+    }
+
+    [Fact]
     public void Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable()
     {
         var result = new PlaygroundCompiler().Check("""
@@ -602,8 +638,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Expected an exception expression after 'throw'"));
 
         Assert.Equal(4, diagnostic.Line);
-        Assert.Equal(10, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("throw".Length, diagnostic.Length);
         Assert.Equal("    throw", diagnostic.SourceSnippet);
         Assert.DoesNotContain(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL312");
