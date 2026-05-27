@@ -1614,7 +1614,7 @@ func main() {
     }
 
     [Fact]
-    public void Diagnostics_MissingInitializer_PointsAtInsertionPosition()
+    public void Diagnostics_MissingInitializer_PointsAtVisibleAnchor()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-initializer.nl";
@@ -1637,8 +1637,8 @@ func main() {
                  d.Message.Contains("Expected an initializer expression after ':='"));
 
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(12, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal(":=".Length, diagnostic.Length);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.UnexpectedToken);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
@@ -1648,8 +1648,8 @@ func main() {
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(11, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(12, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(11, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]

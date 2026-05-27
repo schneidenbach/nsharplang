@@ -715,8 +715,8 @@ func test() {
             error.Code == ErrorCode.ExpectedToken &&
             error.Message.Contains("Expected an initializer expression after ':='"));
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(12, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal(":=".Length, diagnostic.Length);
         Assert.Equal("    name :=", diagnostic.SourceSnippet);
         Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
 

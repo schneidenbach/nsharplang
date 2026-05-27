@@ -3366,9 +3366,12 @@ public class Parser
             TokenType.Print or
             TokenType.Throw or
             TokenType.Yield or
+            TokenType.Assert or
             TokenType.Using or
             TokenType.Lock or
-            TokenType.In => true,
+            TokenType.In or
+            TokenType.Assign or
+            TokenType.ColonAssign => true,
             _ => false
         };
     }

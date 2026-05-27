@@ -1178,7 +1178,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
+    public void Check_MissingInitializer_PreservesVisibleAnchorSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -1195,8 +1195,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Expected an initializer expression after ':='"));
 
         Assert.Equal(4, diagnostic.Line);
-        Assert.Equal(12, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal(":=".Length, diagnostic.Length);
         Assert.Equal("    name :=", diagnostic.SourceSnippet);
         Assert.Contains("initializer expression", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(result.Diagnostics,
