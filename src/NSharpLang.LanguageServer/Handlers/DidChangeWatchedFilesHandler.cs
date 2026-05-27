@@ -13,10 +13,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
 using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
-using LspDiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
 using LspFileSystemWatcher = OmniSharp.Extensions.LanguageServer.Protocol.Models.FileSystemWatcher;
-using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
-using DiagnosticSeverity = NSharpLang.Compiler.DiagnosticSeverity;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -114,7 +111,7 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
             var allDiagnostics = new System.Collections.Generic.List<LspDiagnostic>();
 
             allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(ConvertCompilerErrorToDiagnostic));
-            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(LspDiagnosticConverter.FromLinterDiagnostic));
 
             _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
@@ -128,34 +125,4 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
 
     private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
         => LspDiagnosticConverter.FromCompilerError(error);
-
-    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
-    {
-        var line = Math.Max(0, diagnostic.Location.Line - 1);
-        var column = Math.Max(0, diagnostic.Location.Column - 1);
-
-        var severity = diagnostic.Severity switch
-        {
-            DiagnosticSeverity.Error => LspDiagnosticSeverity.Error,
-            DiagnosticSeverity.Warning => LspDiagnosticSeverity.Warning,
-            DiagnosticSeverity.Info => LspDiagnosticSeverity.Information,
-            _ => LspDiagnosticSeverity.Warning
-        };
-
-        int length = 1;
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            length = quoteMatch.Groups[1].Value.Length;
-        }
-
-        return new LspDiagnostic
-        {
-            Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(line, column, line, column + length),
-            Severity = severity,
-            Code = diagnostic.Code,
-            Source = "N#",
-            Message = diagnostic.Message
-        };
-    }
 }

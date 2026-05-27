@@ -30,7 +30,8 @@ public record Diagnostic(
     string Message,
     Location Location,
     DiagnosticSeverity Severity,
-    string? Suggestion = null);
+    string? Suggestion = null,
+    int Length = 1);
 
 /// <summary>
 /// Linter configuration from .editorconfig
@@ -211,12 +212,14 @@ public partial class Linter
                 && (codes.Contains(code) || codes.Contains("*")))
                 return;
 
+            var sourceLine = line > 0 && line <= lines.Length ? lines[line - 1] : string.Empty;
             diagnostics.Add(new Diagnostic(
                 code,
                 message,
                 new Location(line, column, filePath),
                 _config.GetSeverity(code),
-                suggestion));
+                suggestion,
+                InferDiagnosticLength(code, message, sourceLine, column)));
         }
 
         for (var i = 0; i < lines.Length; i++)
@@ -323,6 +326,94 @@ public partial class Linter
         AddTryCatch500Candidates(lines, Add);
 
         return diagnostics;
+    }
+
+    internal static int InferDiagnosticLength(string code, string message, string? sourceLine, int oneBasedColumn)
+    {
+        var line = sourceLine ?? string.Empty;
+
+        if (code == "NL111")
+            return ValueAccessLengthAt(line, oneBasedColumn);
+
+        if (code == "NL104" && StartsWithAt(line, oneBasedColumn, "TryGetValue"))
+            return "TryGetValue".Length;
+
+        if (code == "NL102" && StartsWithAt(line, oneBasedColumn, "{"))
+            return Math.Max(1, AutoPropertyLengthAt(line, oneBasedColumn));
+
+        var quoted = FirstQuotedText(message);
+        if (!string.IsNullOrWhiteSpace(quoted) && StartsWithAt(line, oneBasedColumn, quoted))
+            return quoted.Length;
+
+        return TokenLengthAt(line, oneBasedColumn);
+    }
+
+    internal static string[] NormalizeSourceLines(string? sourceText)
+        => string.IsNullOrEmpty(sourceText)
+            ? Array.Empty<string>()
+            : sourceText.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n');
+
+    internal static int TokenLengthAt(string sourceLine, int oneBasedColumn)
+    {
+        if (sourceLine.Length == 0)
+            return 1;
+
+        var start = Math.Clamp(oneBasedColumn - 1, 0, Math.Max(0, sourceLine.Length - 1));
+        var length = 0;
+        while (start + length < sourceLine.Length &&
+               (char.IsLetterOrDigit(sourceLine[start + length]) ||
+                sourceLine[start + length] is '_' or '!' or '.' or '{' or '}'))
+        {
+            length++;
+        }
+
+        return Math.Max(1, length);
+    }
+
+    private static int AutoPropertyLengthAt(string sourceLine, int oneBasedColumn)
+    {
+        var start = Math.Max(0, oneBasedColumn - 1);
+        if (start >= sourceLine.Length)
+            return 1;
+
+        var close = sourceLine.IndexOf('}', start);
+        return close >= start ? close - start + 1 : 1;
+    }
+
+    private static int ValueAccessLengthAt(string sourceLine, int oneBasedColumn)
+    {
+        var start = Math.Max(0, oneBasedColumn - 1);
+        if (start >= sourceLine.Length || sourceLine[start] != '.')
+            return TokenLengthAt(sourceLine, oneBasedColumn);
+
+        var end = start + 1;
+        while (end < sourceLine.Length && char.IsWhiteSpace(sourceLine[end]))
+            end++;
+
+        const string value = "Value";
+        if (end + value.Length <= sourceLine.Length &&
+            string.Equals(sourceLine.Substring(end, value.Length), value, StringComparison.Ordinal))
+        {
+            return end + value.Length - start;
+        }
+
+        return 1;
+    }
+
+    private static bool StartsWithAt(string sourceLine, int oneBasedColumn, string value)
+    {
+        var start = oneBasedColumn - 1;
+        return start >= 0 &&
+               start + value.Length <= sourceLine.Length &&
+               string.Equals(sourceLine.Substring(start, value.Length), value, StringComparison.Ordinal);
+    }
+
+    private static string? FirstQuotedText(string message)
+    {
+        var match = Regex.Match(message, @"'([^']+)'");
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static int FirstPositiveIndex(params int[] indexes)
@@ -582,6 +673,7 @@ internal class LintVisitor
     private readonly string? _filePath;
     private readonly LinterConfig _config;
     private readonly Dictionary<int, HashSet<string>> _suppressedDiagnosticsByLine;
+    private readonly string[] _sourceLines;
     private readonly List<Diagnostic> _diagnostics = new();
     private Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
@@ -621,6 +713,7 @@ internal class LintVisitor
         _filePath = filePath;
         _config = config ?? LinterConfig.Default();
         _suppressedDiagnosticsByLine = BuildSuppressions(filePath, sourceText);
+        _sourceLines = Linter.NormalizeSourceLines(sourceText);
     }
 
     public void Visit(CompilationUnit unit)
@@ -695,12 +788,32 @@ internal class LintVisitor
         }
     }
 
-    private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null)
+    private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null, int length = 0)
     {
         if (IsSuppressed(code, location.Line))
             return;
 
-        _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion));
+        var sourceLine = SourceLine(location.Line);
+        var diagnosticLength = length > 0
+            ? length
+            : Linter.InferDiagnosticLength(code, message, sourceLine, location.Column);
+
+        _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion, diagnosticLength));
+    }
+
+    private string SourceLine(int oneBasedLine)
+        => oneBasedLine > 0 && oneBasedLine <= _sourceLines.Length
+            ? _sourceLines[oneBasedLine - 1]
+            : string.Empty;
+
+    private int FindTokenColumn(int oneBasedLine, string token, int fallbackColumn)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return fallbackColumn;
+
+        var sourceLine = SourceLine(oneBasedLine);
+        var index = sourceLine.IndexOf(token, StringComparison.Ordinal);
+        return index >= 0 ? index + 1 : fallbackColumn;
     }
 
     private bool IsSuppressed(string code, int line)
@@ -911,9 +1024,11 @@ internal class LintVisitor
             // Add parameters to scope; track for NL012
             foreach (var param in func.Parameters)
             {
-                DeclareVariable(param.Name, func.Line, func.Column);
+                var paramLine = param.Line > 0 ? param.Line : func.Line;
+                var paramColumn = param.Column > 0 ? param.Column : func.Column;
+                DeclareVariable(param.Name, paramLine, paramColumn);
                 MarkVariableUsed(param.Name); // Parameters exempt from NL001
-                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
+                _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
 
             VisitStatement(func.Body);
@@ -931,9 +1046,11 @@ internal class LintVisitor
             PushScope();
             foreach (var param in func.Parameters)
             {
-                DeclareVariable(param.Name, func.Line, func.Column);
+                var paramLine = param.Line > 0 ? param.Line : func.Line;
+                var paramColumn = param.Column > 0 ? param.Column : func.Column;
+                DeclareVariable(param.Name, paramLine, paramColumn);
                 MarkVariableUsed(param.Name);
-                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
+                _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
             VisitExpression(func.ExpressionBody);
 
@@ -959,7 +1076,7 @@ internal class LintVisitor
                 AddDiagnostic(
                     "NL004",
                     $"Function '{func.Name}' is marked 'async' but never uses 'await' — it will run synchronously",
-                    new Location(func.Line, func.Column, _filePath),
+                    new Location(func.Line, FindTokenColumn(func.Line, func.Name, func.Column), _filePath),
                     _config.GetSeverity("NL004"),
                     $"Either add an 'await' expression inside '{func.Name}', or remove the 'async' modifier if this function doesn't need to be asynchronous");
             }
@@ -1083,17 +1200,9 @@ internal class LintVisitor
                 // NL010: Track type references in variable declarations
                 TrackTypeReference(varDecl.Type);
                 var initializerHasParserError = ContainsParserErrorPlaceholder(varDecl.Initializer);
-                // Calculate column of variable name, not the keyword
-                // For "let x = 1", if let starts at column 10, then x starts at column 14 (10 + "let" + space)
-                // For "const x = 1", if const starts at column 10, then x starts at column 16 (10 + "const" + space)
-                var keywordLength = varDecl.Kind switch
-                {
-                    VariableKind.Let => 3,  // "let" (also used for := shorthand)
-                    VariableKind.Const => 5,  // "const"
-                    VariableKind.Readonly => 8,  // "readonly"
-                    _ => 3
-                };
-                var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
+                // VariableDeclarationStatement stores the identifier location, including
+                // shorthand declarations like `name := value`.
+                var nameColumn = varDecl.Column;
                 if (!initializerHasParserError)
                 {
                     // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)

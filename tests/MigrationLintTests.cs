@@ -57,8 +57,8 @@ class UserDto {
 }
 """);
 
-        Assert.Contains(diagnostics, d => d.Code == "NL102" && d.Message.Contains("{ get; set; }"));
-        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("default!"));
+        Assert.Contains(diagnostics, d => d.Code == "NL102" && d.Message.Contains("{ get; set; }") && d.Length == "{ get; set; }".Length);
+        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("default!") && d.Length == "default!".Length);
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("null!"));
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("value!"));
         Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Suggestion!.Contains("real initializer"));
@@ -82,6 +82,7 @@ func Read(result: Result<string>, maybeAge: int?): string {
         Assert.Equal(2, valueDiagnostics.Count);
         Assert.Contains(valueDiagnostics, d => d.Message.Contains("result.Value"));
         Assert.Contains(valueDiagnostics, d => d.Message.Contains("maybeAge.Value"));
+        Assert.All(valueDiagnostics, d => Assert.Equal(".Value".Length, d.Length));
         Assert.All(valueDiagnostics, d => Assert.Contains("match", d.Suggestion));
     }
 
@@ -105,9 +106,9 @@ func Get(id: string): Result {
 }
 """);
 
-        Assert.Contains(diagnostics, d => d.Code == "NL104" && d.Message.Contains("TryGetValue"));
-        Assert.Contains(diagnostics, d => d.Code == "NL105" && d.Message.Contains("UserDto"));
-        Assert.Contains(diagnostics, d => d.Code == "NL106" && d.Message.Contains("500"));
+        Assert.Contains(diagnostics, d => d.Code == "NL104" && d.Message.Contains("TryGetValue") && d.Length == "TryGetValue".Length);
+        Assert.Contains(diagnostics, d => d.Code == "NL105" && d.Message.Contains("UserDto") && d.Length == "UserDto".Length);
+        Assert.Contains(diagnostics, d => d.Code == "NL106" && d.Message.Contains("500") && d.Length == "catch".Length);
     }
 
     [Fact]
@@ -142,6 +143,7 @@ func Create(): User {
         var diagnostic = Assert.Single(diagnostics.Where(d => d.Code == "NL110"));
         Assert.Equal(2, diagnostic.Location.Line);
         Assert.Equal(23, diagnostic.Location.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
         Assert.Contains("Use canonical N# object initialization", diagnostic.Suggestion);
     }
 

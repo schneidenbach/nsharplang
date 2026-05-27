@@ -104,7 +104,7 @@ public static class LintCommand
                             {
                                 allDiagnostics.Add(new DiagnosticResult(
                                     "PARSE", "error", err.Message,
-                                    relativePath, err.Line, err.Column, 1,
+                                    relativePath, err.Line, err.Column, Math.Max(err.Length, 1),
                                     ExtractSourceLine(source, err.Line),
                                     null, null, null, null, null, null));
                             }
@@ -137,7 +137,7 @@ public static class LintCommand
                             NormalizePath(Path.GetRelativePath(projectRoot, file)),
                             diag.Location.Line,
                             diag.Location.Column,
-                            1,
+                            Math.Max(diag.Length, 1),
                             ExtractSourceLine(source, diag.Location.Line),
                             null,
                             diag.Suggestion,

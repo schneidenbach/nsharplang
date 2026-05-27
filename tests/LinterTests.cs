@@ -18,6 +18,16 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
+    private List<Diagnostic> LintWithSource(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+        var linter = new Linter();
+        return linter.Lint(result.CompilationUnit!, "test.nl", source);
+    }
+
     private static List<Diagnostic> LintSource(string source)
     {
         var linter = new Linter();
@@ -75,6 +85,30 @@ private class SecretPascal { }");
         Assert.Contains("'x'", diagnostics[0].Message);
         Assert.Contains("never read", diagnostics[0].Message);
         Assert.Equal(DiagnosticSeverity.Warning, diagnostics[0].Severity);
+    }
+
+    [Fact]
+    public void NL012_UsesParameterSpan()
+    {
+        var source = "func greet(unusedName: string) { print \"hi\" }";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, d => d.Code == "NL012");
+        Assert.Equal(1, diagnostic.Location.Line);
+        Assert.Equal(12, diagnostic.Location.Column);
+        Assert.Equal("unusedName".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void NL004_UsesFunctionNameSpan()
+    {
+        var source = "async func LoadData(): void { print \"hi\" }";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, d => d.Code == "NL004");
+        Assert.Equal(1, diagnostic.Location.Line);
+        Assert.Equal(12, diagnostic.Location.Column);
+        Assert.Equal("LoadData".Length, diagnostic.Length);
     }
 
     [Fact]

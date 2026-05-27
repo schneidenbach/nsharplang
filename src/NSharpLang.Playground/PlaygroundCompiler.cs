@@ -797,7 +797,7 @@ public sealed class PlaygroundCompiler
             File: NormalizeFileName(diagnostic.Location.FilePath ?? DefaultFileName),
             Line: Math.Max(diagnostic.Location.Line, 1),
             Column: Math.Max(diagnostic.Location.Column, 1),
-            Length: 1,
+            Length: Math.Max(diagnostic.Length, 1),
             SourceSnippet: null,
             Explanation: null,
             Suggestion: diagnostic.Suggestion,

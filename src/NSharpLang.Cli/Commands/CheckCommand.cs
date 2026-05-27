@@ -206,7 +206,7 @@ public static class CheckCommand
                     NormalizePath(Path.GetRelativePath(projectDir, filePath)),
                     diagnostic.Location.Line,
                     diagnostic.Location.Column,
-                    1,
+                    Math.Max(diagnostic.Length, 1),
                     ExtractSourceLine(source, diagnostic.Location.Line),
                     null,
                     diagnostic.Suggestion,

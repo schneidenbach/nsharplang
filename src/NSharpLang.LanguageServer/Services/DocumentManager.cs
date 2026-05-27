@@ -319,7 +319,7 @@ public class DocumentManager
                 // Run linter for additional diagnostics
                 var linterConfig = LinterConfig.FromEditorConfig(projectDir);
                 var linter = new Linter(linterConfig);
-                state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath);
+                state.LinterDiagnostics = linter.Lint(state.CompilationUnit, filePath, text);
 
                 // Store symbol information for later use
                 state.Symbols = ExtractSymbols(state.CompilationUnit);

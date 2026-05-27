@@ -36,6 +36,12 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 **Important:** `ContextualHint` values must NOT include "Hint: " prefix — formatters add it when needed.
 
+### Tooling Span Contract
+
+- Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
+- Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
+- Shorthand declarations such as `Message := "hi"` store the identifier column, so style diagnostics like `NL008` underline `Message`, not the `:=` operator or the tail of the identifier.
+
 ## Error Codes
 
 ### Syntax Errors (100-199)

@@ -147,6 +147,25 @@ func main() {
     }
 
     [Fact]
+    public void LspLinterDiagnostic_UsesExactLinterSpan()
+    {
+        var diagnostic = new Diagnostic(
+            "NL012",
+            "Parameter 'unusedName' in 'greet' is never read — is it needed?",
+            new Location(1, 12, "Program.nl"),
+            DiagnosticSeverity.Info,
+            "Prefix with '_' if this is intentional",
+            "unusedName".Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromLinterDiagnostic(diagnostic);
+
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(11, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(0, (int)lspDiagnostic.Range.End.Line);
+        Assert.Equal(21, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_IncompleteMemberAccess_PointsAtTrailingDot()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

@@ -102,6 +102,29 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                Message := "hi"
+                print Message
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL008" &&
+                          diagnostic.Message.Contains("Message"));
+
+        Assert.True(result.Ok);
+        Assert.Equal("info", diagnostic.Severity);
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("Message".Length, diagnostic.Length);
+    }
+
+    [Fact]
     public void Check_ObjectInitializerEquals_PreservesOneCharacterSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

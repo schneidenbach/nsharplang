@@ -11,11 +11,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
-using LspDiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
-using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
-using DiagnosticSeverity = NSharpLang.Compiler.DiagnosticSeverity;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -27,7 +23,6 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     private readonly DocumentManager _documentManager;
     private readonly ILanguageServerFacade _languageServer;
     private readonly ILogger<TextDocumentHandler> _logger;
-    private string? _currentDiagnosticUri; // Set during PublishDiagnostics for token length lookup
 
     public TextDocumentHandler(
         DocumentManager documentManager,
@@ -131,12 +126,10 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var publications = _documentManager.GetDiagnosticsToPublish(uri);
         foreach (var publication in publications)
         {
-            _currentDiagnosticUri = publication.Uri;
-
             var allDiagnostics = new List<LspDiagnostic>();
 
             allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(ConvertCompilerErrorToDiagnostic));
-            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(LspDiagnosticConverter.FromLinterDiagnostic));
 
             _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
@@ -150,69 +143,4 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
 
     private static LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
         => LspDiagnosticConverter.FromCompilerError(error);
-
-    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
-    {
-        // Convert linter diagnostic to LSP diagnostic
-        var line = Math.Max(0, diagnostic.Location.Line - 1); // LSP is 0-indexed
-        var column = Math.Max(0, diagnostic.Location.Column - 1); // LSP columns are also 0-indexed
-
-        var severity = diagnostic.Severity switch
-        {
-            DiagnosticSeverity.Error => LspDiagnosticSeverity.Error,
-            DiagnosticSeverity.Warning => LspDiagnosticSeverity.Warning,
-            DiagnosticSeverity.Info => LspDiagnosticSeverity.Information,
-            _ => LspDiagnosticSeverity.Warning
-        };
-
-        // Extract symbol name from message and find its actual position in source
-        // Linter column positions can be inaccurate, so we search the source line
-        int length = 1;
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-        string? symbolName = quoteMatch.Success ? quoteMatch.Groups[1].Value : null;
-
-        if (symbolName != null && _currentDiagnosticUri != null)
-        {
-            length = symbolName.Length;
-            // Find the actual column of the symbol in the source line
-            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line < lines.Length)
-                {
-                    var idx = lines[line].IndexOf(symbolName, StringComparison.Ordinal);
-                    if (idx >= 0)
-                    {
-                        column = idx; // Use the actual position, not the linter's
-                    }
-                }
-            }
-        }
-        else if (_currentDiagnosticUri != null)
-        {
-            // No symbol in message — find the token at the reported position
-            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line < lines.Length && column < lines[line].Length)
-                {
-                    int end = column;
-                    while (end < lines[line].Length && (char.IsLetterOrDigit(lines[line][end]) || lines[line][end] == '_'))
-                        end++;
-                    if (end > column) length = end - column;
-                }
-            }
-        }
-
-        return new LspDiagnostic
-        {
-            Range = new LspRange(line, column, line, column + length),
-            Severity = severity,
-            Code = diagnostic.Code,
-            Source = "N#",
-            Message = diagnostic.Message
-        };
-    }
 }
