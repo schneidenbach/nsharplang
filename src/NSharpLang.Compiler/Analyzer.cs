@@ -1512,10 +1512,7 @@ public class Analyzer : IDisposable
         return statement switch
         {
             ExpressionStatement expressionStatement => GetExpressionStatementDiagnosticSpan(expressionStatement.Expression),
-            VariableDeclarationStatement variableDeclaration => (
-                variableDeclaration.Line,
-                variableDeclaration.Column,
-                Math.Max(1, variableDeclaration.Name.Length)),
+            VariableDeclarationStatement variableDeclaration => GetVariableDeclarationNameDiagnosticSpan(variableDeclaration),
             LocalFunctionStatement localFunction => (
                 localFunction.Line,
                 localFunction.Column,
@@ -1523,6 +1520,13 @@ public class Analyzer : IDisposable
             _ => (statement.Line, statement.Column, GetTokenLength(statement.Line, statement.Column))
         };
     }
+
+    private static (int Line, int Column, int Length) GetVariableDeclarationNameDiagnosticSpan(
+        VariableDeclarationStatement variableDeclaration)
+        => (
+            variableDeclaration.Line,
+            variableDeclaration.Column,
+            Math.Max(1, variableDeclaration.Name.Length));
 
     private (int Line, int Column, int Length) GetExpressionDiagnosticSpan(Expression expression)
     {
@@ -1936,7 +1940,14 @@ public class Analyzer : IDisposable
             // Type specified but no initializer
             if (varDecl.Kind == VariableKind.Const)
             {
-                Error("A 'const' must have an initial value — the compiler needs to know its value at compile time", varDecl.Line, varDecl.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    "A 'const' must have an initial value — the compiler needs to know its value at compile time",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    $"Add an initializer, for example `const {varDecl.Name}: {declaredType} = 42`.",
+                    diagnosticLength);
             }
             finalType = declaredType;
         }
@@ -1960,7 +1971,14 @@ public class Analyzer : IDisposable
         }
         else
         {
-            Error("I can't determine the type of this variable — give it a type annotation or an initial value", varDecl.Line, varDecl.Column);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+            Error(
+                ErrorCode.InvalidSyntax,
+                "I can't determine the type of this variable — give it a type annotation or an initial value",
+                diagnosticLine,
+                diagnosticColumn,
+                $"Add a type annotation like `let {varDecl.Name}: int`, or add an initializer like `let {varDecl.Name} := 0`.",
+                diagnosticLength);
             finalType = BuiltInTypes.Unknown;
         }
 

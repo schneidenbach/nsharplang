@@ -326,6 +326,31 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_InvalidVariableDeclarations_PreserveFullNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                const answer: int
+                let value
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var constWithoutInitializer = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'const'"));
+        AssertPlaygroundSpan(constWithoutInitializer, line: 4, column: 11, length: "answer".Length);
+
+        var unknownVariableType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("determine the type"));
+        AssertPlaygroundSpan(unknownVariableType, line: 5, column: 9, length: "value".Length);
+    }
+
+    [Fact]
     public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""

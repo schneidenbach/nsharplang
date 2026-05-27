@@ -349,6 +349,39 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_InvalidVariableDeclarations_UseFullNameSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///variable-declaration-spans.nl";
+
+        var source = """
+func main() {
+    const answer: int
+    let value
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var constWithoutInitializer = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("'const'"));
+        AssertDiagnosticSpan(constWithoutInitializer, line: 2, column: 11, length: "answer".Length);
+        AssertLspRange(constWithoutInitializer, line0: 1, startCharacter: 10, endCharacter: 16);
+
+        var unknownVariableType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("determine the type"));
+        AssertDiagnosticSpan(unknownVariableType, line: 3, column: 9, length: "value".Length);
+        AssertLspRange(unknownVariableType, line0: 2, startCharacter: 8, endCharacter: 13);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
