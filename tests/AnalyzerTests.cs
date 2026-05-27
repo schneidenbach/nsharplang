@@ -233,6 +233,32 @@ func removeKeyAndValue(): string {
     }
 
     [Fact]
+    public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
+    {
+        const string source = """
+func Main() {
+    print "asdf".ToUpper()
+    print "asdf".Length
+    print "asdf".ToUp()
+}
+""";
+
+        var lexer = new Lexer(source, "Program.nl");
+        var parser = new Parser(lexer.Tokenize(), "Program.nl", source);
+        var parseResult = parser.ParseCompilationUnit();
+        using var analyzer = new Analyzer();
+
+        var result = analyzer.Analyze(parseResult.CompilationUnit!, "/tmp/Program.nl", projectRoot: null, source);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.UndefinedMember &&
+                     error.Message.Contains("ToUp"));
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(18, diagnostic.Column);
+        Assert.Equal("ToUp".Length, diagnostic.Length);
+    }
+
+    [Fact]
     public void FunctionDeclaration_Valid()
     {
         AssertNoErrors(@"

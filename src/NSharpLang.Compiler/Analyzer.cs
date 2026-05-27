@@ -18,6 +18,95 @@ public class Analyzer : IDisposable
 {
     private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
 
+    private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
+    {
+        "ToString",
+        "Equals",
+        "GetHashCode",
+        "GetType"
+    };
+
+    private static readonly HashSet<string> BuiltInStringInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "Length",
+        "Chars",
+        "CompareTo",
+        "Contains",
+        "EndsWith",
+        "Equals",
+        "IndexOf",
+        "LastIndexOf",
+        "Replace",
+        "Split",
+        "StartsWith",
+        "Substring",
+        "ToCharArray",
+        "ToLower",
+        "ToLowerInvariant",
+        "ToUpper",
+        "ToUpperInvariant",
+        "Trim",
+        "TrimEnd",
+        "TrimStart"
+    };
+
+    private static readonly HashSet<string> BuiltInStringStaticMembers = new(StringComparer.Ordinal)
+    {
+        "Compare",
+        "Concat",
+        "Copy",
+        "Equals",
+        "Format",
+        "IsNullOrEmpty",
+        "IsNullOrWhiteSpace",
+        "Join"
+    };
+
+    private static readonly HashSet<string> BuiltInNumericStaticMembers = new(StringComparer.Ordinal)
+    {
+        "MaxValue",
+        "MinValue",
+        "Parse",
+        "TryParse"
+    };
+
+    private static readonly HashSet<string> BuiltInNumericInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "CompareTo",
+        "Equals",
+        "ToString"
+    };
+
+    private static readonly HashSet<string> BuiltInBooleanStaticMembers = new(StringComparer.Ordinal)
+    {
+        "FalseString",
+        "Parse",
+        "TrueString",
+        "TryParse"
+    };
+
+    private static readonly HashSet<string> BuiltInBooleanInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "CompareTo",
+        "Equals",
+        "GetHashCode",
+        "ToString"
+    };
+
+    private static readonly HashSet<string> BuiltInArrayMembers = new(StringComparer.Ordinal)
+    {
+        "Length",
+        "LongLength",
+        "Rank",
+        "GetLength",
+        "GetLowerBound",
+        "GetUpperBound",
+        "GetValue",
+        "SetValue",
+        "Clone",
+        "CopyTo"
+    };
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -3518,8 +3607,17 @@ public class Analyzer : IDisposable
                     }
                     return symbolType;
                 }
-                // Symbol not found in alias
-                Error($"'{member.MemberName}' doesn't exist in '{aliasName}' — check the import for available symbols", member.Line, member.Column);
+                var memberColumn = GetMemberNameColumn(member);
+                var similarSymbols = symbols.Count == 0
+                    ? new List<string>()
+                    : new SmartSuggester(symbols.Keys.ToList()).SuggestSimilarNames(member.MemberName);
+                Error(
+                    ErrorCode.UndefinedMember,
+                    $"'{member.MemberName}' doesn't exist in import alias '{aliasName}' — check the import for available symbols",
+                    member.Line,
+                    memberColumn,
+                    similarSymbols.Count > 0 ? $"Did you mean '{similarSymbols[0]}'?" : null,
+                    Math.Max(1, member.MemberName.Length));
                 return BuiltInTypes.Unknown;
             }
 
@@ -3542,7 +3640,7 @@ public class Analyzer : IDisposable
         // Resolve member on type
         var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
         var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers);
-        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member))
+        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
         {
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
         }
@@ -3939,7 +4037,7 @@ public class Analyzer : IDisposable
         }
     }
 
-    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member)
+    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
     {
         if (string.IsNullOrWhiteSpace(member.MemberName) || member.MemberName == "<error>")
             return false;
@@ -3958,18 +4056,65 @@ public class Analyzer : IDisposable
         return receiverType switch
         {
             SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
-            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null,
-            GenericTypeInfo or ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
+            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null
+                                     || (IsKnownBuiltInReceiverWithoutReflection(simple)
+                                         && !IsKnownBuiltInMemberWithoutReflection(simple, member.MemberName, includeStaticMembers)),
+            ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null
+                             || !IsKnownBuiltInMemberWithoutReflection(receiverType, member.MemberName, includeStaticMembers),
+            GenericTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
             ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
             ClassTypeInfo or StructTypeInfo or RecordTypeInfo
                 or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
                 or TupleTypeInfo => true,
-            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member),
-            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member),
+            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member, includeStaticMembers),
+            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member, includeStaticMembers),
             _ => false
         };
     }
+
+    private static bool IsKnownBuiltInMemberWithoutReflection(TypeInfo receiverType, string memberName, bool includeStaticMembers)
+    {
+        if (BuiltInObjectMembers.Contains(memberName))
+            return true;
+
+        return receiverType switch
+        {
+            SimpleTypeInfo simple when simple == BuiltInTypes.String =>
+                BuiltInStringInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInStringStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Bool =>
+                BuiltInBooleanInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInBooleanStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when IsBuiltInNumericType(simple) =>
+                BuiltInNumericInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Char =>
+                BuiltInNumericInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
+            ArrayTypeInfo => BuiltInArrayMembers.Contains(memberName),
+            _ => false
+        };
+    }
+
+    private static bool IsKnownBuiltInReceiverWithoutReflection(SimpleTypeInfo type)
+        => type == BuiltInTypes.String
+           || type == BuiltInTypes.Bool
+           || type == BuiltInTypes.Char
+           || IsBuiltInNumericType(type);
+
+    private static bool IsBuiltInNumericType(SimpleTypeInfo type)
+        => type == BuiltInTypes.Int
+           || type == BuiltInTypes.Long
+           || type == BuiltInTypes.Float
+           || type == BuiltInTypes.Double
+           || type == BuiltInTypes.Decimal
+           || type == BuiltInTypes.Byte
+           || type == BuiltInTypes.SByte
+           || type == BuiltInTypes.Short
+           || type == BuiltInTypes.UShort
+           || type == BuiltInTypes.UInt
+           || type == BuiltInTypes.ULong;
 
     private static bool HasReliableReflectionMemberSet(Type type)
     {

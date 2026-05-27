@@ -396,6 +396,85 @@ class Account {
     }
 
     [Fact]
+    public void Diagnostics_UndefinedMember_UsesMemberNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///undefined-member-spans.nl";
+
+        var source = """
+func main() {
+    print "asdf".ToUp()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.UndefinedMember &&
+                          diagnostic.Message.Contains("ToUp"));
+
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 18, length: "ToUp".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 17, endCharacter: 21);
+    }
+
+    [Fact]
+    public void Diagnostics_FileImportAliasMissingSymbol_UsesRequestedSymbolSpan()
+    {
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nsharp-lsp-alias-symbol-span-{System.Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "project.yml"), """
+name: AliasSymbolSpan
+version: 1.0.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+""");
+
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "Helpers.nl"), """
+func PresentThing(): int {
+    return 1
+}
+""");
+
+            var programPath = System.IO.Path.Combine(tempRoot, "Program.nl");
+            var source = """
+import "./Helpers" as Lib
+
+func main() {
+    Lib.MissingThing()
+}
+""";
+            System.IO.File.WriteAllText(programPath, source);
+
+            var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+            documentManager.UpdateDocument(new System.Uri(programPath).AbsoluteUri, source, version: 1);
+
+            var document = documentManager.GetDocument(new System.Uri(programPath).AbsoluteUri);
+            Assert.NotNull(document);
+
+            var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+                diagnostic => diagnostic.Code == ErrorCode.UndefinedMember &&
+                              diagnostic.Message.Contains("MissingThing"));
+
+            AssertDiagnosticSpan(diagnostic, line: 4, column: 9, length: "MissingThing".Length);
+            AssertLspRange(diagnostic, line0: 3, startCharacter: 8, endCharacter: 20);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

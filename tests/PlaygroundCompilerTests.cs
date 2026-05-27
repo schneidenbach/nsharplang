@@ -1218,10 +1218,11 @@ public sealed class PlaygroundCompilerTests
             """);
 
         Assert.False(result.Ok);
-        Assert.Contains(result.Diagnostics, diagnostic =>
+        var diagnostic = Assert.Single(result.Diagnostics, diagnostic =>
             diagnostic.Code == "NL303"
             && diagnostic.Message.Contains("ToUp")
             && diagnostic.Message.Contains("string"));
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 26, length: "ToUp".Length);
     }
 
     [Fact]
