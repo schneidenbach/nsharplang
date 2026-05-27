@@ -46,6 +46,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
 - Missing required expressions after visible statement keywords (`if`, `while`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after operators or assignment anchors still use insertion spans after the anchor.
 - Pattern diagnostics should underline the invalid pattern part, not the whole match arm: unknown union cases underline the qualified case name, missing property patterns underline the property name, and list-pattern type mismatches underline the list pattern on the first line when available.
+- Declaration diagnostics should underline the duplicate or invalid declaration token, not the declaration keyword: duplicate symbols/types/cases/members underline the duplicate name, `params` ordering/type errors underline the params parameter name, required-after-optional errors underline the required parameter name, and invalid default values underline the default expression.
 
 ## Error Codes
 

@@ -366,6 +366,84 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_DeclarationErrors_PreserveDeclarationNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func Duplicate(value: int): int { return value }
+
+            func Duplicate(value: int): int { return value }
+
+            class Thing {}
+            class Thing {}
+
+            enum Status {
+                Pending,
+                Pending
+            }
+
+            union Result {
+                Success
+                Success
+            }
+
+            func BadParams(params rest: int[], tail: int) {}
+
+            func BadOrdering(first: int = 1, second: int) {}
+
+            func BadDefault(value: int = makeValue()) {}
+
+            func main() {
+                value := 1
+                value := 2
+            }
+            """);
+
+        var duplicateFunction = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Message.Contains("'Duplicate'"));
+        AssertPlaygroundSpan(duplicateFunction, line: 5, column: 6, length: "Duplicate".Length);
+
+        var duplicateType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 8 &&
+                          diagnostic.Message.Contains("Thing"));
+        AssertPlaygroundSpan(duplicateType, line: 8, column: 7, length: "Thing".Length);
+
+        var duplicateEnumMember = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 12 &&
+                          diagnostic.Message.Contains("enum member"));
+        AssertPlaygroundSpan(duplicateEnumMember, line: 12, column: 5, length: "Pending".Length);
+
+        var duplicateUnionCase = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 17 &&
+                          diagnostic.Message.Contains("union case"));
+        AssertPlaygroundSpan(duplicateUnionCase, line: 17, column: 5, length: "Success".Length);
+
+        var paramsNotLast = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL407");
+        AssertPlaygroundSpan(paramsNotLast, line: 20, column: 23, length: "rest".Length);
+
+        var requiredAfterOptional = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL409");
+        AssertPlaygroundSpan(requiredAfterOptional, line: 22, column: 34, length: "second".Length);
+
+        var invalidDefault = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL410");
+        AssertPlaygroundSpan(invalidDefault, line: 24, column: 30, length: "makeValue".Length);
+
+        var duplicateLocal = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 28 &&
+                          diagnostic.Message.Contains("'value'"));
+        AssertPlaygroundSpan(duplicateLocal, line: 28, column: 5, length: "value".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

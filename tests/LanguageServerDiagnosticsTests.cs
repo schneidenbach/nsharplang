@@ -389,6 +389,93 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_DeclarationErrors_UseDeclarationNameSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///declaration-spans.nl";
+
+        var source = """
+func Duplicate(value: int): int { return value }
+
+func Duplicate(value: int): int { return value }
+
+class Thing {}
+class Thing {}
+
+enum Status {
+    Pending,
+    Pending
+}
+
+union Result {
+    Success
+    Success
+}
+
+func BadParams(params rest: int[], tail: int) {}
+
+func BadOrdering(first: int = 1, second: int) {}
+
+func BadDefault(value: int = makeValue()) {}
+
+func main() {
+    value := 1
+    value := 2
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var duplicateFunction = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Line == 3 &&
+                          diagnostic.Message.Contains("'Duplicate'"));
+        AssertDiagnosticSpan(duplicateFunction, line: 3, column: 6, length: "Duplicate".Length);
+        AssertLspRange(duplicateFunction, line0: 2, startCharacter: 5, endCharacter: 14);
+
+        var duplicateType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Line == 6 &&
+                          diagnostic.Message.Contains("Thing"));
+        AssertDiagnosticSpan(duplicateType, line: 6, column: 7, length: "Thing".Length);
+
+        var duplicateEnumMember = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Line == 10 &&
+                          diagnostic.Message.Contains("enum member"));
+        AssertDiagnosticSpan(duplicateEnumMember, line: 10, column: 5, length: "Pending".Length);
+
+        var duplicateUnionCase = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Line == 15 &&
+                          diagnostic.Message.Contains("union case"));
+        AssertDiagnosticSpan(duplicateUnionCase, line: 15, column: 5, length: "Success".Length);
+
+        var paramsNotLast = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ParamsNotLast);
+        AssertDiagnosticSpan(paramsNotLast, line: 18, column: 23, length: "rest".Length);
+
+        var requiredAfterOptional = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.RequiredParameterAfterOptional);
+        AssertDiagnosticSpan(requiredAfterOptional, line: 20, column: 34, length: "second".Length);
+
+        var invalidDefault = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidDefaultParameterValue);
+        AssertDiagnosticSpan(invalidDefault, line: 22, column: 30, length: "makeValue".Length);
+
+        var duplicateLocal = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Line == 26 &&
+                          diagnostic.Message.Contains("'value'"));
+        AssertDiagnosticSpan(duplicateLocal, line: 26, column: 5, length: "value".Length);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

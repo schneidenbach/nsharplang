@@ -881,7 +881,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol, length: Math.Max(1, unionCase.Name.Length));
                 }
             }
 
@@ -926,7 +926,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol, length: Math.Max(1, member.Name.Length));
                 }
             }
 
@@ -10373,7 +10373,12 @@ public class Analyzer : IDisposable
                 }
             }
 
-            Error($"'{name}' is already declared in this scope — each name must be unique within the same scope", line, column);
+            Error(
+                ErrorCode.DuplicateDeclaration,
+                $"'{name}' is already declared in this scope — each name must be unique within the same scope",
+                line,
+                nameColumn,
+                length: Math.Max(1, name.Length));
         }
         else
         {
@@ -10419,11 +10424,26 @@ public class Analyzer : IDisposable
 
         for (int i = 0; i < a.Parameters.Count; i++)
         {
-            if (a.Parameters[i].Type.ToString() != b.Parameters[i].Type.ToString())
+            if (GetParameterTypeSignature(a.Parameters[i].Type) != GetParameterTypeSignature(b.Parameters[i].Type))
                 return false;
         }
 
         return true;
+    }
+
+    private static string GetParameterTypeSignature(TypeReference typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference simple => simple.Name,
+            ArrayTypeReference array => $"{GetParameterTypeSignature(array.ElementType)}[]",
+            GenericTypeReference generic => $"{generic.Name}<{string.Join(",", generic.TypeArguments.Select(GetParameterTypeSignature))}>",
+            NullableTypeReference nullable => $"{GetParameterTypeSignature(nullable.InnerType)}?",
+            UnionTypeReference union => string.Join("|", union.Arms.Select(GetParameterTypeSignature)),
+            TupleTypeReference tuple => $"({string.Join(",", tuple.Elements.Select(element => GetParameterTypeSignature(element.Type)))})",
+            FunctionTypeReference function => $"({string.Join(",", function.ParameterTypes.Select(GetParameterTypeSignature))})->{GetParameterTypeSignature(function.ReturnType)}",
+            _ => typeRef.ToString() ?? "unknown"
+        };
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)
@@ -10432,7 +10452,12 @@ public class Analyzer : IDisposable
         var nameColumn = GetDeclarationNameColumn(name, line, column);
         if (currentScope.Types.ContainsKey(name))
         {
-            Error($"A type named '{name}' already exists — each type name must be unique", line, column);
+            Error(
+                ErrorCode.DuplicateDeclaration,
+                $"A type named '{name}' already exists — each type name must be unique",
+                line,
+                nameColumn,
+                length: Math.Max(1, name.Length));
         }
         else
         {
@@ -10473,16 +10498,28 @@ public class Analyzer : IDisposable
             var param = parameters[i];
             if (param.Modifier == Ast.ParameterModifier.Params)
             {
+                var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
+
                 // params must be last parameter
                 if (i != parameters.Count - 1)
                 {
-                    Error("A 'params' parameter must come last in the parameter list — move it to the end", line, column);
+                    Error(
+                        ErrorCode.ParamsNotLast,
+                        "A 'params' parameter must come last in the parameter list — move it to the end",
+                        paramLine,
+                        paramColumn,
+                        length: paramLength);
                 }
 
                 // C# 13: params can be array, Span<T>, ReadOnlySpan<T>, or collection types
                 if (!IsValidParamsType(param.Type))
                 {
-                    Error($"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type", line, column);
+                    Error(
+                        ErrorCode.InvalidParameter,
+                        $"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type",
+                        paramLine,
+                        paramColumn,
+                        length: paramLength);
                 }
             }
         }
@@ -10509,9 +10546,10 @@ public class Analyzer : IDisposable
                 // Validate that default value is a compile-time constant
                 if (!IsValidDefaultValue(param.DefaultValue!))
                 {
+                    var (defaultLine, defaultColumn, defaultLength) = GetExpressionDiagnosticSpan(param.DefaultValue!);
                     Error(ErrorCode.InvalidDefaultParameterValue,
                         $"The default value for '{param.Name}' must be something the compiler can evaluate — use a literal, null, or a simple constant",
-                        line, column);
+                        defaultLine, defaultColumn, length: defaultLength);
                 }
             }
             else
@@ -10519,12 +10557,23 @@ public class Analyzer : IDisposable
                 // Required parameter found after optional parameter
                 if (foundOptional)
                 {
+                    var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
                     Error(ErrorCode.RequiredParameterAfterOptional,
                         $"Required parameter '{param.Name}' can't come after optional parameters — move it before the optional ones, or give it a default value too",
-                        line, column);
+                        paramLine, paramColumn, length: paramLength);
                 }
             }
         }
+    }
+
+    private static (int Line, int Column, int Length) GetParameterDiagnosticSpan(
+        Parameter parameter,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var line = parameter.Line > 0 ? parameter.Line : fallbackLine;
+        var column = parameter.Column > 0 ? parameter.Column : fallbackColumn;
+        return (line, column, Math.Max(1, parameter.Name.Length));
     }
 
     private bool IsValidDefaultValue(Expression expr)
