@@ -10,6 +10,19 @@ namespace NSharpLang.Tests;
 
 public partial class ILCompilerTests
 {
+    private static bool HasLiftedStorageField(Assembly assembly)
+    {
+        return assembly.GetTypes()
+            .SelectMany(type => type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
+            .Any(field => IsLiftedStorageType(field.FieldType));
+    }
+
+    private static bool IsLiftedStorageType(Type type)
+    {
+        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(System.Runtime.CompilerServices.StrongBox<>)
+            || type.Name.StartsWith("<>LiftedBox", StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ILCompiler_CanExecuteLockStatementAndReleaseMonitor()
     {
@@ -719,6 +732,7 @@ func main(): int {
         });
 
         Assert.Equal(7, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
         Assert.Equal(0, result.CallvirtCount);
         Assert.True(result.CallCount >= 1, "Direct capturing local function calls should lower to direct calls with capture arguments.");
     }
@@ -865,13 +879,128 @@ func main(): int {
     }
 
     [Fact]
-    public void ILCompiler_EscapingLambdaLocal_MaterializesDelegateAtBoundary()
+    public void ILCompiler_DirectContextualLambdaLocalLoop_DoesNotMaterializeDelegateInCaller()
     {
         var source = @"
 import System
 
 func main(): int {
+    addOne: Func<int, int> = value => value + 1
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += addOne(i)
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 1, "Non-escaping contextual lambda locals should lower to direct helper calls.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectContextualCapturedLambdaLocal_DoesNotLiftReadonlyCapture()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    offset := 3
+    addOffset: Func<int, int> = value => value + offset
+    return addOffset(4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(7, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.False(result.HasLiftedStorageField, "Readonly captures used only by a direct helper should not allocate lifted storage.");
+    }
+
+    [Fact]
+    public void ILCompiler_ShadowedLambdaParameter_DoesNotForceReadonlyCaptureLiftedStorage()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    value := 3
+    getValue: Func<int> = () => value
+    mutateShadow: Func<int, int> = value => {
+        value = 9
+        return value
+    }
+
+    ignored := mutateShadow(1)
+    return getValue() + ignored
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(12, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasLiftedStorageField, "Mutation of a shadowing lambda parameter must not force lifted storage for an outer readonly capture.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingLambdaLocal_MaterializesDelegateAtBoundary()
+    {
+        var source = @"
+import System
+
+func observe(getValue: Func<int>): int {
+    return 0
+}
+
+func main(): int {
     getValue: Func<int> = () => 42
+    ignored := observe(getValue)
     return getValue()
 }";
 
@@ -902,8 +1031,13 @@ func main(): int {
         var source = @"
 import System
 
+func observe(getValue: Func<int>): int {
+    return 0
+}
+
 func main(): int {
     getValue: Func<int> = () => 42
+    ignored := observe(getValue)
     return getValue()
 }";
 
@@ -932,6 +1066,40 @@ func main(): int {
         Assert.True(result.LdsfldCount >= 1, "A cached non-capturing lambda should load a static delegate field.");
         Assert.True(result.StsfldCount >= 1, "A cached non-capturing lambda should initialize a static delegate field.");
         Assert.True(result.CachedDelegateFieldCount >= 1, "The compiler should define a static delegate cache field.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingReadonlyCapturedLambda_DoesNotUseLiftedStorage()
+    {
+        var source = @"
+import System
+
+func make(): Func<int> {
+    value := 42
+    return () => value
+}
+
+func main(): int {
+    getValue := make()
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasLiftedStorageField, "Readonly escaped lambda captures can be copied into the display class without StrongBox storage.");
     }
 
     [Fact]
@@ -1003,6 +1171,42 @@ func main(): int {
 
         Assert.Equal(3, Assert.IsType<int>(result.Value));
         Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingMutableCapturedLambdaLocal_UsesLiftedStorage()
+    {
+        var source = @"
+import System
+
+func make(): Func<int> {
+    value := 1
+    getValue: Func<int> = () => value
+    value = 4
+    return getValue
+}
+
+func main(): int {
+    getValue := make()
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(4, Assert.IsType<int>(result.Value));
+        Assert.True(result.HasLiftedStorageField, "A mutable escaped capture must keep shared lifted storage so post-capture writes are visible.");
     }
 
     [Fact]

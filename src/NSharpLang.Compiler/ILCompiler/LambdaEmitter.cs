@@ -431,6 +431,7 @@ public partial class ILCompiler
         var savedExpectedExpressionType = _expectedExpressionType;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -539,6 +540,7 @@ public partial class ILCompiler
         _expectedExpressionType = savedExpectedExpressionType;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+        _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
@@ -622,6 +624,7 @@ public partial class ILCompiler
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -737,6 +740,7 @@ public partial class ILCompiler
         _closureFields = savedClosureFields;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+        _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
