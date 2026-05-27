@@ -51,6 +51,23 @@ func test() {
     }
 
     [Fact]
+    public void Parser_ReportsError_IncompleteMemberAccessBeforeSameLineToken_PointsAtDot()
+    {
+        var source = "func test() { x. }";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.ExpectedToken &&
+                     error.Message.Contains("Expected member name"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(16, error.Column);
+        Assert.Equal(1, error.Length);
+        Assert.Contains("dot (.)", error.HumanExplanation);
+    }
+
+    [Fact]
     public void Parser_ReportsError_MissingClosingParen_SingleLine()
     {
         var source = @"

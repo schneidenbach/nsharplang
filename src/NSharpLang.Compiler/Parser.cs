@@ -3805,29 +3805,14 @@ public class Parser
                 var dotToken = Advance();
                 string memberName;
 
-                // If the dot is the last token on the line, the next token may be on a new line
-                // (e.g. "x.\n y"), which should be treated as an incomplete member access.
-                if (Current.Line != dotToken.Line)
+                if (Current.Line == dotToken.Line && Check(TokenType.Identifier))
                 {
-                    ReportError(
-                        ErrorCode.ExpectedToken,
-                        $"Expected member name. Got '{Current.Value}'",
-                        dotToken.Line,
-                        dotToken.Column,
-                        humanExplanation: "I see a dot (.) operator but no member name after it.",
-                        hint: "After a dot, I need to see a property or method name.",
-                        suggestions: new List<string> {
-                            "Check if you forgot to finish this line",
-                            "Common members: Length, Count, ToString(), GetHashCode()",
-                            "If this is end of statement, remove the trailing dot"
-                        },
-                        length: dotToken.Value.Length
-                    );
-                    memberName = "<error>";
+                    memberName = Advance().Value;
                 }
                 else
                 {
-                    memberName = ConsumeIdentifier("Expected member name");
+                    ReportMissingMemberNameAfterDot(dotToken);
+                    memberName = "<error>";
                 }
                 expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
             }
@@ -5482,6 +5467,27 @@ public class Parser
             TokenType.Semicolon => "Statements can end with a semicolon, though it's optional in N#.",
             _ => null
         };
+    }
+
+    private void ReportMissingMemberNameAfterDot(Token dotToken)
+    {
+        var operatorText = dotToken.Value;
+        var operatorDescription = operatorText == "."
+            ? "dot (.)"
+            : $"null-conditional member access ({operatorText})";
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected member name. Got '{Current.Value}'",
+            dotToken.Line,
+            dotToken.Column,
+            humanExplanation: $"I see a {operatorDescription} operator but no member name after it.",
+            hint: $"After {operatorDescription}, I need to see a property or method name.",
+            suggestions: new List<string> {
+                "Check if you forgot to finish this line",
+                "Common members: Length, Count, ToString(), GetHashCode()",
+                $"If this is end of statement, remove the trailing '{operatorText}'"
+            },
+            length: Math.Max(1, operatorText.Length));
     }
 
     private Token ConsumeParameterColon(string parameterName, int parameterLine, int parameterColumn)

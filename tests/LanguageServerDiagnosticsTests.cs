@@ -1079,6 +1079,41 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_IncompleteMemberAccessBeforeCall_PointsAtDot()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///member-dot-before-call.nl";
+
+        var source = """
+func main() {
+    name := "Ada"
+    name.()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ExpectedToken && d.Message.Contains("Expected member name"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(9, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Contains("dot (.)", diagnostic.HumanExplanation);
+        Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidExpressionStatement ||
+                 d.Message.Contains("<error>", System.StringComparison.Ordinal));
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(8, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_UnterminatedStringLiteral_PointsAtLiteralToken()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

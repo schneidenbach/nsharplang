@@ -812,6 +812,29 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_IncompleteMemberAccessBeforeCall_PreservesDotSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada"
+                name.()
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected member name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 5, column: 9, length: 1);
+        Assert.Contains("dot (.)", diagnostic.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL313" ||
+                          diagnostic.Message.Contains("<error>", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Check_UnterminatedStringLiteral_PreservesSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
