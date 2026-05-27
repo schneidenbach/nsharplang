@@ -1,6 +1,6 @@
 # N# top 25 diagnostic golden suite
 # Stable terminal rendering from OutputFormatter.DiagnosticsToText.
-# Docs URLs are category-qualified because some diagnostic codes overlap across parser/analyzer/migration domains.
+# Docs URLs are category-qualified where parser/analyzer/linter docs are split.
 
 Diagnostic clusters (25 groups, 25 diagnostics)
   [1x] diagnostic-message-shape / variable-declaration / risk: low
@@ -8,21 +8,21 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        root: analyzer/cannot-infer.nl:2:5
        next command: nlc query inspect --file analyzer/cannot-infer.nl --pos 2:5
        example: [analyzer] Cannot infer type
-       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] diagnostic-message-shape / function-declaration / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/missing-return.nl:1:1
        next command: nlc query inspect --file analyzer/missing-return.nl --pos 1:1
        example: [analyzer] Not all code paths return a value of type 'int'
-       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] diagnostic-message-shape / control-flow / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/non-exhaustive-match.nl:3:12
        next command: nlc query inspect --file analyzer/non-exhaustive-match.nl --pos 3:12
        example: [analyzer] Pattern matching is not exhaustive
-       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] type-mismatch / variable-declaration / risk: medium
        recipe: refactor:signature-or-expression-shape
@@ -32,47 +32,47 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        next: Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.
        next: Prefer fixing the producer expression over adding casts to each cascaded consumer.
   [1x] member-resolution / return-statement / risk: medium
-       recipe: migration:api-rename-or-extension-import
+       recipe: members:api-rename-or-extension-import
        root: analyzer/undefined-member.nl:4:17
        next command: nlc query inspect --file analyzer/undefined-member.nl --pos 4:17
        example: [analyzer] Member 'Lenght' not found on type 'string'
-       next: Verify the API/member rename map for the root receiver before fixing repeated call sites.
+       next: Verify the API/member name for the root receiver before fixing repeated call sites.
        next: Check whether an extension-method import or receiver type conversion was dropped.
   [1x] type-resolution / variable-declaration / risk: medium
-       recipe: migration:type-map-or-import-resolution
+       recipe: types:resolve-type-or-import
        root: analyzer/undefined-type.nl:1:12
        next command: nlc query inspect --file analyzer/undefined-type.nl --pos 1:12
        example: [analyzer] Type 'Usr' not found
-       next: Patch the type mapping/import recipe at the earliest root location before chasing downstream uses.
+       next: Resolve the type/import at the earliest root location before chasing downstream uses.
        next: Check whether the source construct needs full qualification or a project reference.
   [1x] identifier-resolution / return-statement / risk: medium
-       recipe: migration:missing-import-qualification-or-rename
+       recipe: symbols:missing-import-or-qualification
        root: analyzer/undefined-variable.nl:6:12
        next command: nlc query inspect --file analyzer/undefined-variable.nl --pos 6:12
        example: [analyzer] Variable 'totla' not found
-       next: Resolve the first missing identifier by adding the import/qualification or updating the rename map.
+       next: Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.
        next: Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear.
   [1x] diagnostic-message-shape / call-or-construction / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/wrong-argument-count.nl:5:5
        next command: nlc query inspect --file analyzer/wrong-argument-count.nl --pos 5:5
        example: [analyzer] Function 'send' expects 2 arguments but got 1
-       next: Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
-  [1x] syntax-missing-delimiter / call-or-construction / risk: high
-       recipe: migration:delimiter-balancing
-       root: parser/missing-argument.nl:3:18
-       next command: nlc query inspect --file parser/missing-argument.nl --pos 3:18
-       example: [parser] Unexpected token ')'
-       next: Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.
-       next: Inspect the migration/refactor recipe that emitted this construct and add a delimiter/terminator regression test.
-  [1x] syntax-missing-delimiter / variable-declaration / risk: high
-       recipe: migration:delimiter-balancing
-       root: parser/missing-call-paren.nl:4:22
-       next command: nlc query inspect --file parser/missing-call-paren.nl --pos 4:22
-       example: [parser] Missing closing parenthesis
-       next: Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.
-       next: Inspect the migration/refactor recipe that emitted this construct and add a delimiter/terminator regression test.
+  [1x] diagnostic-message-shape / function-declaration / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: linter/async-without-await.nl:1:1
+       next command: nlc query inspect --file linter/async-without-await.nl --pos 1:1
+       example: [linter] Async function has no await
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] diagnostic-message-shape / call-or-construction / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: linter/empty-catch.nl:5:7
+       next command: nlc query inspect --file linter/empty-catch.nl --pos 5:7
+       example: [linter] Empty catch block
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
 
 ── [NL101] ERROR ──────────── parser/missing-argument.nl:3:18 ──
@@ -108,7 +108,7 @@ See: https://docs.n-sharp.dev/errors/parser/NL102
 
 [parser] Invalid syntax in object initializer
 
-N# object initializers use colon fields; `=` is a C# migration leftover here.
+N# object initializers use colon fields; `=` is C# object-initializer syntax.
 
 Suggestion: Use `new User { Name: "Ada" }`.
 
@@ -255,148 +255,148 @@ Suggestion: Add arms for the missing cases or a final `_ => ...` arm when a catc
 
 See: https://docs.n-sharp.dev/errors/analyzer/NL501
 
-── [NLM101] INFO ────────────── Services/Users/UserDto.nl:6:1 ──
+── [NL001] ERROR ────────────── linter/unused-variable.nl:2:5 ──
 
-    6 | public partial class UserDto {
+    2 |     temp := 42
+      |     ^^^^
+
+[linter] Variable 'temp' is declared but never read
+
+Unused locals are almost always stale code or a missed side effect.
+
+Suggestion: Remove the declaration or prefix it with `_` when the unused value is intentional.
+
+See: https://docs.n-sharp.dev/errors/linter/NL001
+
+── [NL006] ERROR ───────────── linter/unreachable-code.nl:4:5 ──
+
+    4 |     print "done"
+      |     ^^^^^
+
+[linter] Unreachable code detected
+
+Statements after a guaranteed exit cannot run and often hide a control-flow bug.
+
+Suggestion: Move the statement before the exit or delete it.
+
+See: https://docs.n-sharp.dev/errors/linter/NL006
+
+── [NL010] ERROR ──────────────── linter/unused-import.nl:1:1 ──
+
+    1 | import System.Linq
       | ^^^^^^
 
-[migration] C# modifier 'public' looks out of place in an N# file
+[linter] Import 'System.Linq' is never used
 
-C# modifiers leak source-language visibility rules into N#; N# uses naming/export conventions instead.
+Unused imports make dependency intent harder to read and can mask stale code.
 
-Suggestion: Remove the C# modifier and use N# naming/casing/export conventions instead
+Suggestion: Remove the import or use a symbol from it.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM101
+See: https://docs.n-sharp.dev/errors/linter/NL010
 
-── [NLM102] INFO ───────────── Services/Users/UserDto.nl:4:13 ──
+── [NL003] WARNING ───── linter/unnecessary-null-check.nl:3:8 ──
 
-    4 |     Id: int { get; set; }
-      |             ^^^^^^^^^^^^^
+    3 | if name != null {
+      |        ^^^^^
 
-[migration] C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax
+[linter] Unnecessary null check on non-nullable value
 
-Auto-property accessor blocks are C# syntax, not the N# property or record shape.
+The value is already known to be non-nullable, so the condition adds noise without protecting anything.
 
-Suggestion: For DTO-shaped data, prefer an N# record; otherwise write explicit N# property syntax
+Suggestion: Delete the null check and keep the useful branch body.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM102
+See: https://docs.n-sharp.dev/errors/linter/NL003
 
-── [NLM103] INFO ───────────── Services/Users/UserDto.nl:8:20 ──
+── [NL004] WARNING ──────── linter/async-without-await.nl:1:1 ──
 
-    8 |     Name: string = default!
-      |                    ^^^^^^^^
+    1 | async func Load(): Task<int> {
+      | ^^^^^^^^^^
 
-[migration] Null-forgiving artifact 'default!' is a C# migration leftover
+[linter] Async function has no await
 
-Null-forgiving syntax hides a nullable design decision that must be made explicitly during migration.
+An async function with no await usually does not need the async state machine.
 
-Suggestion: Replace the placeholder with a real initializer, explicit nullable/default value, or a reviewed construction path; do not carry C# default-forgiving syntax into N#
+Suggestion: Remove `async` or await the asynchronous operation that should drive this function.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM103
+See: https://docs.n-sharp.dev/errors/linter/NL004
 
-── [NLM104] INFO ──────────── Services/Users/UserDto.nl:10:18 ──
+── [NL005] INFO ────────── linter/use-pattern-matching.nl:3:5 ──
 
-    10 |         if users.TryGetValue(id, out var user) {
-       |                  ^^^^^^^^^^^
+    3 | if value is string {
+      |     ^^
 
-[migration] C# out parameter / TryGetValue pattern is a migration candidate
+[linter] Use pattern matching
 
-`out` parameters and `TryGetValue` patterns are migration smells because N# prefers values, tuples, and result-style APIs.
+A chain of type or shape checks is easier to audit when expressed as one match.
 
-Suggestion: Prefer an N# tuple/result-returning helper or a pattern that avoids out parameters
+Suggestion: Rewrite the branch as a `match` when several related cases are being handled.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM104
+See: https://docs.n-sharp.dev/errors/linter/NL005
 
-── [NLM105] INFO ────────────── Services/Users/UserDto.nl:3:7 ──
+── [NL011] WARNING ──────────────── linter/empty-catch.nl:5:7 ──
 
-    3 | class OrderDto {
-      |       ^^^^^^^^
+    5 | } catch (ex) {
+      |       ^^^^^
 
-[migration] DTO-shaped class 'OrderDto' looks like an N# record candidate
+[linter] Empty catch block
 
-This data-only DTO shape is probably a record in idiomatic N# unless identity or inheritance matters.
+Swallowing errors silently makes failures hard to debug and can corrupt program state.
 
-Suggestion: Convert data-only DTO classes to records when identity/inheritance semantics are not required
+Suggestion: Handle the error, log it, or explain the intentional suppression with a comment.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM105
+See: https://docs.n-sharp.dev/errors/linter/NL011
 
-── [NLM106] INFO ──────────── Services/Users/UserDto.nl:19:11 ──
+── [NL012] INFO ───────────── linter/unused-parameter.nl:1:15 ──
 
-    19 |         } catch (ex) {
-       |           ^^^^^
+    1 | func Save(options: SaveOptions) {
+      |               ^^^^^^^
 
-[migration] try/catch returning HTTP 500 boilerplate is a migration candidate
+[linter] Parameter 'options' is never used
 
-Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized error handling or result mapping.
+Unused parameters usually mean the call contract drifted from the implementation.
 
-Suggestion: Prefer centralized error handling or an N# result/error abstraction instead of repeated catch-to-500 blocks
+Suggestion: Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM106
+See: https://docs.n-sharp.dev/errors/linter/NL012
 
-── [NLM107] INFO ────────────── Services/Users/UserDto.nl:1:1 ──
+── [NL013] INFO ───────── linter/prefer-interpolation.nl:2:12 ──
 
-    1 | using System;
-      | ^^^^^
+    2 | message := "Hello, " + name
+      |            ^
 
-[migration] C# using directive is a migration blocker in an N# file
+[linter] Prefer string interpolation
 
-C# `using` directives must become N# imports or project references before this file is considered migrated.
+Interpolation keeps formatting intent in one string instead of splitting it across concatenation.
 
-Suggestion: Convert C# using directives to N# import declarations or project references
+Suggestion: Use `$"Hello, {name}"`.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM107
+See: https://docs.n-sharp.dev/errors/linter/NL013
 
-── [NLM108] INFO ────────────── Services/Users/UserDto.nl:2:1 ──
+── [NL015] INFO ────────────────── linter/prefer-const.nl:2:5 ──
 
-    2 | namespace Legacy.Api;
-      | ^^^^^^^^^
+    2 | let limit := 10
+      |     ^^^^^
 
-[migration] C# namespace declaration is a migration blocker in an N# file
+[linter] Variable 'limit' can be const
 
-C# namespace declarations fight N# package layout and should be expressed with `package`.
+Values that never change are clearer when declared as constants.
 
-Suggestion: Use an N# package declaration such as `package My.Package` instead of `namespace My.Package;`
+Suggestion: Change `let` to `const`.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM108
+See: https://docs.n-sharp.dev/errors/linter/NL015
 
-── [NLM109] INFO ────────────── Services/Users/UserDto.nl:1:1 ──
+── [NL020] WARNING ────────── linter/shadowed-variable.nl:4:9 ──
 
-    1 | using System;
-      | ^^^^^^^^
+    4 |         count := item.Count
+      |         ^^^^^
 
-[migration] N# file is missing package declaration `package Services.Users` for its package layout
+[linter] Variable 'count' shadows an outer variable
 
-The file layout implies a package, but the source does not declare the matching N# package.
+Shadowing makes reads ambiguous and can cause updates to affect the wrong variable.
 
-Suggestion: Add `package Services.Users` as the first declaration in this .nl file
+Suggestion: Rename the inner variable or reuse the existing one intentionally.
 
-See: https://docs.n-sharp.dev/errors/migration/NLM109
+See: https://docs.n-sharp.dev/errors/linter/NL020
 
-── [NLM110] INFO ──────────── Services/Users/UserDto.nl:15:39 ──
 
-    15 |     func Create(): User => new User { Name = "Ada" }
-       |                                       ^^^^
-
-[migration] C# equals-style object initializer is a migration blocker in an N# file
-
-Equals-style object initializer members are valid C#, but canonical N# initializer members use `:`.
-
-Suggestion: Use canonical N# object initialization with colon fields: `new Type { Name: value }`
-
-See: https://docs.n-sharp.dev/errors/migration/NLM110
-
-── [NLM111] INFO ──────────── Services/Users/UserDto.nl:13:22 ──
-
-    13 |         return result.Value
-       |                      ^^^^^^
-
-[migration] Unsafe '.Value' access 'result.Value' is a migration leftover that can throw when the value is absent
-
-Direct `.Value` unwraps can throw; migration needs an explicit absence-handling path.
-
-Suggestion: Prefer `match`, `??`, or a direct `x != null` guard before unwrapping; only keep `.Value` when the wrapper type owns that API and the access is proven safe
-
-See: https://docs.n-sharp.dev/errors/migration/NLM111
-
-
-Found 14 errors, 11 info.
+Found 17 errors, 4 warnings, 4 info.

@@ -112,9 +112,11 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
         foreach (var publication in publications)
         {
             var allDiagnostics = new System.Collections.Generic.List<LspDiagnostic>();
+            var document = _documentManager.GetDocument(publication.Uri);
+            var sourceText = document?.Text;
 
-            allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(ConvertCompilerErrorToDiagnostic));
-            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+            allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(error => ConvertCompilerErrorToDiagnostic(error, sourceText)));
+            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(diagnostic => ConvertLinterDiagnosticToDiagnostic(diagnostic, sourceText)));
 
             _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
@@ -126,17 +128,11 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
         }
     }
 
-    private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
+    private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error, string? sourceText)
     {
         var line = Math.Max(0, error.Line - 1);
         var column = Math.Max(0, error.Column - 1);
-        var length = Math.Max(1, error.Length);
-
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(error.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            length = Math.Max(length, quoteMatch.Groups[1].Value.Length);
-        }
+        var length = GetTokenLengthAtPosition(sourceText, line, column, Math.Max(1, error.Length));
 
         return new LspDiagnostic
         {
@@ -148,7 +144,7 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
         };
     }
 
-    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
+    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic, string? sourceText)
     {
         var line = Math.Max(0, diagnostic.Location.Line - 1);
         var column = Math.Max(0, diagnostic.Location.Column - 1);
@@ -161,12 +157,7 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
             _ => LspDiagnosticSeverity.Warning
         };
 
-        int length = 1;
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            length = quoteMatch.Groups[1].Value.Length;
-        }
+        var length = GetTokenLengthAtPosition(sourceText, line, column, 1);
 
         return new LspDiagnostic
         {
@@ -176,5 +167,26 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
             Source = "N#",
             Message = diagnostic.Message
         };
+    }
+
+    private static int GetTokenLengthAtPosition(string? sourceText, int line0, int column0, int fallbackLength)
+    {
+        var length = Math.Max(1, fallbackLength);
+        if (sourceText == null)
+            return length;
+
+        var lines = sourceText.Split('\n');
+        if (line0 < 0 || line0 >= lines.Length)
+            return length;
+
+        var lineText = lines[line0];
+        if (column0 < 0 || column0 >= lineText.Length)
+            return length;
+
+        var end = column0;
+        while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
+            end++;
+
+        return end > column0 ? Math.Max(length, end - column0) : length;
     }
 }

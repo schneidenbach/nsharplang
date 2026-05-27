@@ -202,7 +202,7 @@ func Main() {
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
             var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray(),
                 item => item.GetProperty("category").GetString() == "identifier-resolution");
-            Assert.Equal("migration:missing-import-qualification-or-rename", cluster.GetProperty("recipe").GetString());
+            Assert.Equal("symbols:missing-import-or-qualification", cluster.GetProperty("recipe").GetString());
             Assert.Equal("medium", cluster.GetProperty("risk").GetString());
             Assert.Equal("Program.nl", Assert.Single(cluster.GetProperty("files").EnumerateArray()).GetString());
             Assert.True(cluster.GetProperty("relatedDiagnostics").GetArrayLength() >= 2);
@@ -1259,178 +1259,6 @@ func Main() {
     }
 
     [Fact]
-    public void IdiomCommand_Help_IsSideEffectFree()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => IdiomCommand.Execute(new[] { "--help" }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage: nlc idiom", stdout);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-    }
-
-    [Fact]
-    public void IdiomCommand_EmitsMachineReadableMigrationReport()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-idiom-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
-            Directory.CreateDirectory(Path.Combine(tempDir, "Services"));
-            File.WriteAllText(Path.Combine(tempDir, "Models", "Customer.nl"), """
-class CustomerDto {
-    public id: string
-    private _legacyId: string
-    Name: string
-}
-
-record Order(id: string, total: decimal)
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Services", "Store.nl"), """
-package Models
-
-using System;
-namespace Legacy.Api;
-
-func Load(input: string?): Result<string> {
-    value := input!
-    built := new User {
-        Name = "A"
-    }
-    legacy := value;
-    // TODO(migration): manual review required
-    return match value {
-        "" => Result.Failure { error: "empty" },
-        _ => Result.Success { value: value }
-    }
-}
-
-async func Ping(): string {
-    return "pong"
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Legacy.cs"), """
-public class LegacyDto
-{
-    public string Name { get; set; } = null!;
-    public IActionResult Get() => Ok(new { Name = "legacy" });
-    public bool TryRead(Dictionary<string, string> map, string key, out var value)
-        => map.TryGetValue(key, out value);
-    public string FromQuery(IEnumerable<User> users) =>
-        (from user in users where user.Id == id select user.Name).First();
-    public User Build() => new User { Name = "A" };
-    public string MustRead(Result<string> result) => result.Value;
-    public string Missing() => default!;
-}
-""");
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                IdiomCommand.Execute(new[] { "--project", tempDir }));
-
-            Assert.Equal(0, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-            AssertJsonContract("idiom", stdout);
-
-            using var doc = JsonDocument.Parse(stdout);
-            var root = doc.RootElement;
-            Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
-            Assert.Equal("idiom", root.GetProperty("command").GetString());
-            Assert.True(root.GetProperty("ok").GetBoolean());
-            Assert.Equal(3, root.GetProperty("scannedFiles").GetInt32());
-            Assert.InRange(root.GetProperty("score").GetInt32(), 1, 99);
-
-            Assert.True(root.TryGetProperty("grade", out _));
-            Assert.True(root.TryGetProperty("thresholds", out _));
-
-            var csharp = root.GetProperty("signals").GetProperty("csharpIsms");
-            Assert.Equal(10, csharp.GetProperty("modifiers").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("propertySyntax").GetInt32());
-            Assert.Equal(3, csharp.GetProperty("nullForgiving").GetInt32());
-            Assert.Equal(2, csharp.GetProperty("outVar").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("tryGetValue").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("semicolons").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("underscoreFields").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("actionResults").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("anonymousApiDtos").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("querySyntax").GetInt32());
-            Assert.Equal(2, csharp.GetProperty("equalsInitializers").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("unsafeValueAccess").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("usingDirectives").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("namespaceDeclarations").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("missingPackageDeclarations").GetInt32());
-            Assert.Equal(1, csharp.GetProperty("wrongPackageDeclarations").GetInt32());
-
-            var adoption = root.GetProperty("signals").GetProperty("nsharpAdoption");
-            Assert.Equal(1, adoption.GetProperty("records").GetInt32());
-            Assert.Equal(1, adoption.GetProperty("matchExpressions").GetInt32());
-            Assert.Equal(4, adoption.GetProperty("resultMentions").GetInt32());
-            Assert.Equal(2, adoption.GetProperty("packageLayoutDirectories").GetInt32());
-
-            Assert.Equal(2, root.GetProperty("signals").GetProperty("dtoClasses").GetProperty("count").GetInt32());
-            Assert.Equal(1, root.GetProperty("signals").GetProperty("casingVisibilityIssues").GetProperty("count").GetInt32());
-            Assert.Equal(1, root.GetProperty("signals").GetProperty("manualReviewIslands").GetProperty("count").GetInt32());
-            Assert.True(root.GetProperty("recommendations").GetArrayLength() > 0);
-
-            var modifierExample = csharp.GetProperty("examples").GetProperty("modifiers")[0];
-            Assert.True(modifierExample.TryGetProperty("file", out _));
-            Assert.True(modifierExample.TryGetProperty("line", out _));
-            Assert.True(modifierExample.TryGetProperty("column", out _));
-            Assert.True(modifierExample.TryGetProperty("text", out _));
-            Assert.False(modifierExample.TryGetProperty("File", out _));
-
-            AssertIdiomFindingsContract(root);
-            Assert.Contains(root.GetProperty("findings").EnumerateArray(), finding =>
-                finding.GetProperty("category").GetString() == "initializer.objectColon"
-                && finding.GetProperty("fixSafety").GetString() == "safe");
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void IdiomCommand_V2Fixture_MatchesGoldenContract()
-    {
-        var fixtureDir = Path.Combine(FindFixturesDir(), "idiom-v2");
-        var goldenPath = Path.Combine(FindFixturesDir(), "idiom-v2.golden.json");
-
-        var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            IdiomCommand.Execute(new[] { "--project", fixtureDir }));
-
-        Assert.Equal(0, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-        AssertJsonContract("idiom", stdout);
-
-        var normalized = stdout
-            .Replace(NormalizePath(Path.GetFullPath(fixtureDir)), "<PROJECT_ROOT>")
-            .Replace("\r\n", "\n");
-        var expected = File.ReadAllText(goldenPath).Replace("\r\n", "\n");
-        Assert.Equal(expected.TrimEnd(), normalized.TrimEnd());
-    }
-
-    [Fact]
-    public void IdiomCommand_MissingProject_ReturnsMachineReadableErrorEnvelope()
-    {
-        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-missing-idiom-{Guid.NewGuid():N}");
-
-        var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            IdiomCommand.Execute(new[] { "--project", missingDir }));
-
-        Assert.Equal(1, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-
-        using var doc = JsonDocument.Parse(stdout);
-        var root = doc.RootElement;
-        Assert.Equal("idiom", root.GetProperty("command").GetString());
-        Assert.False(root.GetProperty("ok").GetBoolean());
-        Assert.Equal(NormalizePath(Path.GetFullPath(missingDir)), root.GetProperty("projectRoot").GetString());
-        Assert.Equal("directoryNotFound", root.GetProperty("error").GetProperty("code").GetString());
-        Assert.Contains("Directory not found", root.GetProperty("error").GetProperty("message").GetString());
-    }
-
-    [Fact]
     public void CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs()
     {
         var publicTopLevelCommands = CommandRegistry.TopLevelCommands.Select(command => command.Name).ToArray();
@@ -1456,9 +1284,12 @@ public class LegacyDto
         }
 
         Assert.DoesNotContain("convert", publicTopLevelCommands);
+        Assert.DoesNotContain("idiom", publicTopLevelCommands);
         Assert.DoesNotContain("nlc convert", help);
+        Assert.DoesNotContain("nlc idiom", help);
         Assert.DoesNotContain("nlc convert", zshCompletion);
-        Assert.Contains("There is intentionally no `nlc convert` command", docs);
+        Assert.DoesNotContain("nlc idiom", zshCompletion);
+        Assert.DoesNotContain("nlc idiom", docs);
     }
 
     private static int ExecuteProgram(params string[] args)
@@ -1470,36 +1301,6 @@ public class LegacyDto
         Assert.NotNull(method);
 
         return (int)(method!.Invoke(null, new object[] { args }) ?? -1);
-    }
-
-    private static void AssertIdiomFindingsContract(JsonElement root)
-    {
-        var validSeverities = new HashSet<string>(StringComparer.Ordinal) { "low", "medium", "high" };
-        var validFixSafety = new HashSet<string>(StringComparer.Ordinal) { "safe", "reviewNeeded", "suggestionOnly", "none" };
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        var findings = root.GetProperty("findings").EnumerateArray().ToArray();
-        var csharpDebt = root.GetProperty("summary").GetProperty("csharpDebt").GetInt32();
-
-        Assert.Equal(csharpDebt, findings.Length);
-        foreach (var finding in findings)
-        {
-            foreach (var field in new[] { "id", "category", "severity", "file", "line", "column", "snippet", "suggestion", "fixSafety", "docsUrl", "clusterKey", "confidence" })
-            {
-                Assert.True(finding.TryGetProperty(field, out _), $"idiom v2 finding missing field: {field}");
-            }
-
-            Assert.True(ids.Add(finding.GetProperty("id").GetString() ?? string.Empty), "idiom v2 finding IDs must be unique");
-            Assert.Contains(finding.GetProperty("severity").GetString() ?? string.Empty, validSeverities);
-            Assert.Contains(finding.GetProperty("fixSafety").GetString() ?? string.Empty, validFixSafety);
-            Assert.True(finding.GetProperty("line").GetInt32() >= 1);
-            Assert.True(finding.GetProperty("column").GetInt32() >= 1);
-            Assert.InRange(finding.GetProperty("confidence").GetDouble(), 0.0, 1.0);
-            Assert.StartsWith(finding.GetProperty("category").GetString() + ":", finding.GetProperty("clusterKey").GetString(), StringComparison.Ordinal);
-            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("file").GetString()));
-            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("snippet").GetString()));
-            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("suggestion").GetString()));
-            Assert.False(string.IsNullOrWhiteSpace(finding.GetProperty("docsUrl").GetString()));
-        }
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)

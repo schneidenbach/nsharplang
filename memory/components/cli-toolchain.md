@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating initial migration output as final.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` interop/off-ramp command.
 
 ---
 
@@ -37,10 +37,6 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
-
-### C# Source Migration
-
-There is no public `nlc convert` command in the canonical CLI contract. C#→N# migration is AI-driven: write idiomatic `.nl` directly, use `nlc check --json` diagnostic clusters as the edit queue, clear `nlc idiom` C# debt, apply reviewed `nlc fix` patches, format, and test.
 
 ### Code Intelligence (`nlc query`)
 
@@ -229,7 +225,6 @@ $ nlc fix --file F                  # fix single file
 | NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
-| NLM111 | Info | `unsafe-value-access` | C# migration smell: direct `.Value` unwrap can throw; prefer `must`, `match`, or an explicit guard |
 
 Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
 
@@ -244,7 +239,6 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
 | NL015 | Replace `let` with `const` | `Safe` | |
-| NLM111 | Replace `receiver.Value` with `must receiver`; also reports a match-based rewrite suggestion | `ReviewNeeded` + `SuggestionOnly` | ReviewNeeded edit makes the throw explicit; SuggestionOnly carries no edits |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
 **`FixSafety` levels** (on `CodeAction`):

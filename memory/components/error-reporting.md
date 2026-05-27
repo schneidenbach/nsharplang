@@ -87,9 +87,6 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL901`: UnusedVariable
 - `NL902-906`: UnreachableCode, VisibilityConvention, ObsoleteUsage, Nullability, UnnecessaryTypeAnnotation
 
-### Migration Diagnostics (NLM100-NLM199)
-- `NLM101-NLM111`: C# migration artifacts and smells emitted by the source linter. These intentionally use the `NLM` prefix so they do not collide with parser diagnostics such as `NL101` and `NL102`.
-
 ## Example Output (Elm-style)
 
 ```

@@ -20,48 +20,9 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
-    private static List<Diagnostic> LintSource(string source)
-    {
-        var linter = new Linter();
-        return linter.LintSource(source, "test.nl");
-    }
-
-    private void AssertHasDiagnostic(List<Diagnostic> diagnostics, string code, string messageSubstring)
-    {
-        Assert.Contains(diagnostics, d => d.Code == code && d.Message.Contains(messageSubstring));
-    }
-
     private void AssertNoDiagnostics(List<Diagnostic> diagnostics)
     {
         Assert.Empty(diagnostics);
-    }
-
-    [Fact]
-    public void NLM101_FlagsRedundantPublicPrivateVisibilityModifiers()
-    {
-        var diagnostics = LintSource(@"public class Account {
-private id: string
-public func GetId(): string { return id }
-}");
-
-        Assert.Equal(3, diagnostics.Count(d => d.Code == "NLM101"));
-        AssertHasDiagnostic(diagnostics, "NLM101", "C# modifier 'public'");
-        AssertHasDiagnostic(diagnostics, "NLM101", "C# modifier 'private'");
-    }
-
-    [Fact]
-    public void NLM101_AllowsPublicPrivateVisibilityEscapeHatches()
-    {
-        var diagnostics = LintSource(@"public class legacyCamel {
-public func visibleExplicit(): string { return ""ok"" }
-public valueExplicit: string
-private func HiddenMethod(): string { return ""hidden"" }
-private HiddenValue: string
-}
-
-private class SecretPascal { }");
-
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NLM101");
     }
 
     #region NL001: Unused Variable Tests
@@ -1295,7 +1256,7 @@ class Builder {
     }
 
     [Fact]
-    public void DiagnosticCatalog_HasStrictBuildBlockingLintDefaultsAndMigrationNamespace()
+    public void DiagnosticCatalog_HasStrictBuildBlockingLintDefaultsWithoutMigrationDiagnostics()
     {
         var codes = DiagnosticCatalog.Descriptors.Select(descriptor => descriptor.Code).ToList();
 
@@ -1313,10 +1274,7 @@ class Builder {
         Assert.Equal(DiagnosticSeverity.Error, unusedImport.DefaultSeverity);
         Assert.True(unusedImport.BlocksBuildByDefault);
 
-        Assert.True(DiagnosticCatalog.TryGetDescriptor("NLM101", out var migrationDescriptor));
-        Assert.Equal(DiagnosticSource.Migration, migrationDescriptor.Source);
-        Assert.Equal(DiagnosticSeverity.Info, migrationDescriptor.DefaultSeverity);
-        Assert.False(migrationDescriptor.BlocksBuildByDefault);
+        Assert.DoesNotContain(codes, code => code.StartsWith("NLM", StringComparison.Ordinal));
     }
 
     [Fact]

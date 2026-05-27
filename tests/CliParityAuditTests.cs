@@ -108,8 +108,8 @@ public class CliParityAuditTests
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
             Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
             File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
-            Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models"));
-            File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models", "Customer.nl"), "record Order(id: string)\n");
+            Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models"));
+            File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models", "Customer.nl"), "record Order(id: string)\n");
             Directory.CreateDirectory(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors"));
             File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.nl"), "func Broken(x y) {");
 

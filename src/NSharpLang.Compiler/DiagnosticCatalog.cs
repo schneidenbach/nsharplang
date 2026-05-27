@@ -7,8 +7,7 @@ namespace NSharpLang.Compiler;
 public enum DiagnosticSource
 {
     Compiler,
-    Linter,
-    Migration
+    Linter
 }
 
 public enum DiagnosticCategory
@@ -23,8 +22,7 @@ public enum DiagnosticCategory
     TypeDeclaration,
     Hygiene,
     Nullability,
-    Style,
-    Migration
+    Style
 }
 
 public sealed record DiagnosticDescriptor(
@@ -46,7 +44,7 @@ public static class DiagnosticCatalog
 
     public static IReadOnlyCollection<DiagnosticDescriptor> LinterDescriptors =>
         Descriptors
-            .Where(descriptor => descriptor.Source is DiagnosticSource.Linter or DiagnosticSource.Migration)
+            .Where(descriptor => descriptor.Source is DiagnosticSource.Linter)
             .ToArray();
 
     public static bool TryGetDescriptor(string code, out DiagnosticDescriptor descriptor)
@@ -64,7 +62,6 @@ public static class DiagnosticCatalog
     {
         var descriptors = CompilerDescriptors()
             .Concat(LinterRuleDescriptors())
-            .Concat(MigrationRuleDescriptors())
             .ToList();
 
         var duplicate = descriptors
@@ -138,21 +135,6 @@ public static class DiagnosticCatalog
         yield return Linter("NL020", "Shadowed variable", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
     }
 
-    private static IEnumerable<DiagnosticDescriptor> MigrationRuleDescriptors()
-    {
-        yield return Migration("NLM101", "C# modifier in N# file");
-        yield return Migration("NLM102", "C# auto-property accessors");
-        yield return Migration("NLM103", "Null-forgiving artifact");
-        yield return Migration("NLM104", "Out parameter migration candidate");
-        yield return Migration("NLM105", "DTO record candidate");
-        yield return Migration("NLM106", "HTTP 500 catch boilerplate");
-        yield return Migration("NLM107", "C# using directive");
-        yield return Migration("NLM108", "C# namespace declaration");
-        yield return Migration("NLM109", "Package declaration mismatch");
-        yield return Migration("NLM110", "C# equals-style object initializer");
-        yield return Migration("NLM111", "Unsafe value access migration smell");
-    }
-
     private static DiagnosticDescriptor Linter(
         string code,
         string title,
@@ -160,9 +142,6 @@ public static class DiagnosticCatalog
         DiagnosticSeverity severity,
         bool blocksBuild = false)
         => new(code, title, DiagnosticSource.Linter, category, severity, blocksBuild);
-
-    private static DiagnosticDescriptor Migration(string code, string title)
-        => new(code, title, DiagnosticSource.Migration, DiagnosticCategory.Migration, DiagnosticSeverity.Info, BlocksBuildByDefault: false);
 
     private static string ToTitle(string pascalCase)
     {

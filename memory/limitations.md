@@ -10,7 +10,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 ## CLI and Migration
 
-- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, `nlc idiom`, reviewed `nlc fix --dry-run`, formatting, and tests.
+- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, reviewed `nlc fix --dry-run`, formatting, and tests.
 - **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
 ## Language Semantics
@@ -19,7 +19,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 - **Nested union matching has edge cases.** Curated nested-union patterns are supported, but deep/constrained nested coverage should be verified with focused tests before it is advertised as complete.
 - **Type alias emission inherits C# alias restrictions.** Same-namespace aliases and nullable reference aliases can hit C# `using` alias limitations.
 - **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover C# stubs plus IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
-- **Null-forgiving `!` is not the migration path.** Prefer explicit null checks or null-coalescing. `nlc idiom` should flag C#-style null/default-forgiving leftovers in migrations.
+- **Null-forgiving `!` should not become an escape hatch.** Prefer explicit null checks or null-coalescing. Diagnostics for null/default-forgiving syntax should come from token/parser/AST/semantic analysis, not source-only migration scans.
 
 ## Build and Performance
 

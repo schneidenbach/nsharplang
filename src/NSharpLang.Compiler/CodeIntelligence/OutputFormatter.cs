@@ -786,21 +786,6 @@ public static class OutputFormatter
         var messageLower = message.ToLowerInvariant();
         var snippetLower = snippet.ToLowerInvariant();
 
-        if (code == "NLM102" && messageLower.Contains("auto-property"))
-        {
-            return new DiagnosticClusterTraits(
-                "csharp-migration-artifact",
-                "property-declaration",
-                "migration:rewrite-auto-property-as-record-or-explicit-nsharp-property",
-                "medium",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Rewrite C# `{ get; set; }` accessors as an N# record for DTO-shaped data or explicit N# property syntax.",
-                    "Keep this diagnostic in the migration artifact cluster instead of treating it as a parse delimiter failure."
-                });
-        }
-
         if (code == "NL102" || messageLower.Contains("expected token") || messageLower.Contains("missing"))
         {
             var construct = InferSourceConstruct(snippetLower);
@@ -808,8 +793,8 @@ public static class OutputFormatter
                 ? "syntax-missing-terminator"
                 : "syntax-missing-delimiter";
             var recipe = shape == "syntax-missing-terminator"
-                ? "migration:semicolon-elision-or-statement-boundary"
-                : "migration:delimiter-balancing";
+                ? "syntax:statement-boundary"
+                : "syntax:delimiter-balancing";
             return new DiagnosticClusterTraits(
                 shape,
                 construct,
@@ -819,7 +804,7 @@ public static class OutputFormatter
                 new[]
                 {
                     "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
-                    "Inspect the migration/refactor recipe that emitted this construct and add a delimiter/terminator regression test."
+                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
                 });
         }
 
@@ -843,12 +828,12 @@ public static class OutputFormatter
             return new DiagnosticClusterTraits(
                 "identifier-resolution",
                 InferSourceConstruct(snippetLower),
-                "migration:missing-import-qualification-or-rename",
+                "symbols:missing-import-or-qualification",
                 "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
-                    "Resolve the first missing identifier by adding the import/qualification or updating the rename map.",
+                    "Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.",
                     "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
                 });
         }
@@ -858,12 +843,12 @@ public static class OutputFormatter
             return new DiagnosticClusterTraits(
                 "type-resolution",
                 InferSourceConstruct(snippetLower),
-                "migration:type-map-or-import-resolution",
+                "types:resolve-type-or-import",
                 "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
-                    "Patch the type mapping/import recipe at the earliest root location before chasing downstream uses.",
+                    "Resolve the type/import at the earliest root location before chasing downstream uses.",
                     "Check whether the source construct needs full qualification or a project reference."
                 });
         }
@@ -888,12 +873,12 @@ public static class OutputFormatter
             return new DiagnosticClusterTraits(
                 "member-resolution",
                 InferSourceConstruct(snippetLower),
-                "migration:api-rename-or-extension-import",
+                "members:api-rename-or-extension-import",
                 "medium",
                 NormalizeMessagePattern(message),
                 new[]
                 {
-                    "Verify the API/member rename map for the root receiver before fixing repeated call sites.",
+                    "Verify the API/member name for the root receiver before fixing repeated call sites.",
                     "Check whether an extension-method import or receiver type conversion was dropped."
                 });
         }
@@ -906,7 +891,7 @@ public static class OutputFormatter
             NormalizeMessagePattern(message),
             new[]
             {
-                "Start at the root example and decide whether this is a converter, refactor, or compiler diagnostic issue.",
+                "Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.",
                 "After fixing the root cause, rerun diagnostics and compare the remaining cluster counts."
             });
     }

@@ -251,11 +251,11 @@ public static class FixApplicator
             1,
             1);
 
-        // Lint to get diagnostics. Source-only migration lints still run when parsing failed.
+        // Lint to get fixable diagnostics only after parsing succeeds.
         var fileDir = System.IO.Path.GetDirectoryName(filePath) ?? System.IO.Directory.GetCurrentDirectory();
         var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
         var diagnostics = parseResult.CompilationUnit == null
-            ? linter.LintSource(source, filePath)
+            ? new List<Diagnostic>()
             : linter.Lint(ast, filePath, source);
 
         // Get fixes from CodeFixService

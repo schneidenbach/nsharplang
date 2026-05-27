@@ -43,7 +43,7 @@ public class DiagnosticGoldenTests
         Assert.Equal(25, diagnostics.Count);
         Assert.Contains(diagnostics, d => d.Category == "parser");
         Assert.Contains(diagnostics, d => d.Category == "analyzer");
-        Assert.Contains(diagnostics, d => d.Category == "migration");
+        Assert.Contains(diagnostics, d => d.Category == "linter");
         Assert.All(diagnostics, diagnostic =>
         {
             Assert.False(string.IsNullOrWhiteSpace(diagnostic.Code));
@@ -59,7 +59,12 @@ public class DiagnosticGoldenTests
         var diagnostics = Top25Diagnostics()
             .Select(diagnostic => new DiagnosticResult(
                 diagnostic.Code,
-                diagnostic.Category == "migration" ? "info" : "error",
+                DiagnosticCatalog.GetDefaultSeverity(diagnostic.Code, DiagnosticSeverity.Error) switch
+                {
+                    DiagnosticSeverity.Error => "error",
+                    DiagnosticSeverity.Warning => "warning",
+                    _ => "info"
+                },
                 $"[{diagnostic.Category}] {diagnostic.Message}",
                 diagnostic.File,
                 diagnostic.Line,
@@ -77,7 +82,7 @@ public class DiagnosticGoldenTests
         var builder = new StringBuilder();
         builder.AppendLine("# N# top 25 diagnostic golden suite");
         builder.AppendLine("# Stable terminal rendering from OutputFormatter.DiagnosticsToText.");
-        builder.AppendLine("# Docs URLs are category-qualified because some diagnostic codes overlap across parser/analyzer/migration domains.");
+        builder.AppendLine("# Docs URLs are category-qualified where parser/analyzer/linter docs are split.");
         builder.AppendLine();
         builder.Append(OutputFormatter.DiagnosticsToText(diagnostics).Replace("\r\n", "\n"));
 
@@ -96,7 +101,7 @@ public class DiagnosticGoldenTests
             "Write `func greet(name: string) { ... }`.");
         yield return Parser("NL103", "Invalid syntax in object initializer", "parser/object-initializer-equals.nl", 2, 28, 1,
             "    return new User { Name = \"Ada\" }",
-            "N# object initializers use colon fields; `=` is a C# migration leftover here.",
+            "N# object initializers use colon fields; `=` is C# object-initializer syntax.",
             "Use `new User { Name: \"Ada\" }`.");
         yield return Parser("NL104", "Unexpected end of file", "parser/missing-closing-brace.nl", 5, 1, 1,
             "",
@@ -143,68 +148,50 @@ public class DiagnosticGoldenTests
             "The match does not handle every possible value of `Color`.",
             "Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional.");
 
-        var migrationSource = """
-using System;
-namespace Legacy.Api;
-class OrderDto {
-    Id: int { get; set; }
-}
-public partial class UserDto {
-    Id: int { get; set; }
-    Name: string = default!
-    func Find(id: string): Result<User> {
-        if users.TryGetValue(id, out var user) {
-            return Ok(user)
-        }
-        return result.Value
-    }
-    func Create(): User => new User { Name = "Ada" }
-    func Save() {
-        try {
-            repo.Save()
-        } catch (ex) {
-            return StatusCode(500, ex.Message)
-        }
-    }
-}
-""";
-
-        var migrationDiagnostics = new Linter().LintSource(migrationSource, "Services/Users/UserDto.nl");
-        foreach (var expected in new[]
-        {
-            (Code: "NLM101", Line: 6, Column: 1),
-            (Code: "NLM102", Line: 4, Column: 13),
-            (Code: "NLM103", Line: 8, Column: 20),
-            (Code: "NLM104", Line: 10, Column: 18),
-            (Code: "NLM105", Line: 3, Column: 7),
-            (Code: "NLM106", Line: 19, Column: 11),
-            (Code: "NLM107", Line: 1, Column: 1),
-            (Code: "NLM108", Line: 2, Column: 1),
-            (Code: "NLM109", Line: 1, Column: 1),
-            (Code: "NLM110", Line: 15, Column: 39),
-            (Code: "NLM111", Line: 13, Column: 22)
-        })
-        {
-            var diagnostic = migrationDiagnostics.Single(d =>
-                d.Code == expected.Code
-                && d.Location.Line == expected.Line
-                && d.Location.Column == expected.Column);
-            yield return Migration(diagnostic, migrationSource, expected.Code switch
-            {
-                "NLM101" => "C# modifiers leak source-language visibility rules into N#; N# uses naming/export conventions instead.",
-                "NLM102" => "Auto-property accessor blocks are C# syntax, not the N# property or record shape.",
-                "NLM103" => "Null-forgiving syntax hides a nullable design decision that must be made explicitly during migration.",
-                "NLM104" => "`out` parameters and `TryGetValue` patterns are migration smells because N# prefers values, tuples, and result-style APIs.",
-                "NLM105" => "This data-only DTO shape is probably a record in idiomatic N# unless identity or inheritance matters.",
-                "NLM106" => "Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized error handling or result mapping.",
-                "NLM107" => "C# `using` directives must become N# imports or project references before this file is considered migrated.",
-                "NLM108" => "C# namespace declarations fight N# package layout and should be expressed with `package`.",
-                "NLM109" => "The file layout implies a package, but the source does not declare the matching N# package.",
-                "NLM110" => "Equals-style object initializer members are valid C#, but canonical N# initializer members use `:`.",
-                "NLM111" => "Direct `.Value` unwraps can throw; migration needs an explicit absence-handling path.",
-                _ => "Migration diagnostic."
-            });
-        }
+        yield return Linter("NL001", "Variable 'temp' is declared but never read", "linter/unused-variable.nl", 2, 5, 4,
+            "    temp := 42",
+            "Unused locals are almost always stale code or a missed side effect.",
+            "Remove the declaration or prefix it with `_` when the unused value is intentional.");
+        yield return Linter("NL006", "Unreachable code detected", "linter/unreachable-code.nl", 4, 5, 5,
+            "    print \"done\"",
+            "Statements after a guaranteed exit cannot run and often hide a control-flow bug.",
+            "Move the statement before the exit or delete it.");
+        yield return Linter("NL010", "Import 'System.Linq' is never used", "linter/unused-import.nl", 1, 1, 6,
+            "import System.Linq",
+            "Unused imports make dependency intent harder to read and can mask stale code.",
+            "Remove the import or use a symbol from it.");
+        yield return Linter("NL003", "Unnecessary null check on non-nullable value", "linter/unnecessary-null-check.nl", 3, 8, 5,
+            "if name != null {",
+            "The value is already known to be non-nullable, so the condition adds noise without protecting anything.",
+            "Delete the null check and keep the useful branch body.");
+        yield return Linter("NL004", "Async function has no await", "linter/async-without-await.nl", 1, 1, 10,
+            "async func Load(): Task<int> {",
+            "An async function with no await usually does not need the async state machine.",
+            "Remove `async` or await the asynchronous operation that should drive this function.");
+        yield return Linter("NL005", "Use pattern matching", "linter/use-pattern-matching.nl", 3, 5, 2,
+            "if value is string {",
+            "A chain of type or shape checks is easier to audit when expressed as one match.",
+            "Rewrite the branch as a `match` when several related cases are being handled.");
+        yield return Linter("NL011", "Empty catch block", "linter/empty-catch.nl", 5, 7, 5,
+            "} catch (ex) {",
+            "Swallowing errors silently makes failures hard to debug and can corrupt program state.",
+            "Handle the error, log it, or explain the intentional suppression with a comment.");
+        yield return Linter("NL012", "Parameter 'options' is never used", "linter/unused-parameter.nl", 1, 15, 7,
+            "func Save(options: SaveOptions) {",
+            "Unused parameters usually mean the call contract drifted from the implementation.",
+            "Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface.");
+        yield return Linter("NL013", "Prefer string interpolation", "linter/prefer-interpolation.nl", 2, 12, 1,
+            "message := \"Hello, \" + name",
+            "Interpolation keeps formatting intent in one string instead of splitting it across concatenation.",
+            "Use `$\"Hello, {name}\"`.");
+        yield return Linter("NL015", "Variable 'limit' can be const", "linter/prefer-const.nl", 2, 5, 5,
+            "let limit := 10",
+            "Values that never change are clearer when declared as constants.",
+            "Change `let` to `const`.");
+        yield return Linter("NL020", "Variable 'count' shadows an outer variable", "linter/shadowed-variable.nl", 4, 9, 5,
+            "        count := item.Count",
+            "Shadowing makes reads ambiguous and can cause updates to affect the wrong variable.",
+            "Rename the inner variable or reuse the existing one intentionally.");
     }
 
     private static GoldenDiagnostic Parser(string code, string message, string file, int line, int column, int length, string source, string explanation, string help)
@@ -213,48 +200,8 @@ public partial class UserDto {
     private static GoldenDiagnostic Analyzer(string code, string message, string file, int line, int column, int length, string source, string explanation, string help)
         => new("analyzer", code, message, file, line, column, length, source, explanation, help, DocsUrl("analyzer", code));
 
-    private static GoldenDiagnostic Migration(Diagnostic diagnostic, string source, string explanation)
-    {
-        var line = diagnostic.Location.Line;
-        var sourceLine = source.Replace("\r\n", "\n").Split('\n')[line - 1];
-        var length = diagnostic.Code switch
-        {
-            "NLM101" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NLM102" => "{ get; set; }".Length,
-            "NLM103" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NLM104" => sourceLine.Contains("TryGetValue", StringComparison.Ordinal) ? "TryGetValue".Length : 3,
-            "NLM105" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NLM106" => "catch".Length,
-            "NLM107" => "using".Length,
-            "NLM108" => "namespace".Length,
-            "NLM109" => Math.Min(sourceLine.Trim().Length, 8),
-            "NLM110" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NLM111" => ".Value".Length,
-            _ => 1
-        };
-
-        return new GoldenDiagnostic(
-            "migration",
-            diagnostic.Code,
-            diagnostic.Message,
-            diagnostic.Location.FilePath ?? "Services/Users/UserDto.nl",
-            line,
-            diagnostic.Location.Column,
-            length,
-            sourceLine,
-            explanation,
-            diagnostic.Suggestion ?? "Review this C# migration artifact before shipping the N# source.",
-            DocsUrl("migration", diagnostic.Code));
-    }
-
-    private static int TokenLengthAt(string sourceLine, int oneBasedColumn)
-    {
-        var start = Math.Clamp(oneBasedColumn - 1, 0, Math.Max(0, sourceLine.Length - 1));
-        var length = 0;
-        while (start + length < sourceLine.Length && (char.IsLetterOrDigit(sourceLine[start + length]) || sourceLine[start + length] is '_' or '!' or '.'))
-            length++;
-        return Math.Max(1, length);
-    }
+    private static GoldenDiagnostic Linter(string code, string message, string file, int line, int column, int length, string source, string explanation, string help)
+        => new("linter", code, message, file, line, column, length, source, explanation, help, DocsUrl("linter", code));
 
     private static string DocsUrl(string category, string code) => $"https://docs.n-sharp.dev/errors/{category}/{code}";
 

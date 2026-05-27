@@ -769,65 +769,6 @@ func Main() {
     }
 
     [Fact]
-    public void FixCommand_DryRun_File_NLM110_ReportsExactZeroBasedEditAndDoesNotModifyFile()
-    {
-        AssertDryRunSingleFix(
-            "NLM110",
-            @"func Main() {
-    p := new Person { Name = ""Ada"" }
-}",
-            startLine: 2,
-            startColumn: 26,
-            endLine: 2,
-            endColumn: 29,
-            newText: ": ");
-    }
-
-    [Fact]
-    public void FixCommand_DryRun_File_NLM111_ReportsReviewNeededMustFix()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var source = """
-func Main() {
-    maybe := Get()
-    result := maybe.Value
-    print result
-}
-
-func Get(): int? { return 1 }
-""";
-            var filePath = Path.Combine(tempDir, "Program.nl");
-            File.WriteAllText(filePath, source);
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                FixCommand.Execute(new[] { "--project", tempDir, "--file", "Program.nl", "--dry-run", "--include-review-needed" }));
-
-            Assert.Equal(1, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-            Assert.Equal(source, File.ReadAllText(filePath));
-
-            using var doc = JsonDocument.Parse(stdout);
-            var fix = Assert.Single(
-                doc.RootElement.GetProperty("fixesApplied").EnumerateArray(),
-                candidate => candidate.GetProperty("diagnostic").GetString() == "NLM111");
-            Assert.Equal("reviewNeeded", fix.GetProperty("safety").GetString());
-
-            var edit = Assert.Single(fix.GetProperty("edits").EnumerateArray());
-            Assert.Equal(3, edit.GetProperty("startLine").GetInt32());
-            Assert.Equal(14, edit.GetProperty("startColumn").GetInt32());
-            Assert.Equal(3, edit.GetProperty("endLine").GetInt32());
-            Assert.Equal(25, edit.GetProperty("endColumn").GetInt32());
-            Assert.Equal("must maybe", edit.GetProperty("newText").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void FixCommand_DryRun_LastLineWholeLineDeletion_PreflightsSafely()
     {
         var tempDir = CreateTempDir();

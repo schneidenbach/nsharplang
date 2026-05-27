@@ -276,7 +276,7 @@ public class CodeIntelligenceService
             }
             catch
             {
-                // Source-only migration lints still run below even if parsing fails hard.
+                // A hard parse failure leaves no AST-backed lint surface for this file.
             }
         }
 
@@ -371,9 +371,12 @@ public class CodeIntelligenceService
 
             var fileDir = Path.GetDirectoryName(fullPath) ?? projectRoot;
             var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
-            var diagnostics = compilationUnits.TryGetValue(fullPath, out var compilationUnit)
-                ? linter.Lint(compilationUnit, fullPath, source)
-                : linter.LintSource(source, fullPath);
+            if (!compilationUnits.TryGetValue(fullPath, out var compilationUnit))
+            {
+                continue;
+            }
+
+            var diagnostics = linter.Lint(compilationUnit, fullPath, source);
 
             results.AddRange(diagnostics.Select(diagnostic => ToDiagnosticResult(diagnostic, projectRoot, fullPath, source)));
         }

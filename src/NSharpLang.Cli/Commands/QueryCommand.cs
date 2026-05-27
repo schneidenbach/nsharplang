@@ -1042,7 +1042,7 @@ Global Options:
   --file        Target file for file-scoped operations
   --pos         Position as line:col (e.g. 5:12)
   --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)
-  --clusters    For diagnostics, emit the stable AI migration cluster JSON envelope
+  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope
 
 Examples:
   nlc query symbols                              # All symbols in project
@@ -1053,7 +1053,7 @@ Examples:
   nlc query symbols --kind function              # Only functions
   nlc query outline Program.nl                   # File structure
   nlc query diagnostics                          # All errors/warnings
-  nlc query diagnostics --clusters               # AI migration diagnostic clusters
+  nlc query diagnostics --clusters               # Diagnostic clusters
   nlc query diagnostics --text                   # Elm-style error output
   nlc query type --file Program.nl --pos 5:4     # Type at position
   nlc query inspect --file Program.nl --pos 5:4
