@@ -58,6 +58,64 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_SemanticErrors_UseExpectedTokenSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///semantic-spans.nl";
+
+        var source = """
+func TakesInt(value: int) {}
+func main() {
+    maybeCustomerName: string? = "Ada"
+    print maybeCustomerName.Length
+    TakesInt("oops")
+    TakesInt()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var nullAccess = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PossibleNullAccess);
+        Assert.Equal(4, nullAccess.Line);
+        Assert.Equal(11, nullAccess.Column);
+        Assert.Equal("maybeCustomerName".Length, nullAccess.Length);
+
+        var wrongArgument = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("Cannot pass"));
+        Assert.Equal(5, wrongArgument.Line);
+        Assert.Equal(14, wrongArgument.Column);
+        Assert.Equal("\"oops\"".Length, wrongArgument.Length);
+
+        var wrongCount = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.WrongArgumentCount);
+        Assert.Equal(6, wrongCount.Line);
+        Assert.Equal(5, wrongCount.Column);
+        Assert.Equal("TakesInt".Length, wrongCount.Length);
+
+        var nullAccessLsp = LspDiagnosticConverter.FromCompilerError(nullAccess);
+        Assert.Equal(3, (int)nullAccessLsp.Range.Start.Line);
+        Assert.Equal(10, (int)nullAccessLsp.Range.Start.Character);
+        Assert.Equal(27, (int)nullAccessLsp.Range.End.Character);
+
+        var wrongArgumentLsp = LspDiagnosticConverter.FromCompilerError(wrongArgument);
+        Assert.Equal(4, (int)wrongArgumentLsp.Range.Start.Line);
+        Assert.Equal(13, (int)wrongArgumentLsp.Range.Start.Character);
+        Assert.Equal(19, (int)wrongArgumentLsp.Range.End.Character);
+
+        var wrongCountLsp = LspDiagnosticConverter.FromCompilerError(wrongCount);
+        Assert.Equal(5, (int)wrongCountLsp.Range.Start.Line);
+        Assert.Equal(4, (int)wrongCountLsp.Range.Start.Character);
+        Assert.Equal(12, (int)wrongCountLsp.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

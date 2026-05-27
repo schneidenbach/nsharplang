@@ -41,6 +41,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
 - Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
 - Shorthand declarations such as `Message := "hi"` store the identifier column, so style diagnostics like `NL008` underline `Message`, not the `:=` operator or the tail of the identifier.
+- Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
 
 ## Error Codes
 

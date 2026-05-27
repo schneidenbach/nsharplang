@@ -1470,6 +1470,125 @@ public class Analyzer : IDisposable
         };
     }
 
+    private (int Line, int Column, int Length) GetExpressionDiagnosticSpan(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            ThisExpression thisExpression => (thisExpression.Line, thisExpression.Column, "this".Length),
+            IntLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
+            FloatLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
+            CharLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
+            StringLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
+            InterpolatedStringExpression interpolated => (interpolated.Line, interpolated.Column, GetTokenLength(interpolated.Line, interpolated.Column)),
+            BoolLiteralExpression literal => (literal.Line, literal.Column, literal.Value ? 4 : 5),
+            NullLiteralExpression literal => (literal.Line, literal.Column, 4),
+            MemberAccessExpression memberAccess when TryGetStableNullPath(memberAccess) is { } path
+                => GetStablePathDiagnosticSpan(memberAccess, path, memberAccess.Line, GetMemberNameColumn(memberAccess)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            ParenthesizedExpression parenthesized => GetExpressionDiagnosticSpan(parenthesized.Inner),
+            CheckedExpression checkedExpression => GetExpressionDiagnosticSpan(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => GetExpressionDiagnosticSpan(uncheckedExpression.Expression),
+            CallExpression call => GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? "call"),
+            _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
+        };
+    }
+
+    private (int Line, int Column, int Length) GetNullReceiverDiagnosticSpan(
+        Expression receiver,
+        string path,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        if (path != "this value")
+            return GetStablePathDiagnosticSpan(receiver, path, fallbackLine, fallbackColumn);
+
+        return GetExpressionDiagnosticSpan(receiver);
+    }
+
+    private (int Line, int Column, int Length) GetStablePathDiagnosticSpan(
+        Expression expression,
+        string path,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var (line, column) = GetExpressionStartPosition(expression, fallbackLine, fallbackColumn);
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
+        {
+            var sourceLine = _sourceLines[line - 1];
+            var startIndex = Math.Clamp(column - 1, 0, sourceLine.Length);
+            var index = sourceLine.IndexOf(path, startIndex, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                index = sourceLine.IndexOf(path, StringComparison.Ordinal);
+            }
+
+            if (index >= 0)
+            {
+                return (line, index + 1, Math.Max(1, path.Length));
+            }
+        }
+
+        return (line, column, Math.Max(1, path.Length));
+    }
+
+    private static (int Line, int Column) GetExpressionStartPosition(Expression expression, int fallbackLine, int fallbackColumn)
+    {
+        return expression switch
+        {
+            MemberAccessExpression memberAccess => GetExpressionStartPosition(memberAccess.Object, fallbackLine, fallbackColumn),
+            IndexAccessExpression indexAccess => GetExpressionStartPosition(indexAccess.Object, fallbackLine, fallbackColumn),
+            CallExpression call => GetExpressionStartPosition(call.Callee, fallbackLine, fallbackColumn),
+            ParenthesizedExpression parenthesized => GetExpressionStartPosition(parenthesized.Inner, fallbackLine, fallbackColumn),
+            CheckedExpression checkedExpression => GetExpressionStartPosition(checkedExpression.Expression, fallbackLine, fallbackColumn),
+            UncheckedExpression uncheckedExpression => GetExpressionStartPosition(uncheckedExpression.Expression, fallbackLine, fallbackColumn),
+            _ when expression.Line > 0 && expression.Column > 0 => (expression.Line, expression.Column),
+            _ => (fallbackLine, fallbackColumn)
+        };
+    }
+
+    private int GetTokenLength(int line, int column)
+    {
+        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+            return 1;
+
+        var sourceLine = _sourceLines[line - 1];
+        var start = column - 1;
+        if (start < 0 || start >= sourceLine.Length)
+            return 1;
+
+        if (sourceLine[start] == '"')
+            return ScanQuotedTokenLength(sourceLine, start, '"');
+
+        if (sourceLine[start] == '\'')
+            return ScanQuotedTokenLength(sourceLine, start, '\'');
+
+        if (sourceLine[start] == '$' && start + 1 < sourceLine.Length && sourceLine[start + 1] == '"')
+            return 1 + ScanQuotedTokenLength(sourceLine, start + 1, '"');
+
+        var end = start;
+        while (end < sourceLine.Length && !char.IsWhiteSpace(sourceLine[end]) && sourceLine[end] is not ',' and not ')' and not ']' and not '}')
+        {
+            end++;
+        }
+
+        return Math.Max(1, end - start);
+    }
+
+    private static int ScanQuotedTokenLength(string sourceLine, int quoteStart, char quote)
+    {
+        var index = quoteStart + 1;
+        while (index < sourceLine.Length)
+        {
+            if (sourceLine[index] == quote && sourceLine[index - 1] != '\\')
+                return index - quoteStart + 1;
+
+            index++;
+        }
+
+        return Math.Max(1, sourceLine.Length - quoteStart);
+    }
+
     private string DescribeExpressionForDiagnostic(Expression expression)
     {
         return expression switch
@@ -3248,7 +3367,8 @@ public class Analyzer : IDisposable
             _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
         };
 
-        Error(ErrorCode.PossibleNullAccess, message, line, column, suggestion, length: 1);
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetNullReceiverDiagnosticSpan(receiver, path, line, column);
+        Error(ErrorCode.PossibleNullAccess, message, diagnosticLine, diagnosticColumn, suggestion, diagnosticLength);
     }
 
     private bool TryResolveNullableMemberAccess(MemberAccessExpression member, TypeInfo objectType, out TypeInfo memberType)
@@ -4979,19 +5099,21 @@ public class Analyzer : IDisposable
                 int minArgs = requiredParamCount;
                 if (argTypes.Count < minArgs)
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                        ? _sourceLines[call.Line - 1]
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.WrongArgumentCount(
                             _currentFilePath,
-                            call.Line,
-                            call.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            funcType.Declaration.Name.Length,
+                            diagnosticLength,
                             funcType.Declaration.Name,
                             minArgs,
                             argTypes.Count
@@ -5000,25 +5122,28 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
-                            call.Line, call.Column);
+                        Error(ErrorCode.WrongArgumentCount,
+                            $"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else if (!hasParamsParameter && argTypes.Count > effectiveParamCount)
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                        ? _sourceLines[call.Line - 1]
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.WrongArgumentCount(
                             _currentFilePath,
-                            call.Line,
-                            call.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            funcType.Declaration.Name.Length,
+                            diagnosticLength,
                             funcType.Declaration.Name,
                             effectiveParamCount,
                             argTypes.Count
@@ -5027,8 +5152,9 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
-                            call.Line, call.Column);
+                        Error(ErrorCode.WrongArgumentCount,
+                            $"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else
@@ -5049,19 +5175,20 @@ public class Analyzer : IDisposable
 
                         if (!IsAssignable(paramType, argType))
                         {
-                            var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                                ? _sourceLines[call.Line - 1]
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetExpressionDiagnosticSpan(call.Arguments[i].Value);
+                            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                                ? _sourceLines[diagnosticLine - 1]
                                 : null;
 
                             if (sourceSnippet != null && _currentFilePath != null)
                             {
-                                var spanLength = Math.Max(1, sourceSnippet.TrimEnd().Length - call.Column + 1);
                                 var error = ErrorMessageBuilder.WrongArgumentType(
                                     _currentFilePath,
-                                    call.Line,
-                                    call.Column,
+                                    diagnosticLine,
+                                    diagnosticColumn,
                                     sourceSnippet,
-                                    spanLength,
+                                    diagnosticLength,
                                     funcType.Declaration.Name,
                                     i + 1,
                                     parameters[paramIndex].Name,
@@ -5073,7 +5200,7 @@ public class Analyzer : IDisposable
                             else
                             {
                                 Error(ErrorCode.TypeMismatch, $"Argument {i + 1} is '{argType}', but parameter '{parameters[paramIndex].Name}' expects '{paramType}'",
-                                    call.Line, call.Column);
+                                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                             }
                         }
                     }

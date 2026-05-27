@@ -102,6 +102,44 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_SemanticDiagnostics_PreserveExpectedMarkerSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func TakesInt(value: int) {}
+
+            func main() {
+                maybeCustomerName: string? = "Ada"
+                print maybeCustomerName.Length
+                TakesInt("oops")
+                TakesInt()
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var nullAccess = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL905");
+        Assert.Equal(7, nullAccess.Line);
+        Assert.Equal(11, nullAccess.Column);
+        Assert.Equal("maybeCustomerName".Length, nullAccess.Length);
+
+        var wrongArgument = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("Cannot pass"));
+        Assert.Equal(8, wrongArgument.Line);
+        Assert.Equal(14, wrongArgument.Column);
+        Assert.Equal("\"oops\"".Length, wrongArgument.Length);
+
+        var wrongCount = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL401");
+        Assert.Equal(9, wrongCount.Line);
+        Assert.Equal(5, wrongCount.Column);
+        Assert.Equal("TakesInt".Length, wrongCount.Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
