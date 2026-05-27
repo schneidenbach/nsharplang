@@ -1267,6 +1267,10 @@ public sealed class PlaygroundCompilerTests
                     print "missing condition"
                 }
 
+                while {
+                    print "missing condition"
+                }
+
                 print
                     value := 1
             }
@@ -1282,10 +1286,19 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Expected a condition expression after 'if'"));
         AssertPlaygroundSpan(missingIfCondition, line: 8, column: 5, length: "if".Length);
 
+        var missingWhileCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'while'"));
+        AssertPlaygroundSpan(missingWhileCondition, line: 12, column: 5, length: "while".Length);
+
         var missingPrintExpression = Assert.Single(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL102" &&
                           diagnostic.Message.Contains("Expected an expression to print after 'print'"));
-        AssertPlaygroundSpan(missingPrintExpression, line: 12, column: 5, length: "print".Length);
+        AssertPlaygroundSpan(missingPrintExpression, line: 16, column: 5, length: "print".Length);
+
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("condition in a 'while' loop", StringComparison.Ordinal));
     }
 
     [Fact]

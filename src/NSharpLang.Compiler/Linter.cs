@@ -327,6 +327,77 @@ internal class LintVisitor
             ? _sourceLines[oneBasedLine - 1]
             : string.Empty;
 
+    private (Location Location, int Length) GetBlockOwnerDiagnosticSpan(BlockStatement block)
+    {
+        var sourceLine = SourceLine(block.Line);
+        if (string.IsNullOrEmpty(sourceLine))
+            return (new Location(block.Line, block.Column, _filePath), 1);
+
+        var searchEnd = block.Column > 0
+            ? Math.Clamp(block.Column - 1, 0, sourceLine.Length)
+            : sourceLine.Length;
+        var prefix = sourceLine[..searchEnd];
+
+        var bestColumn = 0;
+        var bestKeyword = string.Empty;
+        foreach (var keyword in BlockOwnerKeywords)
+        {
+            var column = FindKeywordColumn(prefix, keyword);
+            if (column > bestColumn)
+            {
+                bestColumn = column;
+                bestKeyword = keyword;
+            }
+        }
+
+        return bestColumn > 0
+            ? (new Location(block.Line, bestColumn, _filePath), bestKeyword.Length)
+            : (new Location(block.Line, block.Column, _filePath), 1);
+    }
+
+    private static readonly string[] BlockOwnerKeywords =
+    [
+        "foreach",
+        "finally",
+        "throws",
+        "catch",
+        "while",
+        "switch",
+        "assert",
+        "using",
+        "lock",
+        "else",
+        "func",
+        "test",
+        "try",
+        "for",
+        "if"
+    ];
+
+    private static int FindKeywordColumn(string text, string keyword)
+    {
+        var searchIndex = text.Length;
+        while (searchIndex > 0)
+        {
+            var index = text.LastIndexOf(keyword, searchIndex - 1, StringComparison.Ordinal);
+            if (index < 0)
+                return 0;
+
+            var beforeIsIdentifier = index > 0 && IsIdentifierPart(text[index - 1]);
+            var afterIndex = index + keyword.Length;
+            var afterIsIdentifier = afterIndex < text.Length && IsIdentifierPart(text[afterIndex]);
+            if (!beforeIsIdentifier && !afterIsIdentifier)
+                return index + 1;
+
+            searchIndex = index;
+        }
+
+        return 0;
+    }
+
+    private static bool IsIdentifierPart(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_';
+
     private int FindTokenColumn(int oneBasedLine, string token, int fallbackColumn)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -755,12 +826,14 @@ internal class LintVisitor
                 //  IS a containing scope already, which means we are inside at least one function.)
                 if (block.Statements.Count == 0 && _scopeStack.Count > 0)
                 {
+                    var (location, length) = GetBlockOwnerDiagnosticSpan(block);
                     AddDiagnostic(
                         "NL019",
                         "This block is empty — it doesn't do anything",
-                        new Location(block.Line, block.Column, _filePath),
+                        location,
                         _config.GetSeverity("NL019"),
-                        "Add code to the block, or remove it if it's not needed");
+                        "Add code to the block, or remove it if it's not needed",
+                        length);
                 }
 
                 PushScope();
@@ -849,15 +922,19 @@ internal class LintVisitor
                 VisitStatement(tryStmt.TryBlock);
                 foreach (var catchClause in tryStmt.CatchClauses)
                 {
+                    var catchBlockIsEmpty = catchClause.Block.Statements.Count == 0;
+
                     // NL011: Empty catch block
-                    if (catchClause.Block.Statements.Count == 0)
+                    if (catchBlockIsEmpty)
                     {
+                        var (location, length) = GetBlockOwnerDiagnosticSpan(catchClause.Block);
                         AddDiagnostic(
                             "NL011",
                             "This catch block is empty — exceptions will be silently swallowed",
-                            new Location(catchClause.Block.Line, catchClause.Block.Column, _filePath),
+                            location,
                             _config.GetSeverity("NL011"),
-                            "Log the error, handle it, or add a comment explaining why it's safe to ignore");
+                            "Log the error, handle it, or add a comment explaining why it's safe to ignore",
+                            length);
                     }
 
                     PushScope();
@@ -866,7 +943,8 @@ internal class LintVisitor
                         DeclareVariable(catchClause.VariableName, catchClause.Block.Line, catchClause.Block.Column);
                         MarkVariableUsed(catchClause.VariableName); // Exception variables are considered used
                     }
-                    VisitStatement(catchClause.Block);
+                    if (!catchBlockIsEmpty)
+                        VisitStatement(catchClause.Block);
                     PopScope();
                 }
                 if (tryStmt.FinallyBlock != null)

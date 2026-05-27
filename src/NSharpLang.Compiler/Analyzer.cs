@@ -1729,6 +1729,9 @@ public class Analyzer : IDisposable
 
     private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
     {
+        if (BuiltInTypes.IsUnknown(actualType) || ContainsParserErrorPlaceholder(condition))
+            return;
+
         var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(condition);
         Error(
             ErrorCode.TypeMismatch,

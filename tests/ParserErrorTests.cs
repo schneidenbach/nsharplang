@@ -845,6 +845,33 @@ func test() {
     }
 
     [Fact]
+    public void Parser_WhileMissingCondition_UnderlinesWhileKeywordAndContinues()
+    {
+        var source = """
+func test() {
+    while {
+        print "hi"
+    }
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected a condition expression after 'while'"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("while".Length, diagnostic.Length);
+        Assert.Equal("    while {", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        Assert.Contains(function.Body!.Statements, statement =>
+            statement is WhileStatement { Body: BlockStatement });
+    }
+
+    [Fact]
     public void Parser_ObjectInitializerEquals_ReportsActionableDiagnosticAndContinues()
     {
         var source = @"

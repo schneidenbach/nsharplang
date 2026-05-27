@@ -19,8 +19,8 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] diagnostic-message-shape / control-flow / risk: low
        recipe: manual-triage:inspect-root-diagnostic
-       root: analyzer/non-exhaustive-match.nl:3:12
-       next command: nlc query inspect --file analyzer/non-exhaustive-match.nl --pos 3:12
+       root: analyzer/non-exhaustive-match.nl:3:5
+       next command: nlc query inspect --file analyzer/non-exhaustive-match.nl --pos 3:5
        example: [analyzer] Pattern matching is not exhaustive
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
@@ -40,8 +40,8 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        next: Check whether an extension-method import or receiver type conversion was dropped.
   [1x] type-resolution / variable-declaration / risk: medium
        recipe: types:resolve-type-or-import
-       root: analyzer/undefined-type.nl:1:12
-       next command: nlc query inspect --file analyzer/undefined-type.nl --pos 1:12
+       root: analyzer/undefined-type.nl:1:11
+       next command: nlc query inspect --file analyzer/undefined-type.nl --pos 1:11
        example: [analyzer] Type 'Usr' not found
        next: Resolve the type/import at the earliest root location before chasing downstream uses.
        next: Check whether the source construct needs full qualification or a project reference.
@@ -68,8 +68,8 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] diagnostic-message-shape / call-or-construction / risk: low
        recipe: manual-triage:inspect-root-diagnostic
-       root: linter/empty-catch.nl:5:7
-       next command: nlc query inspect --file linter/empty-catch.nl --pos 5:7
+       root: linter/empty-catch.nl:5:3
+       next command: nlc query inspect --file linter/empty-catch.nl --pos 5:3
        example: [linter] Empty catch block
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
@@ -138,10 +138,10 @@ Suggestion: Close the block with `}` at the indentation level where the construc
 
 See: https://docs.n-sharp.dev/errors/parser/NL106
 
-── [NL107] ERROR ────────── parser/missing-call-paren.nl:4:22 ──
+── [NL107] ERROR ────────── parser/missing-call-paren.nl:4:14 ──
 
     4 |     total := add(first, second
-      |                      ^
+      |              ^^^
 
 [parser] Missing closing parenthesis
 
@@ -190,10 +190,10 @@ Suggestion: Did you mean `total`? Fix the spelling or declare the variable befor
 
 See: https://docs.n-sharp.dev/errors/analyzer/NL301
 
-── [NL302] ERROR ──────────── analyzer/undefined-type.nl:1:12 ──
+── [NL302] ERROR ──────────── analyzer/undefined-type.nl:1:11 ──
 
     1 | let user: Usr
-      |            ^^^
+      |           ^^^
 
 [analyzer] Type 'Usr' not found
 
@@ -242,10 +242,10 @@ Suggestion: Pass the missing value, or update the function signature if it shoul
 
 See: https://docs.n-sharp.dev/errors/analyzer/NL401
 
-── [NL501] ERROR ────── analyzer/non-exhaustive-match.nl:3:12 ──
+── [NL501] ERROR ─────── analyzer/non-exhaustive-match.nl:3:5 ──
 
     3 |     match color {
-      |            ^^^^^
+      |     ^^^^^
 
 [analyzer] Pattern matching is not exhaustive
 
@@ -333,10 +333,10 @@ Suggestion: Rewrite the branch as a `match` when several related cases are being
 
 See: https://docs.n-sharp.dev/errors/linter/NL005
 
-── [NL011] WARNING ──────────────── linter/empty-catch.nl:5:7 ──
+── [NL011] WARNING ──────────────── linter/empty-catch.nl:5:3 ──
 
     5 | } catch (ex) {
-      |       ^^^^^
+      |   ^^^^^
 
 [linter] Empty catch block
 
@@ -346,10 +346,10 @@ Suggestion: Handle the error, log it, or explain the intentional suppression wit
 
 See: https://docs.n-sharp.dev/errors/linter/NL011
 
-── [NL012] INFO ───────────── linter/unused-parameter.nl:1:15 ──
+── [NL012] INFO ───────────── linter/unused-parameter.nl:1:11 ──
 
     1 | func Save(options: SaveOptions) {
-      |               ^^^^^^^
+      |           ^^^^^^^
 
 [linter] Parameter 'options' is never used
 

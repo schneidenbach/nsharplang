@@ -1729,6 +1729,10 @@ func main() {
         print "missing condition"
     }
 
+    while {
+        print "missing condition"
+    }
+
     print
         value := 1
 }
@@ -1753,11 +1757,21 @@ func main() {
         AssertDiagnosticSpan(missingIfCondition, line: 6, column: 5, length: "if".Length);
         AssertLspRange(missingIfCondition, line0: 5, startCharacter: 4, endCharacter: 6);
 
+        var missingWhileCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'while'"));
+        AssertDiagnosticSpan(missingWhileCondition, line: 10, column: 5, length: "while".Length);
+        AssertLspRange(missingWhileCondition, line0: 9, startCharacter: 4, endCharacter: 9);
+
         var missingPrintExpression = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
                           diagnostic.Message.Contains("Expected an expression to print after 'print'"));
-        AssertDiagnosticSpan(missingPrintExpression, line: 10, column: 5, length: "print".Length);
-        AssertLspRange(missingPrintExpression, line0: 9, startCharacter: 4, endCharacter: 9);
+        AssertDiagnosticSpan(missingPrintExpression, line: 14, column: 5, length: "print".Length);
+        AssertLspRange(missingPrintExpression, line0: 13, startCharacter: 4, endCharacter: 9);
+
+        Assert.DoesNotContain(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("condition in a 'while' loop", System.StringComparison.Ordinal));
     }
 
     [Fact]
