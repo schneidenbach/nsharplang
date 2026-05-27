@@ -307,6 +307,25 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_UnreachableStatement_PreservesUnreachableKeywordSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                return
+                print "after"
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var unreachableDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL312");
+        AssertPlaygroundSpan(unreachableDiagnostic, line: 5, column: 5, length: "print".Length);
+    }
+
+    [Fact]
     public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""

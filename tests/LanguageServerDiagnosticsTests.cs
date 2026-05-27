@@ -323,6 +323,32 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unreachable-statement-spans.nl";
+
+        var source = """
+func main() {
+    return
+    print "after"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var unreachableDiagnostic = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.UnreachableStatement);
+        AssertDiagnosticSpan(unreachableDiagnostic, line: 3, column: 5, length: "print".Length);
+        AssertLspRange(unreachableDiagnostic, line0: 2, startCharacter: 4, endCharacter: 9);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

@@ -1231,7 +1231,13 @@ public class Analyzer : IDisposable
         {
             if (terminated)
             {
-                Error(ErrorCode.UnreachableStatement, "This code will never run — there's a 'return' or 'throw' above it", stmt.Line, stmt.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetStatementDiagnosticSpan(stmt);
+                Error(
+                    ErrorCode.UnreachableStatement,
+                    "This code will never run — there's a 'return' or 'throw' above it",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    length: diagnosticLength);
                 break;
             }
             AnalyzeStatement(stmt);
@@ -1498,6 +1504,23 @@ public class Analyzer : IDisposable
             CheckedExpression checkedExpression => GetExpressionStatementDiagnosticSpan(checkedExpression.Expression),
             UncheckedExpression uncheckedExpression => GetExpressionStatementDiagnosticSpan(uncheckedExpression.Expression),
             _ => (expression.Line, expression.Column, GetExpressionLength(expression.Line, expression.Column))
+        };
+    }
+
+    private (int Line, int Column, int Length) GetStatementDiagnosticSpan(Statement statement)
+    {
+        return statement switch
+        {
+            ExpressionStatement expressionStatement => GetExpressionStatementDiagnosticSpan(expressionStatement.Expression),
+            VariableDeclarationStatement variableDeclaration => (
+                variableDeclaration.Line,
+                variableDeclaration.Column,
+                Math.Max(1, variableDeclaration.Name.Length)),
+            LocalFunctionStatement localFunction => (
+                localFunction.Line,
+                localFunction.Column,
+                GetTokenLength(localFunction.Line, localFunction.Column)),
+            _ => (statement.Line, statement.Column, GetTokenLength(statement.Line, statement.Column))
         };
     }
 
