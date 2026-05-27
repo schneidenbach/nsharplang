@@ -685,6 +685,57 @@ class Vector {
     }
 
     [Fact]
+    public void Diagnostics_DuplicateTestLifecycleBlocks_UseFullKeywordSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///duplicate-lifecycle.tests.nl";
+
+        var source = """
+setup {
+    first := 1
+}
+
+setup {
+    second := 2
+}
+
+teardown {
+    Cleanup()
+}
+
+teardown {
+    CleanupAgain()
+}
+
+func Cleanup() {}
+func CleanupAgain() {}
+
+test "works" {
+    assert true
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var duplicateSetup = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Message.Contains("setup block"));
+        AssertDiagnosticSpan(duplicateSetup, line: 5, column: 1, length: "setup".Length);
+        AssertLspRange(duplicateSetup, line0: 4, startCharacter: 0, endCharacter: 5);
+
+        var duplicateTeardown = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
+                          diagnostic.Message.Contains("teardown block"));
+        AssertDiagnosticSpan(duplicateTeardown, line: 13, column: 1, length: "teardown".Length);
+        AssertLspRange(duplicateTeardown, line0: 12, startCharacter: 0, endCharacter: 8);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

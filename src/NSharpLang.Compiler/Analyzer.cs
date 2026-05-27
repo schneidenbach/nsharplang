@@ -212,7 +212,12 @@ public class Analyzer : IDisposable
             {
                 if (foundSetup)
                 {
-                    Error("Only one setup block is allowed per test file", setup.Line, setup.Column);
+                    Error(
+                        ErrorCode.DuplicateDeclaration,
+                        "Only one setup block is allowed per test file",
+                        setup.Line,
+                        setup.Column,
+                        length: "setup".Length);
                 }
                 else
                 {
@@ -224,7 +229,12 @@ public class Analyzer : IDisposable
             {
                 if (foundTeardown)
                 {
-                    Error("Only one teardown block is allowed per test file", teardown.Line, teardown.Column);
+                    Error(
+                        ErrorCode.DuplicateDeclaration,
+                        "Only one teardown block is allowed per test file",
+                        teardown.Line,
+                        teardown.Column,
+                        length: "teardown".Length);
                 }
                 foundTeardown = true;
             }

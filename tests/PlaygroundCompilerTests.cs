@@ -603,6 +603,49 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_DuplicateTestLifecycleBlocks_PreserveFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.tests.nl", """
+                    setup {
+                        first := 1
+                    }
+
+                    setup {
+                        second := 2
+                    }
+
+                    teardown {
+                        Cleanup()
+                    }
+
+                    teardown {
+                        CleanupAgain()
+                    }
+
+                    func Cleanup() {}
+                    func CleanupAgain() {}
+
+                    test "works" {
+                        assert true
+                    }
+                    """)
+            ],
+            "Program.tests.nl");
+
+        var duplicateSetup = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Message.Contains("setup block"));
+        AssertPlaygroundSpan(duplicateSetup, line: 5, column: 1, length: "setup".Length);
+
+        var duplicateTeardown = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Message.Contains("teardown block"));
+        AssertPlaygroundSpan(duplicateTeardown, line: 13, column: 1, length: "teardown".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
