@@ -413,6 +413,8 @@ public class Parser
         // Check for operator overloading: func operator +
         bool isOperatorOverload = false;
         string? operatorSymbol = null;
+        SourceSpan operatorKeywordSpan = SourceSpan.None;
+        SourceSpan operatorSymbolSpan = SourceSpan.None;
         string name;
 
         if (Check(TokenType.Implicit) || Check(TokenType.Explicit))
@@ -455,10 +457,13 @@ public class Parser
             if (Check(TokenType.Operator))
             {
                 isOperatorOverload = true;
-                Advance(); // consume 'operator'
+                var operatorKeywordToken = Advance(); // consume 'operator'
+                operatorKeywordSpan = SpanFromTokens(operatorKeywordToken, operatorKeywordToken);
 
                 // Get the operator symbol
+                var operatorSymbolToken = Current;
                 operatorSymbol = ParseOperatorSymbol();
+                operatorSymbolSpan = SpanFromTokens(operatorSymbolToken, operatorSymbolToken);
                 name = "operator " + operatorSymbol; // For error reporting
             }
             else
@@ -512,7 +517,11 @@ public class Parser
             body = ParseBlock();
         }
 
-        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column);
+        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
+        {
+            OperatorKeywordSpan = operatorKeywordSpan,
+            OperatorSymbolSpan = operatorSymbolSpan
+        };
     }
 
     private TestDeclaration ParseTestDeclaration()

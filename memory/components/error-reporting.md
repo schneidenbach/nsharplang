@@ -44,6 +44,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
 - General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, enum member initializer values, expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
+- Operator declaration diagnostics underline the operator syntax, not the declaration fallback: missing `static` on an overload underlines the visible `operator` keyword, while unsupported operators and parameter-count errors underline the operator symbol/name such as `%` or `true`.
 - Missing required expressions after visible statement keywords (`if`, `while`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after operators or assignment anchors still use insertion spans after the anchor.
 - Parser diagnostics for invalid generic constraints underline the offending constraint token: `where T : class, struct` underlines the later `struct`, and `where T : struct, new()` underlines the redundant `new()`.
 - Loop-control placement diagnostics underline the full invalid control keyword (`break` or `continue`) when it appears outside a loop.
@@ -87,6 +88,10 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 ### Pattern Matching Errors (500-599)
 - `NL501`: NonExhaustiveMatch
 - `NL502-505`: UnreachablePattern, InvalidPattern, PatternTypeMismatch, GuardNotBoolean
+
+### Operator Errors (600-699)
+- `NL601`: InvalidOperatorOverload, including operator overload declarations missing required `static`
+- `NL602`: OperatorParameterCount
 
 ### Import/Using Errors (700-799)
 - `NL701`: ImportNotFound

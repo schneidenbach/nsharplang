@@ -569,6 +569,40 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_OperatorOverloadErrors_PreserveOperatorKeywordAndSymbolSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Vector {
+                X: int
+
+                func operator %(a: Vector, b: Vector, c: Vector): Vector {
+                    return a
+                }
+
+                static func operator true(a: Vector, b: Vector): bool {
+                    return true
+                }
+            }
+            """);
+
+        var missingStatic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL601");
+        AssertPlaygroundSpan(missingStatic, line: 6, column: 10, length: "operator".Length);
+
+        var moduloArity = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL602" &&
+                          diagnostic.Message.Contains("'%'"));
+        AssertPlaygroundSpan(moduloArity, line: 6, column: 19, length: "%".Length);
+
+        var trueArity = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL602" &&
+                          diagnostic.Message.Contains("'true'"));
+        AssertPlaygroundSpan(trueArity, line: 10, column: 26, length: "true".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

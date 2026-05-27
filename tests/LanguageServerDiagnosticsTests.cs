@@ -640,6 +640,51 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_OperatorOverloadErrors_UseOperatorKeywordAndSymbolSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///operator-overload-spans.nl";
+
+        var source = """
+class Vector {
+    X: int
+
+    func operator %(a: Vector, b: Vector, c: Vector): Vector {
+        return a
+    }
+
+    static func operator true(a: Vector, b: Vector): bool {
+        return true
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var missingStatic = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidOperatorOverload);
+        AssertDiagnosticSpan(missingStatic, line: 4, column: 10, length: "operator".Length);
+        AssertLspRange(missingStatic, line0: 3, startCharacter: 9, endCharacter: 17);
+
+        var moduloArity = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.OperatorParameterCount &&
+                          diagnostic.Message.Contains("'%'"));
+        AssertDiagnosticSpan(moduloArity, line: 4, column: 19, length: "%".Length);
+        AssertLspRange(moduloArity, line0: 3, startCharacter: 18, endCharacter: 19);
+
+        var trueArity = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.OperatorParameterCount &&
+                          diagnostic.Message.Contains("'true'"));
+        AssertDiagnosticSpan(trueArity, line: 8, column: 26, length: "true".Length);
+        AssertLspRange(trueArity, line0: 7, startCharacter: 25, endCharacter: 29);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

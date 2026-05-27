@@ -1667,6 +1667,15 @@ public class Analyzer : IDisposable
     private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
         => (expression.Line, expression.Column, Math.Max(1, GetBinaryOperatorText(expression.Operator).Length));
 
+    private static (int Line, int Column, int Length) GetSourceSpanDiagnosticSpan(
+        SourceSpan span,
+        int fallbackLine,
+        int fallbackColumn,
+        int fallbackLength = 1)
+        => span.IsValid && span.StartLine == span.EndLine
+            ? (span.StartLine, span.StartColumn, Math.Max(1, span.Length))
+            : (fallbackLine, fallbackColumn, Math.Max(1, fallbackLength));
+
     private (int Line, int Column, int Length) GetBinaryOperandDiagnosticSpan(
         BinaryExpression expression,
         bool leftIsWrong,
@@ -10735,10 +10744,26 @@ public class Analyzer : IDisposable
 
     private void ValidateOperatorOverload(FunctionDeclaration func)
     {
+        var (operatorKeywordLine, operatorKeywordColumn, operatorKeywordLength) = GetSourceSpanDiagnosticSpan(
+            func.OperatorKeywordSpan,
+            func.Line,
+            func.Column,
+            "operator".Length);
+        var (operatorSymbolLine, operatorSymbolColumn, operatorSymbolLength) = GetSourceSpanDiagnosticSpan(
+            func.OperatorSymbolSpan,
+            func.Line,
+            func.Column,
+            func.OperatorSymbol?.Length ?? 1);
+
         // Operator overloads must be static
         if (!func.Modifiers.HasFlag(Modifiers.Static))
         {
-            Error("Operator overloads must be declared 'static' — they don't belong to a specific instance", func.Line, func.Column);
+            Error(
+                ErrorCode.InvalidOperatorOverload,
+                "Operator overloads must be declared 'static' — they don't belong to a specific instance",
+                operatorKeywordLine,
+                operatorKeywordColumn,
+                length: operatorKeywordLength);
         }
 
         // Get expected parameter count
@@ -10755,7 +10780,12 @@ public class Analyzer : IDisposable
 
         if (expectedParams == -1)
         {
-            Error($"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported", func.Line, func.Column);
+            Error(
+                ErrorCode.InvalidOperatorOverload,
+                $"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported",
+                operatorSymbolLine,
+                operatorSymbolColumn,
+                length: operatorSymbolLength);
             return;
         }
 
@@ -10764,12 +10794,22 @@ public class Analyzer : IDisposable
         {
             if (func.Parameters.Count != 1 && func.Parameters.Count != 2)
             {
-                Error($"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}", func.Line, func.Column);
+                Error(
+                    ErrorCode.OperatorParameterCount,
+                    $"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}",
+                    operatorSymbolLine,
+                    operatorSymbolColumn,
+                    length: operatorSymbolLength);
             }
         }
         else if (func.Parameters.Count != expectedParams)
         {
-            Error($"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}", func.Line, func.Column);
+            Error(
+                ErrorCode.OperatorParameterCount,
+                $"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}",
+                operatorSymbolLine,
+                operatorSymbolColumn,
+                length: operatorSymbolLength);
         }
     }
 

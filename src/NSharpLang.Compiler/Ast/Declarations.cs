@@ -55,6 +55,10 @@ public record FunctionDeclaration(
 {
     // Convenience property: true if both Async and Generator modifiers are set (async*)
     public bool IsAsyncIterator => Modifiers.HasFlag(Modifiers.Async) && Modifiers.HasFlag(Modifiers.Generator);
+
+    public SourceSpan OperatorKeywordSpan { get; init; } = SourceSpan.None;
+
+    public SourceSpan OperatorSymbolSpan { get; init; } = SourceSpan.None;
 };
 
 public enum ParameterModifier
