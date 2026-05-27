@@ -186,6 +186,42 @@ func main(): int {
     }
 
     [Fact]
+    public void Diagnostics_EnumMemberInitializerTypeMismatches_UseInitializerValueSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///enum-value-spans.nl";
+
+        var source = """
+enum HttpCode: int {
+    Ok = "ok"
+}
+
+enum Label: string {
+    Ready = 1
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var numericValue = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("'Ok'"));
+        AssertDiagnosticSpan(numericValue, line: 2, column: 10, length: "\"ok\"".Length);
+        AssertLspRange(numericValue, line0: 1, startCharacter: 9, endCharacter: 13);
+
+        var stringValue = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("'Ready'"));
+        AssertDiagnosticSpan(stringValue, line: 6, column: 13, length: "1".Length);
+        AssertLspRange(stringValue, line0: 5, startCharacter: 12, endCharacter: 13);
+    }
+
+    [Fact]
     public void Diagnostics_ControlFlowAndCollectionTypeMismatches_UseOffendingExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

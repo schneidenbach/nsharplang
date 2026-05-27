@@ -936,11 +936,25 @@ public class Analyzer : IDisposable
                 var valueType = AnalyzeExpression(member.Value);
                 if (enumDecl.Type == EnumType.Int && !IsNumericType(valueType))
                 {
-                    Error($"Enum member '{member.Name}' must have a numeric value — this enum uses int values", enumDecl.Line, enumDecl.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    Error(
+                        ErrorCode.TypeMismatch,
+                        $"Enum member '{member.Name}' must have a numeric value — this enum uses int values",
+                        diagnosticLine,
+                        diagnosticColumn,
+                        $"Use a numeric value for '{member.Name}', or change the enum backing type to 'string'",
+                        diagnosticLength);
                 }
                 else if (enumDecl.Type == EnumType.String && !IsStringType(valueType))
                 {
-                    Error($"Enum member '{member.Name}' must have a string value — this enum uses string values", enumDecl.Line, enumDecl.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    Error(
+                        ErrorCode.TypeMismatch,
+                        $"Enum member '{member.Name}' must have a string value — this enum uses string values",
+                        diagnosticLine,
+                        diagnosticColumn,
+                        $"Use a string value for '{member.Name}', or change the enum backing type to 'int'",
+                        diagnosticLength);
                 }
             }
         }

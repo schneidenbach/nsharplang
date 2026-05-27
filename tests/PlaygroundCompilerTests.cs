@@ -198,6 +198,34 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_EnumMemberInitializerTypeMismatches_PreserveInitializerValueSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            enum HttpCode: int {
+                Ok = "ok"
+            }
+
+            enum Label: string {
+                Ready = 1
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var numericValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'Ok'"));
+        AssertPlaygroundSpan(numericValue, line: 4, column: 10, length: "\"ok\"".Length);
+
+        var stringValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'Ready'"));
+        AssertPlaygroundSpan(stringValue, line: 8, column: 13, length: "1".Length);
+    }
+
+    [Fact]
     public void Check_ControlFlowAndCollectionTypeMismatches_PreserveOffendingExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""
