@@ -108,8 +108,8 @@ public class CliParityAuditTests
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
             Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
             File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
-            Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models"));
-            File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "idiom-v2", "Models", "Customer.nl"), "record Order(id: string)\n");
+            Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models"));
+            File.WriteAllText(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models", "Customer.nl"), "record Order(id: string)\n");
             Directory.CreateDirectory(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors"));
             File.WriteAllText(Path.Combine(tempDir, "editors", "vscode", "test", "fixtures", "errors", "MultipleSyntaxErrors.nl"), "func Broken(x y) {");
 
@@ -359,7 +359,7 @@ func Main() {
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "--json" }));
 
-            Assert.Equal(0, exitCode); // warnings are non-blocking
+            Assert.Equal(1, exitCode);
             using var doc = JsonDocument.Parse(stdout);
             var root = doc.RootElement;
             Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
@@ -367,7 +367,7 @@ func Main() {
             Assert.False(root.GetProperty("ok").GetBoolean());
             Assert.True(root.GetProperty("lintedFiles").GetInt32() > 0);
             Assert.True(root.GetProperty("results").GetArrayLength() > 0);
-            Assert.True(root.GetProperty("summary").GetProperty("warnings").GetInt32() > 0);
+            Assert.True(root.GetProperty("summary").GetProperty("errors").GetInt32() > 0);
         }
         finally
         {
@@ -390,7 +390,7 @@ func Main() {
             var (exitCode, _, stderr) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "--text" }));
 
-            Assert.Equal(0, exitCode); // warnings are non-blocking
+            Assert.Equal(1, exitCode);
             Assert.Contains("NL001", stderr);
             Assert.Contains("value", stderr);
         }
@@ -479,7 +479,7 @@ func Main() {
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 LintCommand.Execute(new[] { "--project", tempDir, "Program.nl" }));
 
-            Assert.Equal(0, exitCode); // warnings are non-blocking
+            Assert.Equal(1, exitCode);
             using var doc = JsonDocument.Parse(stdout);
             Assert.Equal("lint", doc.RootElement.GetProperty("command").GetString());
         }

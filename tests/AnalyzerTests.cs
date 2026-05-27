@@ -111,12 +111,23 @@ func removeKeyAndValue(): string {
     headers := new Dictionary<string, string>()
     headers[""Accept""] = ""application/json""
 
-    if headers.Remove(""Accept"", out var removedValue) {
+    removedValue := """"
+    if headers.Remove(""Accept"", out removedValue) {
         return removedValue
     }
 
     return ""missing""
 }");
+    }
+
+    [Fact]
+    public void ExplicitVarTypeAnnotation_IsRejected()
+    {
+        AssertHasError(@"
+func main(): int {
+    let value: var = 42
+    return value
+}", "'var' is not a type");
     }
 
     private void AssertHasParseError(string source, string expectedMessage)
@@ -6075,7 +6086,7 @@ func Main() {
     }
 
     [Fact]
-    public void NullableValueAccess_UnguardedWarns()
+    public void NullableValueAccess_UnguardedIsAnError()
     {
         var result = Analyze(@"
             func Main(input: int?): int {
@@ -6083,10 +6094,10 @@ func Main() {
             }
         ");
 
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.True(result.HasErrors);
         Assert.Contains(result.Errors, e =>
             e.Code == ErrorCode.NullabilityWarning
-            && e.Severity == ErrorSeverity.Warning
+            && e.Severity == ErrorSeverity.Error
             && e.Message.Contains(".Value"));
     }
 
@@ -7167,7 +7178,15 @@ func Main() {
 
     #endregion
 
-    #region Impossible Pattern Warnings
+    #region Impossible Pattern Errors
+
+    private void AssertHasStrictError(string source, string expectedMessage)
+    {
+        var result = Analyze(source);
+        Assert.Contains(result.Errors,
+            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Error
+              && e.Message.Contains(expectedMessage));
+    }
 
     private void AssertHasWarning(string source, string expectedMessage)
     {
@@ -7181,15 +7200,14 @@ func Main() {
     {
         var result = Analyze(source);
         Assert.DoesNotContain(result.Errors,
-            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
-              && e.Message.Contains(warningMessage));
+            e => e.Message.Contains(warningMessage));
     }
 
     [Fact]
-    public void ImpossiblePattern_IntIsString_ProducesWarning()
+    public void ImpossiblePattern_IntIsString_ProducesError()
     {
         // int is a value type; string is a different reference type — can never match
-        AssertHasWarning(@"
+        AssertHasStrictError(@"
             func Main() {
                 x: int = 42
                 result := x is string
@@ -7198,10 +7216,10 @@ func Main() {
     }
 
     [Fact]
-    public void ImpossiblePattern_BoolIsInt_ProducesWarning()
+    public void ImpossiblePattern_BoolIsInt_ProducesError()
     {
         // bool and int are unrelated value types — can never match
-        AssertHasWarning(@"
+        AssertHasStrictError(@"
             func Main() {
                 flag: bool = true
                 result := flag is int
@@ -7259,10 +7277,10 @@ func Main() {
     }
 
     [Fact]
-    public void ImpossiblePattern_SealedClassUnrelated_ProducesWarning()
+    public void ImpossiblePattern_SealedClassUnrelated_ProducesError()
     {
         // A sealed class can never be a subtype of an unrelated class
-        AssertHasWarning(@"
+        AssertHasStrictError(@"
             sealed class Cat {
                 Name: string
             }
@@ -7308,10 +7326,10 @@ func Main() {
     }
 
     [Fact]
-    public void ImpossiblePattern_IsExpression_IntIsString_ProducesWarning()
+    public void ImpossiblePattern_IsExpression_IntIsString_ProducesError()
     {
         // if 42 is string s — int can never be string
-        AssertHasWarning(@"
+        AssertHasStrictError(@"
             func Main() {
                 n: int = 42
                 if n is string s {
@@ -7336,11 +7354,11 @@ func Main() {
     }
 
     [Fact]
-    public void ImpossiblePattern_IsExpression_IntIsDouble_Warning()
+    public void ImpossiblePattern_IsExpression_IntIsDouble_Error()
     {
         // The `is` operator is a CLR runtime type-identity test (isinst), NOT a conversion.
         // int is double is always false at runtime, even though int->double is an implicit conversion.
-        AssertHasWarning(@"
+        AssertHasStrictError(@"
             func Main() {
                 x: int = 5
                 result := x is double
@@ -7865,12 +7883,12 @@ func Main() {
     }
 
     [Fact]
-    public void IntTryParse_WithOutVar_NoErrors()
+    public void IntTryParse_WithExistingOutVariable_NoErrors()
     {
-        // Bug 076: int.TryParse with out var should work
         AssertNoErrors(@"
 func Main() {
-    if int.TryParse(""123"", out var result) {
+    result := 0
+    if int.TryParse(""123"", out result) {
         print result
     }
 }

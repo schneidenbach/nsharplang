@@ -3261,46 +3261,6 @@ func check(obj: object): string {
     }
 
     [Fact]
-    public void TestInlineOutVarTranspilation()
-    {
-        var source = @"
-func TryParse(input: string, out result: int): bool {
-    result = 42
-    return true
-}
-
-func Main() {
-    if TryParse(""123"", out var num) {
-        print num
-    }
-}
-";
-
-        var csharp = Transpile(source);
-        Assert.Contains("if (TryParse(\"123\", out var num))", csharp);
-    }
-
-    [Fact]
-    public void TestInlineOutExplicitTypeTranspilation()
-    {
-        var source = @"
-func TryParse(input: string, out result: int): bool {
-    result = 42
-    return true
-}
-
-func Main() {
-    if TryParse(""456"", out int value) {
-        print value
-    }
-}
-";
-
-        var csharp = Transpile(source);
-        Assert.Contains("if (TryParse(\"456\", out int value))", csharp);
-    }
-
-    [Fact]
     public void TestGenericMethodCallTranspilation()
     {
         var source = @"
@@ -4799,18 +4759,18 @@ func Main() {
     }
 
     [Fact]
-    public void TestIntTryParseWithOutVarTranspilation()
+    public void TestIntTryParseWithExistingOutVariableTranspilation()
     {
-        // Bug 076: int.TryParse with out var should work
         var source = @"
 func Main() {
-    if int.TryParse(""123"", out var result) {
+    result := 0
+    if int.TryParse(""123"", out result) {
         print result
     }
 }
         ";
         var result = Transpile(source);
-        Assert.Contains("int.TryParse(\"123\", out var result)", result);
+        Assert.Contains("int.TryParse(\"123\", out result)", result);
     }
 
     [Fact]

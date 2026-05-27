@@ -753,6 +753,28 @@ public sealed class PlaygroundCompilerTests
         Assert.Equal("Message".Length, diagnostic.Length);
     }
 
+    [Fact]
+    public void Check_UnusedShorthandVariable_PreservesVariableNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                asdf := "meow"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL001" &&
+                          diagnostic.Message.Contains("asdf"));
+
+        Assert.False(result.Ok);
+        Assert.Equal("error", diagnostic.Severity);
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("asdf".Length, diagnostic.Length);
+    }
+
     private static void AssertPlaygroundSpan(PlaygroundDiagnostic diagnostic, int line, int column, int length)
     {
         Assert.Equal(line, diagnostic.Line);
@@ -1004,7 +1026,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_MissingParameterColon_PreservesExpectedColonSlot()
+    public void Check_MissingParameterColon_PreservesParameterNameSpan()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -1018,9 +1040,49 @@ public sealed class PlaygroundCompilerTests
             diagnostic => diagnostic.Code == "NL102" &&
                           diagnostic.Message.Contains("Expected ':' after parameter name"));
 
-        AssertPlaygroundSpan(diagnostic, line: 3, column: 16, length: 1);
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 12, length: "name".Length);
         Assert.Equal("func greet(name string): string {", diagnostic.SourceSnippet);
         Assert.Contains("name: Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_MissingFieldColon_PreservesFieldNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name string
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' or ':=' after field name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 5, length: "Name".Length);
+        Assert.Equal("    Name string", diagnostic.SourceSnippet);
+        Assert.Contains("Name: Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_MissingFunctionReturnColon_PreservesFunctionNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func answer() int {
+                return 1
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' before return type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 6, length: "answer".Length);
+        Assert.Equal("func answer() int {", diagnostic.SourceSnippet);
+        Assert.Contains("func name(...): Type", diagnostic.Hint, StringComparison.Ordinal);
     }
 
     [Fact]

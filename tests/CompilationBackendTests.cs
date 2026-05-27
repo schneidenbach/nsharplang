@@ -670,6 +670,45 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_StrictLintError_BlocksIlBuild()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: StrictLintBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    unused := 42
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "-o", outputDir));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Build failed", stdout);
+            Assert.Contains("NL001", stderr);
+            Assert.Contains("Variable 'unused' is declared but never read", stderr);
+            Assert.False(File.Exists(Path.Combine(outputDir, "StrictLintBuild.dll")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_ReleaseUsesReleaseOutputLayout()
     {
         var tempDir = CreateTempDir();

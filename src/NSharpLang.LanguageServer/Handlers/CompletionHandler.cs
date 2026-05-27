@@ -32,7 +32,7 @@ public class CompletionHandler : CompletionHandlerBase
         "throw", "try", "catch", "finally", "lock", "new", "this", "base", "static",
         "virtual", "override", "abstract", "sealed", "partial", "readonly", "const",
         "file", "duck", "public", "private", "internal", "protected", "required",
-        "init", "let", "var", "type", "out", "ref", "params", "true", "false",
+        "init", "let", "type", "out", "ref", "params", "true", "false",
         "null", "is", "as", "typeof", "nameof", "checked", "unchecked", "and",
         "or", "not", "with", "immutable", "print", "test", "assert", "implicit", "explicit",
         "setup", "teardown"

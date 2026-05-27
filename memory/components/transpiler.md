@@ -150,10 +150,10 @@ Lexer stores strings WITH quotes, so the exporter emits them as-is:
 // Transpiled: "hello" (no extra quotes needed)
 ```
 
-### Array Literals with var
-When `var` is used with array literal, the exporter emits explicit array type:
+### Array Literals
+When an inferred declaration uses an array literal, the exporter emits an explicit array type:
 ```
-let items: var = [1, 2, 3]
+let items := [1, 2, 3]
 
 // Transpiles to:
 int[] items = [1, 2, 3];  // NOT: var items = [1, 2, 3];

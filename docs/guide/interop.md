@@ -715,7 +715,6 @@ var message = result switch
 
 ## Next Steps
 
-- **[C# Migration Guide](csharp-migration.md)** - Migrate from C# to N#
 - **[Types Guide](types.md)** - Learn about N# type system
 - **[Examples](../../examples/)** - See interop in action
 

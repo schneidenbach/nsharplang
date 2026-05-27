@@ -18,6 +18,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 ### Key Classes
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
+- **`DiagnosticCatalog`** — Central policy for diagnostic metadata, default severities, categories, and build-blocking behavior across compiler, linter, CLI, MSBuild, and LSP surfaces.
 - **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
@@ -49,7 +50,8 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
 - Operator declaration diagnostics underline the operator syntax, not the declaration fallback: missing `static` on an overload underlines the visible `operator` keyword, while unsupported operators and parameter-count errors underline the operator symbol/name such as `%` or `true`.
 - Missing required expressions after visible statement keywords (`if`, `while`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after operators or assignment anchors still use insertion spans after the anchor.
-- Missing parameter separators such as `func greet(name string)` underline the expected `:` insertion slot immediately after the parameter name, not the following type token.
+- Diagnostic spans should prefer full visible tokens over single-character whitespace insertion slots. If a visible owning identifier or keyword exists, underline that token so IDE squiggles are easy to see.
+- Missing parameter separators such as `func greet(name string)`, member separators such as `Name string`, and function return separators such as `func answer() int` underline the owning parameter, field, or function name, not the whitespace insertion slot or following type token.
 - Incomplete member access diagnostics underline the member-access operator (`.` or `?.`) whenever no member name follows, including same-line continuations such as `name.()` or `name. }`.
 - Parser diagnostics for invalid generic constraints underline the offending constraint token: `where T : class, struct` underlines the later `struct`, and `where T : struct, new()` underlines the redundant `new()`.
 - Control-flow placement diagnostics underline the full invalid control keyword (`break`, `continue`, or `return`) when the keyword appears in a context where it cannot run.
@@ -60,6 +62,12 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Assignment diagnostics should underline the target or value token that must change: readonly field reassignment (`NL309`) underlines the assigned field name, whether the assignment is direct (`id = ...`) or qualified (`this.id = ...`).
 
 ## Error Codes
+
+### Lint Diagnostics (001-099)
+- `NL001`: Unused variable (error by default; prefix intentional unused locals with `_`)
+- `NL006`: Unreachable code (error by default)
+- `NL010`: Unused import (error by default)
+- Other lint diagnostics keep warning/info defaults unless overridden in `.editorconfig`.
 
 ### Syntax Errors (100-199)
 - `NL101`: UnexpectedToken

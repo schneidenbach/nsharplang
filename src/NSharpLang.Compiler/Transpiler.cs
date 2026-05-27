@@ -2723,7 +2723,6 @@ public class Transpiler
             SizeOfExpression sizeOf => $"sizeof({TranspileTypeReference(sizeOf.Type)})",
             TupleExpression tuple => TranspileTupleExpression(tuple),
             SpreadExpression spread => $"..{TranspileExpression(spread.Expression)}",
-            OutVariableDeclarationExpression outVar => TranspileOutVariableDeclaration(outVar),
             ParenthesizedExpression paren => $"({TranspileExpression(paren.Inner)})",
             DefaultExpression => "default",
             _ => throw new Exception($"Unsupported expression type: {expression.GetType().Name}")
@@ -2850,22 +2849,6 @@ public class Transpiler
         var start = range.Start != null ? TranspileExpression(range.Start) : "";
         var end = range.End != null ? TranspileExpression(range.End) : "";
         return $"{start}..{end}";
-    }
-
-    private string TranspileOutVariableDeclaration(OutVariableDeclarationExpression outVar)
-    {
-        // Transpile inline out variable declaration
-        // out var x  =>  out var x
-        // out int x  =>  out int x
-        if (outVar.Type == null)
-        {
-            return $"var {outVar.VariableName}";
-        }
-        else
-        {
-            var type = TranspileTypeReference(outVar.Type);
-            return $"{type} {outVar.VariableName}";
-        }
     }
 
     private string TranspileUnaryExpression(UnaryExpression unary)

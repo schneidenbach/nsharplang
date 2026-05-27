@@ -3025,7 +3025,7 @@ public class Analyzer : IDisposable
                 // Check if pattern is provably impossible
                 if (!IsPatternPossible(valueType, targetType))
                 {
-                    Warning(ErrorCode.ImpossiblePattern,
+                    Error(ErrorCode.ImpossiblePattern,
                         $"This 'is {targetType}' pattern will never match — a '{valueType}' can never be '{targetType}'",
                         pattern.Line, pattern.Column);
                 }
@@ -3154,7 +3154,6 @@ public class Analyzer : IDisposable
             CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
             UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
-            OutVariableDeclarationExpression outVar => AnalyzeOutVariableDeclaration(outVar),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             DefaultExpression defaultExpr => AnalyzeDefaultExpression(defaultExpr),
@@ -3282,35 +3281,6 @@ public class Analyzer : IDisposable
 
         // All range expressions return System.Range
         return GetRangeType();
-    }
-
-    private TypeInfo AnalyzeOutVariableDeclaration(OutVariableDeclarationExpression outVar)
-    {
-        // Determine the type
-        TypeInfo varType;
-        if (outVar.Type != null)
-        {
-            // Explicit type: out int x
-            varType = ResolveType(outVar.Type);
-        }
-        else
-        {
-            // Type inference: out var x
-            // The type will be inferred from the parameter type in AnalyzeCall
-            // For now, we mark it as Unknown - it will be updated when analyzing the call
-            varType = BuiltInTypes.Unknown;
-        }
-
-        // Declare the variable in the current scope (skip if already declared,
-        // since BindReflectionCall may re-analyze arguments)
-        var existingSymbol = LookupSymbol(outVar.VariableName);
-        if (existingSymbol == null)
-        {
-            DeclareSymbol(outVar.VariableName, varType, outVar.Line, outVar.Column);
-            RecordVariableInCurrentScope(outVar.VariableName, varType);
-        }
-
-        return existingSymbol ?? varType;
     }
 
     private TypeInfo AnalyzeSpreadExpression(SpreadExpression spread)
@@ -3804,7 +3774,7 @@ public class Analyzer : IDisposable
         {
             if (!isNarrowedNullableOrigin)
             {
-                Warning(
+                Error(
                     ErrorCode.NullabilityWarning,
                     "This '.Value' access can throw when the nullable value is absent",
                     member.Line,
@@ -7147,20 +7117,6 @@ public class Analyzer : IDisposable
         var openParameterType = supplied.OpenParameterType;
         var boundParameterType = ApplyReflectionBindings(openParameterType, bindings);
 
-        if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
-        {
-            if (outVariable.Type != null)
-            {
-                var declaredType = ResolveType(outVariable.Type);
-                var expectedTypeInfo = ConvertReflectionType(boundParameterType);
-                if (!IsAssignable(expectedTypeInfo, declaredType))
-                    return false;
-            }
-
-            score = 8;
-            return true;
-        }
-
         if (supplied.Argument.Value is DefaultExpression)
         {
             score = 8;
@@ -8172,7 +8128,7 @@ public class Analyzer : IDisposable
 
         if (!IsPatternPossible(sourceType, targetType))
         {
-            Warning(ErrorCode.ImpossiblePattern,
+            Error(ErrorCode.ImpossiblePattern,
                 $"This 'is {targetType}' check will always be false — a '{sourceType}' can never be '{targetType}'",
                 isExpr.Line, isExpr.Column);
         }
@@ -9006,6 +8962,12 @@ public class Analyzer : IDisposable
 
     private TypeInfo ResolveSimpleType(string name, int line = 0, int column = 0)
     {
+        if (name == "var" && line > 0)
+        {
+            Error("'var' is not a type; use ':=' for type inference", line, column);
+            return BuiltInTypes.Unknown;
+        }
+
         // Check built-in types
         TypeInfo? builtInType = name switch
         {
@@ -9025,7 +8987,6 @@ public class Analyzer : IDisposable
             "string" => BuiltInTypes.String,
             "void" => BuiltInTypes.Void,
             "object" => BuiltInTypes.Object,
-            "var" => BuiltInTypes.InferenceHole, // Treat 'var' as inference hole
             _ => null
         };
 
@@ -9363,8 +9324,11 @@ public class Analyzer : IDisposable
         if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
             return;
 
-        Warning($"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
-            line, column);
+        Warning(
+            ErrorCode.VisibilityConventionWarning,
+            $"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
+            line,
+            column);
     }
 
     // Type checking helpers

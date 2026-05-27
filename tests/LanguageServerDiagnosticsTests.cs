@@ -962,6 +962,43 @@ func Hi() {
     }
 
     [Fact]
+    public void Diagnostics_InvalidMemberCallsAndReturnType_AreAllPublished()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///invalid-member-calls.nl";
+
+        var source = """
+package HelloWorld
+
+func Hi() {
+    "asdf".toUp()
+    asdf := "asdf"
+    asdf.sdd()
+    return 42
+}
+""";
+
+        documentManager.MarkEditorOpen(uri);
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var publications = documentManager.GetDiagnosticsToPublish(uri);
+        var diagnostics = Assert.Single(publications).CompilerDiagnostics.ToList();
+
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.UndefinedMember &&
+            diagnostic.Message.Contains("toUp") &&
+            diagnostic.Line == 4);
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.UndefinedMember &&
+            diagnostic.Message.Contains("sdd") &&
+            diagnostic.Line == 6);
+        Assert.Contains(diagnostics, diagnostic =>
+            diagnostic.Code == ErrorCode.TypeMismatch &&
+            diagnostic.Message.Contains("returns int but has no return type") &&
+            diagnostic.Line == 7);
+    }
+
+    [Fact]
     public void Diagnostics_MalformedEditingBuffer_PublishesHighSignalProblems()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -1320,7 +1357,7 @@ func main() {
     }
 
     [Fact]
-    public void Diagnostics_MissingParameterColon_UsesExpectedColonSlot()
+    public void Diagnostics_MissingParameterColon_UsesParameterNameSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-parameter-colon.nl";
@@ -1336,9 +1373,88 @@ func main() {
             diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
                           diagnostic.Message.Contains("Expected ':' after parameter name"));
 
-        AssertDiagnosticSpan(diagnostic, line: 1, column: 16, length: 1);
-        AssertLspRange(diagnostic, line0: 0, startCharacter: 15, endCharacter: 16);
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 12, length: "name".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 11, endCharacter: 15);
         Assert.Contains("name: Type", diagnostic.ContextualHint);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingFieldColon_UsesFieldNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-field-colon.nl";
+
+        var source = """
+class User {
+    Name string
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected ':' or ':=' after field name"));
+
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 5, length: "Name".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 4, endCharacter: 8);
+        Assert.Contains("Name: Type", diagnostic.ContextualHint);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingFunctionReturnColon_UsesFunctionNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-function-return-colon.nl";
+
+        var source = "func answer() int { return 1 }";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected ':' before return type"));
+
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 6, length: "answer".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 5, endCharacter: 11);
+        Assert.Contains("func name(...): Type", diagnostic.ContextualHint);
+    }
+
+    [Fact]
+    public void LinterDiagnostics_UnusedShorthandVariable_UsesVariableNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unused-shorthand-variable.nl";
+
+        var source = """
+func main() {
+    asdf := "meow"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.LinterDiagnostics ?? Enumerable.Empty<Diagnostic>(),
+            diagnostic => diagnostic.Code == "NL001" &&
+                          diagnostic.Message.Contains("asdf"));
+
+        Assert.Equal(2, diagnostic.Location.Line);
+        Assert.Equal(5, diagnostic.Location.Column);
+        Assert.Equal("asdf".Length, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromLinterDiagnostic(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(8, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]

@@ -56,6 +56,16 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestVarIsIdentifier()
+    {
+        var tokens = Tokenize("var");
+
+        Assert.Equal(2, tokens.Count); // var + EOF
+        Assert.Equal(TokenType.Identifier, tokens[0].Type);
+        Assert.Equal("var", tokens[0].Value);
+    }
+
+    [Fact]
     public void TestNumbers()
     {
         var source = "42 3.14 100_000 1.5_5";

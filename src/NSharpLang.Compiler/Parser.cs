@@ -192,18 +192,6 @@ public class Parser
         }
 
         // Namespace import: import System.Collections.Generic [as Alias]
-        // OR: import Alias = System.Collections.Generic (C# style)
-
-        // Check for C# style alias: import Alias = Namespace
-        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Assign)
-        {
-            var alias = ConsumeIdentifier("Expected identifier");
-            Consume(TokenType.Assign, "Expected '='");
-            var namespaceName = ParseQualifiedName();
-            return new NamespaceImport(namespaceName, alias, line, column);
-        }
-
-        // Normal namespace import with optional 'as' alias
         var ns = ParseQualifiedName();
         string? nsAlias = null;
 
@@ -416,6 +404,10 @@ public class Parser
         SourceSpan operatorKeywordSpan = SourceSpan.None;
         SourceSpan operatorSymbolSpan = SourceSpan.None;
         string name;
+        string returnTypeDiagnosticName = "function";
+        int returnTypeDiagnosticLine = line;
+        int returnTypeDiagnosticColumn = column;
+        int returnTypeDiagnosticLength = Math.Max(1, Current.Value.Length);
 
         if (Check(TokenType.Implicit) || Check(TokenType.Explicit))
         {
@@ -459,6 +451,10 @@ public class Parser
                 isOperatorOverload = true;
                 var operatorKeywordToken = Advance(); // consume 'operator'
                 operatorKeywordSpan = SpanFromTokens(operatorKeywordToken, operatorKeywordToken);
+                returnTypeDiagnosticName = "operator overload";
+                returnTypeDiagnosticLine = operatorKeywordToken.Line;
+                returnTypeDiagnosticColumn = operatorKeywordToken.Column;
+                returnTypeDiagnosticLength = Math.Max(1, operatorKeywordToken.Value.Length);
 
                 // Get the operator symbol
                 var operatorSymbolToken = Current;
@@ -468,7 +464,16 @@ public class Parser
             }
             else
             {
+                var nameLine = Current.Line;
+                var nameColumn = Current.Column;
                 name = ConsumeIdentifier("Expected function name");
+                if (name != "<error>")
+                {
+                    returnTypeDiagnosticName = name;
+                    returnTypeDiagnosticLine = nameLine;
+                    returnTypeDiagnosticColumn = nameColumn;
+                    returnTypeDiagnosticLength = Math.Max(1, name.Length);
+                }
             }
         }
 
@@ -485,6 +490,8 @@ public class Parser
 
         var parameters = ParseParameterList();
 
+        var parameterListEndToken = Previous;
+
         // For regular functions, return type comes AFTER parameters (with colon)
         if (!isConversionOperator &&
             (Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater)))
@@ -499,6 +506,15 @@ public class Parser
                 Advance(); // consume '-'
                 Consume(TokenType.Greater, "Expected '>' after '-' in return type arrow");
             }
+            returnType = ParseTypeReference();
+        }
+        else if (!isConversionOperator && IsLikelyMissingReturnTypeMarker(parameterListEndToken))
+        {
+            ReportMissingReturnTypeMarker(
+                returnTypeDiagnosticName,
+                returnTypeDiagnosticLine,
+                returnTypeDiagnosticColumn,
+                returnTypeDiagnosticLength);
             returnType = ParseTypeReference();
         }
 
@@ -1453,7 +1469,7 @@ public class Parser
         }
 
         // Otherwise, expect explicit type with :
-        Consume(TokenType.Colon, "Expected ':' or ':='");
+        ConsumeFieldColon(name, line, column);
         type = ParseTypeReference();
 
         // Check for expression-bodied property: name: type => expr
@@ -2083,11 +2099,14 @@ public class Parser
             }
         }
 
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
         var name = ConsumeIdentifier("Expected function name");
         var typeParams = ParseTypeParameters();
         var parameters = ParseParameterList();
 
         TypeReference? returnType = null;
+        var parameterListEndToken = Previous;
         if (Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater))
         {
             if (Check(TokenType.Colon))
@@ -2099,6 +2118,15 @@ public class Parser
                 Advance(); // consume '-'
                 Consume(TokenType.Greater, "Expected '>' after '-' in return type arrow");
             }
+            returnType = ParseTypeReference();
+        }
+        else if (IsLikelyMissingReturnTypeMarker(parameterListEndToken))
+        {
+            ReportMissingReturnTypeMarker(
+                name == "<error>" ? "local function" : name,
+                name == "<error>" ? line : nameLine,
+                name == "<error>" ? column : nameColumn,
+                name == "<error>" ? Math.Max(1, "func".Length) : Math.Max(1, name.Length));
             returnType = ParseTypeReference();
         }
 
@@ -2308,8 +2336,6 @@ public class Parser
             else
             {
                 // This will handle both regular expressions and := shorthand declarations
-                var initLine = Current.Line;
-                var initCol = Current.Column;
                 var expr = ParseExpression();
 
                 // Check for := shorthand declaration
@@ -2320,7 +2346,7 @@ public class Parser
                         initializerToken,
                         expectedDescription: "an initializer expression",
                         ownerDescription: "This for-loop initializer");
-                    initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, initLine, initCol);
+                    initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, ident.Line, ident.Column);
                 }
                 else
                 {
@@ -3167,7 +3193,7 @@ public class Parser
                 initializerToken,
                 expectedDescription: "an initializer expression",
                 ownerDescription: "This shorthand variable declaration");
-            return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, line, column);
+            return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, ident.Line, ident.Column);
         }
 
         return new ExpressionStatement(expr, line, column);
@@ -3928,34 +3954,22 @@ public class Parser
                     modifier = ArgumentModifier.Out;
                     Advance();
 
-                    // Check for inline out variable declaration (C# 7+)
-                    // Syntax: out var identifier  OR  out Type identifier
-                    var line = Current.Line;
-                    var column = Current.Column;
-
-                    if ((Check(TokenType.Identifier) || Check(TokenType.Let)) && Current.Value == "var")
+                    if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier)
                     {
-                        // out var identifier
-                        Advance(); // consume 'var'
-                        var varName = ConsumeIdentifier("Expected identifier after 'out var'");
-                        var outVarDecl = new OutVariableDeclarationExpression(null, varName, line, column);
-                        args.Add(new Argument(null, outVarDecl, modifier));
-                        continue; // Skip the rest of normal argument parsing
-                    }
-                    else if (Check(TokenType.Identifier))
-                    {
-                        // Could be: out Type identifier  OR  out existingVar
-                        // We need to check if next token is another identifier
-                        if (LookAhead(1).Type == TokenType.Identifier)
-                        {
-                            // out Type identifier
-                            var typeRef = ParseTypeReference();
-                            var varName = ConsumeIdentifier("Expected identifier after type");
-                            var outVarDecl = new OutVariableDeclarationExpression(typeRef, varName, line, column);
-                            args.Add(new Argument(null, outVarDecl, modifier));
-                            continue; // Skip the rest of normal argument parsing
-                        }
-                        // Otherwise fall through to normal expression parsing (out existingVar)
+                        var first = Current;
+                        var second = LookAhead(1);
+                        ReportError(
+                            ErrorCode.InvalidSyntax,
+                            "Inline out declarations are not supported",
+                            first.Line,
+                            first.Column,
+                            humanExplanation: "N# out arguments must refer to a variable that already exists.",
+                            hint: $"Declare '{second.Value}' before the call, then pass 'out {second.Value}'.",
+                            length: Math.Max(1, second.Column + second.Value.Length - first.Column));
+                        Advance();
+                        Advance();
+                        args.Add(new Argument(null, new IdentifierExpression(second.Value, second.Line, second.Column), modifier));
+                        continue;
                     }
                 }
 
@@ -5498,21 +5512,82 @@ public class Parser
         if (parameterName == "<error>" || parameterLine <= 0 || parameterColumn <= 0)
             return Consume(TokenType.Colon, "Expected ':' after parameter name");
 
-        var insertionColumn = parameterColumn + Math.Max(1, parameterName.Length);
+        var nameLength = Math.Max(1, parameterName.Length);
+        var insertionColumn = parameterColumn + nameLength;
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected ':' after parameter name. Got '{Current.Value}'",
             parameterLine,
-            insertionColumn,
+            parameterColumn,
             humanExplanation: $"Parameter '{parameterName}' needs a ':' before its type.",
             hint: $"Write this parameter as `{parameterName}: Type`.",
             suggestions: new List<string>
             {
                 $"Add ':' after '{parameterName}'"
             },
-            length: 1);
+            length: nameLength);
 
         return new Token(TokenType.Colon, ":", parameterLine, insertionColumn, Current.FileName);
+    }
+
+    private Token ConsumeFieldColon(string fieldName, int fieldLine, int fieldColumn)
+    {
+        if (Check(TokenType.Colon))
+            return Advance();
+
+        if (fieldName == "<error>" || fieldLine <= 0 || fieldColumn <= 0)
+            return Consume(TokenType.Colon, "Expected ':' or ':='");
+
+        var nameLength = Math.Max(1, fieldName.Length);
+        var insertionColumn = fieldColumn + nameLength;
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' or ':=' after field name. Got '{Current.Value}'",
+            fieldLine,
+            fieldColumn,
+            humanExplanation: $"Field '{fieldName}' needs a ':' before its type, or ':=' before an inferred initializer.",
+            hint: $"Write this field as `{fieldName}: Type` or `{fieldName} := value`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' after '{fieldName}'",
+                $"Use ':=' after '{fieldName}' if the type should be inferred"
+            },
+            length: nameLength);
+
+        return new Token(TokenType.Colon, ":", fieldLine, insertionColumn, Current.FileName);
+    }
+
+    private bool IsLikelyMissingReturnTypeMarker(Token parameterListEndToken)
+    {
+        return parameterListEndToken.Type == TokenType.RightParen &&
+               Current.Line == parameterListEndToken.Line &&
+               IsTypeReferenceStart(Current.Type);
+    }
+
+    private static bool IsTypeReferenceStart(TokenType type)
+    {
+        return type is TokenType.Identifier or TokenType.LeftParen;
+    }
+
+    private void ReportMissingReturnTypeMarker(
+        string declarationName,
+        int declarationLine,
+        int declarationColumn,
+        int declarationLength)
+    {
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' before return type. Got '{Current.Value}'",
+            declarationLine,
+            declarationColumn,
+            humanExplanation: $"Function '{declarationName}' needs a ':' before its return type.",
+            hint: "Write the return type as `func name(...): Type { ... }`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' before '{Current.Value}'",
+                "Remove the return type if this function does not return a value"
+            },
+            length: Math.Max(1, declarationLength));
     }
 
     private bool EnsureProgress(int startPosition)

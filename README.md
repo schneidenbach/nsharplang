@@ -153,21 +153,21 @@ nlc check --text
 # Code intelligence for humans, editors, and agents
 nlc query help
 
-# Export C# for inspection or migration review
+# Export C# for inspection
 nlc export csharp --project . --output ./nsharp-csharp
 
 # Build with detailed output/timings for debugging
 nlc build --verbose --timings
 ```
 
-There is intentionally no public `nlc convert` command. C#→N# migration should be AI-assisted and diagnostic-driven: author idiomatic `.nl`, run `nlc check`, `nlc idiom`, `nlc fix --dry-run`, `nlc format --check`, and tests, then iterate.
+There is intentionally no public C# conversion workflow. Write N# directly, use `nlc check`, `nlc fix --dry-run`, `nlc format --check`, and tests for feedback, and keep C# export as an inspection tool.
 
 ## Current CLI Surface
 
 Current `nlc --help` lists these top-level commands:
 
 ```text
-build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export idiom watch doc env doctor completion help
+build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export watch doc env doctor completion help
 ```
 
 `nlc query help` lists these query commands:
@@ -195,7 +195,7 @@ Shell completions are generated from the same registry. When docs drift, prefer 
 
 ### .NET Interop
 - C#-consumable generated assemblies and source where supported
-- Ref/out parameters and common C# call patterns
+- Ref/out parameters for .NET interop
 - Operator overloads and extension methods in covered scenarios
 - Async/await over .NET tasks
 
@@ -251,7 +251,7 @@ See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
 .nl source → Lexer → Parser → Analyzer → IL compiler / generated C# paths → .NET assembly
 ```
 
-Some workflows emit or inspect generated C#; the product direction is not a public one-shot converter.
+Some workflows emit generated C# for compiler inspection and interop debugging.
 
 ## C# Interop Example
 

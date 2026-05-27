@@ -196,7 +196,7 @@ func test() {
     }
 
     [Fact]
-    public void Parser_MissingParameterColon_PointsAtExpectedColonSlot()
+    public void Parser_MissingParameterColon_PointsAtParameterName()
     {
         var source = "func greet(name string): string { return name }";
         var result = Parse(source);
@@ -207,9 +207,50 @@ func test() {
                      error.Message.Contains("Expected ':' after parameter name"));
 
         Assert.Equal(1, error.Line);
-        Assert.Equal(16, error.Column);
-        Assert.Equal(1, error.Length);
+        Assert.Equal(12, error.Column);
+        Assert.Equal("name".Length, error.Length);
         Assert.Contains("name: Type", error.ContextualHint);
+    }
+
+    [Fact]
+    public void Parser_MissingFieldColon_PointsAtFieldName()
+    {
+        var source = """
+class User {
+    Name string
+}
+""";
+
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.ExpectedToken &&
+                     error.Message.Contains("Expected ':' or ':=' after field name"));
+
+        Assert.Equal(2, error.Line);
+        Assert.Equal(5, error.Column);
+        Assert.Equal("Name".Length, error.Length);
+        Assert.Equal("    Name string", error.SourceSnippet);
+        Assert.Contains("Name: Type", error.ContextualHint);
+    }
+
+    [Fact]
+    public void Parser_MissingFunctionReturnColon_PointsAtFunctionName()
+    {
+        var source = "func answer() int { return 1 }";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.ExpectedToken &&
+                     error.Message.Contains("Expected ':' before return type"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(6, error.Column);
+        Assert.Equal("answer".Length, error.Length);
+        Assert.Equal("func answer() int { return 1 }", error.SourceSnippet);
+        Assert.Contains("func name(...): Type", error.ContextualHint);
     }
 
     [Fact]

@@ -27,7 +27,6 @@ public class Lexer
         { "import", TokenType.Import },
         { "package", TokenType.Package },
         { "let", TokenType.Let },
-        { "var", TokenType.Let },  // var is an alias for let (C# compat)
         { "must", TokenType.Must },
         { "const", TokenType.Const },
         { "readonly", TokenType.Readonly },

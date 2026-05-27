@@ -37,8 +37,6 @@ const EXPECTED_ERROR_FILES: Record<string, string> = {
     'examples/06-classes-and-records/PrimaryConstructorsSimple.nl': 'Parser: primary constructors not yet supported in LSP',
     // Parser doesn't yet support extension methods
     'examples/07-interfaces/ExtensionMethods.nl': 'Parser: extension methods not yet supported in LSP',
-    // Parser doesn't yet support inline out variables
-    'examples/10-interop/InlineOutVariables.nl': 'Parser: inline out var not yet supported in LSP',
     // Parser doesn't yet support ref/out parameters in all contexts
     'examples/10-interop/RefOutParameters.nl': 'Parser: ref/out parameters not yet supported in LSP',
     // Parser doesn't yet support async streams fully

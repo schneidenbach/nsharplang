@@ -8,9 +8,9 @@ This file is the current public-facing limitations register for N# docs. Keep it
 - **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only in dated evidence artifacts such as `docs/talk/evidence-matrix.md`.
 - **Packaging/public feed status must be verified per release.** Local/private setup exists, but docs should not imply broadly available public NuGet packages unless the package/feed evidence is current.
 
-## CLI and Migration
+## CLI
 
-- **No public `nlc convert` contract.** C#→N# migration is AI-assisted and diagnostic-driven: produce idiomatic `.nl`, then iterate through `nlc check`, `nlc query diagnostics --clusters`, `nlc idiom`, reviewed `nlc fix --dry-run`, formatting, and tests.
+- **No public C# conversion contract.** N# is authored directly. `nlc export csharp` is for inspection, not a conversion workflow.
 - **CLI docs must track help/completions.** Current top-level commands and `nlc query` subcommands are registered in `CommandRegistry` and surfaced by `nlc --help`, `nlc query help`, and `nlc completion <shell>`.
 
 ## Language Semantics
@@ -19,7 +19,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 - **Nested union matching has edge cases.** Curated nested-union patterns are supported, but deep/constrained nested coverage should be verified with focused tests before it is advertised as complete.
 - **Type alias emission inherits C# alias restrictions.** Same-namespace aliases and nullable reference aliases can hit C# `using` alias limitations.
 - **Attribute support is scenario-based, not blanket parity.** Declaration and parameter attributes are parsed/formatted and current targeted tests cover C# stubs plus IL parameter metadata. Verify framework-specific attribute scenarios, especially ASP.NET controllers/model binding and xUnit discovery, with focused tests before using them as release evidence.
-- **Null-forgiving `!` is not the migration path.** Prefer explicit null checks or null-coalescing. `nlc idiom` should flag C#-style null/default-forgiving leftovers in migrations.
+- **Null-forgiving `!` should not become an escape hatch.** Prefer explicit null checks or null-coalescing. Diagnostics for null/default-forgiving syntax should come from token/parser/AST/semantic analysis, not source-only scans.
 
 ## Build and Performance
 
@@ -35,4 +35,4 @@ This file is the current public-facing limitations register for N# docs. Keep it
 
 - Avoid absolute claims such as "perfect interop," "all features implemented," "production-ready," or "it just works" unless the exact scenario is backed by a fresh gate.
 - Prefer phrases like "designed for," "covered scenarios," "curated examples," and "verify with" when describing active surfaces.
-- Keep private migration artifacts out of the repository unless explicitly redacted and approved.
+- Keep private customer/application artifacts out of the repository unless explicitly redacted and approved.

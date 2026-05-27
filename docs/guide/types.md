@@ -754,7 +754,7 @@ city := user?.Address?.City
 
 ### Null checks instead of null-forgiving
 
-N# does not use C#'s null-forgiving `!` as the migration escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
+N# does not use C#'s null-forgiving `!` as an escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
 
 ```n#
 optionalName: string? = GetName()
@@ -767,7 +767,7 @@ if optionalName != null {
 displayName := optionalName ?? "anonymous"
 ```
 
-`null!`, `default!`, and blind `.Value` access are migration leftovers; `nlc lint` reports them so you can replace suppression with explicit nullable handling.
+`null!`, `default!`, and blind `.Value` access are not N# style. Replace suppression with explicit nullable handling.
 
 ## Type Aliases
 

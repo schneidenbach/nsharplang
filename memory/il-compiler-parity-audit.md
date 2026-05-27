@@ -48,7 +48,7 @@ Comparison basis:
   - value-type instance member/method dispatch needed by struct/newtype emission
   - union declarations with nested CLR case types
   - union-case and object-property pattern emission
-  - `ref`/`out` parameters and inline `out var` / `out Type` call arguments
+  - `ref`/`out` parameters with explicit out variables
   - `AssertStatement`
   - `AssertThrowsStatement`
   - `SizeOfExpression`

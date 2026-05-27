@@ -620,7 +620,7 @@ import System.Linq
 import System.Collections.Generic
 
 // Alias an import
-import Json = System.Text.Json
+import System.Text.Json as Json
 
 // Declare your namespace
 package MyApp.Services
@@ -653,7 +653,7 @@ Explicit modifiers are narrow .NET interop escape hatches, not the normal way to
 
 ```n#
 class Service {
-    public legacyCamel: string      // forced public for interop/migration
+    public legacyCamel: string      // forced public for interop
     private SecretPascal: string    // forced hidden despite PascalCase
     internal ConnectionString: string
     protected BaseUrl: string

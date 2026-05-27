@@ -195,8 +195,8 @@ public static class LintCommand
 
 Usage: nlc lint [options] [files...]
 
-Run static analysis rules on N# source files. Lints are also included
-in 'nlc check' output.
+Run static analysis rules on N# source files. Error-severity lints are
+also included in 'nlc check' and block project builds.
 
 Options:
   --project <dir>   Project root directory (default: current directory)
@@ -205,12 +205,13 @@ Options:
   --help, -h        Show this help text
 
 Lint Rules:
-  NL001  warning   Unused variable
+  NL001  error     Unused variable
   NL002  error     Missing import
   NL003  warning   Unnecessary null check on value type
   NL004  warning   Async function without await
   NL005  info      Use pattern matching
-  NL006  warning   Unreachable code
+  NL006  error     Unreachable code
+  NL010  error     Unused import
 
 Inline Suppression:
   // nlc:ignore NL001
@@ -224,7 +225,7 @@ Examples:
   nlc lint --project examples/16-task-cli
 
 Exit codes:
-  0  No errors found (warnings and info are non-blocking)
+  0  No errors found
   1  One or more errors were reported");
 
         return 0;

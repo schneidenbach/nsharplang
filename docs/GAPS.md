@@ -161,4 +161,4 @@ if name != null {
 
 **ASP.NET Core Interop Readiness:** Parameter-attribute model-binding path verified by targeted parser, stub-emitter, and IL metadata tests.
 
-The critical gaps in this ASP.NET-focused audit path (external types, boolean inference, and parameter attributes for framework interop) have been resolved. The remaining unsupported null-forgiving operator has simple explicit alternatives; N# migration diagnostics now call out `null!`, `default!`, and unsafe `.Value` access so code can move to explicit null checks, `??`, or `match`. This is not a broader production-readiness claim beyond the evidence captured by the focused tests and full-gate status.
+The critical gaps in this ASP.NET-focused audit path (external types, boolean inference, and parameter attributes for framework interop) have been resolved. The remaining unsupported null-forgiving operator has simple explicit alternatives: use explicit null checks, `??`, or `match`. This is not a broader production-readiness claim beyond the evidence captured by the focused tests and full-gate status.

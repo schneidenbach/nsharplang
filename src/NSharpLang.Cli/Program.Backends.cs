@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli;
 
@@ -210,9 +212,13 @@ Build timings:
         ReferenceResolutionResult? references = null,
         bool includeTests = false)
     {
-        var compiler = includeTests
-            ? new MultiFileCompiler(config.GetSourceFiles(projectRoot, includeTests: true), projectRoot, config)
-            : new MultiFileCompiler(projectRoot, config);
+        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
+        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
+        {
+            return null;
+        }
+
+        var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
             outputDir,
@@ -228,6 +234,11 @@ Build timings:
         string outputDir,
         ReferenceResolutionResult? references = null)
     {
+        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
+        {
+            return null;
+        }
+
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
@@ -263,6 +274,26 @@ Build timings:
         references?.CopyRuntimeAssets(outputDir);
 
         return result.OutputAssemblyPath;
+    }
+
+    private static bool ValidateStrictLintDiagnostics(string projectRoot, IReadOnlyList<string> sourceFiles)
+    {
+        var diagnostics = CodeIntelligenceService.GetLintDiagnostics(projectRoot, sourceFiles)
+            .Where(diagnostic => diagnostic.Severity == "error")
+            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
+            .Select(group => group.First())
+            .OrderBy(diagnostic => diagnostic.File)
+            .ThenBy(diagnostic => diagnostic.Line)
+            .ThenBy(diagnostic => diagnostic.Column)
+            .ToList();
+
+        if (diagnostics.Count == 0)
+        {
+            return true;
+        }
+
+        Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
+        return false;
     }
 
     private static void EmitCompilationDiagnostics(MultiFileCompilationResult result)

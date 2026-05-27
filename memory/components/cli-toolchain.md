@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available only as the explicit `nlc export csharp` migration/off-ramp command. C# input migration is intentionally AI-driven through diagnostics and idiom gates, not `nlc convert`; migration-quality work should prefer AI-assisted diagnostic clustering and idiom gates over treating initial migration output as final.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
 
 ---
 
@@ -37,10 +37,6 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
-
-### C# Source Migration
-
-There is no public `nlc convert` command in the canonical CLI contract. C#→N# migration is AI-driven: write idiomatic `.nl` directly, use `nlc check --json` diagnostic clusters as the edit queue, clear `nlc idiom` C# debt, apply reviewed `nlc fix` patches, format, and test.
 
 ### Code Intelligence (`nlc query`)
 
@@ -213,14 +209,14 @@ $ nlc fix --file F                  # fix single file
 
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
-| NL001 | Warning | `unused-variable` | Local variable declared but never read; suppressed for declarations whose initializer is a parser recovery placeholder |
+| NL001 | Error | `unused-variable` | Local variable declared but never read |
 | NL002 | Error | `missing-import` | Type used without the required `import` |
 | NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
 | NL004 | Warning | `async-without-await` | `async` function never uses `await` |
 | NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
-| NL006 | Warning | `unreachable-code` | Statements after `return` or `throw` |
+| NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
 | NL008 | Info | `camel-case-local` | Local variable name starts with uppercase (locals use camelCase; PascalCase is for exported declarations) |
-| NL010 | Warning | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
+| NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
 | NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
 | NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
@@ -230,7 +226,6 @@ $ nlc fix --file F                  # fix single file
 | NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
-| NL111 | Info | `unsafe-value-access` | C# migration smell: direct `.Value` unwrap can throw; prefer `must`, `match`, or an explicit guard |
 
 Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
 
@@ -245,7 +240,6 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
 | NL015 | Replace `let` with `const` | `Safe` | |
-| NL111 | Replace `receiver.Value` with `must receiver`; also reports a match-based rewrite suggestion | `ReviewNeeded` + `SuggestionOnly` | ReviewNeeded edit makes the throw explicit; SuggestionOnly carries no edits |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
 **`FixSafety` levels** (on `CodeAction`):
@@ -523,7 +517,7 @@ nlc format --stdin < Program.nl
 - `--check` is the preferred CI flag
 - `--verify-no-changes` remains as a compatibility alias
 - `--diff` prints unified hunks against the formatter output
-- `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic/migration fixtures are not part of that gate.
+- `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic fixtures are not part of that gate.
 
 ### `nlc tree` — Dependency Tree
 

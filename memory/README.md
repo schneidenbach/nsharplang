@@ -122,7 +122,7 @@ Documentation organized by feature category.
 Type inference, duck interfaces, external types, user-defined types.
 
 **Topics:**
-- Type inference (var, :=, arrays)
+- Type inference (`:=`, arrays)
 - Duck interfaces and structural typing
 - Anonymous unions (`A | B`) and CLR `Union<T0, T1>` ABI
 - External type resolution (.NET reflection)

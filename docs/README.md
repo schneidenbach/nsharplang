@@ -71,9 +71,8 @@ nlc run
 - **[Types](guide/types.md)** - Classes, unions, records, duck interfaces, and the type system
 - **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
 
-### Migration & Interop
+### Interop
 
-- **[C# Migration Guide](guide/csharp-migration.md)** - Migrating from C# to N# - strategies and common patterns
 - **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
 
 ### Development & Deployment
@@ -209,7 +208,7 @@ N# follows these principles:
 
 ## Contributing
 
-N# is an active project. Contributions should preserve truthful docs, current CLI parity, and the no-public-`nlc convert` migration direction.
+N# is an active project. Contributions should preserve truthful docs, current CLI parity, and the direct-N# language direction.
 
 - Report bugs in the project repository
 - Submit pull requests

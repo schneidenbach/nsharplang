@@ -365,7 +365,7 @@ func helper(): int {
     }
 
     [Fact]
-    public void DiagnosticClustersToJson_EmitsStableMigrationClusterGoldenShape()
+    public void DiagnosticClustersToJson_EmitsStableIdentifierResolutionClusterGoldenShape()
     {
         var diagnostics = new List<DiagnosticResult>
         {
@@ -379,7 +379,7 @@ func helper(): int {
                 Length: 11,
                 SourceSnippet: "let manager := UserManager.Create()",
                 Explanation: "The symbol UserManager is not in scope.",
-                Suggestion: "Add the import or update the migration rename map.",
+                Suggestion: "Add the import or correct the declaration name.",
                 Hint: null,
                 ExpectedType: null,
                 ActualType: null,
@@ -394,14 +394,14 @@ func helper(): int {
                 Length: 11,
                 SourceSnippet: "let roles := RoleManager.Create()",
                 Explanation: "The symbol RoleManager is not in scope.",
-                Suggestion: "Add the import or update the migration rename map.",
+                Suggestion: "Add the import or correct the declaration name.",
                 Hint: null,
                 ExpectedType: null,
                 ActualType: null,
                 DocsUrl: null)
         };
 
-        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/redacted/sample-migration");
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/redacted/sample-project");
         var goldenPath = Path.GetFullPath(Path.Combine(_examplesDir, "..", "docs", "examples", "diagnostic-clusters.sample.json"));
         var expected = File.ReadAllText(goldenPath).Replace("\r\n", "\n");
         Assert.Equal(expected, json.Replace("\r\n", "\n"));
@@ -413,9 +413,9 @@ func helper(): int {
         Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal("diagnostics.clusters", root.GetProperty("command").GetString());
         Assert.False(root.GetProperty("ok").GetBoolean());
-        Assert.Equal("/redacted/sample-migration", root.GetProperty("projectRoot").GetString());
+        Assert.Equal("/redacted/sample-project", root.GetProperty("projectRoot").GetString());
         Assert.Equal("identifier-resolution", cluster.GetProperty("category").GetString());
-        Assert.Equal("migration:missing-import-qualification-or-rename", cluster.GetProperty("recipe").GetString());
+        Assert.Equal("symbols:missing-import-or-qualification", cluster.GetProperty("recipe").GetString());
         Assert.Equal("medium", cluster.GetProperty("risk").GetString());
         Assert.Equal("nlc query inspect --file sample-api/AuthController.nl --pos 42:17", cluster.GetProperty("nextCommand").GetString());
         Assert.Equal("sample-api/AuthController.nl", Assert.Single(cluster.GetProperty("files").EnumerateArray()).GetString());
@@ -1012,8 +1012,8 @@ func Main() {
     [Fact]
     public void Type_IssueTracker_LocalVariableFromNewExpression_Resolves()
     {
-        // Program.nl line 19: service := new IssueService(store, hub)
-        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 19, 5);
+        // Program.nl line 18: service := new IssueService(store, hub)
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 18, 5);
         Assert.NotNull(result);
         Assert.Equal("service", result!.Name);
         Assert.Equal("IssueService", result.ResolvedType);
@@ -1032,8 +1032,8 @@ func Main() {
     [Fact]
     public void Type_IssueTracker_LocalVariableFromImportedMethodCall_Resolves()
     {
-        // Program.nl line 18: store := new IssueStore()
-        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 18, 5);
+        // Program.nl line 17: store := new IssueStore()
+        var result = _service.GetTypeAtPosition(IssueTracker, "Program.nl", 17, 5);
         var programSemanticModel = IssueTracker.SemanticModels.First(kvp => kvp.Key.EndsWith("Program.nl", StringComparison.Ordinal)).Value;
         var variables = string.Join(", ", programSemanticModel.Variables.Select(v => $"{v.Key}:{v.Value}"));
         Assert.True(result != null, $"Expected store type. Program variables: [{variables}]");

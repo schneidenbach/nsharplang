@@ -454,7 +454,6 @@ public sealed class PlaygroundCompiler
         {
             var path = Path.GetFullPath(Path.Combine(root, file.Name));
             sourceTexts[path] = file.Code;
-            diagnostics.AddRange(linter.LintSource(file.Code, file.Name).Select(ToPlaygroundDiagnostic));
 
             try
             {
@@ -531,13 +530,6 @@ public sealed class PlaygroundCompiler
     private static void AddLintDiagnostics(ProjectSnapshot snapshot, List<PlaygroundDiagnostic> diagnostics)
     {
         var linter = new Linter();
-        foreach (var (filePath, source) in snapshot.SourceTexts)
-        {
-            diagnostics.AddRange(linter
-                .LintSource(source, Path.GetFileName(filePath))
-                .Select(ToPlaygroundDiagnostic));
-        }
-
         foreach (var (filePath, compilationUnit) in snapshot.CompilationUnits)
         {
             var source = snapshot.SourceTexts.TryGetValue(filePath, out var text) ? text : string.Empty;

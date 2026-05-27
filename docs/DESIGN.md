@@ -58,7 +58,7 @@ N# aims to **improve the .NET type system** by adding features C# lacks:
    - `PascalCase` = exported/public
    - `camelCase` = unexported/private-by-convention
 
-2. **Do not write C# `public`/`private` for ordinary N# code.** When casing already expresses the same visibility, the formatter drops redundant `public`/`private` and the linter flags them as migration debris.
+2. **Do not write `public`/`private` for ordinary N# code.** When casing already expresses the same visibility, the formatter drops redundant `public`/`private` and the linter flags them as unnecessary.
 
 3. **Explicit modifiers are narrow .NET interop escape hatches:**
    - `public`, `private`, `internal`, `protected`, and `file` are available when a .NET/framework boundary really needs that shape.
@@ -83,7 +83,7 @@ class MyClass {
 **Why this approach:**
 - Simple default: just follow naming conventions
 - Flexibility: use explicit modifiers only for real interop boundaries (`public`, `private`, `internal`, `protected`, `file`)
-- Consistency: analyzer/linter catch C#-shaped `public`/`private` migration debris
+- Consistency: analyzer/linter catch redundant explicit visibility
 
 #### File-Scoped Types (C# 11)
 - Types marked with `file` modifier are only visible within the declaring file
@@ -541,7 +541,7 @@ doWork(new MemoryReader())  // works via structural typing
 - Uses `import` keyword (more intuitive than C#'s `using`):
   ```
   import System.Collections
-  import Json = System.Text.Json  // aliasing supported
+  import System.Text.Json as Json  // aliasing supported
   ```
 - Must appear at top of file (after namespace declaration)
 

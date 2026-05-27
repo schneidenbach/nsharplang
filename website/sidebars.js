@@ -36,12 +36,11 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: 'Migration & Interop',
+      label: 'Interop',
       collapsed: true,
       items: [
         'for-csharp-developers',
         'for-go-developers',
-        'csharp-migration',
         'interop',
       ],
     },
