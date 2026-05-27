@@ -536,18 +536,19 @@ public class Analyzer : IDisposable
             }
             else if (functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
             {
-                var sourceSnippet = _sourceLines != null && func.ExpressionBody.Line > 0 && func.ExpressionBody.Line <= _sourceLines.Length
-                    ? _sourceLines[func.ExpressionBody.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.ReturnTypeMismatch(
                         _currentFilePath,
-                        func.ExpressionBody.Line,
-                        func.ExpressionBody.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        func.ExpressionBody.ToString().Length,
+                        diagnosticLength,
                         func.Name,
                         exprType.ToString(),
                         functionReturnType.ToString()
@@ -982,18 +983,20 @@ public class Analyzer : IDisposable
                 _currentExpectedType = previousExpectedType;
                 if (!IsAssignable(fieldType, initType))
                 {
-                    var sourceSnippet = _sourceLines != null && field.Line > 0 && field.Line <= _sourceLines.Length
-                        ? _sourceLines[field.Line - 1]
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetExpressionDiagnosticSpan(field.Initializer);
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.TypeMismatch(
                             _currentFilePath,
-                            field.Line,
-                            field.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            field.Name.Length,
+                            diagnosticLength,
                             initType.ToString(),
                             fieldType.ToString()
                         );
@@ -1041,18 +1044,20 @@ public class Analyzer : IDisposable
             var exprType = AnalyzeExpression(prop.ExpressionBody);
             if (!IsAssignable(propType, exprType))
             {
-                var sourceSnippet = _sourceLines != null && prop.Line > 0 && prop.Line <= _sourceLines.Length
-                    ? _sourceLines[prop.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetExpressionDiagnosticSpan(prop.ExpressionBody);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.TypeMismatch(
                         _currentFilePath,
-                        prop.Line,
-                        prop.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        prop.Name.Length,
+                        diagnosticLength,
                         exprType.ToString(),
                         propType.ToString()
                     );
@@ -1683,8 +1688,9 @@ public class Analyzer : IDisposable
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
-                    func.ExpressionBody.Line, func.ExpressionBody.Column);
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -1716,23 +1722,25 @@ public class Analyzer : IDisposable
 
         // Determine final type
         TypeInfo finalType;
-        if (declaredType != null && inferredType != null)
+        if (declaredType != null && inferredType != null && varDecl.Initializer != null)
         {
             // Both specified - check compatibility
             if (!IsAssignable(declaredType, inferredType))
             {
-                var sourceSnippet = _sourceLines != null && varDecl.Line > 0 && varDecl.Line <= _sourceLines.Length
-                    ? _sourceLines[varDecl.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetExpressionDiagnosticSpan(varDecl.Initializer);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.TypeMismatch(
                         _currentFilePath,
-                        varDecl.Line,
-                        varDecl.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        varDecl.Name.Length,
+                        diagnosticLength,
                         inferredType.ToString(),
                         declaredType.ToString()
                     );
@@ -1759,8 +1767,11 @@ public class Analyzer : IDisposable
             // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
             if (inferredType == BuiltInTypes.Void)
             {
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = varDecl.Initializer != null
+                    ? GetExpressionDiagnosticSpan(varDecl.Initializer)
+                    : (varDecl.Line, varDecl.Column, Math.Max(1, varDecl.Name.Length));
                 Error(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable",
-                    varDecl.Line, varDecl.Column);
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 finalType = BuiltInTypes.Unknown;
             }
             else
@@ -1846,18 +1857,19 @@ public class Analyzer : IDisposable
         if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType))
         {
             // Use ErrorMessageBuilder for better error message
-            var sourceSnippet = _sourceLines != null && ifStmt.Line > 0 && ifStmt.Line <= _sourceLines.Length
-                ? _sourceLines[ifStmt.Line - 1]
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
+            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                ? _sourceLines[diagnosticLine - 1]
                 : null;
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.TypeMismatch(
                     _currentFilePath,
-                    ifStmt.Line,
-                    ifStmt.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    3, // "if" keyword length
+                    diagnosticLength,
                     condType.ToString(),
                     "bool"
                 );
@@ -1865,7 +1877,8 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'", ifStmt.Line, ifStmt.Column);
+                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -2314,24 +2327,27 @@ public class Analyzer : IDisposable
     {
         var functionName = _currentFunction?.Name ?? "this function";
         CompilerError error;
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = returnStmt.Value != null
+            ? GetExpressionDiagnosticSpan(returnStmt.Value)
+            : (returnStmt.Line, returnStmt.Column, 6);
 
         if (_currentReturnType == BuiltInTypes.Void)
         {
             error = _currentFunctionReturnTypeWasOmitted
                 ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
                     _currentFilePath!,
-                    returnStmt.Line,
-                    returnStmt.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    6, // "return" keyword length
+                    diagnosticLength,
                     functionName,
                     returnedType.ToString())
                 : ErrorMessageBuilder.ReturnValueInVoidFunction(
                     _currentFilePath!,
-                    returnStmt.Line,
-                    returnStmt.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    6, // "return" keyword length
+                    diagnosticLength,
                     functionName,
                     returnedType.ToString());
         }
@@ -2339,10 +2355,10 @@ public class Analyzer : IDisposable
         {
             error = ErrorMessageBuilder.ReturnTypeMismatch(
                 _currentFilePath!,
-                returnStmt.Line,
-                returnStmt.Column,
+                diagnosticLine,
+                diagnosticColumn,
                 sourceSnippet,
-                6, // "return" keyword length
+                diagnosticLength,
                 functionName,
                 returnedType.ToString(),
                 expectedReturnValueType.ToString());
@@ -2353,15 +2369,15 @@ public class Analyzer : IDisposable
 
     private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
     {
-        var line = func.ExpressionBody?.Line ?? fallbackLine ?? func.Line;
-        var column = func.ExpressionBody?.Column ?? fallbackColumn ?? func.Column;
+        var (line, column, length) = func.ExpressionBody != null
+            ? GetExpressionDiagnosticSpan(func.ExpressionBody)
+            : (fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
         var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
             ? _sourceLines[line - 1]
             : null;
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
-            var length = Math.Max(1, func.ExpressionBody?.ToString()?.Length ?? 1);
             var error = _currentFunctionReturnTypeWasOmitted
                 ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
                     _currentFilePath,

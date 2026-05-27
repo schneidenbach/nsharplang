@@ -140,6 +140,64 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_TypeMismatchDiagnostics_PreserveOffendingExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func TakesVoid(): void {
+            }
+
+            func ExpressionBodyMismatch(): int => "bad"
+
+            func ExpressionBodyRequiresReturnType() => "bad"
+
+            func main(): int {
+                declared: int = "hi"
+                inferred := TakesVoid()
+                if "yes" {
+                    return "bad"
+                }
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var expressionBodyMismatch = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ExpressionBodyMismatch"));
+        AssertPlaygroundSpan(expressionBodyMismatch, line: 6, column: 39, length: "\"bad\"".Length);
+
+        var expressionBodyRequiresReturnType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ExpressionBodyRequiresReturnType"));
+        AssertPlaygroundSpan(expressionBodyRequiresReturnType, line: 8, column: 44, length: "\"bad\"".Length);
+
+        var localInitializer = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 11 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(localInitializer, line: 11, column: 21, length: "\"hi\"".Length);
+
+        var voidAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("void"));
+        AssertPlaygroundSpan(voidAssignment, line: 12, column: 17, length: "TakesVoid".Length);
+
+        var ifCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 13 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(ifCondition, line: 13, column: 8, length: "\"yes\"".Length);
+
+        var returnValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("main") &&
+                          diagnostic.Message.Contains("returns string"));
+        AssertPlaygroundSpan(returnValue, line: 14, column: 16, length: "\"bad\"".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
@@ -160,6 +218,13 @@ public sealed class PlaygroundCompilerTests
         Assert.Equal(4, diagnostic.Line);
         Assert.Equal(5, diagnostic.Column);
         Assert.Equal("Message".Length, diagnostic.Length);
+    }
+
+    private static void AssertPlaygroundSpan(PlaygroundDiagnostic diagnostic, int line, int column, int length)
+    {
+        Assert.Equal(line, diagnostic.Line);
+        Assert.Equal(column, diagnostic.Column);
+        Assert.Equal(length, diagnostic.Length);
     }
 
     [Fact]

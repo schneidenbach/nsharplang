@@ -116,6 +116,76 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_TypeMismatches_UseOffendingExpressionSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///type-mismatch-spans.nl";
+
+        var source = """
+func TakesVoid(): void {
+}
+
+func ExpressionBodyMismatch(): int => "bad"
+
+func ExpressionBodyRequiresReturnType() => "bad"
+
+func main(): int {
+    declared: int = "hi"
+    inferred := TakesVoid()
+    if "yes" {
+        return "bad"
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var expressionBodyMismatch = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("ExpressionBodyMismatch"));
+        AssertDiagnosticSpan(expressionBodyMismatch, line: 4, column: 39, length: "\"bad\"".Length);
+        AssertLspRange(expressionBodyMismatch, line0: 3, startCharacter: 38, endCharacter: 43);
+
+        var expressionBodyRequiresReturnType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("ExpressionBodyRequiresReturnType"));
+        AssertDiagnosticSpan(expressionBodyRequiresReturnType, line: 6, column: 44, length: "\"bad\"".Length);
+        AssertLspRange(expressionBodyRequiresReturnType, line0: 5, startCharacter: 43, endCharacter: 48);
+
+        var localInitializer = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 9 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertDiagnosticSpan(localInitializer, line: 9, column: 21, length: "\"hi\"".Length);
+        AssertLspRange(localInitializer, line0: 8, startCharacter: 20, endCharacter: 24);
+
+        var voidAssignment = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("void"));
+        AssertDiagnosticSpan(voidAssignment, line: 10, column: 17, length: "TakesVoid".Length);
+        AssertLspRange(voidAssignment, line0: 9, startCharacter: 16, endCharacter: 25);
+
+        var ifCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 11 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertDiagnosticSpan(ifCondition, line: 11, column: 8, length: "\"yes\"".Length);
+        AssertLspRange(ifCondition, line0: 10, startCharacter: 7, endCharacter: 12);
+
+        var returnValue = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("main") &&
+                          diagnostic.Message.Contains("returns string"));
+        AssertDiagnosticSpan(returnValue, line: 12, column: 16, length: "\"bad\"".Length);
+        AssertLspRange(returnValue, line0: 11, startCharacter: 15, endCharacter: 20);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -139,6 +209,21 @@ func Hi() {
         Assert.Contains("N# treats it as `void`", message);
         Assert.Contains("Add `: int`", message);
         Assert.Contains("return 42", message);
+    }
+
+    private static void AssertDiagnosticSpan(CompilerError diagnostic, int line, int column, int length)
+    {
+        Assert.Equal(line, diagnostic.Line);
+        Assert.Equal(column, diagnostic.Column);
+        Assert.Equal(length, diagnostic.Length);
+    }
+
+    private static void AssertLspRange(CompilerError diagnostic, int line0, int startCharacter, int endCharacter)
+    {
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(line0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(startCharacter, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(endCharacter, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
