@@ -1262,7 +1262,7 @@ public class Analyzer : IDisposable
                 var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
                 if (!IsBoolType(condType))
                 {
-                    Error($"The condition in a 'while' loop must be a boolean, but I found '{condType}'", whileStmt.Line, whileStmt.Column);
+                    ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
                 var wasInLoop = _inLoop;
                 _inLoop = true;
@@ -1497,6 +1497,17 @@ public class Analyzer : IDisposable
             CallExpression call => GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? "call"),
             _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
         };
+    }
+
+    private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
+    {
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(condition);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The condition in {owner} must be a boolean, but I found '{actualType}'",
+            diagnosticLine,
+            diagnosticColumn,
+            length: diagnosticLength);
     }
 
     private (int Line, int Column, int Length) GetNullReceiverDiagnosticSpan(
@@ -2123,7 +2134,7 @@ public class Analyzer : IDisposable
             var condType = AnalyzeExpression(forStmt.Condition);
             if (!IsBoolType(condType))
             {
-                Error($"The condition in a 'for' loop must be a boolean, but I found '{condType}'", forStmt.Line, forStmt.Column);
+                ReportBooleanConditionTypeMismatch(forStmt.Condition, "a 'for' loop", condType);
             }
         }
 
@@ -7546,7 +7557,7 @@ public class Analyzer : IDisposable
         var condType = AnalyzeExpression(ternary.Condition);
         if (!IsBoolType(condType))
         {
-            Error($"The condition in a ternary expression must be a boolean, but I found '{condType}'", ternary.Line, ternary.Column);
+            ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
         }
 
         var thenType = AnalyzeExpression(ternary.ThenExpression);
@@ -7569,7 +7580,10 @@ public class Analyzer : IDisposable
             var elemType = AnalyzeExpression(elem);
             if (!IsAssignable(firstType, elemType))
             {
-                Error($"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'", array.Line, array.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
+                Error(ErrorCode.TypeMismatch,
+                    $"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -7710,8 +7724,9 @@ public class Analyzer : IDisposable
                 var guardType = AnalyzeExpression(matchCase.Guard);
                 if (!IsAssignable(BuiltInTypes.Bool, guardType))
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Guard);
                     Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
-                        matchCase.Guard.Line, matchCase.Guard.Column);
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 }
             }
 
@@ -7733,8 +7748,10 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
-                        matchCase.Expression.Line, matchCase.Expression.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Expression);
+                    Error(ErrorCode.TypeMismatch,
+                        $"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 }
             }
 

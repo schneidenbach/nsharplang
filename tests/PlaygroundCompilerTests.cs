@@ -198,6 +198,62 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_ControlFlowAndCollectionTypeMismatches_PreserveOffendingExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                while "loop" {
+                }
+
+                for i := 0; "loop"; i++ {
+                }
+
+                value := 1
+                answer := "maybe" ? 1 : 2
+                numbers := [1, "two"]
+                label := match value {
+                    n when "guard" => "positive",
+                    _ => 12345
+                }
+                print label
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var whileCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'while'"));
+        AssertPlaygroundSpan(whileCondition, line: 4, column: 11, length: "\"loop\"".Length);
+
+        var forCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'for'"));
+        AssertPlaygroundSpan(forCondition, line: 7, column: 17, length: "\"loop\"".Length);
+
+        var ternaryCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ternary expression"));
+        AssertPlaygroundSpan(ternaryCondition, line: 11, column: 15, length: "\"maybe\"".Length);
+
+        var arrayElement = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("All elements in an array"));
+        AssertPlaygroundSpan(arrayElement, line: 12, column: 20, length: "\"two\"".Length);
+
+        var matchGuard = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL505");
+        AssertPlaygroundSpan(matchGuard, line: 14, column: 16, length: "\"guard\"".Length);
+
+        var matchArm = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("All match arms"));
+        AssertPlaygroundSpan(matchArm, line: 15, column: 14, length: "12345".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

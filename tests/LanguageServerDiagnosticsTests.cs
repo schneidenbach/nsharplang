@@ -186,6 +186,74 @@ func main(): int {
     }
 
     [Fact]
+    public void Diagnostics_ControlFlowAndCollectionTypeMismatches_UseOffendingExpressionSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///control-flow-type-mismatch-spans.nl";
+
+        var source = """
+func main() {
+    while "loop" {
+    }
+
+    for i := 0; "loop"; i++ {
+    }
+
+    value := 1
+    answer := "maybe" ? 1 : 2
+    numbers := [1, "two"]
+    label := match value {
+        n when "guard" => "positive",
+        _ => 12345
+    }
+    print label
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var whileCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("'while'"));
+        AssertDiagnosticSpan(whileCondition, line: 2, column: 11, length: "\"loop\"".Length);
+        AssertLspRange(whileCondition, line0: 1, startCharacter: 10, endCharacter: 16);
+
+        var forCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("'for'"));
+        AssertDiagnosticSpan(forCondition, line: 5, column: 17, length: "\"loop\"".Length);
+        AssertLspRange(forCondition, line0: 4, startCharacter: 16, endCharacter: 22);
+
+        var ternaryCondition = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("ternary expression"));
+        AssertDiagnosticSpan(ternaryCondition, line: 9, column: 15, length: "\"maybe\"".Length);
+        AssertLspRange(ternaryCondition, line0: 8, startCharacter: 14, endCharacter: 21);
+
+        var arrayElement = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("All elements in an array"));
+        AssertDiagnosticSpan(arrayElement, line: 10, column: 20, length: "\"two\"".Length);
+        AssertLspRange(arrayElement, line0: 9, startCharacter: 19, endCharacter: 24);
+
+        var matchGuard = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GuardNotBoolean);
+        AssertDiagnosticSpan(matchGuard, line: 12, column: 16, length: "\"guard\"".Length);
+        AssertLspRange(matchGuard, line0: 11, startCharacter: 15, endCharacter: 22);
+
+        var matchArm = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Message.Contains("All match arms"));
+        AssertDiagnosticSpan(matchArm, line: 13, column: 14, length: "12345".Length);
+        AssertLspRange(matchArm, line0: 12, startCharacter: 13, endCharacter: 18);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
