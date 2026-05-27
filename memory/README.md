@@ -14,6 +14,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 | Question | Answer |
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
+| Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
 | Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
 | Learn about a component? | See [components/](#components) folder |
 | Find a feature? | See [features/](#features) folder |
@@ -43,6 +44,14 @@ Current audit of the direct IL backend against the legacy C# export surface.
 - Recently closed IL backend gaps
 - Residual interop risks outside the exercised C#-export surface
 - Current parity status between IL emission and the legacy C# export surface
+
+### [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md)
+Performance-focused compiler refactor plan for Bound IR, escape/capture/allocation facts, dual ABI lowering, value layout, span/loop lowering, generic specialization, AOT readiness, and benchmark evidence gates.
+
+**Topics:**
+- Compiler pipeline refactor from AST-direct emission to Bound IR plus performance facts
+- Critical language and interop tradeoffs for each optimization family
+- Evidence gates for IL shape, BenchmarkDotNet, public claims, and rollback decisions
 
 ---
 

@@ -1102,6 +1102,7 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   - Non-capturing lambdas and method groups that do escape can use a static delegate cache when CLR semantics allow it.
   - This is an implementation optimization, not source syntax. There is no first-class internal function type or project switch in v1.
 - Performance claims for function values must cite dated benchmark evidence. Delegate-free lowering is allowed where semantics are preserved; C#/CLR delegate interop remains the public contract.
+- Compiler performance refactor details live in [design/performance-compiler-refactor.md](design/performance-compiler-refactor.md).
 
 #### Resource Management
 - Using statements for IDisposable (C# style)
