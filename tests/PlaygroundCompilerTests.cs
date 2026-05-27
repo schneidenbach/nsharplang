@@ -337,6 +337,35 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_ReadonlyAssignment_PreservesAssignedFieldNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Account {
+                readonly id: string = "initial"
+
+                func Change() {
+                    id = "next"
+                    this.id = "again"
+                }
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var directAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL309" &&
+                          diagnostic.Line == 7);
+        AssertPlaygroundSpan(directAssignment, line: 7, column: 9, length: "id".Length);
+
+        var memberAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL309" &&
+                          diagnostic.Line == 8);
+        AssertPlaygroundSpan(memberAssignment, line: 8, column: 14, length: "id".Length);
+    }
+
+    [Fact]
     public void Check_UnreachableStatement_PreservesUnreachableKeywordSpan()
     {
         var result = new PlaygroundCompiler().Check("""

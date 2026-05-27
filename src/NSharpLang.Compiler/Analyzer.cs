@@ -7736,9 +7736,27 @@ public class Analyzer : IDisposable
 
             if (field != null && field.Modifiers.HasFlag(Modifiers.Readonly))
             {
-                Error($"Field '{fieldName}' is readonly — it can only be assigned in a constructor", line, column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+                Error(
+                    ErrorCode.ReadonlyAssignment,
+                    $"Field '{fieldName}' is readonly — it can only be assigned in a constructor",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+                    diagnosticLength);
             }
         }
+    }
+
+    private (int Line, int Column, int Length) GetAssignmentTargetNameDiagnosticSpan(Expression target, int fallbackLine, int fallbackColumn)
+    {
+        return target switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            ParenthesizedExpression parenthesized => GetAssignmentTargetNameDiagnosticSpan(parenthesized.Inner, fallbackLine, fallbackColumn),
+            _ => (fallbackLine, fallbackColumn, GetTokenLength(fallbackLine, fallbackColumn))
+        };
     }
 
     private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null)

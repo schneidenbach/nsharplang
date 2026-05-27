@@ -359,6 +359,43 @@ test "does not return" {
     }
 
     [Fact]
+    public void Diagnostics_ReadonlyAssignment_UsesAssignedFieldNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///readonly-assignment-spans.nl";
+
+        var source = """
+class Account {
+    readonly id: string = "initial"
+
+    func Change() {
+        id = "next"
+        this.id = "again"
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var directAssignment = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ReadonlyAssignment &&
+                          diagnostic.Line == 5);
+        AssertDiagnosticSpan(directAssignment, line: 5, column: 9, length: "id".Length);
+        AssertLspRange(directAssignment, line0: 4, startCharacter: 8, endCharacter: 10);
+
+        var memberAssignment = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ReadonlyAssignment &&
+                          diagnostic.Line == 6);
+        AssertDiagnosticSpan(memberAssignment, line: 6, column: 14, length: "id".Length);
+        AssertLspRange(memberAssignment, line0: 5, startCharacter: 13, endCharacter: 15);
+    }
+
+    [Fact]
     public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

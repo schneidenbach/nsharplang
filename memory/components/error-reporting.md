@@ -52,6 +52,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Target-typed expression diagnostics underline the expression that needs type context; targetless `default` underlines the full `default` keyword.
 - Pattern diagnostics should underline the invalid pattern part, not the whole match arm: unknown union cases underline the qualified case name, missing property patterns underline the property name, and list-pattern type mismatches underline the list pattern on the first line when available.
 - Declaration diagnostics should underline the duplicate or invalid declaration token, not a one-character fallback: duplicate symbols/types/cases/members underline the duplicate name, duplicate test lifecycle blocks underline the full `setup` or `teardown` keyword, invalid local variable declarations such as `const answer: int` or `let value` underline the full variable name, `params` ordering/type errors underline the params parameter name, required-after-optional errors underline the required parameter name, and invalid default values underline the default expression.
+- Assignment diagnostics should underline the target or value token that must change: readonly field reassignment (`NL309`) underlines the assigned field name, whether the assignment is direct (`id = ...`) or qualified (`this.id = ...`).
 
 ## Error Codes
 
