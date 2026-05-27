@@ -323,6 +323,42 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ReturnOutsideFunctionAndTargetlessDefault_UseFullKeywordSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///keyword-semantic-spans.tests.nl";
+
+        var source = """
+func main() {
+    value := default
+}
+
+test "does not return" {
+    return
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var targetlessDefault = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.CannotInferType &&
+                          diagnostic.Message.Contains("'default'"));
+        AssertDiagnosticSpan(targetlessDefault, line: 2, column: 14, length: "default".Length);
+        AssertLspRange(targetlessDefault, line0: 1, startCharacter: 13, endCharacter: 20);
+
+        var returnOutsideFunction = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("'return' can only"));
+        AssertDiagnosticSpan(returnOutsideFunction, line: 6, column: 5, length: "return".Length);
+        AssertLspRange(returnOutsideFunction, line0: 5, startCharacter: 4, endCharacter: 10);
+    }
+
+    [Fact]
     public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

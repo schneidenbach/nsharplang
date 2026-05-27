@@ -7445,11 +7445,18 @@ func Hello(): string {
     [Fact]
     public void DefaultExpression_NoTypeContext_ReportsError()
     {
-        AssertHasError(@"
+        var result = Analyze("""
             func Main() {
                 x := default
             }
-        ", "can't figure out what type 'default' should be");
+            """);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Message.Contains("can't figure out what type 'default' should be"));
+        Assert.Equal(ErrorCode.CannotInferType, diagnostic.Code);
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal("default".Length, diagnostic.Length);
     }
 
     [Fact]

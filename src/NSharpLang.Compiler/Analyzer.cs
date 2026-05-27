@@ -2475,7 +2475,13 @@ public class Analyzer : IDisposable
     {
         if (_currentReturnType == null)
         {
-            Error("'return' can only be used inside a function — there's no function to return from here", returnStmt.Line, returnStmt.Column);
+            Error(
+                ErrorCode.InvalidSyntax,
+                "'return' can only be used inside a function — there's no function to return from here",
+                returnStmt.Line,
+                returnStmt.Column,
+                "Move this `return` inside a function, or remove it if there is no function to return from.",
+                "return".Length);
             return;
         }
 
@@ -3162,8 +3168,12 @@ public class Analyzer : IDisposable
         }
 
         // If no expected type context, report an error
-        Error("I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
-            defaultExpr.Line, defaultExpr.Column);
+        Error(
+            ErrorCode.CannotInferType,
+            "I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
+            defaultExpr.Line,
+            defaultExpr.Column,
+            length: "default".Length);
         return BuiltInTypes.Unknown;
     }
 
@@ -10854,6 +10864,7 @@ public class Analyzer : IDisposable
             error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
             {
                 FileName = _currentFilePath,
+                Length = length,
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }
@@ -10891,6 +10902,7 @@ public class Analyzer : IDisposable
             warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
             {
                 FileName = _currentFilePath,
+                Length = length,
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }

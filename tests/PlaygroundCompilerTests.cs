@@ -307,6 +307,36 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_ReturnOutsideFunctionAndTargetlessDefault_PreserveFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.tests.nl", """
+                    func main() {
+                        value := default
+                    }
+
+                    test "does not return" {
+                        return
+                    }
+                    """)
+            ],
+            "Program.tests.nl");
+
+        Assert.False(result.Ok);
+
+        var targetlessDefault = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL203" &&
+                          diagnostic.Message.Contains("'default'"));
+        AssertPlaygroundSpan(targetlessDefault, line: 2, column: 14, length: "default".Length);
+
+        var returnOutsideFunction = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'return' can only"));
+        AssertPlaygroundSpan(returnOutsideFunction, line: 6, column: 5, length: "return".Length);
+    }
+
+    [Fact]
     public void Check_UnreachableStatement_PreservesUnreachableKeywordSpan()
     {
         var result = new PlaygroundCompiler().Check("""
