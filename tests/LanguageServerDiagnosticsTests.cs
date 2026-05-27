@@ -508,6 +508,115 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_MissingFileImport_UsesQuotedPathSpan()
+    {
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nsharp-lsp-missing-import-span-{System.Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "project.yml"), """
+name: MissingImportSpan
+version: 1.0.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+""");
+
+            var programPath = System.IO.Path.Combine(tempRoot, "Program.nl");
+            var source = """
+import "./Missing"
+
+func main() {
+}
+""";
+            System.IO.File.WriteAllText(programPath, source);
+
+            var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+            documentManager.UpdateDocument(new System.Uri(programPath).AbsoluteUri, source, version: 1);
+
+            var document = documentManager.GetDocument(new System.Uri(programPath).AbsoluteUri);
+            Assert.NotNull(document);
+
+            var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+                diagnostic => diagnostic.Code == ErrorCode.ImportNotFound);
+
+            AssertDiagnosticSpan(diagnostic, line: 1, column: 8, length: "\"./Missing\"".Length);
+            AssertLspRange(diagnostic, line0: 0, startCharacter: 7, endCharacter: 18);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Diagnostics_FileImportCollision_UsesDuplicateQuotedPathSpan()
+    {
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nsharp-lsp-import-collision-span-{System.Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "project.yml"), """
+name: ImportCollisionSpan
+version: 1.0.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+""");
+
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "A.nl"), """
+class Shared {
+}
+""");
+
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "B.nl"), """
+class Shared {
+}
+""");
+
+            var programPath = System.IO.Path.Combine(tempRoot, "Program.nl");
+            var source = """
+import "./A"
+import "./B"
+
+func main() {
+}
+""";
+            System.IO.File.WriteAllText(programPath, source);
+
+            var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+            documentManager.UpdateDocument(new System.Uri(programPath).AbsoluteUri, source, version: 1);
+
+            var document = documentManager.GetDocument(new System.Uri(programPath).AbsoluteUri);
+            Assert.NotNull(document);
+
+            var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+                diagnostic => diagnostic.Code == ErrorCode.ImportCollision &&
+                              diagnostic.Message.Contains("Shared"));
+
+            AssertDiagnosticSpan(diagnostic, line: 2, column: 8, length: "\"./B\"".Length);
+            AssertLspRange(diagnostic, line0: 1, startCharacter: 7, endCharacter: 12);
+            Assert.NotNull(diagnostic.Suggestion);
+            Assert.NotNull(diagnostic.ContextualHint);
+            Assert.Contains("alias", diagnostic.Suggestion);
+            Assert.Contains("\"./A\"", diagnostic.ContextualHint);
+            Assert.Contains("\"./B\"", diagnostic.ContextualHint);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

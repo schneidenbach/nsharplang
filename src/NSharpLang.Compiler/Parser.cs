@@ -188,7 +188,11 @@ public class Parser
                 alias = ConsumeIdentifier("Expected alias name after 'as'");
             }
 
-            return new FileImport(path, alias, line, column);
+            return new FileImport(path, alias, line, column)
+            {
+                PathColumn = pathToken.Column,
+                PathLength = Math.Max(1, pathToken.Value.Length)
+            };
         }
 
         // Namespace import: import System.Collections.Generic [as Alias]

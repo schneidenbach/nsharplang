@@ -3097,6 +3097,20 @@ func main() {
     }
 
     [Fact]
+    public void TestFileImportTracksQuotedPathSpan()
+    {
+        var importLine = "import \"Models/Person\"";
+
+        var cu = Parse(importLine);
+        var fileImport = Assert.IsType<FileImport>(Assert.Single(cu.FileImports));
+
+        Assert.Equal(importLine.IndexOf('"') + 1, fileImport.PathColumn);
+        Assert.Equal("\"Models/Person\"".Length, fileImport.PathLength);
+        Assert.Equal(fileImport.PathColumn, fileImport.DiagnosticColumn);
+        Assert.Equal(fileImport.PathLength, fileImport.DiagnosticLength);
+    }
+
+    [Fact]
     public void TestFileImportWithAlias()
     {
         var source = @"

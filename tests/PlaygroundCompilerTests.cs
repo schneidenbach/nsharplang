@@ -1125,6 +1125,59 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MissingFileImport_PreservesQuotedPathSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            import "./Missing"
+
+            func main() {
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL701");
+
+        AssertPlaygroundSpan(diagnostic, line: 1, column: 8, length: "\"./Missing\"".Length);
+        Assert.Equal("import \"./Missing\"", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
+    public void CheckProject_FileImportCollision_PreservesDuplicateQuotedPathSpan()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.nl", """
+                    import "./A"
+                    import "./B"
+
+                    func main() {
+                    }
+                    """),
+                new PlaygroundFile("A.nl", """
+                    class Shared {
+                    }
+                    """),
+                new PlaygroundFile("B.nl", """
+                    class Shared {
+                    }
+                    """)
+            ],
+            "Program.nl");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL702" &&
+                          diagnostic.Message.Contains("Shared", StringComparison.Ordinal));
+
+        AssertPlaygroundSpan(diagnostic, line: 2, column: 8, length: "\"./B\"".Length);
+        Assert.Equal("import \"./B\"", diagnostic.SourceSnippet);
+        Assert.NotNull(diagnostic.Suggestion);
+        Assert.NotNull(diagnostic.Hint);
+        Assert.Contains("alias", diagnostic.Suggestion);
+        Assert.Contains("\"./A\"", diagnostic.Hint);
+        Assert.Contains("\"./B\"", diagnostic.Hint);
+    }
+
+    [Fact]
     public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

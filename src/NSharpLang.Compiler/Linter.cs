@@ -200,7 +200,7 @@ internal class LintVisitor
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
     // NL010: Track imports and identifiers used in code for unused-import detection
-    private readonly List<(string Namespace, int Line, int Column, bool IsFile, string? FilePath)> _allImports = new();
+    private readonly List<(string Namespace, int Line, int Column, int Length, bool IsFile, string? FilePath)> _allImports = new();
     private readonly HashSet<string> _allCodeIdentifiers = new();
     private readonly HashSet<string> _allMemberAccessNames = new();
     private readonly Stack<HashSet<string>> _typeMemberNameScopes = new();
@@ -235,7 +235,7 @@ internal class LintVisitor
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
-            _allImports.Add((import.Namespace, import.Line, import.Column, false, null));
+            _allImports.Add((import.Namespace, import.Line, import.Column, 0, false, null));
         }
 
         foreach (var fileImport in unit.FileImports.OfType<FileImport>())
@@ -244,7 +244,7 @@ internal class LintVisitor
             if (!string.IsNullOrWhiteSpace(importedSymbol))
             {
                 _importedFileSymbols.Add(importedSymbol!);
-                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.Column, true, fileImport.Path));
+                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.DiagnosticColumn, fileImport.DiagnosticLength, true, fileImport.Path));
             }
         }
 
@@ -1940,7 +1940,7 @@ internal class LintVisitor
         if (!_config.RuleSeverities.ContainsKey("NL010"))
             return;
 
-        foreach (var (ns, line, column, isFile, filePath) in _allImports)
+        foreach (var (ns, line, column, length, isFile, filePath) in _allImports)
         {
             bool used;
             if (isFile)
@@ -1976,13 +1976,14 @@ internal class LintVisitor
 
             if (!used)
             {
-                var label = isFile ? $"import \"{ns}\"" : $"import {ns}";
+                var label = isFile ? $"import \"{filePath ?? ns}\"" : $"import {ns}";
                 AddDiagnostic(
                     "NL010",
                     $"The import '{label}' is not used by any code in this file",
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL010"),
-                    $"Remove '{label}' to keep your imports clean");
+                    $"Remove '{label}' to keep your imports clean",
+                    length);
             }
         }
     }

@@ -111,7 +111,7 @@ public class Analyzer : IDisposable
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
-    private readonly Dictionary<string, List<string>> _importedSymbols = new(); // symbol -> [source paths]
+    private readonly Dictionary<string, List<ImportedSymbolReference>> _importedSymbols = new(); // symbol -> import references
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
@@ -11108,6 +11108,11 @@ public class Analyzer : IDisposable
         _errors.Add(warning);
     }
 
+    private string? GetSourceSnippet(int line)
+        => _sourceLines != null && line > 0 && line <= _sourceLines.Length
+            ? _sourceLines[line - 1]
+            : null;
+
     // Package validation
     private void ValidatePackageName(PackageDeclaration package)
     {
@@ -11168,29 +11173,33 @@ public class Analyzer : IDisposable
     private void ProcessFileImport(FileImport import, FileResolver resolver)
     {
         // Resolve the file path
-        var resolvedPath = resolver.ValidateImportPath(import.Path, out var errorMessage);
+        var resolvedPath = ResolveFileImportPath(resolver, import.Path, out var errorMessage);
         if (resolvedPath == null)
         {
             // Use ErrorMessageBuilder for better error message
-            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                ? _sourceLines[import.Line - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(import.Line);
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.ImportNotFound(
                     _currentFilePath,
                     import.Line,
-                    import.Column,
+                    import.DiagnosticColumn,
                     sourceSnippet,
-                    import.Path.Length,
+                    import.DiagnosticLength,
                     import.Path
                 );
                 _errors.Add(error);
             }
             else
             {
-                Error(errorMessage!, import.Line, import.Column);
+                Error(
+                    ErrorCode.ImportNotFound,
+                    errorMessage!,
+                    import.Line,
+                    import.DiagnosticColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.ImportNotFound),
+                    import.DiagnosticLength);
             }
             return;
         }
@@ -11199,26 +11208,25 @@ public class Analyzer : IDisposable
         if (_currentFilePath != null &&
             string.Equals(Path.GetFullPath(resolvedPath), Path.GetFullPath(_currentFilePath), StringComparison.OrdinalIgnoreCase))
         {
-            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                ? _sourceLines[import.Line - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(import.Line);
 
             if (sourceSnippet != null)
             {
                 var error = ErrorMessageBuilder.CircularImport(
                     _currentFilePath,
                     import.Line,
-                    import.Column,
+                    import.DiagnosticColumn,
                     sourceSnippet,
-                    import.Path.Length,
+                    import.DiagnosticLength,
                     import.Path);
                 _errors.Add(error);
             }
             else
             {
                 Error(ErrorCode.CircularImport, $"'{import.Path}' imports itself — circular imports aren't allowed",
-                    import.Line, import.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+                    import.Line, import.DiagnosticColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
+                    import.DiagnosticLength);
             }
             return;
         }
@@ -11228,7 +11236,7 @@ public class Analyzer : IDisposable
         string? importedSource = null;
         try
         {
-            importedSource = System.IO.File.ReadAllText(resolvedPath);
+            importedSource = TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
             var lexer = new Lexer(importedSource, resolvedPath);
             var tokens = lexer.Tokenize();
             var parser = new Parser(tokens, resolvedPath, importedSource);  // Pass source code
@@ -11238,7 +11246,12 @@ public class Analyzer : IDisposable
             // Report parse errors
             foreach (var error in parseResult.Errors)
             {
-                Error($"The imported file '{import.Path}' has a syntax error — {error.Message}", import.Line, import.Column);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    $"The imported file '{import.Path}' has a syntax error — {error.Message}",
+                    import.Line,
+                    import.DiagnosticColumn,
+                    length: import.DiagnosticLength);
             }
 
             if (importedUnit == null)
@@ -11248,7 +11261,12 @@ public class Analyzer : IDisposable
         }
         catch (Exception ex)
         {
-            Error($"I couldn't read the imported file '{import.Path}' — {ex.Message}", import.Line, import.Column);
+            Error(
+                ErrorCode.InvalidSyntax,
+                $"I couldn't read the imported file '{import.Path}' — {ex.Message}",
+                import.Line,
+                import.DiagnosticColumn,
+                length: import.DiagnosticLength);
             return;
         }
 
@@ -11261,22 +11279,20 @@ public class Analyzer : IDisposable
             {
                 if (nestedImport is FileImport nestedFileImport)
                 {
-                    var nestedPath = importedFileResolver.ValidateImportPath(nestedFileImport.Path, out _);
+                    var nestedPath = ResolveFileImportPath(importedFileResolver, nestedFileImport.Path, out _);
                     if (nestedPath != null &&
                         string.Equals(Path.GetFullPath(nestedPath), currentNormalized, StringComparison.OrdinalIgnoreCase))
                     {
-                        var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                            ? _sourceLines[import.Line - 1]
-                            : null;
+                        var sourceSnippet = GetSourceSnippet(import.Line);
 
                         if (sourceSnippet != null)
                         {
                             var error = ErrorMessageBuilder.CircularImport(
                                 _currentFilePath,
                                 import.Line,
-                                import.Column,
+                                import.DiagnosticColumn,
                                 sourceSnippet,
-                                import.Path.Length,
+                                import.DiagnosticLength,
                                 import.Path);
                             _errors.Add(error);
                         }
@@ -11284,8 +11300,9 @@ public class Analyzer : IDisposable
                         {
                             Error(ErrorCode.CircularImport,
                                 $"Circular import: '{import.Path}' imports '{nestedFileImport.Path}' which imports this file back — break the cycle by restructuring your imports",
-                                import.Line, import.Column,
-                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+                                import.Line, import.DiagnosticColumn,
+                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
+                                import.DiagnosticLength);
                         }
                         return;
                     }
@@ -11327,9 +11344,14 @@ public class Analyzer : IDisposable
                 // Track collision detection
                 if (!_importedSymbols.ContainsKey(symbol.Name))
                 {
-                    _importedSymbols[symbol.Name] = new List<string>();
+                    _importedSymbols[symbol.Name] = new List<ImportedSymbolReference>();
                 }
-                _importedSymbols[symbol.Name].Add(resolvedPath);
+                _importedSymbols[symbol.Name].Add(new ImportedSymbolReference(
+                    resolvedPath,
+                    import.Path,
+                    import.Line,
+                    import.DiagnosticColumn,
+                    import.DiagnosticLength));
 
                 // Add to global scope
                 var globalScope = _scopes.Last(); // Global scope is at the bottom of stack
@@ -11356,6 +11378,19 @@ public class Analyzer : IDisposable
                 _bindingMap.RecordDeclaration(symbol.Declaration);
             }
         }
+    }
+
+    private string? ResolveFileImportPath(FileResolver resolver, string importPath, out string? errorMessage)
+    {
+        var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
+        if (_projectSourceTexts.ContainsKey(resolvedPath) || System.IO.File.Exists(resolvedPath))
+        {
+            errorMessage = null;
+            return resolvedPath;
+        }
+
+        errorMessage = $"Imported file not found: {importPath} (resolved to {resolvedPath})";
+        return null;
     }
 
     private void ProcessNamespaceImport(NamespaceImport import)
@@ -11908,14 +11943,64 @@ public class Analyzer : IDisposable
 
     private void CheckImportCollisions()
     {
-        foreach (var (symbol, sources) in _importedSymbols)
+        foreach (var (symbol, imports) in _importedSymbols)
         {
-            if (sources.Count > 1)
+            if (imports.Count <= 1)
+                continue;
+
+            var duplicate = imports[1];
+            var importList = FormatImportCollisionSources(imports);
+            var message = $"Imported symbol '{symbol}' is defined by multiple file imports";
+            var suggestion = $"Add an alias to one import, such as `import \"{duplicate.ImportPath}\" as Alias`, and qualify the symbol.";
+            var humanExplanation = $"The symbol '{symbol}' is imported more than once, so N# cannot choose which definition to use.";
+            var contextualHint =
+                $"N# found '{symbol}' in these file imports: {importList}.\n" +
+                "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit.";
+
+            var sourceSnippet = GetSourceSnippet(duplicate.Line);
+            if (sourceSnippet != null && _currentFilePath != null)
             {
-                Error($"'{symbol}' is imported from multiple sources ({string.Join(", ", sources)}) — use an alias to resolve the conflict", 0, 0);
+                var error = CompilerError.WithSnippet(
+                    ErrorCode.ImportCollision,
+                    message,
+                    _currentFilePath,
+                    duplicate.Line,
+                    duplicate.Column,
+                    sourceSnippet,
+                    duplicate.Length,
+                    suggestion,
+                    ErrorSeverity.Error) with
+                {
+                    HumanExplanation = humanExplanation,
+                    ContextualHint = contextualHint,
+                    DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
+                };
+
+                _errors.Add(error);
+                continue;
             }
+
+            _errors.Add(CompilerError.Create(
+                ErrorCode.ImportCollision,
+                message,
+                duplicate.Line,
+                duplicate.Column,
+                ErrorSeverity.Error) with
+            {
+                FileName = _currentFilePath ?? duplicate.SourcePath,
+                Length = Math.Max(1, duplicate.Length),
+                Suggestion = suggestion,
+                HumanExplanation = humanExplanation,
+                ContextualHint = contextualHint,
+                DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
+            });
         }
     }
+
+    private static string FormatImportCollisionSources(IEnumerable<ImportedSymbolReference> imports)
+        => string.Join(", ", imports
+            .Select(import => $"\"{import.ImportPath}\"")
+            .Distinct(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
     /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)
@@ -12758,6 +12843,13 @@ public enum NullState
 }
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
+
+internal sealed record ImportedSymbolReference(
+    string SourcePath,
+    string ImportPath,
+    int Line,
+    int Column,
+    int Length);
 
 /// <summary>
 /// A symbol discovered from another file in the same project.
