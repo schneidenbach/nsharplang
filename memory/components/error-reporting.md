@@ -52,6 +52,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Operator declaration diagnostics underline the operator syntax, not the declaration fallback: missing `static` on an overload underlines the visible `operator` keyword, while unsupported operators and parameter-count errors underline the operator symbol/name such as `%` or `true`.
 - Missing required expressions after visible statement keywords (`if`, `while`, `assert`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after assignment anchors such as `:=` and `=` underline the visible anchor token instead of an end-of-line insertion slot.
 - Diagnostic spans should prefer full visible tokens over single-character whitespace insertion slots. If a visible owning identifier or keyword exists, underline that token so IDE squiggles are easy to see.
+- Missing closing parenthesis diagnostics underline the visible owner token when available, such as the callable name in `print("hello"` or the function name in `func main(`, instead of an invisible end-of-line insertion slot.
 - Parser, analyzer, and linter diagnostics that do not pass an explicit span length infer the full visible token from the source line before publishing to CLI, LSP, or Playground. Explicit one-character spans are reserved for true insertion points or single-character punctuation diagnostics.
 - Missing parameter separators such as `func greet(name string)`, member separators such as `Name string`, and function return separators such as `func answer() int` underline the owning parameter, field, or function name, not the whitespace insertion slot or following type token.
 - Incomplete member access diagnostics underline the member-access operator (`.` or `?.`) whenever no member name follows, including same-line continuations such as `name.()` or `name. }`.
@@ -78,7 +79,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL104`: UnexpectedEndOfFile
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at the insertion position when possible
-- Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, and similar anchors recover without consuming the next statement, including statements that VS Code auto-indents after a dangling anchor. Operator and initializer anchors point at the insertion position; keyword anchors underline the visible keyword.
+- Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, and similar anchors recover without consuming the next statement, including statements that VS Code auto-indents after a dangling anchor. Assignment and keyword anchors underline the visible anchor token; true operator operand gaps may still use the operator token as the smallest useful location.
 
 ### Type Errors (200-299)
 - `NL201`: TypeNotFound

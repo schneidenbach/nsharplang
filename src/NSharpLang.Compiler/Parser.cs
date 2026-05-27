@@ -5416,16 +5416,18 @@ public class Parser
         if (Current.Type != TokenType.Eof && Current.Line <= previous.Line && !sameLineBoundary)
             return false;
 
-        var length = Math.Max(1, previous.Value.Length);
-        var line = sameLineBoundary ? Current.Line : previous.Line;
-        var column = sameLineBoundary ? Current.Column : previous.Column + length;
+        var previousLength = Math.Max(1, previous.Value.Length);
+        var insertionLine = sameLineBoundary ? Current.Line : previous.Line;
+        var insertionColumn = sameLineBoundary ? Current.Column : previous.Column + previousLength;
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+            GetMissingClosingDelimiterDiagnosticSpan(type, previous, sameLineBoundary);
         var found = sameLineBoundary ? Current.Value : null;
 
         ReportError(
             code,
             $"Missing closing '{expected}'",
-            line,
-            column,
+            diagnosticLine,
+            diagnosticColumn,
             humanExplanation: found is null
                 ? $"I reached the next line while looking for the closing '{expected}' that matches an earlier '{opening}'."
                 : $"I found '{found}' while looking for the closing '{expected}' that matches an earlier '{opening}'.",
@@ -5435,12 +5437,118 @@ public class Parser
                 found is null ? $"Add '{expected}' before starting the next line" : $"Add '{expected}' before '{found}'",
                 $"Check the matching '{opening}' in this expression"
             },
-            length: 1
+            length: diagnosticLength
         );
 
-        recoveredToken = new Token(type, expected, line, column, previous.FileName);
+        recoveredToken = new Token(type, expected, insertionLine, insertionColumn, previous.FileName);
         return true;
     }
+
+    private (int Line, int Column, int Length) GetMissingClosingDelimiterDiagnosticSpan(
+        TokenType expectedClosingType,
+        Token previous,
+        bool sameLineBoundary)
+    {
+        if (sameLineBoundary)
+            return (Current.Line, Current.Column, Math.Max(1, Current.Value.Length));
+
+        if (expectedClosingType == TokenType.RightParen &&
+            TryFindUnmatchedOpeningDelimiter(TokenType.LeftParen, TokenType.RightParen, previous, out var openingToken))
+        {
+            if (TryGetDelimiterOwnerSpan(openingToken, out var ownerSpan))
+                return ownerSpan;
+
+            return (openingToken.Line, openingToken.Column, Math.Max(1, openingToken.Value.Length));
+        }
+
+        if (expectedClosingType == TokenType.RightBracket &&
+            TryFindUnmatchedOpeningDelimiter(TokenType.LeftBracket, TokenType.RightBracket, previous, out var bracketToken))
+        {
+            return (bracketToken.Line, bracketToken.Column, Math.Max(1, bracketToken.Value.Length));
+        }
+
+        var fallbackLength = Math.Max(1, previous.Value.Length);
+        return (previous.Line, previous.Column + fallbackLength, 1);
+    }
+
+    private bool TryFindUnmatchedOpeningDelimiter(
+        TokenType openingType,
+        TokenType closingType,
+        Token previous,
+        out Token openingToken)
+    {
+        var depth = 0;
+        var previousEndColumn = previous.Column + Math.Max(1, previous.Value.Length);
+
+        for (var index = Math.Min(_position - 1, _tokens.Count - 1); index >= 0; index--)
+        {
+            var token = _tokens[index];
+            if (token.Type == TokenType.Eof)
+                continue;
+
+            if (token.Line > previous.Line ||
+                (token.Line == previous.Line && token.Column > previousEndColumn))
+            {
+                continue;
+            }
+
+            if (token.Type == closingType)
+            {
+                depth++;
+                continue;
+            }
+
+            if (token.Type != openingType)
+                continue;
+
+            if (depth == 0)
+            {
+                openingToken = token;
+                return true;
+            }
+
+            depth--;
+        }
+
+        openingToken = previous;
+        return false;
+    }
+
+    private bool TryGetDelimiterOwnerSpan(Token openingToken, out (int Line, int Column, int Length) span)
+    {
+        var tokenIndex = _tokens.FindIndex(token =>
+            token.Line == openingToken.Line &&
+            token.Column == openingToken.Column &&
+            token.Type == openingToken.Type &&
+            token.Value == openingToken.Value);
+
+        if (tokenIndex > 0)
+        {
+            var owner = _tokens[tokenIndex - 1];
+            if (owner.Line == openingToken.Line && IsVisibleDelimiterOwner(owner))
+            {
+                span = (owner.Line, owner.Column, Math.Max(1, owner.Value.Length));
+                return true;
+            }
+        }
+
+        span = default;
+        return false;
+    }
+
+    private static bool IsVisibleDelimiterOwner(Token token)
+        => token.Type == TokenType.Identifier ||
+           token.Type is TokenType.Print or
+               TokenType.If or
+               TokenType.While or
+               TokenType.For or
+               TokenType.Foreach or
+               TokenType.Switch or
+               TokenType.Lock or
+               TokenType.Using or
+               TokenType.Assert or
+               TokenType.Func or
+               TokenType.Test;
 
     private bool IsSameLineMissingClosingDelimiterBoundary(TokenType type)
     {

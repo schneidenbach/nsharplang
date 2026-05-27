@@ -929,7 +929,7 @@ func test() {
     }
 
     [Fact]
-    public void Parser_MissingClosingParen_PointsAtInsertionPosition()
+    public void Parser_MissingClosingParen_PointsAtCallOwner()
     {
         var source = """
 func test() {
@@ -943,15 +943,15 @@ func test() {
             error.Code == ErrorCode.MissingClosingParen &&
             error.Message.Contains("Missing closing ')'"));
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(18, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Equal("    print(\"hello\"", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Parser_UnclosedEmptyCallArgumentList_ReportsMissingParenAtInsertionPosition()
+    public void Parser_UnclosedEmptyCallArgumentList_ReportsMissingParenAtCallOwner()
     {
         var source = """
 func test() {
@@ -966,8 +966,8 @@ func test() {
             error.Code == ErrorCode.MissingClosingParen &&
             error.Message.Contains("Missing closing ')'"));
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Equal("    print(", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
@@ -975,7 +975,7 @@ func test() {
     }
 
     [Fact]
-    public void Parser_UnclosedEmptyFunctionParameterList_ReportsMissingParenAtInsertionPosition()
+    public void Parser_UnclosedEmptyFunctionParameterList_ReportsMissingParenAtFunctionName()
     {
         var source = "func test(\n";
 
@@ -985,8 +985,8 @@ func test() {
             error.Code == ErrorCode.MissingClosingParen &&
             error.Message.Contains("Missing closing ')'"));
         Assert.Equal(1, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("test".Length, diagnostic.Length);
         Assert.Equal("func test(", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);

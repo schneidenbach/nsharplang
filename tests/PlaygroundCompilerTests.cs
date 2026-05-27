@@ -960,7 +960,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_MissingClosingParen_PreservesInsertionSpanForMarkers()
+    public void Check_MissingClosingParen_PreservesCallOwnerSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -975,15 +975,15 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(4, diagnostic.Line);
-        Assert.Equal(18, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Equal("    print(\"hello\"", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Check_UnclosedEmptyCallArgumentList_PreservesInsertionSpanForMarkers()
+    public void Check_UnclosedEmptyCallArgumentList_PreservesCallOwnerSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -999,8 +999,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(4, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Equal("    print(", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
@@ -1009,7 +1009,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_UnclosedEmptyFunctionParameterList_PreservesInsertionSpanForMarkers()
+    public void Check_UnclosedEmptyFunctionParameterList_PreservesFunctionNameSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main(\n");
 
@@ -1018,8 +1018,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(3, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("main".Length, diagnostic.Length);
         Assert.Equal("func main(", diagnostic.SourceSnippet);
         Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);

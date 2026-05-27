@@ -1376,7 +1376,7 @@ func main() {
     }
 
     [Fact]
-    public void Diagnostics_MissingClosingParen_PointsAtInsertionPosition()
+    public void Diagnostics_MissingClosingParen_PointsAtCallOwner()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-paren.nl";
@@ -1396,18 +1396,18 @@ func main() {
             d => d.Code == ErrorCode.MissingClosingParen && d.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(18, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.Contains("closing ')'", diagnostic.HumanExplanation, System.StringComparison.OrdinalIgnoreCase);
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(17, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(18, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
-    public void Diagnostics_UnclosedEmptyCallArgumentList_PointsAtInsertionPosition()
+    public void Diagnostics_UnclosedEmptyCallArgumentList_PointsAtCallOwner()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-empty-call-paren.nl";
@@ -1428,19 +1428,19 @@ func main() {
             d => d.Code == ErrorCode.MissingClosingParen && d.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.UnexpectedToken);
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(10, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(11, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
-    public void Diagnostics_UnclosedEmptyFunctionParameterList_PointsAtInsertionPosition()
+    public void Diagnostics_UnclosedEmptyFunctionParameterList_PointsAtFunctionName()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-empty-parameter-paren.nl";
@@ -1456,13 +1456,13 @@ func main() {
             d => d.Code == ErrorCode.MissingClosingParen && d.Message.Contains("Missing closing ')'"));
 
         Assert.Equal(1, diagnostic.Line);
-        Assert.Equal(11, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("main".Length, diagnostic.Length);
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(0, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(10, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(11, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(5, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
