@@ -768,24 +768,28 @@ public class Parser
 
             var constraintTypes = new List<TypeReference>();
             var specialConstraints = SpecialConstraintKind.None;
+            Token? classConstraintToken = null;
+            Token? structConstraintToken = null;
+            Token? newConstraintStartToken = null;
+            Token? newConstraintEndToken = null;
 
             do
             {
                 if (Check(TokenType.Class))
                 {
-                    Advance();
+                    classConstraintToken = Advance();
                     specialConstraints |= SpecialConstraintKind.Class;
                 }
                 else if (Check(TokenType.Struct))
                 {
-                    Advance();
+                    structConstraintToken = Advance();
                     specialConstraints |= SpecialConstraintKind.Struct;
                 }
                 else if (Check(TokenType.New) && LookAhead(1).Type == TokenType.LeftParen)
                 {
-                    Advance(); // consume 'new'
+                    newConstraintStartToken = Advance(); // consume 'new'
                     Advance(); // consume '('
-                    Consume(TokenType.RightParen, "Expected ')' after 'new('");
+                    newConstraintEndToken = Consume(TokenType.RightParen, "Expected ')' after 'new('");
                     specialConstraints |= SpecialConstraintKind.New;
                 }
                 else
@@ -798,12 +802,14 @@ public class Parser
             if (specialConstraints.HasFlag(SpecialConstraintKind.Class) &&
                 specialConstraints.HasFlag(SpecialConstraintKind.Struct))
             {
+                var diagnosticToken = LaterToken(classConstraintToken, structConstraintToken);
                 ReportError(
                     ErrorCode.InvalidSyntax,
                     "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive",
-                    Current.Line,
-                    Current.Column,
-                    humanExplanation: "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time."
+                    diagnosticToken?.Line ?? Current.Line,
+                    diagnosticToken?.Column ?? Current.Column,
+                    humanExplanation: "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time.",
+                    length: TokenLengthOrFallback(diagnosticToken)
                 );
             }
 
@@ -814,9 +820,10 @@ public class Parser
                 ReportError(
                     ErrorCode.InvalidSyntax,
                     "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
-                    Current.Line,
-                    Current.Column,
-                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#."
+                    newConstraintStartToken?.Line ?? Current.Line,
+                    newConstraintStartToken?.Column ?? Current.Column,
+                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#.",
+                    length: TokenSpanLengthOrFallback(newConstraintStartToken, newConstraintEndToken)
                 );
             }
 
@@ -5285,6 +5292,32 @@ public class Parser
             start.Span.StartColumn,
             end.Line,
             end.Column + Math.Max(1, end.Value.Length));
+    }
+
+    private static int TokenLengthOrFallback(Token? token)
+        => token is null ? 1 : Math.Max(1, token.Value.Length);
+
+    private static int TokenSpanLengthOrFallback(Token? start, Token? end)
+    {
+        if (start is null)
+            return 1;
+
+        if (end is null || end.Line != start.Line)
+            return TokenLengthOrFallback(start);
+
+        return Math.Max(1, end.Column + TokenLengthOrFallback(end) - start.Column);
+    }
+
+    private static Token? LaterToken(Token? left, Token? right)
+    {
+        if (left is null)
+            return right;
+        if (right is null)
+            return left;
+
+        return right.Line > left.Line || (right.Line == left.Line && right.Column >= left.Column)
+            ? right
+            : left;
     }
 
     private bool Check(TokenType type)

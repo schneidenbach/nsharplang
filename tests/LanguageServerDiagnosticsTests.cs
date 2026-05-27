@@ -382,6 +382,42 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_InvalidGenericConstraints_UseOffendingConstraintSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///generic-constraint-spans.nl";
+
+        var source = """
+func BadClassStruct<T>(value: T): T where T : class, struct {
+    return value
+}
+
+func BadStructNew<T>(value: T): T where T : struct, new() {
+    return value
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var classStructConflict = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("both 'class' and 'struct'"));
+        AssertDiagnosticSpan(classStructConflict, line: 1, column: 54, length: "struct".Length);
+        AssertLspRange(classStructConflict, line0: 0, startCharacter: 53, endCharacter: 59);
+
+        var structNewConflict = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("Cannot combine 'struct' and 'new()'"));
+        AssertDiagnosticSpan(structNewConflict, line: 5, column: 53, length: "new()".Length);
+        AssertLspRange(structNewConflict, line0: 4, startCharacter: 52, endCharacter: 57);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

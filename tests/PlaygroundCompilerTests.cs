@@ -351,6 +351,34 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_InvalidGenericConstraints_PreserveOffendingConstraintSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func BadClassStruct<T>(value: T): T where T : class, struct {
+                return value
+            }
+
+            func BadStructNew<T>(value: T): T where T : struct, new() {
+                return value
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var classStructConflict = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("both 'class' and 'struct'"));
+        AssertPlaygroundSpan(classStructConflict, line: 3, column: 54, length: "struct".Length);
+
+        var structNewConflict = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Cannot combine 'struct' and 'new()'"));
+        AssertPlaygroundSpan(structNewConflict, line: 7, column: 53, length: "new()".Length);
+    }
+
+    [Fact]
     public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""
