@@ -11037,7 +11037,7 @@ public class Analyzer : IDisposable
         Error(ErrorCode.InvalidSyntax, message, line, column);
     }
 
-    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
+    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
         CompilerError error;
 
@@ -11062,7 +11062,7 @@ public class Analyzer : IDisposable
             error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
             {
                 FileName = _currentFilePath,
-                Length = length,
+                Length = Math.Max(1, length),
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }
@@ -11075,7 +11075,7 @@ public class Analyzer : IDisposable
         Warning(ErrorCode.UnusedVariable, message, line, column);
     }
 
-    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
+    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
         CompilerError warning;
 
@@ -11100,7 +11100,7 @@ public class Analyzer : IDisposable
             warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
             {
                 FileName = _currentFilePath,
-                Length = length,
+                Length = Math.Max(1, length),
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }

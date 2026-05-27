@@ -1105,6 +1105,26 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_DefaultSemanticSpan_PreservesVisibleTokenSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main(): int {
+                let value: var = 42
+                return value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'var' is not a type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 16, length: "var".Length);
+        Assert.Equal("    let value: var = 42", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
     public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

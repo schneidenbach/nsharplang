@@ -5653,16 +5653,15 @@ public class Parser
             return;
 
         var snippet = GetSourceSnippet(line);
-        var span = ResolveDiagnosticSpan(snippet, column, length);
 
         var error = CompilerError.WithSnippet(
             code,
             message,
             _fileName ?? "unknown",
             line,
-            span.Column,
+            column,
             snippet ?? "",
-            span.Length,
+            length,
             suggestions?.FirstOrDefault()
         );
 
@@ -5681,125 +5680,6 @@ public class Parser
         _errors.Add(error);
         _panicMode = true;
     }
-
-    private static (int Column, int Length) ResolveDiagnosticSpan(string? sourceLine, int oneBasedColumn, int requestedLength)
-    {
-        if (requestedLength > 0)
-            return (oneBasedColumn, Math.Max(1, requestedLength));
-
-        if (string.IsNullOrEmpty(sourceLine))
-            return (oneBasedColumn, 1);
-
-        var start = oneBasedColumn - 1;
-        if (start < 0 || start >= sourceLine.Length)
-            return (oneBasedColumn, 1);
-
-        if (char.IsWhiteSpace(sourceLine[start]))
-        {
-            var visibleStart = FindNextVisibleTokenStart(sourceLine, start);
-            if (visibleStart < 0)
-                visibleStart = FindPreviousVisibleTokenStart(sourceLine, start);
-
-            if (visibleStart >= 0)
-                return (visibleStart + 1, InferVisibleTokenLength(sourceLine, visibleStart));
-
-            return (oneBasedColumn, 1);
-        }
-
-        return (oneBasedColumn, InferVisibleTokenLength(sourceLine, start));
-    }
-
-    private static int FindNextVisibleTokenStart(string sourceLine, int start)
-    {
-        for (var index = start; index < sourceLine.Length; index++)
-        {
-            if (!char.IsWhiteSpace(sourceLine[index]))
-                return index;
-        }
-
-        return -1;
-    }
-
-    private static int FindPreviousVisibleTokenStart(string sourceLine, int start)
-    {
-        var index = Math.Min(start, sourceLine.Length - 1);
-        while (index >= 0 && char.IsWhiteSpace(sourceLine[index]))
-            index--;
-
-        if (index < 0)
-            return -1;
-
-        while (index > 0 && IsDiagnosticTokenChar(sourceLine[index - 1]))
-            index--;
-
-        return index;
-    }
-
-    private static int InferVisibleTokenLength(string sourceLine, int zeroBasedStart)
-    {
-        if (zeroBasedStart < 0 || zeroBasedStart >= sourceLine.Length)
-            return 1;
-
-        if (sourceLine[zeroBasedStart] == '"')
-            return ScanQuotedDiagnosticTokenLength(sourceLine, zeroBasedStart, '"');
-
-        if (sourceLine[zeroBasedStart] == '\'')
-            return ScanQuotedDiagnosticTokenLength(sourceLine, zeroBasedStart, '\'');
-
-        if (sourceLine[zeroBasedStart] == '$' &&
-            zeroBasedStart + 1 < sourceLine.Length &&
-            sourceLine[zeroBasedStart + 1] == '"')
-        {
-            return 1 + ScanQuotedDiagnosticTokenLength(sourceLine, zeroBasedStart + 1, '"');
-        }
-
-        var end = zeroBasedStart;
-        while (end < sourceLine.Length && IsDiagnosticTokenChar(sourceLine[end]))
-            end++;
-
-        if (end > zeroBasedStart)
-            return end - zeroBasedStart;
-
-        return zeroBasedStart + 1 < sourceLine.Length &&
-               IsPunctuationPair(sourceLine[zeroBasedStart], sourceLine[zeroBasedStart + 1])
-            ? 2
-            : 1;
-    }
-
-    private static int ScanQuotedDiagnosticTokenLength(string sourceLine, int quoteStart, char quote)
-    {
-        var index = quoteStart + 1;
-        while (index < sourceLine.Length)
-        {
-            if (sourceLine[index] == '\\')
-            {
-                index += 2;
-                continue;
-            }
-
-            if (sourceLine[index] == quote)
-                return index - quoteStart + 1;
-
-            index++;
-        }
-
-        return Math.Max(1, sourceLine.Length - quoteStart);
-    }
-
-    private static bool IsDiagnosticTokenChar(char ch)
-        => char.IsLetterOrDigit(ch) || ch is '_' or '.' or '!' or '?';
-
-    private static bool IsPunctuationPair(char first, char second)
-        => (first, second) is
-            (':', '=') or
-            ('=', '>') or
-            ('=', '=') or
-            ('!', '=') or
-            ('>', '=') or
-            ('<', '=') or
-            ('&', '&') or
-            ('|', '|') or
-            ('?', '?');
 
     /// <summary>
     /// Check if a token type is a keyword that starts a top-level declaration.

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -171,54 +170,12 @@ public class Linter
         return visitor.Diagnostics;
     }
 
-    internal static int InferDiagnosticLength(string code, string message, string? sourceLine, int oneBasedColumn)
-    {
-        var line = sourceLine ?? string.Empty;
-
-        var quoted = FirstQuotedText(message);
-        if (!string.IsNullOrWhiteSpace(quoted) && StartsWithAt(line, oneBasedColumn, quoted))
-            return quoted.Length;
-
-        return TokenLengthAt(line, oneBasedColumn);
-    }
-
     internal static string[] NormalizeSourceLines(string? sourceText)
         => string.IsNullOrEmpty(sourceText)
             ? Array.Empty<string>()
             : sourceText.Replace("\r\n", "\n", StringComparison.Ordinal)
                 .Replace('\r', '\n')
                 .Split('\n');
-
-    internal static int TokenLengthAt(string sourceLine, int oneBasedColumn)
-    {
-        if (sourceLine.Length == 0)
-            return 1;
-
-        var start = Math.Clamp(oneBasedColumn - 1, 0, Math.Max(0, sourceLine.Length - 1));
-        var length = 0;
-        while (start + length < sourceLine.Length &&
-               (char.IsLetterOrDigit(sourceLine[start + length]) ||
-                sourceLine[start + length] is '_' or '!' or '.' or '{' or '}'))
-        {
-            length++;
-        }
-
-        return Math.Max(1, length);
-    }
-
-    private static bool StartsWithAt(string sourceLine, int oneBasedColumn, string value)
-    {
-        var start = oneBasedColumn - 1;
-        return start >= 0 &&
-               start + value.Length <= sourceLine.Length &&
-               string.Equals(sourceLine.Substring(start, value.Length), value, StringComparison.Ordinal);
-    }
-
-    private static string? FirstQuotedText(string message)
-    {
-        var match = Regex.Match(message, @"'([^']+)'");
-        return match.Success ? match.Groups[1].Value : null;
-    }
 }
 
 /// <summary>
@@ -357,11 +314,12 @@ internal class LintVisitor
             return;
 
         var sourceLine = SourceLine(location.Line);
-        var diagnosticLength = length > 0
-            ? length
-            : Linter.InferDiagnosticLength(code, message, sourceLine, location.Column);
+        var span = DiagnosticSpanResolver.Resolve(sourceLine, location.Column, length);
+        var diagnosticLocation = span.Column == location.Column
+            ? location
+            : location with { Column = span.Column };
 
-        _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion, diagnosticLength));
+        _diagnostics.Add(new Diagnostic(code, message, diagnosticLocation, severity, suggestion, span.Length));
     }
 
     private string SourceLine(int oneBasedLine)

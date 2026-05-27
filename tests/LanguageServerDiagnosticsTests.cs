@@ -1448,6 +1448,32 @@ class User {
     }
 
     [Fact]
+    public void Diagnostics_DefaultSemanticSpan_UsesVisibleTokenSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///explicit-var-type.nl";
+
+        var source = """
+func main(): int {
+    let value: var = 42
+    return value
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("'var' is not a type"));
+
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 16, length: "var".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 15, endCharacter: 18);
+    }
+
+    [Fact]
     public void LinterDiagnostics_UnusedShorthandVariable_UsesVariableNameSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
