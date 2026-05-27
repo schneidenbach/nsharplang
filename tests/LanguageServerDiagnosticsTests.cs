@@ -1495,6 +1495,37 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_MissingClosingBracket_PointsAtAssignedVariable()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-bracket.nl";
+
+        var source = """
+func main() {
+    nums := [1, 2
+    print nums
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.MissingClosingBracket && d.Message.Contains("Missing closing ']'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("nums".Length, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(8, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_MissingParameterColon_UsesParameterNameSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

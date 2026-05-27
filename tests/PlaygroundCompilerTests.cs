@@ -1047,6 +1047,30 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MissingClosingBracket_PreservesAssignedVariableSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                nums := [1, 2
+                print nums
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL108" &&
+                          diagnostic.Message.Contains("Missing closing ']'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("nums".Length, diagnostic.Length);
+        Assert.Equal("    nums := [1, 2", diagnostic.SourceSnippet);
+        Assert.Contains("closing ']'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing bracket", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Check_MissingParameterColon_PreservesParameterNameSpan()
     {
         var result = new PlaygroundCompiler().Check("""

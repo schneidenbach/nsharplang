@@ -5552,6 +5552,9 @@ public class Parser
         if (expectedClosingType == TokenType.RightBracket &&
             TryFindUnmatchedOpeningDelimiter(TokenType.LeftBracket, TokenType.RightBracket, previous, out var bracketToken))
         {
+            if (TryGetDelimiterOwnerSpan(bracketToken, out var ownerSpan))
+                return ownerSpan;
+
             return (bracketToken.Line, bracketToken.Column, Math.Max(1, bracketToken.Value.Length));
         }
 
@@ -5618,6 +5621,15 @@ public class Parser
                 span = (owner.Line, owner.Column, Math.Max(1, owner.Value.Length));
                 return true;
             }
+
+            if (owner.Line == openingToken.Line &&
+                IsAssignmentAnchor(owner) &&
+                TryGetPreviousTokenOnLine(tokenIndex - 1, owner.Line, out var assignedName) &&
+                IsVisibleDelimiterOwner(assignedName))
+            {
+                span = (assignedName.Line, assignedName.Column, Math.Max(1, assignedName.Value.Length));
+                return true;
+            }
         }
 
         span = default;
@@ -5628,6 +5640,8 @@ public class Parser
         => token.Type == TokenType.Identifier ||
            token.Type is TokenType.Print or
                TokenType.If or
+               TokenType.Case or
+               TokenType.Default or
                TokenType.While or
                TokenType.For or
                TokenType.Foreach or
@@ -5635,8 +5649,33 @@ public class Parser
                TokenType.Lock or
                TokenType.Using or
                TokenType.Assert or
+               TokenType.Return or
+               TokenType.Yield or
+               TokenType.Throw or
                TokenType.Func or
                TokenType.Test;
+
+    private static bool IsAssignmentAnchor(Token token)
+        => token.Type is TokenType.Assign or TokenType.ColonAssign;
+
+    private bool TryGetPreviousTokenOnLine(int beforeIndex, int line, out Token token)
+    {
+        for (var index = beforeIndex - 1; index >= 0; index--)
+        {
+            var candidate = _tokens[index];
+            if (candidate.Type == TokenType.Eof)
+                continue;
+
+            if (candidate.Line != line)
+                break;
+
+            token = candidate;
+            return true;
+        }
+
+        token = default!;
+        return false;
+    }
 
     private bool IsSameLineMissingClosingDelimiterBoundary(TokenType type)
     {

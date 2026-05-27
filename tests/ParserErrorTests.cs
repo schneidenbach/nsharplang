@@ -1031,6 +1031,54 @@ func test() {
     }
 
     [Fact]
+    public void Parser_MissingClosingBracket_ArrayLiteralPointsAtAssignedVariable()
+    {
+        var source = """
+func test() {
+    nums := [1, 2
+    print nums
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.MissingClosingBracket &&
+            error.Message.Contains("Missing closing ']'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("nums".Length, diagnostic.Length);
+        Assert.Equal("    nums := [1, 2", diagnostic.SourceSnippet);
+        Assert.Contains("closing ']'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing bracket", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_MissingClosingBracket_IndexAccessPointsAtReceiver()
+    {
+        var source = """
+func test() {
+    nums := [1, 2, 3]
+    print nums[0
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.MissingClosingBracket &&
+            error.Message.Contains("Missing closing ']'"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal("nums".Length, diagnostic.Length);
+        Assert.Equal("    print nums[0", diagnostic.SourceSnippet);
+        Assert.Contains("closing ']'", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing bracket", diagnostic.ContextualHint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
     {
         // Multiple distinct bad statements inside a single function body
