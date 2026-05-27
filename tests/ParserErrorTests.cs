@@ -51,9 +51,9 @@ func test() {
     }
 
     [Fact]
-    public void Parser_ReportsError_IncompleteMemberAccessBeforeSameLineToken_PointsAtDot()
+    public void Parser_ReportsError_IncompleteMemberAccessBeforeSameLineToken_PointsAtReceiver()
     {
-        var source = "func test() { x. }";
+        var source = "func test() { name. }";
         var result = Parse(source);
 
         Assert.False(result.Success);
@@ -62,8 +62,8 @@ func test() {
                      error.Message.Contains("Expected member name"));
 
         Assert.Equal(1, error.Line);
-        Assert.Equal(16, error.Column);
-        Assert.Equal(1, error.Length);
+        Assert.Equal(15, error.Column);
+        Assert.Equal("name".Length, error.Length);
         Assert.Contains("dot (.)", error.HumanExplanation);
     }
 
@@ -723,10 +723,13 @@ func test() {
 
         Assert.False(result.Success);
         Assert.NotNull(result.CompilationUnit);
-        Assert.Contains(result.Errors, error =>
+        var diagnostic = Assert.Single(result.Errors, error =>
             error.Code == ErrorCode.ExpectedToken &&
             error.Line == 3 &&
             error.Message.Contains("Expected expression after '+'"));
+        Assert.Equal(14, diagnostic.Column);
+        Assert.Equal("1 +".Length, diagnostic.Length);
+        Assert.Equal("    first := 1 +", diagnostic.SourceSnippet);
 
         var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
         var declarations = function.Body!.Statements
@@ -753,8 +756,8 @@ func test() {
             error.Code == ErrorCode.ExpectedToken &&
             error.Message.Contains("Expected an initializer expression after ':='"));
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(10, diagnostic.Column);
-        Assert.Equal(":=".Length, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.Equal("    name :=", diagnostic.SourceSnippet);
         Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
 
@@ -764,6 +767,33 @@ func test() {
             .Select(statement => statement.Name)
             .ToList();
         Assert.Equal(new[] { "name", "greeting" }, declarations);
+    }
+
+    [Fact]
+    public void Parser_MissingAssignmentValue_UsesTargetSpanAndContinues()
+    {
+        var source = """
+func test() {
+    value := 1
+    value =
+    print value
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected expression after '='"));
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("value".Length, diagnostic.Length);
+        Assert.Equal("    value =", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        Assert.Contains(function.Body!.Statements, statement =>
+            statement is PrintStatement);
     }
 
     [Fact]
@@ -890,6 +920,32 @@ func test() {
         Assert.Contains("N# uses ':'", diagnostic.Message);
         Assert.Contains("Name: value", diagnostic.ContextualHint);
         Assert.Contains("Name: ...", Assert.Single(diagnostic.Suggestions!));
+    }
+
+    [Fact]
+    public void Parser_ObjectInitializerMissingValue_UsesPropertyNameSpanAndContinues()
+    {
+        var source = """
+func test() {
+    user := new User { Name: }
+    print "after"
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected a value for object initializer member 'Name'"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(24, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
+        Assert.Equal("    user := new User { Name: }", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        Assert.Contains(function.Body!.Statements, statement =>
+            statement is PrintStatement);
     }
 
     [Fact]

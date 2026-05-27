@@ -2271,7 +2271,8 @@ public class Parser
             initializer = ParseRequiredExpressionAfter(
                 initializerToken,
                 expectedDescription: "an initializer expression",
-                ownerDescription: "This variable declaration");
+                ownerDescription: "This variable declaration",
+                diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, name.Length)));
         }
 
         return new VariableDeclarationStatement(name, type, initializer, kind, line, column);
@@ -3185,7 +3186,8 @@ public class Parser
                 var initializer = ParseRequiredExpressionAfter(
                     Previous,
                     expectedDescription: "an initializer expression",
-                    ownerDescription: "This typed variable declaration");
+                    ownerDescription: "This typed variable declaration",
+                    diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, name.Length)));
                 return new VariableDeclarationStatement(name, typeRef, initializer, VariableKind.Let, line, column);
             }
 
@@ -3232,7 +3234,8 @@ public class Parser
                 var initializer = ParseRequiredExpressionAfter(
                     initializerToken,
                     expectedDescription: "an initializer expression",
-                    ownerDescription: "This tuple deconstruction");
+                    ownerDescription: "This tuple deconstruction",
+                    diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, initializerToken.Column - column)));
                 return new TupleDeconstructionStatement(names, initializer, VariableKind.Let, line, column);
             }
         }
@@ -3288,7 +3291,8 @@ public class Parser
             var initializer = ParseRequiredExpressionAfter(
                 initializerToken,
                 expectedDescription: "an initializer expression",
-                ownerDescription: "This shorthand variable declaration");
+                ownerDescription: "This shorthand variable declaration",
+                diagnosticSpan: DiagnosticSpanFromExpression(ident));
             return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, ident.Line, ident.Column);
         }
 
@@ -3387,23 +3391,30 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLambdaOrAssignmentExpression);
+            var right = ParseRightOperandOrMissing(
+                opToken,
+                ParseLambdaOrAssignmentExpression,
+                DiagnosticSpanFromExpression(expr));
             return new AssignmentExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
         return expr;
     }
 
-    private Expression ParseRightOperandOrMissing(Token operatorToken, Func<Expression> parseOperand)
+    private Expression ParseRightOperandOrMissing(
+        Token operatorToken,
+        Func<Expression> parseOperand,
+        DiagnosticSpan? diagnosticSpan = null)
     {
         if (!IsMissingOperandBoundary(operatorToken))
             return parseOperand();
 
+        var span = diagnosticSpan ?? DiagnosticSpanFromToken(operatorToken);
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected expression after '{operatorToken.Value}'",
-            operatorToken.Line,
-            operatorToken.Column,
+            span.Line,
+            span.Column,
             humanExplanation: $"The '{operatorToken.Value}' operator needs an expression on its right side.",
             hint: "Finish the expression after the operator, or remove the operator if the expression is already complete.",
             suggestions: new List<string>
@@ -3411,30 +3422,57 @@ public class Parser
                 $"Add an expression after '{operatorToken.Value}'",
                 $"Remove the trailing '{operatorToken.Value}'"
             },
-            length: Math.Max(1, operatorToken.Value.Length)
+            length: span.Length
         );
 
         var column = operatorToken.Column + Math.Max(1, operatorToken.Value.Length);
         return new IdentifierExpression("<error>", operatorToken.Line, column);
     }
 
+    private Expression ParseBinaryRightOperandOrMissing(
+        Token operatorToken,
+        Expression leftExpression,
+        Func<Expression> parseOperand)
+    {
+        return ParseRightOperandOrMissing(
+            operatorToken,
+            parseOperand,
+            DiagnosticSpanFromExpressionThroughToken(leftExpression, operatorToken));
+    }
+
+    private static DiagnosticSpan DiagnosticSpanFromExpressionThroughToken(Expression expression, Token endToken)
+    {
+        var startSpan = DiagnosticSpanFromExpression(expression);
+        if (startSpan.Line != endToken.Line)
+            return DiagnosticSpanFromToken(endToken);
+
+        var endColumn = endToken.Column + TokenLengthOrFallback(endToken);
+        return new DiagnosticSpan(
+            startSpan.Line,
+            startSpan.Column,
+            Math.Max(startSpan.Length, endColumn - startSpan.Column));
+    }
+
     private Expression ParseRequiredExpressionAfter(
         Token anchorToken,
         string expectedDescription,
-        string ownerDescription)
+        string ownerDescription,
+        DiagnosticSpan? diagnosticSpan = null)
     {
         if (!IsMissingRequiredExpressionBoundary(anchorToken))
             return ParseExpression();
 
         var markerColumn = anchorToken.Column + Math.Max(1, anchorToken.Value.Length);
         var underlineAnchor = ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken);
-        var diagnosticColumn = underlineAnchor ? anchorToken.Column : markerColumn;
-        var diagnosticLength = underlineAnchor ? Math.Max(1, anchorToken.Value.Length) : 1;
+        var fallbackSpan = underlineAnchor
+            ? DiagnosticSpanFromToken(anchorToken)
+            : new DiagnosticSpan(anchorToken.Line, markerColumn, 1);
+        var span = diagnosticSpan ?? fallbackSpan;
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected {expectedDescription} after '{anchorToken.Value}'",
-            anchorToken.Line,
-            diagnosticColumn,
+            span.Line,
+            span.Column,
             humanExplanation: $"{ownerDescription} needs {expectedDescription} after '{anchorToken.Value}'.",
             hint: "Finish the expression before starting the next statement.",
             suggestions: new List<string>
@@ -3442,7 +3480,7 @@ public class Parser
                 $"Add {expectedDescription} after '{anchorToken.Value}'",
                 $"Remove '{anchorToken.Value}' until the expression is ready"
             },
-            length: diagnosticLength);
+            length: span.Length);
 
         return new IdentifierExpression("<error>", anchorToken.Line, markerColumn);
     }
@@ -3567,7 +3605,7 @@ public class Parser
         while (Check(TokenType.QuestionQuestion))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLogicalOrExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseLogicalOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.NullCoalesce, right, opToken.Line, opToken.Column);
         }
 
@@ -3581,7 +3619,7 @@ public class Parser
         while (Check(TokenType.Or))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLogicalAndExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseLogicalAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.Or, right, opToken.Line, opToken.Column);
         }
 
@@ -3595,7 +3633,7 @@ public class Parser
         while (Check(TokenType.And))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseOrExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.And, right, opToken.Line, opToken.Column);
         }
 
@@ -3609,7 +3647,7 @@ public class Parser
         while (Check(TokenType.BitwiseOr))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseXorExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseXorExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseOr, right, opToken.Line, opToken.Column);
         }
 
@@ -3623,7 +3661,7 @@ public class Parser
         while (Check(TokenType.BitwiseXor))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseAndExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseXor, right, opToken.Line, opToken.Column);
         }
 
@@ -3637,7 +3675,7 @@ public class Parser
         while (Check(TokenType.BitwiseAnd))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseEqualityExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseEqualityExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseAnd, right, opToken.Line, opToken.Column);
         }
 
@@ -3652,7 +3690,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Equal ? BinaryOperator.Equal : BinaryOperator.NotEqual;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseRelationalExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseRelationalExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3724,7 +3762,7 @@ public class Parser
                 }
 
                 var opToken = Advance();
-                var right = ParseRightOperandOrMissing(opToken, ParseShiftExpression);
+                var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseShiftExpression);
                 expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
             }
         }
@@ -3740,7 +3778,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.LeftShift ? BinaryOperator.LeftShift : BinaryOperator.RightShift;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseAdditiveExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseAdditiveExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3755,7 +3793,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Plus ? BinaryOperator.Add : BinaryOperator.Subtract;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseMultiplicativeExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseMultiplicativeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3800,7 +3838,7 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseRangeExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseRangeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3936,7 +3974,7 @@ public class Parser
                 }
                 else
                 {
-                    ReportMissingMemberNameAfterDot(dotToken);
+                    ReportMissingMemberNameAfterDot(dotToken, expr);
                     memberName = "<error>";
                 }
                 expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
@@ -4832,6 +4870,7 @@ public class Parser
                     // Regular property initializer
                     var propNameToken = Current;
                     var propName = ConsumeIdentifier("Expected property name");
+                    Token separatorToken;
                     if (Check(TokenType.Assign))
                     {
                         ReportError(
@@ -4847,13 +4886,13 @@ public class Parser
                             },
                             length: TokenLengthOrFallback(propNameToken)
                         );
-                        Advance();
+                        separatorToken = Advance();
                     }
                     else
                     {
-                        Consume(TokenType.Colon, "Expected ':'");
+                        separatorToken = Consume(TokenType.Colon, "Expected ':'");
                     }
-                    var propValue = ParseExpression();
+                    var propValue = ParseObjectInitializerMemberValue(propNameToken, propName, separatorToken);
                     props.Add(new PropertyInitializer(propName, null, propValue));
                 }
 
@@ -4869,6 +4908,29 @@ public class Parser
         }
 
         return new NewExpression(type, args, initializer, line, column);
+    }
+
+    private Expression ParseObjectInitializerMemberValue(Token propertyToken, string propertyName, Token separatorToken)
+    {
+        if (!IsMissingRequiredExpressionBoundary(separatorToken))
+            return ParseExpression();
+
+        var propertyLength = TokenLengthOrFallback(propertyToken);
+        var markerColumn = separatorToken.Column + Math.Max(1, separatorToken.Value.Length);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected a value for object initializer member '{propertyName}'",
+            propertyToken.Line,
+            propertyToken.Column,
+            humanExplanation: $"Object initializer member '{propertyName}' needs a value after ':'.",
+            hint: $"Write '{propertyName}: value'.",
+            suggestions: new List<string>
+            {
+                $"Add a value after '{propertyName}:'"
+            },
+            length: propertyLength);
+
+        return new IdentifierExpression("<error>", separatorToken.Line, markerColumn);
     }
 
     private Expression ParseMatchExpression()
@@ -5422,6 +5484,57 @@ public class Parser
     private static DiagnosticSpan DiagnosticSpanFromToken(Token token)
         => new(token.Line, token.Column, TokenLengthOrFallback(token));
 
+    private static DiagnosticSpan DiagnosticSpanFromExpression(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression { Name: var name } identifier when IsVisibleName(name) =>
+                new DiagnosticSpan(identifier.Line, identifier.Column, Math.Max(1, name.Length)),
+            ThisExpression thisExpression =>
+                new DiagnosticSpan(thisExpression.Line, thisExpression.Column, "this".Length),
+            BaseExpression baseExpression =>
+                new DiagnosticSpan(baseExpression.Line, baseExpression.Column, "base".Length),
+            DefaultExpression defaultExpression =>
+                new DiagnosticSpan(defaultExpression.Line, defaultExpression.Column, "default".Length),
+            BoolLiteralExpression boolLiteral =>
+                new DiagnosticSpan(boolLiteral.Line, boolLiteral.Column, boolLiteral.Value ? 4 : 5),
+            NullLiteralExpression nullLiteral =>
+                new DiagnosticSpan(nullLiteral.Line, nullLiteral.Column, "null".Length),
+            IntLiteralExpression intLiteral =>
+                new DiagnosticSpan(intLiteral.Line, intLiteral.Column, Math.Max(1, intLiteral.Value.Length)),
+            FloatLiteralExpression floatLiteral =>
+                new DiagnosticSpan(floatLiteral.Line, floatLiteral.Column, Math.Max(1, floatLiteral.Value.Length)),
+            StringLiteralExpression stringLiteral =>
+                new DiagnosticSpan(stringLiteral.Line, stringLiteral.Column, Math.Max(1, stringLiteral.Value.Length)),
+            CharLiteralExpression charLiteral =>
+                new DiagnosticSpan(charLiteral.Line, charLiteral.Column, Math.Max(1, charLiteral.Value.Length)),
+            MemberAccessExpression { MemberName: var memberName } memberAccess when IsVisibleName(memberName) =>
+                new DiagnosticSpan(
+                    memberAccess.Line,
+                    memberAccess.Column + (memberAccess.IsNullConditional ? 2 : 1),
+                    Math.Max(1, memberName.Length)),
+            CallExpression callExpression =>
+                DiagnosticSpanFromExpression(callExpression.Callee),
+            IndexAccessExpression indexAccess =>
+                DiagnosticSpanFromExpression(indexAccess.Object),
+            ParenthesizedExpression parenthesized =>
+                DiagnosticSpanFromExpression(parenthesized.Inner),
+            AwaitExpression awaitExpression =>
+                new DiagnosticSpan(awaitExpression.Line, awaitExpression.Column, "await".Length),
+            MustExpression mustExpression =>
+                new DiagnosticSpan(mustExpression.Line, mustExpression.Column, "must".Length),
+            ThrowExpression throwExpression =>
+                new DiagnosticSpan(throwExpression.Line, throwExpression.Column, "throw".Length),
+            NewExpression newExpression =>
+                new DiagnosticSpan(newExpression.Line, newExpression.Column, "new".Length),
+            _ =>
+                new DiagnosticSpan(expression.Line, expression.Column, 1)
+        };
+    }
+
+    private static bool IsVisibleName(string? name)
+        => !string.IsNullOrWhiteSpace(name) && name != "<error>";
+
     private bool TryGetSingleLineDelimiterSpanAt(int openingIndex, TokenType openingType, TokenType closingType, out DiagnosticSpan span)
     {
         span = default;
@@ -5778,17 +5891,18 @@ public class Parser
         };
     }
 
-    private void ReportMissingMemberNameAfterDot(Token dotToken)
+    private void ReportMissingMemberNameAfterDot(Token dotToken, Expression receiver)
     {
         var operatorText = dotToken.Value;
         var operatorDescription = operatorText == "."
             ? "dot (.)"
             : $"null-conditional member access ({operatorText})";
+        var receiverSpan = DiagnosticSpanFromExpression(receiver);
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected member name. Got '{Current.Value}'",
-            dotToken.Line,
-            dotToken.Column,
+            receiverSpan.Line,
+            receiverSpan.Column,
             humanExplanation: $"I see a {operatorDescription} operator but no member name after it.",
             hint: $"After {operatorDescription}, I need to see a property or method name.",
             suggestions: new List<string> {
@@ -5796,7 +5910,7 @@ public class Parser
                 "Common members: Length, Count, ToString(), GetHashCode()",
                 $"If this is end of statement, remove the trailing '{operatorText}'"
             },
-            length: Math.Max(1, operatorText.Length));
+            length: receiverSpan.Length);
     }
 
     private Token ConsumeParameterColon(string parameterName, int parameterLine, int parameterColumn)

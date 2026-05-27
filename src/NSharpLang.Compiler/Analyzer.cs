@@ -1627,6 +1627,17 @@ public class Analyzer : IDisposable
             variableDeclaration.Column,
             Math.Max(1, variableDeclaration.Name.Length));
 
+    private (int Line, int Column, int Length) GetFunctionNameDiagnosticSpan(FunctionDeclaration function)
+    {
+        if (string.IsNullOrWhiteSpace(function.Name) || function.Name == "<error>")
+            return (function.Line, function.Column, GetTokenLength(function.Line, function.Column));
+
+        return (
+            function.Line,
+            GetDeclarationNameColumn(function.Name, function.Line, function.Column),
+            Math.Max(1, function.Name.Length));
+    }
+
     private (int Line, int Column, int Length) GetExpressionDiagnosticSpan(Expression expression)
     {
         return expression switch
@@ -2640,9 +2651,14 @@ public class Analyzer : IDisposable
     {
         var functionName = _currentFunction?.Name ?? "this function";
         CompilerError error;
-        var (diagnosticLine, diagnosticColumn, diagnosticLength) = returnStmt.Value != null
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _currentFunctionReturnTypeWasOmitted && _currentFunction != null
+            ? GetFunctionNameDiagnosticSpan(_currentFunction)
+            : returnStmt.Value != null
             ? GetExpressionDiagnosticSpan(returnStmt.Value)
             : (returnStmt.Line, returnStmt.Column, 6);
+        var diagnosticSourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+            ? _sourceLines[diagnosticLine - 1]
+            : sourceSnippet;
 
         if (_currentReturnType == BuiltInTypes.Void)
         {
@@ -2651,7 +2667,7 @@ public class Analyzer : IDisposable
                     _currentFilePath!,
                     diagnosticLine,
                     diagnosticColumn,
-                    sourceSnippet,
+                    diagnosticSourceSnippet,
                     diagnosticLength,
                     functionName,
                     returnedType.ToString())
@@ -2659,7 +2675,7 @@ public class Analyzer : IDisposable
                     _currentFilePath!,
                     diagnosticLine,
                     diagnosticColumn,
-                    sourceSnippet,
+                    diagnosticSourceSnippet,
                     diagnosticLength,
                     functionName,
                     returnedType.ToString());
@@ -2670,7 +2686,7 @@ public class Analyzer : IDisposable
                 _currentFilePath!,
                 diagnosticLine,
                 diagnosticColumn,
-                sourceSnippet,
+                diagnosticSourceSnippet,
                 diagnosticLength,
                 functionName,
                 returnedType.ToString(),
@@ -2682,7 +2698,9 @@ public class Analyzer : IDisposable
 
     private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
     {
-        var (line, column, length) = func.ExpressionBody != null
+        var (line, column, length) = _currentFunctionReturnTypeWasOmitted
+            ? GetFunctionNameDiagnosticSpan(func)
+            : func.ExpressionBody != null
             ? GetExpressionDiagnosticSpan(func.ExpressionBody)
             : (fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
         var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length

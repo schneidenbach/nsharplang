@@ -197,7 +197,7 @@ public sealed class PlaygroundCompilerTests
         var expressionBodyRequiresReturnType = Assert.Single(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL202" &&
                           diagnostic.Message.Contains("ExpressionBodyRequiresReturnType"));
-        AssertPlaygroundSpan(expressionBodyRequiresReturnType, line: 8, column: 44, length: "\"bad\"".Length);
+        AssertPlaygroundSpan(expressionBodyRequiresReturnType, line: 8, column: 6, length: "ExpressionBodyRequiresReturnType".Length);
 
         var localInitializer = Assert.Single(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL202" &&
@@ -809,7 +809,30 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_IncompleteMemberAccess_PointsAtTrailingDot()
+    public void Check_ObjectInitializerMissingValue_PreservesPropertyNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name: string
+            }
+
+            func main() {
+                user := new User { Name: }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a value for object initializer member 'Name'"));
+
+        AssertPlaygroundSpan(diagnostic, line: 8, column: 24, length: "Name".Length);
+        Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_IncompleteMemberAccess_PointsAtReceiver()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -825,8 +848,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Expected member name"));
 
         Assert.Equal(5, diagnostic.Line);
-        Assert.Equal(9, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.Contains("dot", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL313" ||
@@ -834,7 +857,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_IncompleteMemberAccessBeforeCall_PreservesDotSpan()
+    public void Check_IncompleteMemberAccessBeforeCall_PreservesReceiverSpan()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -849,7 +872,7 @@ public sealed class PlaygroundCompilerTests
             diagnostic => diagnostic.Code == "NL102" &&
                           diagnostic.Message.Contains("Expected member name"));
 
-        AssertPlaygroundSpan(diagnostic, line: 5, column: 9, length: 1);
+        AssertPlaygroundSpan(diagnostic, line: 5, column: 5, length: "name".Length);
         Assert.Contains("dot (.)", diagnostic.Explanation, StringComparison.Ordinal);
         Assert.DoesNotContain(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL313" ||
@@ -1223,7 +1246,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_MissingInitializer_PreservesVisibleAnchorSpanForMarkers()
+    public void Check_MissingInitializer_PreservesVariableNameSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -1240,8 +1263,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Expected an initializer expression after ':='"));
 
         Assert.Equal(4, diagnostic.Line);
-        Assert.Equal(10, diagnostic.Column);
-        Assert.Equal(":=".Length, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.Equal("    name :=", diagnostic.SourceSnippet);
         Assert.Contains("initializer expression", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(result.Diagnostics,
@@ -1250,6 +1273,51 @@ public sealed class PlaygroundCompilerTests
             diagnostic => diagnostic.Code == "NL301" && diagnostic.Message.Contains("greeting"));
         Assert.DoesNotContain(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL001" && diagnostic.Message.Contains("name"));
+    }
+
+    [Fact]
+    public void Check_MissingAssignmentValue_PreservesTargetSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                value := 1
+                value =
+                print value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected expression after '='"));
+
+        AssertPlaygroundSpan(diagnostic, line: 5, column: 5, length: "value".Length);
+        Assert.Equal("    value =", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+    }
+
+    [Fact]
+    public void Check_DanglingBinaryOperator_PreservesExpressionSegmentSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                value := 1 +
+                print value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected expression after '+'"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 14, length: "1 +".Length);
+        Assert.Equal("    value := 1 +", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
     }
 
     [Fact]

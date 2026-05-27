@@ -187,8 +187,8 @@ func main(): int {
         var expressionBodyRequiresReturnType = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
                           diagnostic.Message.Contains("ExpressionBodyRequiresReturnType"));
-        AssertDiagnosticSpan(expressionBodyRequiresReturnType, line: 6, column: 44, length: "\"bad\"".Length);
-        AssertLspRange(expressionBodyRequiresReturnType, line0: 5, startCharacter: 43, endCharacter: 48);
+        AssertDiagnosticSpan(expressionBodyRequiresReturnType, line: 6, column: 6, length: "ExpressionBodyRequiresReturnType".Length);
+        AssertLspRange(expressionBodyRequiresReturnType, line0: 5, startCharacter: 5, endCharacter: 37);
 
         var localInitializer = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
@@ -1052,7 +1052,9 @@ func Hi() {
         Assert.Contains("NL202: Function 'Hi' returns int but has no return type", message);
         Assert.Contains("N# treats it as `void`", message);
         Assert.Contains("Add `: int`", message);
-        Assert.Contains("return 42", message);
+        Assert.Contains("func Hi() {", message);
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 6, length: "Hi".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 5, endCharacter: 7);
     }
 
     private static void AssertDiagnosticSpan(CompilerError diagnostic, int line, int column, int length)
@@ -1104,7 +1106,9 @@ func Hi() {
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.TypeMismatch &&
             diagnostic.Message.Contains("returns int but has no return type") &&
-            diagnostic.Line == 7);
+            diagnostic.Line == 3 &&
+            diagnostic.Column == 6 &&
+            diagnostic.Length == "Hi".Length);
     }
 
     [Fact]
@@ -1134,7 +1138,8 @@ func main() {
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.ExpectedToken &&
             diagnostic.Line == 6 &&
-            diagnostic.Length == 1 &&
+            diagnostic.Column == 14 &&
+            diagnostic.Length == "1 +".Length &&
             diagnostic.Message.Contains("Expected expression after '+'"));
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.InvalidSyntax &&
@@ -1149,6 +1154,35 @@ func main() {
             diagnostic.Message.Contains("<error>", System.StringComparison.Ordinal));
         Assert.True(diagnostics.Count <= 6,
             $"Expected bounded diagnostics, got {diagnostics.Count}: {string.Join("; ", diagnostics.Select(d => $"{d.DiagnosticId} {d.Message}"))}");
+    }
+
+    [Fact]
+    public void Diagnostics_ObjectInitializerMissingValue_UsesPropertyNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///object-initializer-missing-value.nl";
+
+        var source = """
+class User {
+    Name: string
+}
+
+func main() {
+    user := new User { Name: }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected a value for object initializer member 'Name'"));
+
+        AssertDiagnosticSpan(diagnostic, line: 6, column: 24, length: "Name".Length);
+        AssertLspRange(diagnostic, line0: 5, startCharacter: 23, endCharacter: 27);
     }
 
     [Fact]
@@ -1191,7 +1225,7 @@ func main() {
     }
 
     [Fact]
-    public void Diagnostics_IncompleteMemberAccess_PointsAtTrailingDot()
+    public void Diagnostics_IncompleteMemberAccess_PointsAtReceiver()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///member-dot.nl";
@@ -1212,8 +1246,8 @@ func main() {
             d => d.Code == ErrorCode.ExpectedToken && d.Message.Contains("Expected member name"));
 
         Assert.Equal(3, diagnostic.Line);
-        Assert.Equal(9, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.Contains("dot", diagnostic.HumanExplanation, System.StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.InvalidExpressionStatement ||
@@ -1221,12 +1255,12 @@ func main() {
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(8, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(8, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
-    public void Diagnostics_IncompleteMemberAccessBeforeCall_PointsAtDot()
+    public void Diagnostics_IncompleteMemberAccessBeforeCall_PointsAtReceiver()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///member-dot-before-call.nl";
@@ -1247,8 +1281,8 @@ func main() {
             d => d.Code == ErrorCode.ExpectedToken && d.Message.Contains("Expected member name"));
 
         Assert.Equal(3, diagnostic.Line);
-        Assert.Equal(9, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.Contains("dot (.)", diagnostic.HumanExplanation);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.InvalidExpressionStatement ||
@@ -1256,8 +1290,8 @@ func main() {
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(8, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(8, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
@@ -1675,7 +1709,7 @@ func main() {
     }
 
     [Fact]
-    public void Diagnostics_MissingInitializer_PointsAtVisibleAnchor()
+    public void Diagnostics_MissingInitializer_PointsAtVariableName()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
         var uri = "file:///missing-initializer.nl";
@@ -1698,8 +1732,8 @@ func main() {
                  d.Message.Contains("Expected an initializer expression after ':='"));
 
         Assert.Equal(2, diagnostic.Line);
-        Assert.Equal(10, diagnostic.Column);
-        Assert.Equal(":=".Length, diagnostic.Length);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             d => d.Code == ErrorCode.UnexpectedToken);
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
@@ -1709,8 +1743,43 @@ func main() {
 
         var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
         Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
-        Assert.Equal(9, (int)lspDiagnostic.Range.Start.Character);
-        Assert.Equal(11, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(8, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingAssignmentValue_PointsAtAssignmentTarget()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-assignment-value.nl";
+
+        var source = """
+func main() {
+    value := 1
+    value =
+    print value
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ExpectedToken &&
+                 d.Message.Contains("Expected expression after '='"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("value".Length, diagnostic.Length);
+        Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UnexpectedToken);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
     }
 
     [Fact]
