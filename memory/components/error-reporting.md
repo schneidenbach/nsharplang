@@ -45,6 +45,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
 - Missing required expressions after visible statement keywords (`if`, `while`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing required expressions after operators or assignment anchors still use insertion spans after the anchor.
+- Pattern diagnostics should underline the invalid pattern part, not the whole match arm: unknown union cases underline the qualified case name, missing property patterns underline the property name, and list-pattern type mismatches underline the list pattern on the first line when available.
 
 ## Error Codes
 

@@ -1499,6 +1499,82 @@ public class Analyzer : IDisposable
         };
     }
 
+    private (int Line, int Column, int Length) GetPatternNameDiagnosticSpan(Pattern pattern)
+    {
+        return pattern switch
+        {
+            IdentifierPattern identifier => (
+                identifier.Line,
+                identifier.Column,
+                Math.Max(1, identifier.Name.Length)),
+            UnionCasePattern unionCase => (
+                unionCase.Line,
+                unionCase.Column,
+                Math.Max(1, unionCase.CaseName.Length)),
+            TypePattern typePattern => (
+                typePattern.Line,
+                typePattern.Column,
+                GetTypePatternNameLength(typePattern)),
+            ListPattern listPattern => GetListPatternDiagnosticSpan(listPattern),
+            _ => (pattern.Line, pattern.Column, GetTokenLength(pattern.Line, pattern.Column))
+        };
+    }
+
+    private int GetTypePatternNameLength(TypePattern typePattern)
+    {
+        return typePattern.Type switch
+        {
+            SimpleTypeReference simple => Math.Max(1, simple.Name.Length),
+            GenericTypeReference generic => Math.Max(1, generic.Name.Length),
+            _ => GetTokenLength(typePattern.Line, typePattern.Column)
+        };
+    }
+
+    private (int Line, int Column, int Length) GetPropertyPatternNameDiagnosticSpan(
+        PropertyPattern propertyPattern,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var line = propertyPattern.Line > 0 ? propertyPattern.Line : fallbackLine;
+        var column = propertyPattern.Column > 0 ? propertyPattern.Column : fallbackColumn;
+        var length = propertyPattern.Name == "<error>"
+            ? GetTokenLength(line, column)
+            : Math.Max(1, propertyPattern.Name.Length);
+
+        return (line, column, length);
+    }
+
+    private (int Line, int Column, int Length) GetListPatternDiagnosticSpan(ListPattern listPattern)
+        => (listPattern.Line, listPattern.Column, GetDelimitedPatternLength(listPattern.Line, listPattern.Column, '[', ']'));
+
+    private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
+    {
+        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+            return 1;
+
+        var sourceLine = _sourceLines[line - 1];
+        var start = column - 1;
+        if (start < 0 || start >= sourceLine.Length || sourceLine[start] != openDelimiter)
+            return GetTokenLength(line, column);
+
+        var depth = 0;
+        for (var i = start; i < sourceLine.Length; i++)
+        {
+            if (sourceLine[i] == openDelimiter)
+            {
+                depth++;
+            }
+            else if (sourceLine[i] == closeDelimiter)
+            {
+                depth--;
+                if (depth == 0)
+                    return i - start + 1;
+            }
+        }
+
+        return Math.Max(1, sourceLine.TrimEnd().Length - start);
+    }
+
     private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
     {
         var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(condition);
@@ -2568,8 +2644,11 @@ public class Analyzer : IDisposable
                 {
                     if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
-                        Error($"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
-                            pattern.Line, pattern.Column);
+                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                            GetPatternNameDiagnosticSpan(identPattern);
+                        Error(ErrorCode.InvalidPattern,
+                            $"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                     // For union cases without properties, no variables to bind
                 }
@@ -2593,21 +2672,30 @@ public class Analyzer : IDisposable
 
                     if (!TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchingCase))
                     {
-                        Error($"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
-                            pattern.Line, pattern.Column);
+                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                            GetPatternNameDiagnosticSpan(unionPattern);
+                        Error(ErrorCode.InvalidPattern,
+                            $"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                     else if (unionPattern.Properties != null)
                     {
                         // Bind property patterns to their types
                         if (matchingCase.Properties == null)
                         {
-                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                pattern.Line, pattern.Column);
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetPatternNameDiagnosticSpan(unionPattern);
+                            Error(ErrorCode.InvalidPattern,
+                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
+                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
                         }
                         else if (matchingCase.Properties.Count == 0)
                         {
-                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                pattern.Line, pattern.Column);
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetPatternNameDiagnosticSpan(unionPattern);
+                            Error(ErrorCode.InvalidPattern,
+                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
+                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
                         }
                         else
                         {
@@ -2630,13 +2718,18 @@ public class Analyzer : IDisposable
                                     {
                                         // Simple binding
                                         var bindingName = propPattern.BindingName ?? propPattern.Name;
-                                        DeclareSymbol(bindingName, propType, pattern.Line, pattern.Column);
+                                        var (bindingLine, bindingColumn, _) =
+                                            GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                        DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
                                     }
                                 }
                                 else
                                 {
-                                    Error($"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
-                                        pattern.Line, pattern.Column);
+                                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                        GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                    Error(ErrorCode.InvalidPattern,
+                                        $"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
+                                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                                 }
                             }
                         }
@@ -2705,8 +2798,11 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"A list pattern can only match arrays or collections, but this value is '{valueType}'",
-                        pattern.Line, pattern.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetListPatternDiagnosticSpan(listPattern);
+                    Error(ErrorCode.PatternTypeMismatch,
+                        $"A list pattern can only match arrays or collections, but this value is '{valueType}'",
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
                 }
 
@@ -2819,7 +2915,11 @@ public class Analyzer : IDisposable
 
             if (propType == null)
             {
-                Error($"'{valueType}' doesn't have a property named '{propPattern.Name}'", line, column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                Error(ErrorCode.InvalidPattern,
+                    $"'{valueType}' doesn't have a property named '{propPattern.Name}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 continue;
             }
 
@@ -2832,7 +2932,9 @@ public class Analyzer : IDisposable
             {
                 // Simple binding - use BindingName if provided, otherwise use property Name
                 var bindingName = propPattern.BindingName ?? propPattern.Name;
-                DeclareSymbol(bindingName, propType, line, column);
+                var (bindingLine, bindingColumn, _) =
+                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
             }
         }
     }

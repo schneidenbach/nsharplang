@@ -317,6 +317,78 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_PatternErrors_UseSpecificPatternSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///pattern-error-spans.nl";
+
+        var source = """
+union Result {
+    Success { value: int }
+    Failure { message: string }
+}
+
+record User {
+    Name: string
+}
+
+func main() {
+    r := new Result.Success { value: 42 }
+    x := match r {
+        Result.Unknown => 0,
+        Result.Success { missing: value } => value,
+        Result.Failure { message } => 0
+    }
+
+    user := new User { Name: "Ada" }
+    y := match user {
+        { Missing: value } => value,
+        _ => "unknown"
+    }
+
+    n := 1
+    z := match n {
+        [first, ..] => first,
+        _ => 0
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var missingCase = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidPattern &&
+                          diagnostic.Line == 13 &&
+                          diagnostic.Message.Contains("'Result.Unknown'"));
+        AssertDiagnosticSpan(missingCase, line: 13, column: 9, length: "Result.Unknown".Length);
+        AssertLspRange(missingCase, line0: 12, startCharacter: 8, endCharacter: 22);
+
+        var missingUnionProperty = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidPattern &&
+                          diagnostic.Line == 14 &&
+                          diagnostic.Message.Contains("'missing'"));
+        AssertDiagnosticSpan(missingUnionProperty, line: 14, column: 26, length: "missing".Length);
+        AssertLspRange(missingUnionProperty, line0: 13, startCharacter: 25, endCharacter: 32);
+
+        var missingObjectProperty = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidPattern &&
+                          diagnostic.Line == 20 &&
+                          diagnostic.Message.Contains("'Missing'"));
+        AssertDiagnosticSpan(missingObjectProperty, line: 20, column: 11, length: "Missing".Length);
+        AssertLspRange(missingObjectProperty, line0: 19, startCharacter: 10, endCharacter: 17);
+
+        var listPatternMismatch = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PatternTypeMismatch);
+        AssertDiagnosticSpan(listPatternMismatch, line: 26, column: 9, length: "[first, ..]".Length);
+        AssertLspRange(listPatternMismatch, line0: 25, startCharacter: 8, endCharacter: 19);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

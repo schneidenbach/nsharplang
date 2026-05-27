@@ -2992,6 +2992,7 @@ public class Parser
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             var startPosition = _position;
+            var propToken = Current;
             var propName = ConsumeIdentifier("Expected property name");
 
             // Check for colon to distinguish pattern vs simple binding
@@ -3003,13 +3004,13 @@ public class Parser
             {
                 Advance(); // consume ':'
                 var pattern = ParsePattern();
-                props.Add(new PropertyPattern(propName, pattern, null));
+                props.Add(new PropertyPattern(propName, pattern, null, propToken.Line, propToken.Column));
             }
             else
             {
                 // Just property name, implicit binding: { value } -> bind property 'value' to variable 'value'
                 // BindingName is null, Analyzer will use Name as binding
-                props.Add(new PropertyPattern(propName, null, null));
+                props.Add(new PropertyPattern(propName, null, null, propToken.Line, propToken.Column));
             }
 
             if (!Check(TokenType.RightBrace))

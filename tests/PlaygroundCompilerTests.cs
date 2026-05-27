@@ -306,6 +306,66 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_PatternErrors_PreserveSpecificPatternSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            union Result {
+                Success { value: int }
+                Failure { message: string }
+            }
+
+            record User {
+                Name: string
+            }
+
+            func main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Unknown => 0,
+                    Result.Success { missing: value } => value,
+                    Result.Failure { message } => 0
+                }
+
+                user := new User { Name: "Ada" }
+                y := match user {
+                    { Missing: value } => value,
+                    _ => "unknown"
+                }
+
+                n := 1
+                z := match n {
+                    [first, ..] => first,
+                    _ => 0
+                }
+            }
+            """);
+
+        var missingCase = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 15 &&
+                          diagnostic.Message.Contains("'Result.Unknown'"));
+        AssertPlaygroundSpan(missingCase, line: 15, column: 9, length: "Result.Unknown".Length);
+
+        var missingUnionProperty = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 16 &&
+                          diagnostic.Message.Contains("'missing'"));
+        AssertPlaygroundSpan(missingUnionProperty, line: 16, column: 26, length: "missing".Length);
+
+        var missingObjectProperty = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 22 &&
+                          diagnostic.Message.Contains("'Missing'"));
+        AssertPlaygroundSpan(missingObjectProperty, line: 22, column: 11, length: "Missing".Length);
+
+        var listPatternMismatch = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL504");
+        AssertPlaygroundSpan(listPatternMismatch, line: 28, column: 9, length: "[first, ..]".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
