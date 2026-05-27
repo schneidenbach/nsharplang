@@ -617,6 +617,44 @@ struct Point {
     }
 
     [Fact]
+    public void Parser_MissingFunctionClosingBrace_PointsAtFunctionName()
+    {
+        var source = """
+func main() {
+    print "hi"
+""";
+
+        var result = Parse(source);
+
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.MissingClosingBrace &&
+                     error.Message.Contains("Missing closing '}'"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(6, error.Column);
+        Assert.Equal("main".Length, error.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingTypeClosingBrace_PointsAtTypeName()
+    {
+        var source = """
+class User {
+    Name: string
+""";
+
+        var result = Parse(source);
+
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.MissingClosingBrace &&
+                     error.Message.Contains("Missing closing '}'"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(7, error.Column);
+        Assert.Equal("User".Length, error.Length);
+    }
+
+    [Fact]
     public void Parser_MultipleDeclarationTypes_AllRecovered()
     {
         var source = @"

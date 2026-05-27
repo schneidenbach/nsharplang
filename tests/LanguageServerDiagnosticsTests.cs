@@ -1466,6 +1466,35 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_MissingClosingBrace_PointsAtFunctionName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-brace.nl";
+
+        var source = """
+func main() {
+    print "hi"
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.MissingClosingBrace && d.Message.Contains("Missing closing '}'"));
+
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("main".Length, diagnostic.Length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(5, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(9, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
     public void Diagnostics_MissingParameterColon_UsesParameterNameSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
