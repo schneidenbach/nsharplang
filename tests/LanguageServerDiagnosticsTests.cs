@@ -290,6 +290,39 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_LoopControlOutsideLoop_UseFullKeywordSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///loop-control-spans.nl";
+
+        var source = """
+func main() {
+    break
+    continue
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var breakDiagnostic = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("'break'"));
+        AssertDiagnosticSpan(breakDiagnostic, line: 2, column: 5, length: "break".Length);
+        AssertLspRange(breakDiagnostic, line0: 1, startCharacter: 4, endCharacter: 9);
+
+        var continueDiagnostic = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("'continue'"));
+        AssertDiagnosticSpan(continueDiagnostic, line: 3, column: 5, length: "continue".Length);
+        AssertLspRange(continueDiagnostic, line0: 2, startCharacter: 4, endCharacter: 12);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

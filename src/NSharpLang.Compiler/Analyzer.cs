@@ -1299,13 +1299,25 @@ public class Analyzer : IDisposable
             case BreakStatement:
                 if (!_inLoop)
                 {
-                    Error("'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here", stmt.Line, stmt.Column);
+                    Error(
+                        ErrorCode.InvalidSyntax,
+                        "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here",
+                        stmt.Line,
+                        stmt.Column,
+                        "Move this `break` inside a loop, or remove it if there is no loop to exit.",
+                        "break".Length);
                 }
                 break;
             case ContinueStatement:
                 if (!_inLoop)
                 {
-                    Error("'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here", stmt.Line, stmt.Column);
+                    Error(
+                        ErrorCode.InvalidSyntax,
+                        "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here",
+                        stmt.Line,
+                        stmt.Column,
+                        "Move this `continue` inside a loop, or remove it if there is no loop to continue.",
+                        "continue".Length);
                 }
                 break;
             case ThrowStatement throwStmt:

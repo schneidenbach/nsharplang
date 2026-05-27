@@ -282,6 +282,31 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_LoopControlOutsideLoop_PreservesFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                break
+                continue
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var breakDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'break'"));
+        AssertPlaygroundSpan(breakDiagnostic, line: 4, column: 5, length: "break".Length);
+
+        var continueDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'continue'"));
+        AssertPlaygroundSpan(continueDiagnostic, line: 5, column: 5, length: "continue".Length);
+    }
+
+    [Fact]
     public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""
