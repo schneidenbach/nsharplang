@@ -1,4 +1,3 @@
-import System.Linq
 import WeatherDemo.Models
 import WeatherDemo.Services
 

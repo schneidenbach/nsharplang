@@ -4,7 +4,6 @@
 
 namespace IssueTracker
 
-import System
 import System.Collections.Generic
 
 

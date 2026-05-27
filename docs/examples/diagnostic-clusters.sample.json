@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "command": "diagnostics.clusters",
   "ok": false,
-  "projectRoot": "/redacted/sample-migration",
+  "projectRoot": "/redacted/sample-project",
   "clusters": [
     {
-      "id": "diag-7907ca9e",
+      "id": "diag-19b57c3c",
       "category": "identifier-resolution",
-      "recipe": "migration:missing-import-qualification-or-rename",
+      "recipe": "symbols:missing-import-or-qualification",
       "risk": "medium",
       "count": 2,
       "severity": "error",
@@ -41,7 +41,7 @@
       "messagePattern": "Undefined variable {value}",
       "sourceConstruct": "variable-declaration",
       "suggestedNextActions": [
-        "Resolve the first missing identifier by adding the import/qualification or updating the rename map.",
+        "Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.",
         "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
       ],
       "examples": [
@@ -51,7 +51,7 @@
           "column": 17,
           "message": "Undefined variable \u0027UserManager\u0027",
           "sourceSnippet": "let manager := UserManager.Create()",
-          "suggestion": "Add the import or update the migration rename map."
+          "suggestion": "Add the import or correct the declaration name."
         },
         {
           "file": "sample-api/AuthController.nl",
@@ -59,7 +59,7 @@
           "column": 17,
           "message": "Undefined variable \u0027RoleManager\u0027",
           "sourceSnippet": "let roles := RoleManager.Create()",
-          "suggestion": "Add the import or update the migration rename map."
+          "suggestion": "Add the import or correct the declaration name."
         }
       ]
     }

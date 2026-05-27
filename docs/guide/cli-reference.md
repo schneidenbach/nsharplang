@@ -35,7 +35,6 @@ Updated: 2026-05-26
 | `nlc update [package]` | Update dependencies | optional package name | `nlc update` |
 | `nlc publish` | Publish framework-dependent deployment artifacts | `--project`, `--configuration`, `--output`, current-host `--runtime` | `nlc publish -c Release --output ./dist` |
 | `nlc export csharp` | Export N# sources without changing the IL toolchain | `--project`, `--output` | `nlc export csharp --project .` |
-| `nlc idiom` | Score migration idioms and C# leftovers as JSON | `--project` | `nlc idiom --project .` |
 | `nlc tree` | Show dependency tree | `--project`, `--depth`, `--json` | `nlc tree --json` |
 | `nlc audit` | Check dependencies for known vulnerabilities | `--project` | `nlc audit` |
 | `nlc env` | Show environment and toolchain info | `--json` | `nlc env --json` |
@@ -51,7 +50,7 @@ Updated: 2026-05-26
 | `nlc query batch --requests <file>` | Execute multiple semantic queries in one response | `nlc query batch --requests requests.json` |
 | `nlc query symbols` | List project symbols | `nlc query symbols --kind function` |
 | `nlc query outline <file>` | File structure and imports | `nlc query outline Program.nl` |
-| `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned AI migration-loop JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
+| `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned diagnostic-cluster JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
 | `nlc query type --file <file> --pos <line:col>` | Type at a position | `nlc query type --file Program.nl --pos 5:12` |
 | `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call; add `--compact` for token-efficient agent context (`--summary` is kept as an alias) | `nlc query inspect --compact --file Program.nl --pos 5:12` |
 | `nlc query definition` | Go-to-definition by position or name | `nlc query definition --name Person` |
@@ -97,13 +96,6 @@ nlc doc --json
 nlc export csharp --project . --output ./myapp-csharp
 nlc query inspect --compact --file Program.nl --pos 42:7
 
-# AI-assisted C# migration gate
-# Start from AI-authored .nl files, then iterate on diagnostics.
-nlc check --project ./migrated-nsharp --json
-nlc idiom --project ./migrated-nsharp
-nlc fix --project ./migrated-nsharp --dry-run --json
-nlc format --check --project ./migrated-nsharp
-nlc test --project ./migrated-nsharp
 nlc completion bash > /etc/bash_completion.d/nlc
 ```
 
@@ -117,46 +109,6 @@ nlc completion bash > /etc/bash_completion.d/nlc
 - `nlc publish --self-contained` is planned, not implemented. It exits 1 with guidance instead of producing an artifact that only appears self-contained.
 
 
-## AI-Assisted C# Migration Loop
-
-Do not treat syntax conversion as the migration contract. Start from AI-authored `.nl` files, then make the reviewable artifact the result of the full check/idiom/fix loop:
-
-```bash
-# Produce ./migrated-nsharp with an AI migration pass that writes idiomatic N# directly.
-nlc check --project ./migrated-nsharp --json
-nlc idiom --project ./migrated-nsharp
-nlc fix --project ./migrated-nsharp --dry-run --json
-nlc format --check --project ./migrated-nsharp
-nlc test --project ./migrated-nsharp
-```
-
-Agent rules:
-
-- Treat `nlc check --json` errors as the first edit queue; cluster by diagnostic/root cause before touching files.
-- Treat `nlc idiom` C#-ism signals as migration debt even if the project compiles. Clear copied modifiers, semicolons, property blocks, `_field` names, null/default-forgiving suppressions, DTO classes, C# initializer syntax, and query syntax before review unless explicitly waived.
-- Treat `nlc fix --dry-run --json` as a patch planner. Apply `safe` fixes automatically only after inspecting the target diff; require human/agent review for `reviewNeeded`; record rationale for `suggestionOnly` waivers.
-- Re-run the loop after each cluster of changes. Passing tests with a poor idiom grade is not enough for an AI-assisted migration handoff.
-
-There is intentionally no `nlc convert` command in the public migration loop. Never mark migrated code done until diagnostics, idiom debt, formatting, and tests are clean.
-
-## Migration Idiom Report
-
-`nlc idiom` emits a stable JSON report for AI agents reviewing C# to N# migrations:
-
-```bash
-nlc idiom --project .
-```
-
-The report includes a `score` from 0-100, a grade (`idiomatic`, `mostly-idiomatic`, `mixed`, `csharp-heavy`, or `needs-migration`), thresholds, and machine-readable counts for:
-
-- remaining C#-isms: explicit modifiers, statement semicolons in `.nl`, C# property blocks, underscore fields, null/default-forgiving operators, `out` parameter flows, `TryGetValue` flows, C# `using` directives (`usingDirectives`), and C# `namespace` declarations (`namespaceDeclarations`)
-- framework/API migration smells: `IActionResult`, anonymous API DTOs, LINQ query syntax, C# equals-style object initializers (`equalsInitializers`), and unsafe `.Value` access on result/option-like values
-- package migration blockers: `.nl` files under package folders missing declarations (`missingPackageDeclarations`) or declaring the wrong package for their file layout (`wrongPackageDeclarations`)
-- idiomatic N# adoption: records, `match` expressions, `Result` union usage, and package-style folders such as `Models` or `Services`
-- migration cleanup signals: DTO-shaped classes that might become records, visibility/casing conflicts, and TODO/manual-review islands
-
-The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and returns example file/line locations for each signal so follow-up agents can patch the highest-value spots first. The JSON envelope is intentionally stable for AI agents: `schemaVersion` is currently `2`, `signals.csharpIsms` gives aggregate counts plus samples, `signals.nsharpAdoption` gives positive adoption counts, `files[]` gives per-file debt/adoption totals, `findings[]` gives one machine-checkable item per migration-quality issue (`id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, `confidence`), and `recommendations[]` is ordered migration guidance. Because `snippet` contains source text, share reports outside the project only after redacting proprietary code.
-
 ## Exit Codes
 
 | Command Group | `0` | `1` |
@@ -167,7 +119,6 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 | `lint` | No issues | At least one issue was reported |
 | `check` | No errors | Errors present or analysis failed |
 | `fix` | Success | Failure, or `--dry-run` found pending fixes |
-| `idiom` | Report emitted successfully | Report failed |
 | `query` | Query succeeded | Invalid request, missing symbol, or analysis failure |
 | `daemon` | Command succeeded | Daemon operation failed |
 | `tree` | Dependency tree emitted | Missing project root/config or dependency resolver failure |
@@ -289,13 +240,14 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 
 | Code | Severity | Description |
 |------|----------|-------------|
-| NL001 | warning | Unused variable |
+| NL001 | error | Unused variable |
 | NL002 | error | Missing import |
 | NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
 | NL003 | warning | Unnecessary null check on value type |
 | NL004 | warning | Async function without await |
 | NL005 | info | Use pattern matching |
-| NL006 | warning | Unreachable code |
+| NL006 | error | Unreachable code |
+| NL010 | error | Unused import |
 
 ## Inline Lint Suppression
 

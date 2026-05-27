@@ -5,7 +5,7 @@ Scope: LLM-assisted migration cleanup after a C# to N# migration snapshot, espec
 
 ## Why this exists
 
-Large migrations should not be one giant "fix everything" prompt. Treat them as a controlled loop: snapshot the repository, run the compiler and checks, cluster failures, choose the safest recipe, make idiomatic N# edits, test the affected slice, and repeat until the project is green. Then do a final idiom audit so the output is real N#, not transliterated C#.
+Large migrations should not be one giant "fix everything" prompt. Treat them as a controlled loop: snapshot the repository, run the compiler and checks, cluster failures, choose the safest recipe, make idiomatic N# edits, test the affected slice, and repeat until the project is green. Then do a final style and correctness review so the output is real N#, not transliterated C#.
 
 This document is an artifact for operators and future tooling. It assumes the migrated N# snapshot already exists. If only C# input exists, stop and create a separate AI-assisted migration/restoration plan before starting this loop.
 
@@ -26,7 +26,7 @@ This document is an artifact for operators and future tooling. It assumes the mi
 6. Run targeted checks/tests for that scope.
 7. Run broader/full checks when the targeted slice is green.
 8. Repeat until checks are green or progress stalls.
-9. Perform a final idiom audit and operator handoff.
+9. Perform a final style audit and operator handoff.
 
 ## Phase 0: snapshot and baseline
 
@@ -50,7 +50,6 @@ dotnet --version
 dotnet sln list
 nlc check --project <project-dir> --json > artifacts/nlc-check-baseline.json
 nlc lint --project <project-dir> --json > artifacts/nlc-lint-baseline.json
-nlc idiom --project <project-dir> > artifacts/nlc-idiom-baseline.json
 ```
 
 Use `--project <dir>` for project/root checks. `nlc check` also accepts a positional project directory, but `nlc lint` treats positional arguments as files, so migration automation should prefer the explicit project option. JSON is the default for `nlc check` and `nlc lint`; `--json` is shown here only to make the artifact contract obvious.
@@ -61,7 +60,7 @@ Snapshot artifacts may include:
 - `git-status-before.txt`: dirty tree state.
 - `project-inventory.json`: solutions, projects, N# source roots.
 - `test-inventory.txt`: discovered test commands and skipped prerequisites.
-- `nlc-check-baseline.json`, `nlc-lint-baseline.json`, `nlc-idiom-baseline.json`: initial machine-readable compiler/lint/idiom state.
+- `nlc-check-baseline.json`, `nlc-lint-baseline.json`: initial machine-readable compiler/lint state.
 
 Stop here if the target root is ambiguous, the tree is dirty in files the loop would need to own, or required credentials/test infrastructure are missing.
 
@@ -72,11 +71,10 @@ Start with the cheapest deterministic checks. A migration iteration is not allow
 Preferred order:
 
 1. `nlc check` for parser and semantic diagnostics.
-2. `nlc lint` for C# leftovers and N# idiom drift.
-3. `nlc idiom` for migration-quality scoring and C# artifact inventory.
-4. `dotnet build` for SDK/MSBuild/backend integration.
-5. `dotnet test --filter ...` for the affected slice.
-6. Full `dotnet test` or repo-level test script once targeted tests pass.
+2. `nlc lint` for strict N# diagnostics.
+3. `dotnet build` for SDK/MSBuild/backend integration.
+4. `dotnet test --filter ...` for the affected slice.
+5. Full `dotnet test` or repo-level test script once targeted tests pass.
 
 Record the command, exit code, and diagnostic JSON/text path for every iteration. Do not summarize failures only from terminal scrollback.
 
@@ -86,12 +84,12 @@ Cluster diagnostics before editing. The point is to avoid one-off fixes and iden
 
 Cluster dimensions:
 
-- Source: parser/compiler, semantic analyzer, linter/style, backend/build, runtime/test, final idiom audit.
+- Source: parser/compiler, semantic analyzer, linter/style, backend/build, runtime/test, final style audit.
 - Code/category: delimiter or terminator, identifier resolution, type resolution, type mismatch, nullable flow, missing import, unused import, casing/visibility, C#-ism, framework interop.
 - Recipe family: syntax normalization, import/type qualification, symbol rename/casing, API shape rewrite, nullability rewrite, DTO/record conversion, LINQ method-chain rewrite, ASP.NET result typing, EF service extraction, validation extraction, test fixture simplification.
 - Risk: mechanical, review-needed, human-decision-required.
 - Scope: single file, symbol graph, project-wide, public API, data/model/schema, tests only.
-- Dependency order: parse before semantic, imports before type mismatches, signatures before call sites, runtime/test after compile, idiom audit last.
+- Dependency order: parse before semantic, imports before type mismatches, signatures before call sites, runtime/test after compile, style audit last.
 
 A useful cluster record should answer:
 
@@ -124,7 +122,7 @@ Recipe priority:
 6. ASP.NET result typing and validation mapping.
 7. EF query/service extraction.
 8. Test fixture simplification.
-9. Final idiom audit.
+9. Final style audit.
 
 Recipe safety rules:
 
@@ -171,7 +169,6 @@ When targeted validation passes, broaden the check radius:
 ```bash
 nlc check --project <project-dir> --json > artifacts/nlc-check-final.json
 nlc lint --project <project-dir> --json > artifacts/nlc-lint-final.json
-nlc idiom --project <project-dir> > artifacts/nlc-idiom-final.json
 dotnet build <solution-or-project>
 dotnet test <solution-or-test-project>
 ```
@@ -193,26 +190,26 @@ Repeat the loop while each iteration improves one of these metrics:
 
 Stop and block when diagnostics flap, counts do not improve for two consecutive iterations, or the next recipe requires a domain/API/auth/persistence decision.
 
-## Final idiom audit
+## Final style audit
 
 Compilation is not the finish line. The final pass checks whether the migrated app reads like native N#.
 
-Run and archive the idiom report after the final compiler/lint pass:
+Run and archive the final compiler/lint/fix state:
 
 ```bash
-nlc idiom --project <project-dir> > artifacts/nlc-idiom-final.json
+nlc check --project <project-dir> --json > artifacts/nlc-check-final.json
+nlc lint --project <project-dir> --json > artifacts/nlc-lint-final.json
+nlc fix --project <project-dir> --dry-run --json > artifacts/nlc-fix-final.json
 ```
 
-The report is a gate, not an optional narrative review. Treat these fields as machine-checkable pass/fail inputs:
+Treat this as a gate, not an optional narrative review:
 
-- `ok` is `true` and `schemaVersion` is understood by the migration runner.
-- `thresholds.checkErrors` is `0`; `nlc check` must already have passed with zero errors.
-- `thresholds.blockingCsharpArtifacts` is `0`, or every remaining artifact has an explicit waiver in the handoff with file, line, owner, interop reason, and review status.
-- `thresholds.safeFixesRemaining` is `0`; run `nlc fix --project <project-dir> --dry-run --json` when safe-fix availability matters for the current build.
-- `grade` is `idiomatic` or `mostly-idiomatic`. A lower grade is a failed final audit unless the run is explicitly scoped as a partial migration and the non-migrated areas are listed as out of scope.
-- `signals.manualReviewIslands.count` is `0`, or every island is represented in the handoff as `blocked`/`waived` with a reason and next owner.
+- `nlc check` has zero errors.
+- `nlc lint` has no build-blocking diagnostics.
+- `nlc fix --dry-run --json` has no remaining safe fixes, or every remaining review-needed/suggestion-only fix is explicitly waived with file, line, owner, reason, and review status.
+- Any remaining C#-style code has an explicit interop reason and owner in the handoff.
 
-Store the report next to `nlc-check-final.json`, `nlc-lint-final.json`, build logs, and test logs so a reviewer can compare the final gate with the baseline report without rerunning tools.
+Store the final check/lint/fix artifacts next to build logs and test logs so a reviewer can compare the final gate with the baseline without rerunning tools.
 
 Audit checklist:
 
@@ -230,14 +227,14 @@ Audit checklist:
 
 An application migration is acceptable when all applicable items are true:
 
-- `nlc check --project <project-dir> --json`, `nlc lint --project <project-dir> --json`, `nlc idiom --project <project-dir>`, `dotnet build`, and app-level `dotnet test` pass for migrated projects, with command output archived and exit codes recorded.
+- `nlc check --project <project-dir> --json`, `nlc lint --project <project-dir> --json`, `dotnet build`, and app-level `dotnet test` pass for migrated projects, with command output archived and exit codes recorded.
 - Controllers or minimal endpoints retain routes, status codes, request/response shapes, and validation behavior, verified by at least one concrete artifact per migrated API slice: original source/test reference, endpoint/integration test log, OpenAPI or route snapshot diff, golden request/response fixture comparison, or an explicit blocked note naming the missing prerequisite.
 - Endpoint methods use `ActionResult<T>` or `Results<...>`/`TypedResults.*` instead of vague result types where typed results fit.
 - EF read queries use method-chain LINQ, `AsNoTracking()` for read-only paths, projection before materialization, and no EF entities returned from controllers.
 - FluentValidation validators are discoverable PascalCase classes and validation failures map to `BadRequest` or `ValidationProblem`.
 - Request/response DTOs are named records unless mutation or framework construction requires classes.
 - Ordinary unit tests use idiomatic N# test blocks; xUnit fixtures remain only for required interop.
-- Final idiom audit is mostly-idiomatic or better, with any remaining C#-isms documented as framework interop exceptions and backed by `nlc-idiom-final.json` signal paths.
+- Final style audit passes, with any remaining C#-isms documented as framework interop exceptions and backed by concrete check/lint/fix artifacts.
 - The handoff lists skipped tests, missing infrastructure, and behavior that could not be verified from available source. Each item must be marked `pass`, `fail`, `not_applicable`, or `blocked`; prose-only assurances are not sufficient.
 
 For real app compatibility, include an evidence matrix in the handoff. A minimal matrix looks like:

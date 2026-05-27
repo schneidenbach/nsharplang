@@ -28,7 +28,7 @@ public class DiagnosticClusteringTests
         Assert.Equal("syntax-missing-terminator", clusters[0].GetProperty("category").GetString());
         Assert.Equal(2, clusters[0].GetProperty("count").GetInt32());
         Assert.Equal("variable-declaration", clusters[0].GetProperty("sourceConstruct").GetString());
-        Assert.Equal("migration:semicolon-elision-or-statement-boundary", clusters[0].GetProperty("recipe").GetString());
+        Assert.Equal("syntax:statement-boundary", clusters[0].GetProperty("recipe").GetString());
         Assert.Equal("high", clusters[0].GetProperty("risk").GetString());
         Assert.Equal("src/A.nl", clusters[0].GetProperty("files")[0].GetString());
         Assert.Equal("src/B.nl", clusters[0].GetProperty("files")[1].GetString());
@@ -57,37 +57,6 @@ public class DiagnosticClusteringTests
         using var doc = JsonDocument.Parse(json);
         var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
         Assert.Equal("function-declaration", cluster.GetProperty("sourceConstruct").GetString());
-    }
-
-    [Fact]
-    public void DiagnosticClustersJson_ClassifiesCSharpAutoPropertyAsMigrationArtifactNotParseFailure()
-    {
-        var diagnostics = new List<DiagnosticResult>
-        {
-            new(
-                Code: "NL102",
-                Severity: "warning",
-                Message: "C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax",
-                File: "src/Dto.nl",
-                Line: 4,
-                Column: 20,
-                Length: 12,
-                SourceSnippet: "Name: string { get; set; }",
-                Explanation: null,
-                Suggestion: "Prefer an N# record",
-                Hint: null,
-                ExpectedType: null,
-                ActualType: null,
-                DocsUrl: null)
-        };
-
-        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/repo");
-
-        using var doc = JsonDocument.Parse(json);
-        var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
-        Assert.Equal("csharp-migration-artifact", cluster.GetProperty("category").GetString());
-        Assert.Equal("property-declaration", cluster.GetProperty("sourceConstruct").GetString());
-        Assert.Equal("migration:rewrite-auto-property-as-record-or-explicit-nsharp-property", cluster.GetProperty("recipe").GetString());
     }
 
     [Fact]

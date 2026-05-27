@@ -184,6 +184,10 @@ public class CodeIntelligenceService
         var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         var results = new List<DiagnosticResult>();
+        var filesWithCompilerErrors = snapshot.AllErrors
+            .Where(error => error.Severity == ErrorSeverity.Error && !string.IsNullOrWhiteSpace(error.FileName))
+            .Select(error => GetRelativePath(snapshot.ProjectRoot, error.FileName!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (var error in snapshot.AllErrors)
         {
@@ -223,7 +227,161 @@ public class CodeIntelligenceService
             ));
         }
 
+        var lintDiagnostics = GetLintDiagnostics(snapshot.ProjectRoot, snapshot.SourceFiles, snapshot.CompilationUnits, sourceTexts, file);
+        if (filesWithCompilerErrors.Count > 0)
+        {
+            lintDiagnostics = lintDiagnostics
+                .Where(diagnostic => !filesWithCompilerErrors.Contains(diagnostic.File))
+                .ToList();
+        }
+
+        results.AddRange(lintDiagnostics);
+
         return DeduplicateDiagnostics(results);
+    }
+
+    public static List<DiagnosticResult> GetLintDiagnostics(
+        string projectRoot,
+        IReadOnlyList<string> sourceFiles,
+        string? file = null)
+    {
+        var compilationUnits = new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase);
+        var sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sourceFile in sourceFiles)
+        {
+            var fullPath = Path.GetFullPath(sourceFile);
+            string source;
+            try
+            {
+                source = File.ReadAllText(fullPath);
+            }
+            catch
+            {
+                continue;
+            }
+
+            sourceTexts[fullPath] = source;
+
+            try
+            {
+                var lexer = new Lexer(source, fullPath);
+                var tokens = lexer.Tokenize();
+                var parser = new Parser(tokens, fullPath, source);
+                var parseResult = parser.ParseCompilationUnit();
+                if (parseResult.CompilationUnit != null && parseResult.Errors.Count == 0)
+                {
+                    compilationUnits[fullPath] = parseResult.CompilationUnit;
+                }
+            }
+            catch
+            {
+                // A hard parse failure leaves no AST-backed lint surface for this file.
+            }
+        }
+
+        return GetLintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, file);
+    }
+
+    public static DiagnosticResult ToDiagnosticResult(
+        CompilerError error,
+        string projectRoot,
+        IReadOnlyDictionary<string, string>? sourceTexts = null)
+    {
+        var errorFile = error.FileName ?? "unknown";
+        var relativeFile = GetRelativePath(projectRoot, errorFile);
+        var snippet = error.SourceSnippet;
+        if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0 && sourceTexts != null)
+        {
+            snippet = ExtractSourceLine(sourceTexts, errorFile, error.Line);
+        }
+
+        return new DiagnosticResult(
+            Code: error.DiagnosticId,
+            Severity: error.Severity switch
+            {
+                ErrorSeverity.Error => "error",
+                ErrorSeverity.Warning => "warning",
+                _ => "info"
+            },
+            Message: error.Message,
+            File: relativeFile,
+            Line: error.Line,
+            Column: error.Column,
+            Length: error.Length,
+            SourceSnippet: snippet,
+            Explanation: error.HumanExplanation,
+            Suggestion: error.Suggestion ?? FormatSuggestions(error.Suggestions),
+            Hint: error.ContextualHint,
+            ExpectedType: error.ExpectedType,
+            ActualType: error.ActualType,
+            DocsUrl: error.DocsUrl ?? DiagnosticCatalog.DocsUrlFor(error.DiagnosticId));
+    }
+
+    public static DiagnosticResult ToDiagnosticResult(Diagnostic diagnostic, string projectRoot, string sourceFile, string? source)
+    {
+        return new DiagnosticResult(
+            diagnostic.Code,
+            diagnostic.Severity switch
+            {
+                DiagnosticSeverity.Error => "error",
+                DiagnosticSeverity.Warning => "warning",
+                _ => "info"
+            },
+            diagnostic.Message,
+            GetRelativePath(projectRoot, sourceFile),
+            diagnostic.Location.Line,
+            diagnostic.Location.Column,
+            1,
+            source != null ? ExtractSourceLine(source, diagnostic.Location.Line) : null,
+            null,
+            diagnostic.Suggestion,
+            null,
+            null,
+            null,
+            DiagnosticCatalog.DocsUrlFor(diagnostic.Code));
+    }
+
+    private static List<DiagnosticResult> GetLintDiagnostics(
+        string projectRoot,
+        IReadOnlyList<string> sourceFiles,
+        IReadOnlyDictionary<string, CompilationUnit> compilationUnits,
+        IReadOnlyDictionary<string, string> sourceTexts,
+        string? file = null)
+    {
+        var results = new List<DiagnosticResult>();
+
+        foreach (var sourceFile in sourceFiles)
+        {
+            var fullPath = Path.GetFullPath(sourceFile);
+            if (file != null && !MatchesFilePath(fullPath, file))
+                continue;
+
+            if (!sourceTexts.TryGetValue(fullPath, out var source))
+            {
+                try
+                {
+                    source = File.ReadAllText(fullPath);
+                }
+                catch
+                {
+                    continue;
+                }
+            }
+
+            var fileDir = Path.GetDirectoryName(fullPath) ?? projectRoot;
+            var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
+            if (!compilationUnits.TryGetValue(fullPath, out var compilationUnit))
+            {
+                continue;
+            }
+
+            var diagnostics = linter.Lint(compilationUnit, fullPath, source);
+
+            results.AddRange(diagnostics.Select(diagnostic => ToDiagnosticResult(diagnostic, projectRoot, fullPath, source)));
+        }
+
+        return results;
     }
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
@@ -2433,9 +2591,14 @@ public class CodeIntelligenceService
         }
     }
 
-    private static string? ExtractSourceLine(Dictionary<string, string> sourceTexts, string filePath, int line)
+    private static string? ExtractSourceLine(IReadOnlyDictionary<string, string> sourceTexts, string filePath, int line)
     {
         if (!sourceTexts.TryGetValue(filePath, out var source)) return null;
+        return ExtractSourceLine(source, line);
+    }
+
+    private static string? ExtractSourceLine(string source, int line)
+    {
         var lines = source.Split('\n');
         if (line > 0 && line <= lines.Length)
             return lines[line - 1];

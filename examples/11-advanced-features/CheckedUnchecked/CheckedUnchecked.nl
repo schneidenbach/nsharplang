@@ -1,7 +1,5 @@
 // Checked and Unchecked Expressions Example
 // Demonstrates overflow checking control in arithmetic operations
-import System
-
 
 // Helper function with checked arithmetic
 func SafeAdd(x: int, y: int): int {

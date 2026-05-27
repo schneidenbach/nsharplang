@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
@@ -18,48 +20,9 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
-    private static List<Diagnostic> LintSource(string source)
-    {
-        var linter = new Linter();
-        return linter.LintSource(source, "test.nl");
-    }
-
-    private void AssertHasDiagnostic(List<Diagnostic> diagnostics, string code, string messageSubstring)
-    {
-        Assert.Contains(diagnostics, d => d.Code == code && d.Message.Contains(messageSubstring));
-    }
-
     private void AssertNoDiagnostics(List<Diagnostic> diagnostics)
     {
         Assert.Empty(diagnostics);
-    }
-
-    [Fact]
-    public void NL101_FlagsRedundantPublicPrivateVisibilityModifiers()
-    {
-        var diagnostics = LintSource(@"public class Account {
-private id: string
-public func GetId(): string { return id }
-}");
-
-        Assert.Equal(3, diagnostics.Count(d => d.Code == "NL101"));
-        AssertHasDiagnostic(diagnostics, "NL101", "C# modifier 'public'");
-        AssertHasDiagnostic(diagnostics, "NL101", "C# modifier 'private'");
-    }
-
-    [Fact]
-    public void NL101_AllowsPublicPrivateVisibilityEscapeHatches()
-    {
-        var diagnostics = LintSource(@"public class legacyCamel {
-public func visibleExplicit(): string { return ""ok"" }
-public valueExplicit: string
-private func HiddenMethod(): string { return ""hidden"" }
-private HiddenValue: string
-}
-
-private class SecretPascal { }");
-
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101");
     }
 
     #region NL001: Unused Variable Tests
@@ -74,7 +37,19 @@ private class SecretPascal { }");
         Assert.Equal("NL001", diagnostics[0].Code);
         Assert.Contains("'x'", diagnostics[0].Message);
         Assert.Contains("never read", diagnostics[0].Message);
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics[0].Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics[0].Severity);
+    }
+
+    [Fact]
+    public void NL001_AllowsUnderscorePrefixedIntentionalUnusedVariable()
+    {
+        var source = @"
+func main() {
+    _x := 5
+}";
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001");
     }
 
     [Fact]
@@ -485,7 +460,7 @@ class MyClass {
     #region NL006: Unreachable Code Tests
 
     [Fact]
-    public void NL006_UnreachableCode_WarnsAfterReturn()
+    public void NL006_UnreachableCode_ErrorsAfterReturn()
     {
         var source = @"
 func main() {
@@ -494,6 +469,7 @@ func main() {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL006");
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL006").Severity);
     }
 
     [Fact]
@@ -779,7 +755,7 @@ func main() {
     #region NL010: Unused Import Tests
 
     [Fact]
-    public void NL010_UnusedImport_WarnsOnUnused()
+    public void NL010_UnusedImport_ErrorsOnUnused()
     {
         // System.Collections.Generic is imported but no List/Dictionary/etc. is used
         var source = @"
@@ -792,7 +768,7 @@ func Main() {
         var diagnostics = Lint(source);
         // x and y are unused (NL001), but the import NL010 should also fire
         Assert.Contains(diagnostics, d => d.Code == "NL010");
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL010").Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL010").Severity);
     }
 
     [Fact]
@@ -902,7 +878,7 @@ func GetItems(): IAsyncEnumerable<string> {
     }
 
     [Fact]
-    public void NL010_UnusedImport_WarnsWhenLinqNotActuallyUsed()
+    public void NL010_UnusedImport_ErrorsWhenLinqNotActuallyUsed()
     {
         // System.Linq should still be flagged when no LINQ methods are called
         var source = @"
@@ -932,7 +908,7 @@ test ""uses list from import"" {
     }
 
     [Fact]
-    public void NL010_UnusedImport_WarnsWhenUnusedWithTestBlock()
+    public void NL010_UnusedImport_ErrorsWhenUnusedWithTestBlock()
     {
         // Imports not used in test blocks should still be flagged
         var source = @"
@@ -1260,23 +1236,45 @@ class Builder {
     {
         var config = LinterConfig.Default();
 
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL001"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL001"));
         Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL002"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL003"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL004"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL005"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL006"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL006"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL008"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL011"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL012"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL013"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL010"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL010"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL014"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL015"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL016"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL018"));
         Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL019"));
         Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL020"));
+    }
+
+    [Fact]
+    public void DiagnosticCatalog_HasStrictBuildBlockingLintDefaultsWithoutMigrationDiagnostics()
+    {
+        var codes = DiagnosticCatalog.Descriptors.Select(descriptor => descriptor.Code).ToList();
+
+        Assert.Equal(codes.Count, codes.Distinct().Count());
+
+        Assert.True(DiagnosticCatalog.TryGetDescriptor("NL001", out var unusedVariable));
+        Assert.Equal(DiagnosticSeverity.Error, unusedVariable.DefaultSeverity);
+        Assert.True(unusedVariable.BlocksBuildByDefault);
+
+        Assert.True(DiagnosticCatalog.TryGetDescriptor("NL006", out var unreachableCode));
+        Assert.Equal(DiagnosticSeverity.Error, unreachableCode.DefaultSeverity);
+        Assert.True(unreachableCode.BlocksBuildByDefault);
+
+        Assert.True(DiagnosticCatalog.TryGetDescriptor("NL010", out var unusedImport));
+        Assert.Equal(DiagnosticSeverity.Error, unusedImport.DefaultSeverity);
+        Assert.True(unusedImport.BlocksBuildByDefault);
+
+        Assert.DoesNotContain(codes, code => code.StartsWith("NLM", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1306,6 +1304,41 @@ class Builder {
         var unusedVarDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
         Assert.NotNull(unusedVarDiag);
         Assert.Equal(DiagnosticSeverity.Error, unusedVarDiag!.Severity);
+    }
+
+    [Fact]
+    public void LinterConfig_DisablesRuleFromEditorConfigNone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-linter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, ".editorconfig"),
+                """
+                root = true
+
+                [*.nl]
+                dotnet_diagnostic.NL001.severity = none
+                """);
+
+            var source = "func main() { x := 5 }";
+            var lexer = new Lexer(source, Path.Combine(tempDir, "test.nl"));
+            var tokens = lexer.Tokenize();
+            var parser = new Parser(tokens);
+            var result = parser.ParseCompilationUnit();
+
+            var config = LinterConfig.FromEditorConfig(tempDir);
+            var linter = new Linter(config);
+            var diagnostics = linter.Lint(result.CompilationUnit!, Path.Combine(tempDir, "test.nl"));
+
+            Assert.False(config.IsRuleEnabled("NL001"));
+            Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL001");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     #endregion

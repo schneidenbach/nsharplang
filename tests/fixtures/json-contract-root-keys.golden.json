@@ -40,21 +40,6 @@
     "clusters",
     "summary"
   ],
-  "idiom": [
-    "schemaVersion",
-    "command",
-    "ok",
-    "projectRoot",
-    "scannedFiles",
-    "score",
-    "grade",
-    "summary",
-    "signals",
-    "files",
-    "findings",
-    "recommendations",
-    "thresholds"
-  ],
   "doc": [
     "schemaVersion",
     "command",

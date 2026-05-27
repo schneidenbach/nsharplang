@@ -59,7 +59,6 @@ partial class Program
             "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
-            "idiom" => IdiomCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
             "--version" => ShowVersion(),
             "transpile" => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
@@ -1296,7 +1295,6 @@ Project:
   new <name>           Create a new N# project
   init                 Initialize N# in the current directory
   export <target>      Export N# sources without changing the IL toolchain
-  idiom                Score migration idioms and emit a JSON report
   watch <cmd>          Re-run check/build/test/lint/format on file changes
   doc                  Generate HTML API documentation
   env                  Show environment and toolchain info

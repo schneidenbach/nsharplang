@@ -8,10 +8,9 @@ AI-assisted C# to N# migration is not a one-shot syntax conversion. The contract
 1. Inventory the C# project and choose the migration slice.
 2. Convert or sketch the initial N# files with `package` declarations and the target folder shape.
 3. Run `nlc check --project <out> --json` and cluster diagnostics by code/category before editing.
-4. Run `nlc idiom --project <out>` and treat high-severity C# artifacts as blockers even when code compiles.
-5. Run `nlc fix --project <out> --dry-run --json`; apply safe fixes, inspect review-needed fixes, and never auto-apply architecture/domain suggestions.
-6. Refactor one cluster at a time, then rerun `nlc check`, `nlc idiom`, `nlc fix --dry-run`, formatting, and tests.
-7. Stop only when the gates below pass or every remaining review-needed item has an explicit diagnostic-backed waiver.
+4. Run `nlc fix --project <out> --dry-run --json`; apply safe fixes, inspect review-needed fixes, and never auto-apply architecture/domain suggestions.
+5. Refactor one cluster at a time, then rerun `nlc check`, `nlc fix --dry-run`, formatting, and tests.
+6. Stop only when the gates below pass or every remaining review-needed item has an explicit diagnostic-backed waiver.
 
 ## Required idiomatic N# output
 
@@ -38,7 +37,7 @@ The migration is incomplete if any of these appear without an explicit diagnosti
 - C# query comprehension syntax (`from ... in ... select ...`) in EF/LINQ code.
 - `null!`, `default!`, or arbitrary null-forgiving operators used to silence the compiler.
 - Unsafe `.Value` on option/result-like values instead of `match`/checked handling.
-- Leftover TODO/manual-review islands that are not represented in `nlc check`/`nlc idiom` diagnostics with owner, reason, and fix safety.
+- Leftover TODO/manual-review islands that are not represented in `nlc check`, `nlc lint`, or `nlc fix --dry-run` output with owner, reason, and fix safety.
 
 ## CLI quality gates
 
@@ -50,7 +49,6 @@ An AI agent should run this loop from the destination N# project root:
 
 cd <nsharp-out>
 nlc check --project . --json
-nlc idiom --project .
 nlc fix --project . --dry-run --json
 nlc format --check --project .
 nlc test --project .
@@ -59,58 +57,12 @@ nlc test --project .
 Completion gates:
 
 - `nlc check` reports zero errors.
-- `nlc idiom` reports zero blocking C# artifacts and no unowned manual-review islands.
 - `nlc fix --dry-run --json` has no remaining safe fixes.
 - Review-needed fixes are either applied or explicitly waived with rationale.
 - Suggestion-only domain/architecture recommendations are accepted or waived; they are never silently ignored.
 - Project tests pass after migrated source changes.
 
-There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass and still enforce the `check`/`idiom`/`fix`/format/test gates.
-
-## `nlc idiom` report contract
-
-The report must remain machine-readable and stable. Compatible fields should be added without breaking existing consumers; incompatible shape changes require a schema version bump. The current `nlc idiom` contract is `schemaVersion: 2`.
-
-Top-level fields:
-
-- `schemaVersion`
-- `command`
-- `ok`
-- `projectRoot`
-- `scannedFiles`
-- `score`
-- `grade`
-- `summary`
-- `signals`
-- `files`
-- `findings`
-- `recommendations`
-- `thresholds`
-
-`findings` is the agent-actionable v2 surface. Each entry is a single migration-quality finding with stable keys: `id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, and `confidence`. `fixSafety` is one of `safe`, `reviewNeeded`, `suggestionOnly`, or `none`; agents may batch only `safe` edits without a review gate. The `snippet` field intentionally contains source text for local automation and CI artifacts, so do not publish raw reports from proprietary migrations without redaction.
-
-Debt/signal categories should cover:
-
-- `layout.package`
-- `visibility.casing`
-- `artifact.modifier`
-- `artifact.semicolon`
-- `artifact.propertyBlock`
-- `artifact.underscoreField`
-- `artifact.nullForgiving`
-- `artifact.defaultForgiving`
-- `dto.record`
-- `dto.anonymousApi`
-- `initializer.objectColon`
-- `result.unionMatch`
-- `aspnet.typedResults`
-- `aspnet.controllerThinness`
-- `ef.serviceBoundary`
-- `ef.querySyntax`
-- `nullability.flowMustMatch`
-- `manualReview.todo`
-
-Each category that produces migration debt should map into a v2 `findings` entry so agents can sort by severity, group by `clusterKey`, and choose only safe edits when `fixSafety` is `safe`.
+There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass and still enforce the `check`/`fix`/format/test gates.
 
 ## Refactoring order for agents
 
@@ -122,4 +74,4 @@ Each category that produces migration debt should map into a v2 `findings` entry
 6. Domain results as unions plus exhaustive `match`.
 7. Nullability cleanup and removal of suppressions.
 8. Manual-review/TODO islands.
-9. Format, tests, and final report review.
+9. Format, tests, and final review.

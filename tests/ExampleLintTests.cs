@@ -369,7 +369,7 @@ func main() {
         Assert.Equal(0, errors);
     }
 
-    // ── No NL010 warnings on any example ────────────────────────────
+    // ── No NL010 errors on any example ──────────────────────────────
 
     [Fact]
     public void NlcCheck_TaskCli_NoUnusedImportWarnings()

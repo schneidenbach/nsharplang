@@ -112,7 +112,7 @@ DEFER:
 
 ACCEPT:
 
-- No public `nlc convert` command. The contract is AI-authored `.nl` plus `nlc check`, `nlc idiom`, `nlc fix --dry-run`, format, and tests.
+- No public `nlc convert` command. The contract is AI-authored `.nl` plus `nlc check`, `nlc fix --dry-run`, format, and tests.
 - Private application corpora as internal validation targets only.
 
 REJECT:

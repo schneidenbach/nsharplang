@@ -2,7 +2,6 @@
 
 namespace IssueTracker
 
-import System
 import Microsoft.AspNetCore.Builder
 import Microsoft.Extensions.Hosting
 

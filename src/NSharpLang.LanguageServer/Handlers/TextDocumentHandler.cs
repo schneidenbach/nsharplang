@@ -154,8 +154,7 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
         var column = Math.Max(0, error.Column - 1);
 
-        // Try to determine the actual token length at the error position
-        int length = GetTokenLengthAtPosition(error, line, column);
+        var length = GetTokenLengthAtPosition(error, line, column);
 
         return new LspDiagnostic
         {
@@ -169,16 +168,8 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
 
     private int GetTokenLengthAtPosition(CompilerError error, int line0, int column0)
     {
-        var fallbackLength = Math.Max(1, error.Length);
+        var length = Math.Max(1, error.Length);
 
-        // Try to extract a symbol name from the error message (e.g., "'name'", "identifier 'foo'")
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(error.Message, @"'([^']+)'");
-        if (quoteMatch.Success)
-        {
-            return Math.Max(fallbackLength, quoteMatch.Groups[1].Value.Length);
-        }
-
-        // Try to find the token in the source text at the error position
         var uri = _currentDiagnosticUri;
         if (uri != null)
         {
@@ -196,13 +187,13 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
                         while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
                             end++;
                         if (end > column0)
-                            return Math.Max(fallbackLength, end - column0);
+                            length = Math.Max(length, end - column0);
                     }
                 }
             }
         }
 
-        return fallbackLength;
+        return length;
     }
 
     private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
@@ -219,33 +210,9 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
             _ => LspDiagnosticSeverity.Warning
         };
 
-        // Extract symbol name from message and find its actual position in source
-        // Linter column positions can be inaccurate, so we search the source line
-        int length = 1;
-        var quoteMatch = System.Text.RegularExpressions.Regex.Match(diagnostic.Message, @"'([^']+)'");
-        string? symbolName = quoteMatch.Success ? quoteMatch.Groups[1].Value : null;
-
-        if (symbolName != null && _currentDiagnosticUri != null)
+        var length = 1;
+        if (_currentDiagnosticUri != null)
         {
-            length = symbolName.Length;
-            // Find the actual column of the symbol in the source line
-            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line < lines.Length)
-                {
-                    var idx = lines[line].IndexOf(symbolName, StringComparison.Ordinal);
-                    if (idx >= 0)
-                    {
-                        column = idx; // Use the actual position, not the linter's
-                    }
-                }
-            }
-        }
-        else if (_currentDiagnosticUri != null)
-        {
-            // No symbol in message — find the token at the reported position
             var doc = _documentManager.GetDocument(_currentDiagnosticUri);
             if (doc?.Text != null)
             {

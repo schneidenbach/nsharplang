@@ -15,13 +15,12 @@ AI-assisted C# to N# migration is not a one-shot syntax conversion. It is an ite
 
 cd <nsharp-out>
 nlc check --project . --json
-nlc idiom --project .
 nlc fix --project . --dry-run --json
 nlc format --check --project .
 nlc test --project .
 ```
 
-There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass and still enforce the `check`/`idiom`/`fix`/format/test gates.
+There is intentionally no public `nlc convert` shortcut in the migration contract. Produce the initial `.nl` files with an AI migration pass and still enforce the `check`/`fix`/format/test gates.
 
 ## What review-ready N# means
 
@@ -54,30 +53,7 @@ The migration is incomplete if any of these appear without an explicit waiver:
 ## Completion gates
 
 - `nlc check` reports zero errors.
-- `nlc idiom` reports zero blocking C# artifacts and no unowned manual-review islands.
 - `nlc fix --dry-run --json` has no remaining safe fixes.
 - Review-needed fixes are either applied or explicitly waived with rationale.
 - Suggestion-only domain/architecture recommendations are accepted or waived; they are never silently ignored.
 - Project tests pass after migrated source changes.
-
-## `nlc idiom` report contract
-
-`nlc idiom` exists so humans and agents can evaluate migration quality without scraping prose. Its current contract is `schemaVersion: 2`; stable top-level fields are:
-
-- `schemaVersion`
-- `command`
-- `ok`
-- `projectRoot`
-- `scannedFiles`
-- `score`
-- `grade`
-- `summary`
-- `signals`
-- `files`
-- `findings`
-- `recommendations`
-- `thresholds`
-
-`findings[]` is the agent-actionable v2 surface. Each entry includes `id`, `category`, `severity`, `file`, `line`, `column`, `snippet`, `suggestion`, `fixSafety`, `docsUrl`, `clusterKey`, and `confidence`.
-
-Debt/signal categories should include layout/package issues, visibility/casing issues, C# artifacts (`modifier`, `semicolon`, `propertyBlock`, `underscoreField`, null/default-forgiving), DTO-to-record opportunities, object-initializer cleanup, union/match adoption, ASP.NET typed result adoption, EF service-boundary cleanup, query-syntax cleanup, nullability flow, and manual-review TODOs.

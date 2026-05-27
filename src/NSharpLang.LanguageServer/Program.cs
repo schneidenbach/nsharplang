@@ -145,9 +145,13 @@ class Program
                                         {
                                             Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
                                                 line, column, line, column + 1),
-                                            Severity = linterDiag.Severity == NSharpLang.Compiler.DiagnosticSeverity.Error
-                                                ? OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error
-                                                : OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning,
+                                            Severity = linterDiag.Severity switch
+                                            {
+                                                NSharpLang.Compiler.DiagnosticSeverity.Error => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error,
+                                                NSharpLang.Compiler.DiagnosticSeverity.Warning => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning,
+                                                NSharpLang.Compiler.DiagnosticSeverity.Info => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Information,
+                                                _ => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning
+                                            },
                                             Code = linterDiag.Code,
                                             Source = "N#",
                                             Message = linterDiag.Message

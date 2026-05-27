@@ -450,9 +450,8 @@ Mix C# and N# in the same solution, but do not stop at syntactic translation:
 2. Reference C# projects from N# (full interop!).
 3. Migrate one module/feature slice at a time.
 4. Run `nlc check --project <nsharp-out> --json` to clear parse/semantic diagnostics.
-5. Run `nlc idiom --project <nsharp-out>` to catch C#-shaped output such as semicolons, copied modifiers, `_field` names, property blocks, DTO classes, null/default-forgiving suppressions, and unsafe `.Value` access.
-6. Run `nlc fix --project <nsharp-out> --dry-run --json`; apply safe fixes, review `reviewNeeded` fixes manually, and waive suggestion-only items only with rationale.
-7. Re-run check/idiom/fix/format/tests after every cluster of edits.
+5. Run `nlc fix --project <nsharp-out> --dry-run --json`; apply safe fixes, review `reviewNeeded` fixes manually, and waive suggestion-only items only with rationale.
+6. Re-run check/fix/format/tests after every cluster of edits.
 
 **Example Solution Structure:**
 ```
@@ -499,7 +498,6 @@ AI-generated migration output must be idiomatic N#, not C# with lighter syntax. 
 
 cd <nsharp-out>
 nlc check --project . --json
-nlc idiom --project .
 nlc fix --project . --dry-run --json
 nlc format --check --project .
 nlc test --project .
@@ -514,9 +512,7 @@ Required cleanup before review:
 - DTO-shaped API/request/response classes become records unless mutation or identity is required.
 - Domain failure flows become unions plus exhaustive `match`; ASP.NET/EF code maps those domain results at the boundary.
 - Ordinary async methods can use implicit N# return types, but xUnit/framework-discovered methods that require C# `Task` signatures must declare explicit `: Task` or `: Task<T>`; `Task<T>` bodies return bare `T` values.
-- `nlc idiom` reports the score, grade, thresholds, aggregate C#-ism counts, using/namespace/package/initializer blockers, per-file occurrences, and recommendations so agents can drive the next edit cluster without scraping prose.
-
-Completion requires zero `nlc check` errors, no remaining safe fixes in `nlc fix --dry-run --json`, no blocking `nlc idiom` C# artifacts, and passing project tests.
+Completion requires zero `nlc check` errors, no remaining safe fixes in `nlc fix --dry-run --json`, and passing project tests.
 
 ## Common Patterns
 

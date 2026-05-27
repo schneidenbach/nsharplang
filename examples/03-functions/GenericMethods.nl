@@ -66,7 +66,7 @@ func Main() {
     print "5. Explicit type args (when inference isn't possible):"
     items: int[] = [1, 2, 3, 4, 5]
     objects := items.Cast<object>().ToList()
-    print $"Cast {items.Length} items to object"
+    print $"Cast {items.Length} items to {objects.Count} objects"
 
     mixed := new List<object>()
     mixed.Add(1)

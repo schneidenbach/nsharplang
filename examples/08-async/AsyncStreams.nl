@@ -59,7 +59,7 @@ async func Main() {
 
     // Example 3: Manual iteration
     print "Manual iteration with limited count:"
-    count := 0
+    _count := 0
 
     print ""
     print "=== Demo Complete ==="
