@@ -18,6 +18,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 ### Key Classes
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
+- **`DiagnosticCatalog`** — Central policy for diagnostic metadata, default severities, categories, and build-blocking behavior across compiler, linter, CLI, MSBuild, and LSP surfaces.
 - **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
@@ -37,6 +38,12 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 **Important:** `ContextualHint` values must NOT include "Hint: " prefix — formatters add it when needed.
 
 ## Error Codes
+
+### Lint Diagnostics (001-099)
+- `NL001`: Unused variable (error by default; prefix intentional unused locals with `_`)
+- `NL006`: Unreachable code (error by default)
+- `NL010`: Unused import (error by default)
+- Other lint diagnostics keep warning/info defaults unless overridden in `.editorconfig`.
 
 ### Syntax Errors (100-199)
 - `NL101`: UnexpectedToken
@@ -79,6 +86,9 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 ### Warnings (900-999)
 - `NL901`: UnusedVariable
 - `NL902-906`: UnreachableCode, VisibilityConvention, ObsoleteUsage, Nullability, UnnecessaryTypeAnnotation
+
+### Migration Diagnostics (NLM100-NLM199)
+- `NLM101-NLM111`: C# migration artifacts and smells emitted by the source linter. These intentionally use the `NLM` prefix so they do not collide with parser diagnostics such as `NL101` and `NL102`.
 
 ## Example Output (Elm-style)
 

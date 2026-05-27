@@ -2474,7 +2474,7 @@ public class Analyzer : IDisposable
                 // Check if pattern is provably impossible
                 if (!IsPatternPossible(valueType, targetType))
                 {
-                    Warning(ErrorCode.ImpossiblePattern,
+                    Error(ErrorCode.ImpossiblePattern,
                         $"This 'is {targetType}' pattern will never match — a '{valueType}' can never be '{targetType}'",
                         pattern.Line, pattern.Column);
                 }
@@ -3195,7 +3195,7 @@ public class Analyzer : IDisposable
         {
             if (!isNarrowedNullableOrigin)
             {
-                Warning(
+                Error(
                     ErrorCode.NullabilityWarning,
                     "This '.Value' access can throw when the nullable value is absent",
                     member.Line,
@@ -7415,7 +7415,7 @@ public class Analyzer : IDisposable
 
         if (!IsPatternPossible(sourceType, targetType))
         {
-            Warning(ErrorCode.ImpossiblePattern,
+            Error(ErrorCode.ImpossiblePattern,
                 $"This 'is {targetType}' check will always be false — a '{sourceType}' can never be '{targetType}'",
                 isExpr.Line, isExpr.Column);
         }
@@ -8603,8 +8603,11 @@ public class Analyzer : IDisposable
         if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
             return;
 
-        Warning($"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
-            line, column);
+        Warning(
+            ErrorCode.VisibilityConventionWarning,
+            $"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
+            line,
+            column);
     }
 
     // Type checking helpers

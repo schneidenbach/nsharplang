@@ -769,10 +769,10 @@ func Main() {
     }
 
     [Fact]
-    public void FixCommand_DryRun_File_NL110_ReportsExactZeroBasedEditAndDoesNotModifyFile()
+    public void FixCommand_DryRun_File_NLM110_ReportsExactZeroBasedEditAndDoesNotModifyFile()
     {
         AssertDryRunSingleFix(
-            "NL110",
+            "NLM110",
             @"func Main() {
     p := new Person { Name = ""Ada"" }
 }",
@@ -784,7 +784,7 @@ func Main() {
     }
 
     [Fact]
-    public void FixCommand_DryRun_File_NL111_ReportsReviewNeededMustFix()
+    public void FixCommand_DryRun_File_NLM111_ReportsReviewNeededMustFix()
     {
         var tempDir = CreateTempDir();
         try
@@ -811,7 +811,7 @@ func Get(): int? { return 1 }
             using var doc = JsonDocument.Parse(stdout);
             var fix = Assert.Single(
                 doc.RootElement.GetProperty("fixesApplied").EnumerateArray(),
-                candidate => candidate.GetProperty("diagnostic").GetString() == "NL111");
+                candidate => candidate.GetProperty("diagnostic").GetString() == "NLM111");
             Assert.Equal("reviewNeeded", fix.GetProperty("safety").GetString());
 
             var edit = Assert.Single(fix.GetProperty("edits").EnumerateArray());

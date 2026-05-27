@@ -38,7 +38,6 @@ public static class CheckCommand
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
-            diagnostics.AddRange(GetLintDiagnostics(projectDir, snapshot.SourceFiles));
             diagnostics = DeduplicateAndSort(diagnostics);
 
             // If analysis found no errors AND this is a proper project (has project.yml),
@@ -119,24 +118,7 @@ public static class CheckCommand
             {
                 foreach (var error in compileResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
                 {
-                    var relativeFile = error.FileName != null
-                        ? NormalizePath(Path.GetRelativePath(projectDir, error.FileName))
-                        : "unknown";
-                    results.Add(new DiagnosticResult(
-                        error.DiagnosticId,
-                        "error",
-                        error.Message,
-                        relativeFile,
-                        error.Line,
-                        error.Column,
-                        error.Length,
-                        error.SourceSnippet,
-                        error.HumanExplanation,
-                        error.Suggestion ?? FormatSuggestions(error.Suggestions),
-                        error.ContextualHint,
-                        error.ExpectedType,
-                        error.ActualType,
-                        error.DocsUrl));
+                    results.Add(CodeIntelligenceService.ToDiagnosticResult(error, projectDir));
                 }
             }
         }
@@ -148,12 +130,6 @@ public static class CheckCommand
         return results;
     }
 
-    private static string? FormatSuggestions(IReadOnlyList<string>? suggestions)
-    {
-        if (suggestions == null || suggestions.Count == 0) return null;
-        return string.Join("; ", suggestions);
-    }
-
     private static List<DiagnosticResult> DeduplicateAndSort(List<DiagnosticResult> diagnostics)
     {
         return diagnostics
@@ -163,61 +139,6 @@ public static class CheckCommand
             .ThenBy(d => d.Line)
             .ThenBy(d => d.Column)
             .ToList();
-    }
-
-    private static List<DiagnosticResult> GetLintDiagnostics(string projectDir, IReadOnlyList<string> sourceFiles)
-    {
-        var results = new List<DiagnosticResult>();
-
-        foreach (var filePath in sourceFiles)
-        {
-            string source;
-            try
-            {
-                source = File.ReadAllText(filePath);
-            }
-            catch
-            {
-                continue;
-            }
-
-            var lexer = new Lexer(source, filePath);
-            var tokens = lexer.Tokenize();
-            var parser = new Parser(tokens, filePath, source);
-            var parseResult = parser.ParseCompilationUnit();
-            if (parseResult.CompilationUnit == null)
-                continue;
-
-            var fileDir = Path.GetDirectoryName(filePath) ?? projectDir;
-            var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
-            var diagnostics = linter.Lint(parseResult.CompilationUnit, filePath, source);
-
-            foreach (var diagnostic in diagnostics)
-            {
-                results.Add(new DiagnosticResult(
-                    diagnostic.Code,
-                    diagnostic.Severity switch
-                    {
-                        DiagnosticSeverity.Error => "error",
-                        DiagnosticSeverity.Warning => "warning",
-                        _ => "info"
-                    },
-                    diagnostic.Message,
-                    NormalizePath(Path.GetRelativePath(projectDir, filePath)),
-                    diagnostic.Location.Line,
-                    diagnostic.Location.Column,
-                    1,
-                    ExtractSourceLine(source, diagnostic.Location.Line),
-                    null,
-                    diagnostic.Suggestion,
-                    null,
-                    null,
-                    null,
-                    null));
-            }
-        }
-
-        return results;
     }
 
     public static int ShowHelp()
@@ -309,18 +230,10 @@ Exit codes:
         return 1;
     }
 
-    private static string NormalizePath(string path) => path.Replace('\\', '/');
-
     private static string FormatElapsed(TimeSpan elapsed)
     {
         if (elapsed.TotalMinutes >= 1)
             return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
         return $"{elapsed.TotalSeconds:F1}s";
-    }
-
-    private static string? ExtractSourceLine(string source, int line)
-    {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length ? lines[line - 1] : null;
     }
 }

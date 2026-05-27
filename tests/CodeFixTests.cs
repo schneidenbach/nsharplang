@@ -300,7 +300,7 @@ func main() {
     p := new Person { Name = ""Ada"" }
 }";
         var diagnostic = new Diagnostic(
-            "NL110",
+            "NLM110",
             "C# object initializer uses '='; use ':' in N#",
             new Location(2, 23),
             DiagnosticSeverity.Info);
@@ -322,7 +322,7 @@ func main() {
     result := maybe.Value
 }";
         var diagnostic = new Diagnostic(
-            "NL111",
+            "NLM111",
             "Unsafe '.Value' access 'maybe.Value'",
             new Location(2, 20),
             DiagnosticSeverity.Info);
@@ -331,7 +331,7 @@ func main() {
         var fixes = new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode);
 
         var mustFix = Assert.Single(fixes, fix => fix.Safety == FixSafety.ReviewNeeded);
-        Assert.Equal("NL111", mustFix.DiagnosticCode);
+        Assert.Equal("NLM111", mustFix.DiagnosticCode);
         Assert.Equal(CodeActionKind.QuickFix, mustFix.Kind);
         Assert.Equal(new TextEdit(2, 14, 2, 25, "must maybe"), Assert.Single(mustFix.Edits));
 
@@ -347,7 +347,7 @@ func main() {
     result := GetMaybe().Value
 }";
         var diagnostic = new Diagnostic(
-            "NL111",
+            "NLM111",
             "Unsafe '.Value' access 'GetMaybe().Value'",
             new Location(2, 24),
             DiagnosticSeverity.Info);

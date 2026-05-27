@@ -5,5 +5,6 @@ func Main() {
     numbers: List<int> = [1, 2, 3]
     names: HashSet<string> = ["Alice", "Bob"]
 
+    print $"Created {numbers.Count} numbers and {names.Count} names"
     print "Test completed"
 }

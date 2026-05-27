@@ -225,7 +225,7 @@ public static class OutputFormatter
             command = "lint",
             projectRoot = NormalizePath(projectRoot),
             lintedFiles,
-            ok = summary.Errors == 0 && summary.Warnings == 0,
+            ok = summary.Errors == 0,
             results = results.Select(Normalize).ToList(),
             summary
         };
@@ -786,7 +786,7 @@ public static class OutputFormatter
         var messageLower = message.ToLowerInvariant();
         var snippetLower = snippet.ToLowerInvariant();
 
-        if (code == "NL102" && messageLower.Contains("auto-property"))
+        if (code == "NLM102" && messageLower.Contains("auto-property"))
         {
             return new DiagnosticClusterTraits(
                 "csharp-migration-artifact",

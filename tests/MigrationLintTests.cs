@@ -24,7 +24,7 @@ public partial class UserDto {
 }
 """);
 
-        var modifierDiagnostics = diagnostics.Where(d => d.Code == "NL101").ToList();
+        var modifierDiagnostics = diagnostics.Where(d => d.Code == "NLM101").ToList();
 
         Assert.Contains(modifierDiagnostics, d => d.Message.Contains("public"));
         Assert.Contains(modifierDiagnostics, d => d.Message.Contains("partial"));
@@ -42,8 +42,8 @@ internal class HostBridge {
 }
 """);
 
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101" && d.Message.Contains("internal"));
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL101" && d.Message.Contains("protected"));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NLM101" && d.Message.Contains("internal"));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NLM101" && d.Message.Contains("protected"));
     }
 
     [Fact]
@@ -57,11 +57,11 @@ class UserDto {
 }
 """);
 
-        Assert.Contains(diagnostics, d => d.Code == "NL102" && d.Message.Contains("{ get; set; }"));
-        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("default!"));
-        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("null!"));
-        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Message.Contains("value!"));
-        Assert.Contains(diagnostics, d => d.Code == "NL103" && d.Suggestion!.Contains("real initializer"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM102" && d.Message.Contains("{ get; set; }"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM103" && d.Message.Contains("default!"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM103" && d.Message.Contains("null!"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM103" && d.Message.Contains("value!"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM103" && d.Suggestion!.Contains("real initializer"));
     }
 
     [Fact]
@@ -77,7 +77,7 @@ func Read(result: Result<string>, maybeAge: int?): string {
 }
 """);
 
-        var valueDiagnostics = diagnostics.Where(d => d.Code == "NL111").ToList();
+        var valueDiagnostics = diagnostics.Where(d => d.Code == "NLM111").ToList();
 
         Assert.Equal(2, valueDiagnostics.Count);
         Assert.Contains(valueDiagnostics, d => d.Message.Contains("result.Value"));
@@ -105,9 +105,9 @@ func Get(id: string): Result {
 }
 """);
 
-        Assert.Contains(diagnostics, d => d.Code == "NL104" && d.Message.Contains("TryGetValue"));
-        Assert.Contains(diagnostics, d => d.Code == "NL105" && d.Message.Contains("UserDto"));
-        Assert.Contains(diagnostics, d => d.Code == "NL106" && d.Message.Contains("500"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM104" && d.Message.Contains("TryGetValue"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM105" && d.Message.Contains("UserDto"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM106" && d.Message.Contains("500"));
     }
 
     [Fact]
@@ -124,10 +124,10 @@ class UserDto {
 }
 """, "src/Services/User.nl");
 
-        Assert.Contains(diagnostics, d => d.Code == "NL107" && d.Message.Contains("using"));
-        Assert.Contains(diagnostics, d => d.Code == "NL108" && d.Message.Contains("namespace"));
-        Assert.Contains(diagnostics, d => d.Code == "NL109" && d.Message.Contains("package Services"));
-        Assert.Contains(diagnostics, d => d.Code == "NL110" && d.Message.Contains("object initializer"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM107" && d.Message.Contains("using"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM108" && d.Message.Contains("namespace"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM109" && d.Message.Contains("package Services"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM110" && d.Message.Contains("object initializer"));
     }
 
     [Fact]
@@ -139,7 +139,7 @@ func Create(): User {
 }
 """);
 
-        var diagnostic = Assert.Single(diagnostics.Where(d => d.Code == "NL110"));
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Code == "NLM110"));
         Assert.Equal(2, diagnostic.Location.Line);
         Assert.Equal(23, diagnostic.Location.Column);
         Assert.Contains("Use canonical N# object initialization", diagnostic.Suggestion);
@@ -154,7 +154,7 @@ func Create(): User {
     return new User { Name = "A", Age = value == 3 }
 }
 """;
-        var diagnostics = LintSource(source).Where(d => d.Code == "NL110").ToList();
+        var diagnostics = LintSource(source).Where(d => d.Code == "NLM110").ToList();
         var fixService = new CodeFixService();
 
         var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
@@ -176,7 +176,7 @@ func Update() {
 }
 """);
 
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL110");
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NLM110");
     }
 
     [Fact]
@@ -190,7 +190,7 @@ class UserDto {
 }
 """, "Services/User.nl");
 
-        Assert.Contains(diagnostics, d => d.Code == "NL109" && d.Message.Contains("Models") && d.Message.Contains("Services"));
+        Assert.Contains(diagnostics, d => d.Code == "NLM109" && d.Message.Contains("Models") && d.Message.Contains("Services"));
     }
 
     [Fact]
@@ -202,7 +202,7 @@ class UserDto {
 }
 """, "src/Features/User.nl");
 
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL109");
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NLM109");
     }
 
     [Fact]
@@ -219,9 +219,9 @@ public class UserDto {
 
         var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
 
-        Assert.Contains(actions, a => a.DiagnosticCode == "NL101" && a.Title.Contains("Remove 'public'"));
-        Assert.Contains(actions, a => a.DiagnosticCode == "NL103" && a.Title.Contains("Remove null-forgiving"));
-        Assert.All(actions.Where(a => a.DiagnosticCode is "NL101" or "NL103"), a => Assert.Equal(FixSafety.ReviewNeeded, a.Safety));
+        Assert.Contains(actions, a => a.DiagnosticCode == "NLM101" && a.Title.Contains("Remove 'public'"));
+        Assert.Contains(actions, a => a.DiagnosticCode == "NLM103" && a.Title.Contains("Remove null-forgiving"));
+        Assert.All(actions.Where(a => a.DiagnosticCode is "NLM101" or "NLM103"), a => Assert.Equal(FixSafety.ReviewNeeded, a.Safety));
     }
 
     [Fact]
@@ -238,11 +238,11 @@ func Read(result: Result<string>): string {
 
         var actions = diagnostics.SelectMany(d => fixService.GetCodeActions(d, ast, source)).ToList();
 
-        var mustAction = Assert.Single(actions, a => a.DiagnosticCode == "NL111" && a.Safety == FixSafety.ReviewNeeded);
+        var mustAction = Assert.Single(actions, a => a.DiagnosticCode == "NLM111" && a.Safety == FixSafety.ReviewNeeded);
         Assert.Contains("must result", mustAction.Title);
         Assert.NotEmpty(mustAction.Edits);
 
-        var suggestion = Assert.Single(actions, a => a.DiagnosticCode == "NL111" && a.Safety == FixSafety.SuggestionOnly);
+        var suggestion = Assert.Single(actions, a => a.DiagnosticCode == "NLM111" && a.Safety == FixSafety.SuggestionOnly);
         Assert.Contains("match", suggestion.Title);
         Assert.Empty(suggestion.Edits);
     }

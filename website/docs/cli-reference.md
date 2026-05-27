@@ -294,13 +294,14 @@ The command scans `.nl` and non-generated `.cs` files, skips `bin`/`obj`, and re
 
 | Code | Severity | Description |
 |------|----------|-------------|
-| NL001 | warning | Unused variable |
+| NL001 | error | Unused variable |
 | NL002 | error | Missing import |
 | NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
 | NL003 | warning | Unnecessary null check on value type |
 | NL004 | warning | Async function without await |
 | NL005 | info | Use pattern matching |
-| NL006 | warning | Unreachable code |
+| NL006 | error | Unreachable code |
+| NL010 | error | Unused import |
 
 ## Inline Lint Suppression
 

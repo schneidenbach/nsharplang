@@ -212,14 +212,14 @@ $ nlc fix --file F                  # fix single file
 
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
-| NL001 | Warning | `unused-variable` | Local variable declared but never read |
+| NL001 | Error | `unused-variable` | Local variable declared but never read |
 | NL002 | Error | `missing-import` | Type used without the required `import` |
 | NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
 | NL004 | Warning | `async-without-await` | `async` function never uses `await` |
 | NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
-| NL006 | Warning | `unreachable-code` | Statements after `return` or `throw` |
+| NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
 | NL008 | Info | `camel-case-local` | Local variable name starts with uppercase (locals use camelCase; PascalCase is for exported declarations) |
-| NL010 | Warning | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
+| NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
 | NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
 | NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
@@ -229,7 +229,7 @@ $ nlc fix --file F                  # fix single file
 | NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
 | NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
 | NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
-| NL111 | Info | `unsafe-value-access` | C# migration smell: direct `.Value` unwrap can throw; prefer `must`, `match`, or an explicit guard |
+| NLM111 | Info | `unsafe-value-access` | C# migration smell: direct `.Value` unwrap can throw; prefer `must`, `match`, or an explicit guard |
 
 Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
 
@@ -244,7 +244,7 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
 | NL015 | Replace `let` with `const` | `Safe` | |
-| NL111 | Replace `receiver.Value` with `must receiver`; also reports a match-based rewrite suggestion | `ReviewNeeded` + `SuggestionOnly` | ReviewNeeded edit makes the throw explicit; SuggestionOnly carries no edits |
+| NLM111 | Replace `receiver.Value` with `must receiver`; also reports a match-based rewrite suggestion | `ReviewNeeded` + `SuggestionOnly` | ReviewNeeded edit makes the throw explicit; SuggestionOnly carries no edits |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
 **`FixSafety` levels** (on `CodeAction`):

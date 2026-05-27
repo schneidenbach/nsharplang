@@ -38,42 +38,14 @@ public record Diagnostic(
 public class LinterConfig
 {
     public Dictionary<string, DiagnosticSeverity> RuleSeverities { get; set; } = new();
+    public HashSet<string> DisabledRules { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public static LinterConfig Default()
     {
         return new LinterConfig
         {
-            RuleSeverities = new Dictionary<string, DiagnosticSeverity>
-            {
-                { "NL001", DiagnosticSeverity.Warning }, // Unused variable
-                { "NL002", DiagnosticSeverity.Error },   // Missing import
-                { "NL003", DiagnosticSeverity.Warning }, // Unnecessary null check
-                { "NL004", DiagnosticSeverity.Warning }, // Async without await
-                { "NL005", DiagnosticSeverity.Info },    // Use pattern matching
-                { "NL006", DiagnosticSeverity.Warning }, // Unreachable code
-                { "NL008", DiagnosticSeverity.Info },    // Camel-case local
-                { "NL011", DiagnosticSeverity.Warning }, // Empty catch
-                { "NL012", DiagnosticSeverity.Info },    // Unused parameter
-                { "NL013", DiagnosticSeverity.Info },    // Prefer interpolation
-                { "NL010", DiagnosticSeverity.Warning }, // Unused import
-                { "NL014", DiagnosticSeverity.Info },    // Unnecessary type annotation
-                { "NL015", DiagnosticSeverity.Info },    // Prefer const
-                { "NL016", DiagnosticSeverity.Warning }, // Redundant null check
-                { "NL018", DiagnosticSeverity.Info },    // Prefer readonly
-                { "NL019", DiagnosticSeverity.Info },    // Empty block
-                { "NL020", DiagnosticSeverity.Warning }, // Shadowed variable
-                { "NL101", DiagnosticSeverity.Info },    // Migration: C# modifiers in .nl files
-                { "NL102", DiagnosticSeverity.Info },    // Migration: C# auto-property accessors
-                { "NL103", DiagnosticSeverity.Info },    // Migration: null-forgiving artifacts
-                { "NL104", DiagnosticSeverity.Info },    // Migration: out var / TryGetValue pattern
-                { "NL105", DiagnosticSeverity.Info },    // Migration: DTO class should be record candidate
-                { "NL106", DiagnosticSeverity.Info },    // Migration: try/catch returning 500 boilerplate
-                { "NL107", DiagnosticSeverity.Info },    // Migration: C# using directive in .nl file
-                { "NL108", DiagnosticSeverity.Info },    // Migration: C# namespace declaration in .nl file
-                { "NL109", DiagnosticSeverity.Info },    // Migration: missing/wrong N# package declaration
-                { "NL110", DiagnosticSeverity.Info },    // Migration: C# equals-style object initializer
-                { "NL111", DiagnosticSeverity.Info },    // Migration: unsafe .Value access on optional/result-like values
-            }
+            RuleSeverities = DiagnosticCatalog.LinterDescriptors
+                .ToDictionary(descriptor => descriptor.Code, descriptor => descriptor.DefaultSeverity, StringComparer.OrdinalIgnoreCase)
         };
     }
 
@@ -132,7 +104,7 @@ public class LinterConfig
                         var key = parts[0].Trim();
                         var value = parts[1].Trim();
 
-                        // Handle dotnet_diagnostic.NL001.severity = warning
+                        // Handle dotnet_diagnostic.NL001.severity = error
                         if (key.StartsWith("dotnet_diagnostic.") && key.EndsWith(".severity"))
                         {
                             var ruleCode = key["dotnet_diagnostic.".Length..^".severity".Length];
@@ -142,12 +114,20 @@ public class LinterConfig
                                 "error" => DiagnosticSeverity.Error,
                                 "warning" => DiagnosticSeverity.Warning,
                                 "info" or "suggestion" => DiagnosticSeverity.Info,
+                                "none" or "silent" => (DiagnosticSeverity?)null,
                                 _ => (DiagnosticSeverity?)null
                             };
 
                             if (severity.HasValue)
                             {
+                                config.DisabledRules.Remove(ruleCode);
                                 config.RuleSeverities[ruleCode] = severity.Value;
+                            }
+                            else if (value.Equals("none", StringComparison.OrdinalIgnoreCase)
+                                     || value.Equals("silent", StringComparison.OrdinalIgnoreCase))
+                            {
+                                config.DisabledRules.Add(ruleCode);
+                                config.RuleSeverities.Remove(ruleCode);
                             }
                         }
                     }
@@ -164,8 +144,11 @@ public class LinterConfig
     {
         return RuleSeverities.TryGetValue(ruleCode, out var severity)
             ? severity
-            : DiagnosticSeverity.Warning;
+            : DiagnosticCatalog.GetDefaultSeverity(ruleCode);
     }
+
+    public bool IsRuleEnabled(string ruleCode)
+        => !DisabledRules.Contains(ruleCode);
 }
 
 /// <summary>
@@ -207,6 +190,9 @@ public partial class Linter
 
         void Add(string code, string message, int line, int column, string suggestion)
         {
+            if (!_config.IsRuleEnabled(code))
+                return;
+
             if (suppressions.TryGetValue(line, out var codes)
                 && (codes.Contains(code) || codes.Contains("*")))
                 return;
@@ -234,7 +220,7 @@ public partial class Linter
                 }
 
                 Add(
-                    "NL101",
+                    "NLM101",
                     $"C# modifier '{modifier}' looks out of place in an N# file",
                     lineNumber,
                     match.Groups[1].Index + 1,
@@ -246,7 +232,7 @@ public partial class Linter
             foreach (Match match in AutoPropertyRegex().Matches(codePart))
             {
                 Add(
-                    "NL102",
+                    "NLM102",
                     "C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax",
                     lineNumber,
                     match.Index + 1,
@@ -264,7 +250,7 @@ public partial class Linter
                 };
 
                 Add(
-                    "NL103",
+                    "NLM103",
                     $"Null-forgiving artifact '{artifact}' is a C# migration leftover",
                     lineNumber,
                     match.Index + 1,
@@ -274,7 +260,7 @@ public partial class Linter
             foreach (Match match in UnsafeValueAccessRegex().Matches(codePart))
             {
                 Add(
-                    "NL111",
+                    "NLM111",
                     $"Unsafe '.Value' access '{match.Value.Trim()}' is a migration leftover that can throw when the value is absent",
                     lineNumber,
                     match.Index + match.Value.IndexOf('.', StringComparison.Ordinal) + 1,
@@ -286,7 +272,7 @@ public partial class Linter
             {
                 var column = FirstPositiveIndex(codePart.IndexOf("TryGetValue", StringComparison.Ordinal), outArgumentMatch.Success ? outArgumentMatch.Index : -1) + 1;
                 Add(
-                    "NL104",
+                    "NLM104",
                     "C# out parameter / TryGetValue pattern is a migration candidate",
                     lineNumber,
                     column,
@@ -297,7 +283,7 @@ public partial class Linter
             if (usingMatch.Success)
             {
                 Add(
-                    "NL107",
+                    "NLM107",
                     "C# using directive is a migration blocker in an N# file",
                     lineNumber,
                     usingMatch.Index + 1,
@@ -308,7 +294,7 @@ public partial class Linter
             if (namespaceMatch.Success)
             {
                 Add(
-                    "NL108",
+                    "NLM108",
                     "C# namespace declaration is a migration blocker in an N# file",
                     lineNumber,
                     namespaceMatch.Index + 1,
@@ -358,7 +344,7 @@ public partial class Linter
             if (!packageMatch.Success)
             {
                 add(
-                    "NL109",
+                    "NLM109",
                     $"N# file is missing package declaration `package {expectedPackage}` for its package layout",
                     i + 1,
                     Math.Max(1, lines[i].IndexOf(code, StringComparison.Ordinal) + 1),
@@ -370,7 +356,7 @@ public partial class Linter
             if (!string.Equals(actualPackage, expectedPackage, StringComparison.Ordinal))
             {
                 add(
-                    "NL109",
+                    "NLM109",
                     $"N# package declaration `{actualPackage}` does not match expected package `{expectedPackage}` for this file layout",
                     i + 1,
                     Math.Max(1, lines[i].IndexOf(actualPackage, StringComparison.Ordinal) + 1),
@@ -428,7 +414,7 @@ public partial class Linter
                 foreach (var assignmentMatch in EqualsInitializerMemberRegex().Matches(candidate, searchStart).Cast<Match>().Reverse())
                 {
                     add(
-                        "NL110",
+                        "NLM110",
                         "C# equals-style object initializer is a migration blocker in an N# file",
                         j + 1,
                         assignmentMatch.Groups[1].Index + 1,
@@ -482,7 +468,7 @@ public partial class Linter
             if (hasMember && membersLookLikeProperties)
             {
                 add(
-                    "NL105",
+                    "NLM105",
                     $"DTO-shaped class '{name}' looks like an N# record candidate",
                     i + 1,
                     match.Groups[1].Index + 1,
@@ -505,7 +491,7 @@ public partial class Linter
                 || window.Contains("InternalServerError", StringComparison.Ordinal))
             {
                 add(
-                    "NL106",
+                    "NLM106",
                     "try/catch returning HTTP 500 boilerplate is a migration candidate",
                     i + 1,
                     Math.Max(1, code.IndexOf("catch", StringComparison.Ordinal) + 1),
@@ -683,7 +669,10 @@ internal class LintVisitor
         foreach (var kvp in _declaredVariables)
         {
             var (varName, (line, column, used)) = (kvp.Key, kvp.Value);
-            if (!used && !_usedVariables.Contains(varName))
+            if (!used
+                && !_usedVariables.Contains(varName)
+                && varName != "_"
+                && !varName.StartsWith("_", StringComparison.Ordinal))
             {
                 AddDiagnostic(
                     "NL001",
@@ -697,6 +686,9 @@ internal class LintVisitor
 
     private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null)
     {
+        if (!_config.IsRuleEnabled(code))
+            return;
+
         if (IsSuppressed(code, location.Line))
             return;
 

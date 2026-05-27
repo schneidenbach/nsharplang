@@ -3,7 +3,6 @@
 namespace IssueTracker
 
 import System
-import System.Collections.Generic
 import System.IO
 import System.Text.Json
 import System.Threading.Tasks

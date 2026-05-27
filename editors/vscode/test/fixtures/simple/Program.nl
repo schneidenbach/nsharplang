@@ -1,7 +1,5 @@
 namespace SimpleTest
 
-import System
-
 func greet(name: string): string {
     return $"Hello, {name}!"
 }

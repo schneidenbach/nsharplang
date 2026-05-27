@@ -599,7 +599,7 @@ public class ChangeLetToConstCodeFixProvider : CodeFixProvider
 /// </summary>
 public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 {
-    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL101", "NL102", "NL103", "NL104", "NL105", "NL106", "NL110", "NL111" };
+    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NLM101", "NLM102", "NLM103", "NLM104", "NLM105", "NLM106", "NLM110", "NLM111" };
 
     public override List<CodeAction> GetCodeActions(
         Diagnostic diagnostic,
@@ -608,14 +608,14 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
     {
         return diagnostic.Code switch
         {
-            "NL101" => GetModifierActions(diagnostic, sourceCode),
-            "NL103" => GetNullForgivingActions(diagnostic, sourceCode),
-            "NL110" => GetObjectInitializerAssignmentActions(diagnostic, sourceCode),
-            "NL102" => Suggest(diagnostic, "Convert C# auto-property syntax to N# property/record syntax"),
-            "NL104" => Suggest(diagnostic, "Rewrite out var / TryGetValue pattern for N#"),
-            "NL105" => Suggest(diagnostic, "Convert DTO-shaped class to an N# record"),
-            "NL106" => Suggest(diagnostic, "Replace catch-to-500 boilerplate with centralized error handling"),
-            "NL111" => GetUnsafeValueActions(diagnostic, sourceCode),
+            "NLM101" => GetModifierActions(diagnostic, sourceCode),
+            "NLM103" => GetNullForgivingActions(diagnostic, sourceCode),
+            "NLM110" => GetObjectInitializerAssignmentActions(diagnostic, sourceCode),
+            "NLM102" => Suggest(diagnostic, "Convert C# auto-property syntax to N# property/record syntax"),
+            "NLM104" => Suggest(diagnostic, "Rewrite out var / TryGetValue pattern for N#"),
+            "NLM105" => Suggest(diagnostic, "Convert DTO-shaped class to an N# record"),
+            "NLM106" => Suggest(diagnostic, "Replace catch-to-500 boilerplate with centralized error handling"),
+            "NLM111" => GetUnsafeValueActions(diagnostic, sourceCode),
             _ => new List<CodeAction>()
         };
     }
@@ -646,7 +646,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 
         actions.Add(new CodeAction(
             $"Remove '{modifier}' C# modifier",
-            "NL101",
+            "NLM101",
             new List<TextEdit> { new(line, tokenIndex, line, endIndex, "") },
             CodeActionKind.QuickFix,
             FixSafety.ReviewNeeded));
@@ -670,7 +670,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 
         actions.Add(new CodeAction(
             "Remove null-forgiving '!' artifact",
-            "NL103",
+            "NLM103",
             new List<TextEdit> { new(line, bangIndex, line, bangIndex + 1, "") },
             CodeActionKind.QuickFix,
             FixSafety.ReviewNeeded));
@@ -705,7 +705,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 
         actions.Add(new CodeAction(
             "Replace object initializer '=' with ':'",
-            "NL110",
+            "NLM110",
             new List<TextEdit> { new(line, propertyEnd, line, replacementEnd, ": ") },
             CodeActionKind.QuickFix,
             FixSafety.Safe));
@@ -738,7 +738,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
                 var receiver = sourceLine[receiverStart..dotIndex];
                 actions.Add(new CodeAction(
                     $"Replace '.Value' with explicit 'must {receiver}' unwrap",
-                    "NL111",
+                    "NLM111",
                     new List<TextEdit> { new(line, receiverStart, line, dotIndex + ".Value".Length, $"must {receiver}") },
                     CodeActionKind.QuickFix,
                     FixSafety.ReviewNeeded));
@@ -747,7 +747,7 @@ public class MigrationCSharpismCodeFixProvider : CodeFixProvider
 
         actions.Add(new CodeAction(
             "Handle nullable value with match",
-            "NL111",
+            "NLM111",
             new List<TextEdit>(),
             CodeActionKind.RefactorRewrite,
             FixSafety.SuggestionOnly));

@@ -277,6 +277,49 @@ func main() {
     }
 
     [Fact]
+    public void QueryCommand_Diagnostics_IncludesStrictLintErrorsForValidCode()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-lint-diagnostics-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: LintDiagnostics
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    unused := 42
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--project", tempDir,
+                "--file", "Program.nl",
+                "--no-daemon"
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL001");
+            Assert.Equal("error", diagnostic.GetProperty("severity").GetString());
+            Assert.Contains("unused", diagnostic.GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
@@ -840,7 +883,7 @@ import Models
 package App
 
 func Main() {
-    item := new Item()
+    _item := new Item()
 }
 """);
 

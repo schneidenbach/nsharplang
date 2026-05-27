@@ -71,7 +71,7 @@ func Main() {
     print $"Person: {person.Name}, Age: {person.Age}"
 
     // Demonstrate buffer
-    buffer := new Buffer10()
+    _buffer := new Buffer10()
     print "Created inline array buffer"
 
     // Call methods

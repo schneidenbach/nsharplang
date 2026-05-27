@@ -5,6 +5,7 @@ using System.Linq;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Build.Tasks;
 
@@ -39,6 +40,19 @@ public class EmitIlAssembly : Task
             {
                 Log.LogMessage(MessageImportance.Low, "No N# source files to emit as IL.");
                 return true;
+            }
+
+            var lintDiagnostics = CodeIntelligenceService.GetLintDiagnostics(ProjectRoot, sourceFiles)
+                .Where(diagnostic => diagnostic.Severity == "error")
+                .ToArray();
+            foreach (var diagnostic in lintDiagnostics)
+            {
+                LogDiagnosticResult(diagnostic);
+            }
+
+            if (lintDiagnostics.Length > 0)
+            {
+                return false;
             }
 
             var config = !string.IsNullOrEmpty(ProjectFile) && File.Exists(ProjectFile)
@@ -122,6 +136,28 @@ public class EmitIlAssembly : Task
                 endColumnNumber: error.Column + Math.Max(0, error.Length - 1),
                 message: error.FormatForMsBuild());
         }
+    }
+
+    private void LogDiagnosticResult(DiagnosticResult diagnostic)
+    {
+        var file = diagnostic.File;
+        if (!string.IsNullOrWhiteSpace(file) && !Path.IsPathRooted(file))
+        {
+            file = Path.Combine(ProjectRoot, file);
+        }
+
+        Log.LogError(
+            subcategory: null,
+            errorCode: diagnostic.Code,
+            helpKeyword: null,
+            file: file ?? string.Empty,
+            lineNumber: diagnostic.Line,
+            columnNumber: diagnostic.Column,
+            endLineNumber: diagnostic.Line,
+            endColumnNumber: diagnostic.Column + Math.Max(0, diagnostic.Length - 1),
+            message: diagnostic.Suggestion == null
+                ? diagnostic.Message
+                : $"{diagnostic.Message} | help: {diagnostic.Suggestion}");
     }
 
     private void AddResolvedDllReferences(ProjectConfig config, string targetAssemblyPath, string? targetReferenceAssemblyPath)

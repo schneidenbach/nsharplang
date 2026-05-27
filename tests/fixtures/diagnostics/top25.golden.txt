@@ -255,7 +255,7 @@ Suggestion: Add arms for the missing cases or a final `_ => ...` arm when a catc
 
 See: https://docs.n-sharp.dev/errors/analyzer/NL501
 
-── [NL101] INFO ─────────────── Services/Users/UserDto.nl:6:1 ──
+── [NLM101] INFO ────────────── Services/Users/UserDto.nl:6:1 ──
 
     6 | public partial class UserDto {
       | ^^^^^^
@@ -266,9 +266,9 @@ C# modifiers leak source-language visibility rules into N#; N# uses naming/expor
 
 Suggestion: Remove the C# modifier and use N# naming/casing/export conventions instead
 
-See: https://docs.n-sharp.dev/errors/migration/NL101
+See: https://docs.n-sharp.dev/errors/migration/NLM101
 
-── [NL102] INFO ────────────── Services/Users/UserDto.nl:4:13 ──
+── [NLM102] INFO ───────────── Services/Users/UserDto.nl:4:13 ──
 
     4 |     Id: int { get; set; }
       |             ^^^^^^^^^^^^^
@@ -279,9 +279,9 @@ Auto-property accessor blocks are C# syntax, not the N# property or record shape
 
 Suggestion: For DTO-shaped data, prefer an N# record; otherwise write explicit N# property syntax
 
-See: https://docs.n-sharp.dev/errors/migration/NL102
+See: https://docs.n-sharp.dev/errors/migration/NLM102
 
-── [NL103] INFO ────────────── Services/Users/UserDto.nl:8:20 ──
+── [NLM103] INFO ───────────── Services/Users/UserDto.nl:8:20 ──
 
     8 |     Name: string = default!
       |                    ^^^^^^^^
@@ -292,9 +292,9 @@ Null-forgiving syntax hides a nullable design decision that must be made explici
 
 Suggestion: Replace the placeholder with a real initializer, explicit nullable/default value, or a reviewed construction path; do not carry C# default-forgiving syntax into N#
 
-See: https://docs.n-sharp.dev/errors/migration/NL103
+See: https://docs.n-sharp.dev/errors/migration/NLM103
 
-── [NL104] INFO ───────────── Services/Users/UserDto.nl:10:18 ──
+── [NLM104] INFO ──────────── Services/Users/UserDto.nl:10:18 ──
 
     10 |         if users.TryGetValue(id, out var user) {
        |                  ^^^^^^^^^^^
@@ -305,9 +305,9 @@ See: https://docs.n-sharp.dev/errors/migration/NL103
 
 Suggestion: Prefer an N# tuple/result-returning helper or a pattern that avoids out parameters
 
-See: https://docs.n-sharp.dev/errors/migration/NL104
+See: https://docs.n-sharp.dev/errors/migration/NLM104
 
-── [NL105] INFO ─────────────── Services/Users/UserDto.nl:3:7 ──
+── [NLM105] INFO ────────────── Services/Users/UserDto.nl:3:7 ──
 
     3 | class OrderDto {
       |       ^^^^^^^^
@@ -318,9 +318,9 @@ This data-only DTO shape is probably a record in idiomatic N# unless identity or
 
 Suggestion: Convert data-only DTO classes to records when identity/inheritance semantics are not required
 
-See: https://docs.n-sharp.dev/errors/migration/NL105
+See: https://docs.n-sharp.dev/errors/migration/NLM105
 
-── [NL106] INFO ───────────── Services/Users/UserDto.nl:19:11 ──
+── [NLM106] INFO ──────────── Services/Users/UserDto.nl:19:11 ──
 
     19 |         } catch (ex) {
        |           ^^^^^
@@ -331,9 +331,9 @@ Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized 
 
 Suggestion: Prefer centralized error handling or an N# result/error abstraction instead of repeated catch-to-500 blocks
 
-See: https://docs.n-sharp.dev/errors/migration/NL106
+See: https://docs.n-sharp.dev/errors/migration/NLM106
 
-── [NL107] INFO ─────────────── Services/Users/UserDto.nl:1:1 ──
+── [NLM107] INFO ────────────── Services/Users/UserDto.nl:1:1 ──
 
     1 | using System;
       | ^^^^^
@@ -344,9 +344,9 @@ C# `using` directives must become N# imports or project references before this f
 
 Suggestion: Convert C# using directives to N# import declarations or project references
 
-See: https://docs.n-sharp.dev/errors/migration/NL107
+See: https://docs.n-sharp.dev/errors/migration/NLM107
 
-── [NL108] INFO ─────────────── Services/Users/UserDto.nl:2:1 ──
+── [NLM108] INFO ────────────── Services/Users/UserDto.nl:2:1 ──
 
     2 | namespace Legacy.Api;
       | ^^^^^^^^^
@@ -357,9 +357,9 @@ C# namespace declarations fight N# package layout and should be expressed with `
 
 Suggestion: Use an N# package declaration such as `package My.Package` instead of `namespace My.Package;`
 
-See: https://docs.n-sharp.dev/errors/migration/NL108
+See: https://docs.n-sharp.dev/errors/migration/NLM108
 
-── [NL109] INFO ─────────────── Services/Users/UserDto.nl:1:1 ──
+── [NLM109] INFO ────────────── Services/Users/UserDto.nl:1:1 ──
 
     1 | using System;
       | ^^^^^^^^
@@ -370,9 +370,9 @@ The file layout implies a package, but the source does not declare the matching 
 
 Suggestion: Add `package Services.Users` as the first declaration in this .nl file
 
-See: https://docs.n-sharp.dev/errors/migration/NL109
+See: https://docs.n-sharp.dev/errors/migration/NLM109
 
-── [NL110] INFO ───────────── Services/Users/UserDto.nl:15:39 ──
+── [NLM110] INFO ──────────── Services/Users/UserDto.nl:15:39 ──
 
     15 |     func Create(): User => new User { Name = "Ada" }
        |                                       ^^^^
@@ -383,9 +383,9 @@ Equals-style object initializer members are valid C#, but canonical N# initializ
 
 Suggestion: Use canonical N# object initialization with colon fields: `new Type { Name: value }`
 
-See: https://docs.n-sharp.dev/errors/migration/NL110
+See: https://docs.n-sharp.dev/errors/migration/NLM110
 
-── [NL111] INFO ───────────── Services/Users/UserDto.nl:13:22 ──
+── [NLM111] INFO ──────────── Services/Users/UserDto.nl:13:22 ──
 
     13 |         return result.Value
        |                      ^^^^^^
@@ -396,7 +396,7 @@ Direct `.Value` unwraps can throw; migration needs an explicit absence-handling 
 
 Suggestion: Prefer `match`, `??`, or a direct `x != null` guard before unwrapping; only keep `.Value` when the wrapper type owns that API and the access is proven safe
 
-See: https://docs.n-sharp.dev/errors/migration/NL111
+See: https://docs.n-sharp.dev/errors/migration/NLM111
 
 
 Found 14 errors, 11 info.

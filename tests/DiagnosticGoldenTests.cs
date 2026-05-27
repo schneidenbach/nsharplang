@@ -172,17 +172,17 @@ public partial class UserDto {
         var migrationDiagnostics = new Linter().LintSource(migrationSource, "Services/Users/UserDto.nl");
         foreach (var expected in new[]
         {
-            (Code: "NL101", Line: 6, Column: 1),
-            (Code: "NL102", Line: 4, Column: 13),
-            (Code: "NL103", Line: 8, Column: 20),
-            (Code: "NL104", Line: 10, Column: 18),
-            (Code: "NL105", Line: 3, Column: 7),
-            (Code: "NL106", Line: 19, Column: 11),
-            (Code: "NL107", Line: 1, Column: 1),
-            (Code: "NL108", Line: 2, Column: 1),
-            (Code: "NL109", Line: 1, Column: 1),
-            (Code: "NL110", Line: 15, Column: 39),
-            (Code: "NL111", Line: 13, Column: 22)
+            (Code: "NLM101", Line: 6, Column: 1),
+            (Code: "NLM102", Line: 4, Column: 13),
+            (Code: "NLM103", Line: 8, Column: 20),
+            (Code: "NLM104", Line: 10, Column: 18),
+            (Code: "NLM105", Line: 3, Column: 7),
+            (Code: "NLM106", Line: 19, Column: 11),
+            (Code: "NLM107", Line: 1, Column: 1),
+            (Code: "NLM108", Line: 2, Column: 1),
+            (Code: "NLM109", Line: 1, Column: 1),
+            (Code: "NLM110", Line: 15, Column: 39),
+            (Code: "NLM111", Line: 13, Column: 22)
         })
         {
             var diagnostic = migrationDiagnostics.Single(d =>
@@ -191,17 +191,17 @@ public partial class UserDto {
                 && d.Location.Column == expected.Column);
             yield return Migration(diagnostic, migrationSource, expected.Code switch
             {
-                "NL101" => "C# modifiers leak source-language visibility rules into N#; N# uses naming/export conventions instead.",
-                "NL102" => "Auto-property accessor blocks are C# syntax, not the N# property or record shape.",
-                "NL103" => "Null-forgiving syntax hides a nullable design decision that must be made explicitly during migration.",
-                "NL104" => "`out` parameters and `TryGetValue` patterns are migration smells because N# prefers values, tuples, and result-style APIs.",
-                "NL105" => "This data-only DTO shape is probably a record in idiomatic N# unless identity or inheritance matters.",
-                "NL106" => "Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized error handling or result mapping.",
-                "NL107" => "C# `using` directives must become N# imports or project references before this file is considered migrated.",
-                "NL108" => "C# namespace declarations fight N# package layout and should be expressed with `package`.",
-                "NL109" => "The file layout implies a package, but the source does not declare the matching N# package.",
-                "NL110" => "Equals-style object initializer members are valid C#, but canonical N# initializer members use `:`.",
-                "NL111" => "Direct `.Value` unwraps can throw; migration needs an explicit absence-handling path.",
+                "NLM101" => "C# modifiers leak source-language visibility rules into N#; N# uses naming/export conventions instead.",
+                "NLM102" => "Auto-property accessor blocks are C# syntax, not the N# property or record shape.",
+                "NLM103" => "Null-forgiving syntax hides a nullable design decision that must be made explicitly during migration.",
+                "NLM104" => "`out` parameters and `TryGetValue` patterns are migration smells because N# prefers values, tuples, and result-style APIs.",
+                "NLM105" => "This data-only DTO shape is probably a record in idiomatic N# unless identity or inheritance matters.",
+                "NLM106" => "Repeated catch-to-HTTP-500 blocks obscure intent and should move to centralized error handling or result mapping.",
+                "NLM107" => "C# `using` directives must become N# imports or project references before this file is considered migrated.",
+                "NLM108" => "C# namespace declarations fight N# package layout and should be expressed with `package`.",
+                "NLM109" => "The file layout implies a package, but the source does not declare the matching N# package.",
+                "NLM110" => "Equals-style object initializer members are valid C#, but canonical N# initializer members use `:`.",
+                "NLM111" => "Direct `.Value` unwraps can throw; migration needs an explicit absence-handling path.",
                 _ => "Migration diagnostic."
             });
         }
@@ -219,17 +219,17 @@ public partial class UserDto {
         var sourceLine = source.Replace("\r\n", "\n").Split('\n')[line - 1];
         var length = diagnostic.Code switch
         {
-            "NL101" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NL102" => "{ get; set; }".Length,
-            "NL103" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NL104" => sourceLine.Contains("TryGetValue", StringComparison.Ordinal) ? "TryGetValue".Length : 3,
-            "NL105" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NL106" => "catch".Length,
-            "NL107" => "using".Length,
-            "NL108" => "namespace".Length,
-            "NL109" => Math.Min(sourceLine.Trim().Length, 8),
-            "NL110" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
-            "NL111" => ".Value".Length,
+            "NLM101" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
+            "NLM102" => "{ get; set; }".Length,
+            "NLM103" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
+            "NLM104" => sourceLine.Contains("TryGetValue", StringComparison.Ordinal) ? "TryGetValue".Length : 3,
+            "NLM105" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
+            "NLM106" => "catch".Length,
+            "NLM107" => "using".Length,
+            "NLM108" => "namespace".Length,
+            "NLM109" => Math.Min(sourceLine.Trim().Length, 8),
+            "NLM110" => TokenLengthAt(sourceLine, diagnostic.Location.Column),
+            "NLM111" => ".Value".Length,
             _ => 1
         };
 

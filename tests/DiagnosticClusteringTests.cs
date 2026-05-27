@@ -65,7 +65,7 @@ public class DiagnosticClusteringTests
         var diagnostics = new List<DiagnosticResult>
         {
             new(
-                Code: "NL102",
+                Code: "NLM102",
                 Severity: "warning",
                 Message: "C# auto-property accessor block '{ get; set; }' should be converted to N# property/record syntax",
                 File: "src/Dto.nl",
