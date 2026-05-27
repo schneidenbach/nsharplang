@@ -5,7 +5,7 @@
 N# has one supported executable backend:
 - `il` — parse/analyze, emit IL directly to a managed assembly
 
-The product toolchain now runs through IL end to end. Projects use `backend: il` (or omit the field and take the default), and the CLI plus MSBuild SDK honor that path consistently for build, run, test, benchmark, and publish flows. C# generation remains available only through the explicit `nlc export csharp` migration/off-ramp command.
+The product toolchain now runs through IL end to end. Projects use `backend: il` (or omit the field and take the default), and the CLI plus MSBuild SDK honor that path consistently for build, run, test, benchmark, and publish flows. C# generation remains available only through the explicit `nlc export csharp` inspection command.
 
 ```
 .nl source file

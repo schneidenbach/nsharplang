@@ -445,7 +445,7 @@ func main() {
     {
         var harness = new Harness();
         var source = """
-import Sys = System
+import System as Sys
 
 func main() {
     Cons

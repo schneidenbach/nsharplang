@@ -1,7 +1,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <Target Name="_FailLegacyNSharpBuildTargets" BeforeTargets="Build;Rebuild;Restore">
-    <Error Text="NSharpLang.Build.targets is retired. Use &lt;Project Sdk=&quot;NSharpLang.Sdk&quot; /&gt; with backend: il in project.yml. To convert a project to C#, run 'nlc export csharp'." />
+    <Error Text="NSharpLang.Build.targets is retired. Use &lt;Project Sdk=&quot;NSharpLang.Sdk&quot; /&gt; with backend: il in project.yml. To inspect generated C#, run 'nlc export csharp'." />
   </Target>
 
 </Project>

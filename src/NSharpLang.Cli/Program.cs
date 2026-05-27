@@ -1317,7 +1317,7 @@ Common Workflows:
   nlc fix && nlc check         Auto-fix then verify
   nlc build --release          Release configuration/output layout
   nlc export csharp --project . -o ./myapp-csharp
-                               Export a C# migration bundle
+                               Export C# for inspection
   nlc format --check           CI formatting gate
   nlc test --filter AddPerson  Run specific tests
   nlc watch check              Re-check on every save

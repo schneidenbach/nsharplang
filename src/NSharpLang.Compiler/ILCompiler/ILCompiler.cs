@@ -4614,18 +4614,6 @@ public partial class ILCompiler
                         return false;
                     }
 
-                    if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
-                    {
-                        if (outVariable.Type != null && !IsParameterTypeCompatible(expectedType, ResolveType(outVariable.Type, _currentGenericParameters)))
-                        {
-                            boundArguments = Array.Empty<BoundCallArgument>();
-                            return false;
-                        }
-
-                        score += 8;
-                        break;
-                    }
-
                     if (supplied.Argument.Value is DefaultExpression)
                     {
                         score += 8;
@@ -6401,26 +6389,6 @@ public partial class ILCompiler
 
         switch (expression)
         {
-            case OutVariableDeclarationExpression outVar:
-                var localType = outVar.Type != null ? ResolveType(outVar.Type, _currentGenericParameters) : elementType;
-                if (!_locals.TryGetValue(outVar.VariableName, out var outLocal))
-                {
-                    outLocal = DeclareNamedLocal(outVar.VariableName, localType);
-                    if (outLocal.LocalType != localType)
-                    {
-                        EmitInitializeNamedLocal(outLocal, localType, emitDefaultValue: true, initializer: null);
-                    }
-                }
-                if (IsLiftedIdentifier(outVar.VariableName))
-                {
-                    EmitLoadLiftedLocalAddress(outLocal);
-                }
-                else
-                {
-                    _currentIL.Emit(OpCodes.Ldloca_S, outLocal);
-                }
-                return;
-
             case IdentifierExpression ident when _locals.TryGetValue(ident.Name, out var local):
                 if (IsLiftedIdentifier(ident.Name))
                 {
@@ -13185,7 +13153,6 @@ public partial class ILCompiler
             SizeOfExpression => typeof(int),
             SpreadExpression spread => GetExpressionType(spread.Expression),
             DefaultExpression => _expectedExpressionType ?? typeof(object),
-            OutVariableDeclarationExpression outVar => outVar.Type != null ? ResolveType(outVar.Type, _currentGenericParameters) : typeof(object),
             CheckedExpression checkedExpr => GetExpressionType(checkedExpr.Expression),
             UncheckedExpression uncheckedExpr => GetExpressionType(uncheckedExpr.Expression),
             _ => typeof(object)

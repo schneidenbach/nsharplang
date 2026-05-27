@@ -299,8 +299,9 @@ if success {
     print $"Parsed: {result}"
 }
 
-// Out parameters (inline declaration)
-if int.TryParse("42", out var value) {
+// Out parameters
+value := 0
+if int.TryParse("42", out value) {
     print $"Value: {value}"
 }
 

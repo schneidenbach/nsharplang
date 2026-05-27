@@ -971,15 +971,17 @@ action(1)
     }
 
     [Fact]
-    public void Format_OutVariableDeclaration_DoesNotDuplicateOutModifier()
+    public void Format_OutArgument_EmitsSingleOutModifier()
     {
         var input = @"func Main() {
-if TryParseInt(""123"", out var number) {
+number := 0
+if TryParseInt(""123"", out number) {
 print number
 }
 }";
         var expected = @"func Main() {
-    if TryParseInt(""123"", out var number) {
+    number := 0
+    if TryParseInt(""123"", out number) {
         print number
     }
 }";

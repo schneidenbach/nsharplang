@@ -94,7 +94,7 @@ Expected evidence snippets from the matrix:
 Source artifacts:
 - `examples/17-issue-tracker/backend/`
 - `docs/talk/evidence-matrix.md`, row “CLI semantic query”
-- `README.md:158-168` for code-intelligence and migration-loop framing
+- `README.md:158-168` for code-intelligence framing
 
 Public wording:
 > “The CLI is not only for humans. Editors and agents can ask semantic questions and receive versioned JSON.”

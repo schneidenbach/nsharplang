@@ -2,9 +2,9 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Define the canonical N# idiom for DTO/data object creation so converted C# object-initializer code becomes native, consistent N# instead of C# with lighter punctuation.
+**Goal:** Define the canonical N# idiom for DTO/data object creation so data construction is native, consistent N#, not C# with lighter punctuation.
 
-**Architecture:** N# keeps one named initializer expression for data construction: `new Type { Name: value }`. Records are the default data shape; classes remain for identity, lifecycle, framework integration, and behaviorful mutable state. Tooling owns migration pressure: formatter canonicalizes shape, analyzer/linter rejects C# leftovers, and AI/prototype migration drafts must pass the diagnostic/idiom/fix/format/test loop before review.
+**Architecture:** N# keeps one named initializer expression for data construction: `new Type { Name: value }`. Records are the default data shape; classes remain for identity, lifecycle, framework integration, and behaviorful mutable state. Tooling owns consistency pressure: formatter canonicalizes shape and analyzer/linter reject unsupported C# initializer leftovers.
 
 **Tech Stack:** N# parser/analyzer/transpiler/IL compiler, `nlc format`, `nlc lint`, ASP.NET Core model binding, System.Text.Json, Entity Framework Core, C# interop.
 
@@ -368,7 +368,7 @@ Linter rules:
 
 ### API request DTO
 
-Before (copied C#-style migration input, not idiomatic N#):
+Before (C#-style initializer input, not idiomatic N#):
 
 ```csharp
 public class CreateIssueRequest {
@@ -550,14 +550,14 @@ The EF class stays EF-shaped; the API returns a record DTO.
 - Provides safe autofix for `Name = value` to `Name: value` only when parsed in initializer-entry context.
 - Provides non-autofix guidance for DTO class-to-record conversion.
 - Provides non-autofix warning when EF entity types leak through API boundaries.
-- Provides migration-tooling diagnostics for C# leftovers; these feed the AI diagnostic migration loop instead of blessing one-shot syntax conversion.
+- Provides diagnostics for unsupported C# leftovers instead of silently accepting alternate initializer dialects.
 
-### AI/prototype migration drafts
+### Review guidance
 
-- Initial migration drafts should prefer N# records for C# DTO classes with only auto-properties.
-- Preserve classes when the C# type has behavior, constructors with invariants, mutable lifecycle, EF attributes/configuration, inheritance/proxies, or framework base classes.
-- Normalize object initializers to `new Type { Name: value }` and `with` expressions to `with { Name: value }` during the check/idiom/fix/format/test loop.
-- Emit or retain migration notes when unsure whether a class is an EF entity or DTO; do not treat prototype output as review-ready without the diagnostic loop.
+- Prefer N# records for DTO classes with only data.
+- Preserve classes when the type has behavior, constructors with invariants, mutable lifecycle, EF attributes/configuration, inheritance/proxies, or framework base classes.
+- Normalize object initializers to `new Type { Name: value }` and `with` expressions to `with { Name: value }` during review.
+- When unsure whether a class is an EF entity or DTO, keep the class until the domain model is clear.
 
 ### Documentation and examples
 
@@ -585,4 +585,4 @@ Project guidance requires Codex review for language design decisions. I attempte
 
 ## Recommendation
 
-Adopt this spec as the N# DTO/object initialization rule. It is conservative, CLR-friendly, easy to migrate from C#, and gives the formatter/linter a concrete cleanup target. The important line is not "records everywhere"; it is "records for data, classes for lifecycle, named initializers for explicit data construction, constructors for invariants."
+Adopt this spec as the N# DTO/object initialization rule. It is conservative, CLR-friendly, and gives the formatter/linter a concrete cleanup target. The important line is not "records everywhere"; it is "records for data, classes for lifecycle, named initializers for explicit data construction, constructors for invariants."

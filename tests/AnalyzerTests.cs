@@ -111,12 +111,23 @@ func removeKeyAndValue(): string {
     headers := new Dictionary<string, string>()
     headers[""Accept""] = ""application/json""
 
-    if headers.Remove(""Accept"", out var removedValue) {
+    removedValue := """"
+    if headers.Remove(""Accept"", out removedValue) {
         return removedValue
     }
 
     return ""missing""
 }");
+    }
+
+    [Fact]
+    public void ExplicitVarTypeAnnotation_IsRejected()
+    {
+        AssertHasError(@"
+func main(): int {
+    let value: var = 42
+    return value
+}", "'var' is not a type");
     }
 
     private void AssertHasParseError(string source, string expectedMessage)
@@ -7811,12 +7822,12 @@ func Main() {
     }
 
     [Fact]
-    public void IntTryParse_WithOutVar_NoErrors()
+    public void IntTryParse_WithExistingOutVariable_NoErrors()
     {
-        // Bug 076: int.TryParse with out var should work
         AssertNoErrors(@"
 func Main() {
-    if int.TryParse(""123"", out var result) {
+    result := 0
+    if int.TryParse(""123"", out result) {
         print result
     }
 }

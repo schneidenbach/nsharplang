@@ -154,7 +154,7 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
             "lock" or "new" or "this" or "base" or "static" or "virtual" or "override" or
             "abstract" or "sealed" or "partial" or "readonly" or "const" or "file" or "duck" or
             "public" or "private" or "internal" or "protected" or "required" or "init" or
-            "let" or "var" or "type" or "out" or "ref" or "params" or "true" or "false" or
+            "let" or "type" or "out" or "ref" or "params" or "true" or "false" or
             "null" or "is" or "as" or "typeof" or "nameof" or "and" or "or" or "not" or
             "with" or "immutable" or "print" or "test" or "assert" or "implicit" or "explicit"
                 => true,

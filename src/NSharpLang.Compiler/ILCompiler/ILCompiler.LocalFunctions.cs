@@ -712,17 +712,6 @@ public partial class ILCompiler
                         return false;
                     }
 
-                    if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
-                    {
-                        if (outVariable.Type != null && !IsParameterTypeCompatible(expectedType, ResolveType(outVariable.Type, _currentGenericParameters)))
-                        {
-                            boundArguments = Array.Empty<BoundCallArgument>();
-                            return false;
-                        }
-
-                        break;
-                    }
-
                     if (supplied.Argument.Value is DefaultExpression)
                     {
                         break;

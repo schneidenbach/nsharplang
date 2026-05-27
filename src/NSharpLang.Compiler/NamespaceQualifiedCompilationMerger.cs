@@ -516,10 +516,6 @@ internal static class NamespaceQualifiedCompilationMerger
                 {
                     Inner = TransformExpression(parenthesizedExpression.Inner)!
                 },
-                OutVariableDeclarationExpression outVariableDeclaration => outVariableDeclaration with
-                {
-                    Type = TransformTypeReference(outVariableDeclaration.Type)
-                },
                 RangeExpression rangeExpression => rangeExpression with
                 {
                     Start = TransformExpression(rangeExpression.Start),

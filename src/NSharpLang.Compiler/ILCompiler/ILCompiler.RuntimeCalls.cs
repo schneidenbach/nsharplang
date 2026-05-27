@@ -699,19 +699,6 @@ public partial class ILCompiler
                         return false;
                     }
 
-                    if (supplied.Argument.Value is OutVariableDeclarationExpression outVariable)
-                    {
-                        if (outVariable.Type != null
-                            && !AreMethodArgumentTypesCompatible(expectedType, ResolveType(outVariable.Type, _currentGenericParameters), genericBindings))
-                        {
-                            boundArguments = Array.Empty<BoundCallArgument>();
-                            return false;
-                        }
-
-                        score += 8;
-                        break;
-                    }
-
                     if (supplied.Argument.Value is DefaultExpression)
                     {
                         score += 8;

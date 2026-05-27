@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` interop/off-ramp command.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
 
 ---
 
@@ -516,7 +516,7 @@ nlc format --stdin < Program.nl
 - `--check` is the preferred CI flag
 - `--verify-no-changes` remains as a compatibility alias
 - `--diff` prints unified hunks against the formatter output
-- `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic/migration fixtures are not part of that gate.
+- `./scripts/test-all.sh` includes a formatting gate for `examples`, `templates`, and `tests/fixtures/issue-tracker`; intentionally malformed diagnostic fixtures are not part of that gate.
 
 ### `nlc tree` — Dependency Tree
 

@@ -192,18 +192,6 @@ public class Parser
         }
 
         // Namespace import: import System.Collections.Generic [as Alias]
-        // OR: import Alias = System.Collections.Generic (C# style)
-
-        // Check for C# style alias: import Alias = Namespace
-        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Assign)
-        {
-            var alias = ConsumeIdentifier("Expected identifier");
-            Consume(TokenType.Assign, "Expected '='");
-            var namespaceName = ParseQualifiedName();
-            return new NamespaceImport(namespaceName, alias, line, column);
-        }
-
-        // Normal namespace import with optional 'as' alias
         var ns = ParseQualifiedName();
         string? nsAlias = null;
 
@@ -3703,34 +3691,22 @@ public class Parser
                     modifier = ArgumentModifier.Out;
                     Advance();
 
-                    // Check for inline out variable declaration (C# 7+)
-                    // Syntax: out var identifier  OR  out Type identifier
-                    var line = Current.Line;
-                    var column = Current.Column;
-
-                    if ((Check(TokenType.Identifier) || Check(TokenType.Let)) && Current.Value == "var")
+                    if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier)
                     {
-                        // out var identifier
-                        Advance(); // consume 'var'
-                        var varName = ConsumeIdentifier("Expected identifier after 'out var'");
-                        var outVarDecl = new OutVariableDeclarationExpression(null, varName, line, column);
-                        args.Add(new Argument(null, outVarDecl, modifier));
-                        continue; // Skip the rest of normal argument parsing
-                    }
-                    else if (Check(TokenType.Identifier))
-                    {
-                        // Could be: out Type identifier  OR  out existingVar
-                        // We need to check if next token is another identifier
-                        if (LookAhead(1).Type == TokenType.Identifier)
-                        {
-                            // out Type identifier
-                            var typeRef = ParseTypeReference();
-                            var varName = ConsumeIdentifier("Expected identifier after type");
-                            var outVarDecl = new OutVariableDeclarationExpression(typeRef, varName, line, column);
-                            args.Add(new Argument(null, outVarDecl, modifier));
-                            continue; // Skip the rest of normal argument parsing
-                        }
-                        // Otherwise fall through to normal expression parsing (out existingVar)
+                        var first = Current;
+                        var second = LookAhead(1);
+                        ReportError(
+                            ErrorCode.InvalidSyntax,
+                            "Inline out declarations are not supported",
+                            first.Line,
+                            first.Column,
+                            humanExplanation: "N# out arguments must refer to a variable that already exists.",
+                            hint: $"Declare '{second.Value}' before the call, then pass 'out {second.Value}'.",
+                            length: Math.Max(1, second.Column + second.Value.Length - first.Column));
+                        Advance();
+                        Advance();
+                        args.Add(new Argument(null, new IdentifierExpression(second.Value, second.Line, second.Column), modifier));
+                        continue;
                     }
                 }
 

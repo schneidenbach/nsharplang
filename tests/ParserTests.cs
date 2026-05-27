@@ -317,7 +317,7 @@ public class ParserTests
 
             import System
             import System.Collections.Generic
-            import Json = System.Text.Json
+            import System.Text.Json as Json
 
             func Test() {}
         ";
@@ -5016,9 +5016,9 @@ Hello, {person.Name}!
     }
 
     [Fact]
-    public void TestInlineOutVarDeclaration()
+    public void TestInlineOutVarDeclarationReportsParseError()
     {
-        var source = @"
+        AssertHasParseError(@"
             func TryParse(input: string, out result: int): bool {
                 result = 42
                 return true
@@ -5029,40 +5029,13 @@ Hello, {person.Name}!
                     print num
                 }
             }
-        ";
-
-        var cu = Parse(source);
-        Assert.Equal(2, cu.Declarations.Count);
-
-        var mainFunc = cu.Declarations[1] as FunctionDeclaration;
-        Assert.NotNull(mainFunc);
-        // Use mainFunc! for all following references
-        Assert.Equal("Main", mainFunc!.Name);
-
-        var ifStmt = mainFunc!.Body.Statements[0] as IfStatement;
-        Assert.NotNull(ifStmt);
-        // Use ifStmt! for all following references
-
-        var callExpr = ifStmt!.Condition as CallExpression;
-        Assert.NotNull(callExpr);
-        // Use callExpr! for all following references
-        Assert.Equal(2, callExpr!.Arguments.Count);
-
-        // Second argument should be out var num
-        var outArg = callExpr!.Arguments[1];
-        Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
-
-        var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
-        Assert.NotNull(outVarDecl);
-        // Use outVarDecl! for all following references
-        Assert.Null(outVarDecl!.Type); // var = null type
-        Assert.Equal("num", outVarDecl!.VariableName);
+        ", "Inline out declarations are not supported");
     }
 
     [Fact]
-    public void TestInlineOutExplicitTypeDeclaration()
+    public void TestInlineOutExplicitTypeDeclarationReportsParseError()
     {
-        var source = @"
+        AssertHasParseError(@"
             func TryParse(input: string, out result: int): bool {
                 result = 42
                 return true
@@ -5073,37 +5046,7 @@ Hello, {person.Name}!
                     print value
                 }
             }
-        ";
-
-        var cu = Parse(source);
-        Assert.Equal(2, cu.Declarations.Count);
-
-        var mainFunc = cu.Declarations[1] as FunctionDeclaration;
-        Assert.NotNull(mainFunc);
-        // Use mainFunc! for all following references
-
-        var ifStmt = mainFunc!.Body.Statements[0] as IfStatement;
-        Assert.NotNull(ifStmt);
-        // Use ifStmt! for all following references
-
-        var callExpr = ifStmt!.Condition as CallExpression;
-        Assert.NotNull(callExpr);
-        // Use callExpr! for all following references
-
-        // Second argument should be out int value
-        var outArg = callExpr!.Arguments[1];
-        Assert.Equal(ArgumentModifier.Out, outArg.Modifier);
-
-        var outVarDecl = outArg.Value as OutVariableDeclarationExpression;
-        Assert.NotNull(outVarDecl);
-        // Use outVarDecl! for all following references
-        Assert.NotNull(outVarDecl!.Type); // explicit type
-        Assert.Equal("value", outVarDecl!.VariableName);
-
-        var simpleType = outVarDecl!.Type as SimpleTypeReference;
-        Assert.NotNull(simpleType);
-        // Use simpleType! for all following references
-        Assert.Equal("int", simpleType!.Name);
+        ", "Inline out declarations are not supported");
     }
 
     [Fact]

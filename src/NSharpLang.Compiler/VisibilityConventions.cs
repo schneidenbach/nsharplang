@@ -32,7 +32,7 @@ public static class VisibilityConventions
 
     public static bool HasExplicitVisibility(Modifiers modifiers)
     {
-        // Explicit visibility modifiers are interop/migration escape hatches that
+        // Explicit visibility modifiers are interop escape hatches that
         // override casing, including `private PascalCase` to force a symbol hidden.
         return modifiers.HasFlag(Modifiers.Public)
             || modifiers.HasFlag(Modifiers.Private)
@@ -187,4 +187,3 @@ public static class VisibilityConventions
         };
     }
 }
-

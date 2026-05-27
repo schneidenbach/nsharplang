@@ -3612,18 +3612,23 @@ func main(): int {
     }
 
     [Fact]
-    public void ILCompiler_CanExecuteOutVarOnClrMethod()
+    public void ILCompiler_RejectsInlineOutVarOnClrMethod()
     {
         var source = @"
 func main(): int {
-    if int.TryParse(""42"", out var value) {
+        if int.TryParse(""42"", out var value) {
         return value
     }
     return 0
 }";
 
-        var result = CompileAndInvoke(source);
-        Assert.Equal(42, Assert.IsType<int>(result));
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error => error.Message.Contains("Inline out declarations are not supported"));
     }
 
     [Fact]
@@ -4170,7 +4175,8 @@ import System.Collections.Generic
 func main(): string {
     headers := new Dictionary<string, string>()
     headers[""Accept""] = ""text/plain""
-    if headers.Remove(""Accept"", out var removedValue) {
+    removedValue := """"
+    if headers.Remove(""Accept"", out removedValue) {
         return removedValue
     }
 

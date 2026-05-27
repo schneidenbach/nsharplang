@@ -9,7 +9,7 @@ Performs semantic analysis, type checking, and name resolution on the AST.
 ## Core Functions
 
 1. **Type Checking**: Ensures expressions have compatible types
-2. **Type Inference**: Infers types for `var` and `:=` declarations
+2. **Type Inference**: Infers types for `:=` declarations
 3. **Name Resolution**: Resolves identifiers to declarations
 4. **Scope Management**: Tracks nested scopes (global, class, function, block)
 5. **External Type Resolution**: Resolves .NET types via reflection
@@ -43,7 +43,7 @@ See `src/NSharpLang.Compiler/TypeSystem/TypeInfo.cs` for type representations:
 
 ### Built-in Types
 - **PrimitiveTypeInfo**: `int`, `long`, `float`, `double`, `bool`, `string`, `void`
-- **UnknownTypeInfo**: Type not yet resolved (like `var`)
+- **UnknownTypeInfo**: Type not yet resolved
 
 ### User-Defined Types
 - **ClassTypeInfo**: From class declarations
@@ -99,7 +99,7 @@ For external methods with multiple overloads:
 - Array covariance (`Derived[] → Base[]`)
 
 ### Type Inference
-For `var` and `:=` declarations:
+For `:=` declarations:
 - Infer from initializer expression type
 - If array literal, infer array type from elements
 - If lambda, type remains `Unknown` (limited context inference)

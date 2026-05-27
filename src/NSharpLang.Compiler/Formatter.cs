@@ -1539,7 +1539,7 @@ public class Formatter
                     {
                         sb.Append("ref ");
                     }
-                    else if (arg.Modifier == ArgumentModifier.Out && arg.Value is not OutVariableDeclarationExpression)
+                    else if (arg.Modifier == ArgumentModifier.Out)
                     {
                         sb.Append("out ");
                     }
@@ -1784,19 +1784,6 @@ public class Formatter
             case SpreadExpression spread:
                 sb.Append("...");
                 FormatExpression(spread.Expression, sb);
-                break;
-            case OutVariableDeclarationExpression outVar:
-                sb.Append("out ");
-                if (outVar.Type != null)
-                {
-                    sb.Append(FormatTypeReference(outVar.Type));
-                    sb.Append(" ");
-                }
-                else
-                {
-                    sb.Append("var ");
-                }
-                sb.Append(outVar.VariableName);
                 break;
             case CheckedExpression checkedExpr:
                 sb.Append("checked(");

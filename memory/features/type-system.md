@@ -7,10 +7,10 @@ N# has a rich type system with type inference, external type resolution, and str
 ## Type Inference
 
 ### Variable Declarations
-Use `var` or `:=` for type inference:
+Use `:=` for type inference:
 
 ```
-let x: var = 42              // Inferred as int
+let x := 42                  // Inferred as int
 let name := "Alice"          // Inferred as string
 let items := [1, 2, 3]       // Inferred as int[]
 ```
@@ -21,12 +21,6 @@ Array literals infer element type:
 ```
 let numbers := [1, 2, 3]     // int[]
 let names := ["a", "b"]      // string[]
-```
-
-**Important:** With `var`, transpiler emits explicit array type to avoid C# 12 collection expression ambiguity:
-```
-// N#: let items: var = [1, 2, 3]
-// C#: int[] items = [1, 2, 3];  (NOT: var items = [1, 2, 3];)
 ```
 
 ### Limitations

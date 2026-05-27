@@ -41,18 +41,18 @@ public class LinterUnusedVariableTests
     }
 
     [Fact]
-    public void UnusedVariable_VarKeyword_DiagnosticPointsToVariableName()
+    public void UnusedVariable_InferredDeclaration_DiagnosticPointsToVariableName()
     {
-        var source = "func main() { var unused = 42 }";
+        var source = "func main() { unused := 42 }";
 
         var diagnostics = Lint(source);
 
         var unusedDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
         Assert.NotNull(unusedDiag);
 
-        // "var unused" -> 'unused' starts at column 18 (after "func main() { var ")
-        Assert.True(unusedDiag.Location.Column >= 18,
-            $"Expected column >= 18 (at variable name), but got {unusedDiag.Location.Column}");
+        // "unused :=" -> 'unused' starts at column 15.
+        Assert.True(unusedDiag.Location.Column >= 15,
+            $"Expected column >= 15 (at variable name), but got {unusedDiag.Location.Column}");
     }
 
     #endregion

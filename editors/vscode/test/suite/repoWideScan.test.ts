@@ -109,8 +109,6 @@ const KNOWN_ERROR_FILES: Record<string, string> = {
         'Parser: async streams not yet supported',
     'examples/09-linq-and-collections/CollectionInitializersWithIndexers.nl':
         'Parser: collection initializers with indexers not yet supported',
-    'examples/10-interop/InlineOutVariables.nl':
-        'Parser: inline out var not yet supported',
     'examples/10-interop/RefOutParameters.nl':
         'Parser: ref/out parameters not yet supported',
     'examples/11-advanced-features/ConversionOperators/ConversionOperators.nl':
