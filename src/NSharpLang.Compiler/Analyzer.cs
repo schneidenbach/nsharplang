@@ -1510,6 +1510,48 @@ public class Analyzer : IDisposable
             length: diagnosticLength);
     }
 
+    private static string GetBinaryOperatorText(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add => "+",
+        BinaryOperator.Subtract => "-",
+        BinaryOperator.Multiply => "*",
+        BinaryOperator.Divide => "/",
+        BinaryOperator.Modulo => "%",
+        BinaryOperator.Equal => "==",
+        BinaryOperator.NotEqual => "!=",
+        BinaryOperator.Less => "<",
+        BinaryOperator.LessOrEqual => "<=",
+        BinaryOperator.Greater => ">",
+        BinaryOperator.GreaterOrEqual => ">=",
+        BinaryOperator.And => "&&",
+        BinaryOperator.Or => "||",
+        BinaryOperator.BitwiseAnd => "&",
+        BinaryOperator.BitwiseOr => "|",
+        BinaryOperator.BitwiseXor => "^",
+        BinaryOperator.LeftShift => "<<",
+        BinaryOperator.RightShift => ">>",
+        BinaryOperator.NullCoalesce => "??",
+        BinaryOperator.Range => "..",
+        _ => op.ToString()
+    };
+
+    private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
+        => (expression.Line, expression.Column, Math.Max(1, GetBinaryOperatorText(expression.Operator).Length));
+
+    private (int Line, int Column, int Length) GetBinaryOperandDiagnosticSpan(
+        BinaryExpression expression,
+        bool leftIsWrong,
+        bool rightIsWrong)
+    {
+        if (leftIsWrong && !rightIsWrong)
+            return GetExpressionDiagnosticSpan(expression.Left);
+
+        if (rightIsWrong && !leftIsWrong)
+            return GetExpressionDiagnosticSpan(expression.Right);
+
+        return GetBinaryOperatorDiagnosticSpan(expression);
+    }
+
     private (int Line, int Column, int Length) GetNullReceiverDiagnosticSpan(
         Expression receiver,
         string path,
@@ -3157,8 +3199,23 @@ public class Analyzer : IDisposable
 
         if (!IsNumericType(left) || !IsNumericType(right))
         {
-            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
-                expr.Line, expr.Column);
+            var leftIsWrong = !IsNumericType(left);
+            var rightIsWrong = !IsNumericType(right);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            var sideText = leftIsWrong == rightIsWrong
+                ? $"I found '{left}' and '{right}'"
+                : leftIsWrong
+                    ? $"the left side is '{left}'"
+                    : $"the right side is '{right}'";
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}' — both sides need numeric values, but {sideText}",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.",
+                diagnosticLength);
             return BuiltInTypes.Unknown;
         }
 
@@ -3166,8 +3223,15 @@ public class Analyzer : IDisposable
         var result = GetWiderType(left, right);
         if (result == null)
         {
-            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
-                expr.Line, expr.Column);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use numeric operands with a compatible common type, or add an explicit conversion.",
+                diagnosticLength);
             return BuiltInTypes.Unknown;
         }
         return result;
@@ -3177,7 +3241,23 @@ public class Analyzer : IDisposable
     {
         if (!IsBoolType(left) || !IsBoolType(right))
         {
-            Error($"Both sides of '{expr.Operator}' must be booleans, but I found '{left}' and '{right}'", expr.Line, expr.Column);
+            var leftIsWrong = !IsBoolType(left);
+            var rightIsWrong = !IsBoolType(right);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            var sideText = leftIsWrong == rightIsWrong
+                ? $"I found '{left}' and '{right}'"
+                : leftIsWrong
+                    ? $"the left side is '{left}'"
+                    : $"the right side is '{right}'";
+            Error(
+                ErrorCode.TypeMismatch,
+                $"Both sides of '{opText}' must be booleans, but {sideText}",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use boolean expressions on both sides of the operator.",
+                diagnosticLength);
         }
         return BuiltInTypes.Bool;
     }
@@ -7387,18 +7467,19 @@ public class Analyzer : IDisposable
 
         if (!IsAssignable(targetType, valueType))
         {
-            var sourceSnippet = _sourceLines != null && assignment.Line > 0 && assignment.Line <= _sourceLines.Length
-                ? _sourceLines[assignment.Line - 1]
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(assignment.Value);
+            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                ? _sourceLines[diagnosticLine - 1]
                 : null;
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.TypeMismatch(
                     _currentFilePath,
-                    assignment.Line,
-                    assignment.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    1,
+                    diagnosticLength,
                     valueType.ToString(),
                     targetType.ToString()
                 );
@@ -7406,7 +7487,8 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error($"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'", assignment.Line, assignment.Column);
+                Error(ErrorCode.TypeMismatch, $"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 

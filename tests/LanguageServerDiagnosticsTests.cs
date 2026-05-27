@@ -254,6 +254,69 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///assignment-operator-type-mismatch-spans.nl";
+
+        var source = """
+func main() {
+    x := 0
+    x = "text"
+
+    oneBad := 1 - "two"
+    bothBad := "one" - "two"
+    logicalRight := true && 1
+    logicalBoth := 1 && 2
+
+    print x
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var assignmentValue = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 3 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertDiagnosticSpan(assignmentValue, line: 3, column: 9, length: "\"text\"".Length);
+        AssertLspRange(assignmentValue, line0: 2, startCharacter: 8, endCharacter: 14);
+
+        var arithmeticRightOperand = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertDiagnosticSpan(arithmeticRightOperand, line: 5, column: 19, length: "\"two\"".Length);
+        AssertLspRange(arithmeticRightOperand, line0: 4, startCharacter: 18, endCharacter: 23);
+
+        var arithmeticOperator = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 6 &&
+                          diagnostic.Message.Contains("I found 'string' and 'string'"));
+        AssertDiagnosticSpan(arithmeticOperator, line: 6, column: 22, length: "-".Length);
+        AssertLspRange(arithmeticOperator, line0: 5, startCharacter: 21, endCharacter: 22);
+
+        var logicalRightOperand = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 7 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertDiagnosticSpan(logicalRightOperand, line: 7, column: 29, length: "1".Length);
+        AssertLspRange(logicalRightOperand, line0: 6, startCharacter: 28, endCharacter: 29);
+
+        var logicalOperator = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
+                          diagnostic.Line == 8 &&
+                          diagnostic.Message.Contains("I found 'int' and 'int'"));
+        AssertDiagnosticSpan(logicalOperator, line: 8, column: 22, length: "&&".Length);
+        AssertLspRange(logicalOperator, line0: 7, startCharacter: 21, endCharacter: 23);
+    }
+
+    [Fact]
     public void Diagnostics_ReturnValueWithoutReturnType_ExplainsImplicitVoid()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

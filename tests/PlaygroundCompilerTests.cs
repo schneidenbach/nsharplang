@@ -254,6 +254,58 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                x := 0
+                x = "text"
+
+                oneBad := 1 - "two"
+                bothBad := "one" - "two"
+                logicalRight := true && 1
+                logicalBoth := 1 && 2
+
+                print x
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var assignmentValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(assignmentValue, line: 5, column: 9, length: "\"text\"".Length);
+
+        var arithmeticRightOperand = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 7 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertPlaygroundSpan(arithmeticRightOperand, line: 7, column: 19, length: "\"two\"".Length);
+
+        var arithmeticOperator = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 8 &&
+                          diagnostic.Message.Contains("I found 'string' and 'string'"));
+        AssertPlaygroundSpan(arithmeticOperator, line: 8, column: 22, length: "-".Length);
+
+        var logicalRightOperand = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 9 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertPlaygroundSpan(logicalRightOperand, line: 9, column: 29, length: "1".Length);
+
+        var logicalOperator = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 10 &&
+                          diagnostic.Message.Contains("I found 'int' and 'int'"));
+        AssertPlaygroundSpan(logicalOperator, line: 10, column: 22, length: "&&".Length);
+    }
+
+    [Fact]
     public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
