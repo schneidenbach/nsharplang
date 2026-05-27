@@ -1082,6 +1082,7 @@ internal class LintVisitor
             case VariableDeclarationStatement varDecl:
                 // NL010: Track type references in variable declarations
                 TrackTypeReference(varDecl.Type);
+                var initializerHasParserError = ContainsParserErrorPlaceholder(varDecl.Initializer);
                 // Calculate column of variable name, not the keyword
                 // For "let x = 1", if let starts at column 10, then x starts at column 14 (10 + "let" + space)
                 // For "const x = 1", if const starts at column 10, then x starts at column 16 (10 + "const" + space)
@@ -1093,10 +1094,14 @@ internal class LintVisitor
                     _ => 3
                 };
                 var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
-                // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
-                CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
-                DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
-                if (varDecl.Initializer != null)
+                if (!initializerHasParserError)
+                {
+                    // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
+                    CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
+                    DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
+                }
+
+                if (varDecl.Initializer != null && !initializerHasParserError)
                 {
                     // NL014: Unnecessary type annotation — flag obvious literal-type matches
                     if (varDecl.Type != null && varDecl.Kind == VariableKind.Let)
@@ -1109,7 +1114,7 @@ internal class LintVisitor
                 // because the explicit annotation signals the developer is being deliberate
                 // and should use `const` when no reassignment occurs.
                 // Shorthand `:=` is too common to flag — it would be very noisy.
-                if (varDecl.Kind == VariableKind.Let && varDecl.Type != null)
+                if (!initializerHasParserError && varDecl.Kind == VariableKind.Let && varDecl.Type != null)
                     _letDeclarations[varDecl.Name] = (varDecl.Line, nameColumn, varDecl.Initializer != null, _inLambda);
                 break;
 
@@ -1296,6 +1301,9 @@ internal class LintVisitor
                 break;
 
             case TupleDeconstructionStatement tupleDecl:
+                if (ContainsParserErrorPlaceholder(tupleDecl.Initializer))
+                    break;
+
                 foreach (var name in tupleDecl.Names)
                 {
                     if (name != "_") // Don't track discards
@@ -1659,6 +1667,61 @@ internal class LintVisitor
                 _config.GetSeverity("NL013"),
                 "Try $\"...{expr}...\" — string interpolation is easier to read and less error-prone");
         }
+    }
+
+    private static bool ContainsParserErrorPlaceholder(Expression? expression)
+    {
+        return expression switch
+        {
+            null => false,
+            IdentifierExpression { Name: "<error>" } => true,
+            MemberAccessExpression { MemberName: "<error>" } => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
+            RangeExpression range => ContainsParserErrorPlaceholder(range.Start) ||
+                                     ContainsParserErrorPlaceholder(range.End),
+            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
+            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
+                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
+            BinaryExpression nestedBinary => ContainsParserErrorPlaceholder(nestedBinary.Left) ||
+                                             ContainsParserErrorPlaceholder(nestedBinary.Right),
+            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
+                                               ContainsParserErrorPlaceholder(assignment.Value),
+            LambdaExpression lambda => ContainsParserErrorPlaceholder(lambda.ExpressionBody),
+            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
+            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
+            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
+            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
+            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
+                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
+            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
+            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
+            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
+            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
+                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
+                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
+            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
+            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
+            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
+                                  ContainsParserErrorPlaceholder(@new.Initializer),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                ContainsParserErrorPlaceholder(property.IndexExpression) ||
+                ContainsParserErrorPlaceholder(property.Value)),
+            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
+                                             withExpression.Properties.Any(property =>
+                                                 ContainsParserErrorPlaceholder(property.IndexExpression) ||
+                                                 ContainsParserErrorPlaceholder(property.Value)),
+            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
+            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
+                                     match.Cases.Any(matchCase =>
+                                         ContainsParserErrorPlaceholder(matchCase.Guard) ||
+                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
+            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
+            _ => false
+        };
     }
 
     private void DeclareVariable(string name, int line, int column)

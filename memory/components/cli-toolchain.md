@@ -212,7 +212,7 @@ $ nlc fix --file F                  # fix single file
 
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
-| NL001 | Warning | `unused-variable` | Local variable declared but never read |
+| NL001 | Warning | `unused-variable` | Local variable declared but never read; suppressed for declarations whose initializer is a parser recovery placeholder |
 | NL002 | Error | `missing-import` | Type used without the required `import` |
 | NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
 | NL004 | Warning | `async-without-await` | `async` function never uses `await` |

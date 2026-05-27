@@ -607,6 +607,62 @@ func test() {
     }
 
     [Fact]
+    public void Parser_MissingInitializer_DoesNotSwallowFollowingStatement()
+    {
+        var source = """
+func test() {
+    name :=
+        greeting := "hi"
+    print greeting
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected an initializer expression after ':='"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(12, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    name :=", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        var declarations = function.Body!.Statements
+            .OfType<VariableDeclarationStatement>()
+            .Select(statement => statement.Name)
+            .ToList();
+        Assert.Equal(new[] { "name", "greeting" }, declarations);
+    }
+
+    [Fact]
+    public void Parser_PrintMissingExpression_DoesNotSwallowFollowingStatement()
+    {
+        var source = """
+func test() {
+    print
+        greeting := "hi"
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected an expression to print after 'print'"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    print", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        Assert.Contains(function.Body!.Statements, statement =>
+            statement is VariableDeclarationStatement { Name: "greeting" });
+    }
+
+    [Fact]
     public void Parser_ObjectInitializerEquals_ReportsActionableDiagnosticAndContinues()
     {
         var source = @"

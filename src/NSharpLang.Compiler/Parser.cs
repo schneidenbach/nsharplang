@@ -1519,8 +1519,11 @@ public class Parser
         Expression? initializer = null;
         if (Check(TokenType.Assign))
         {
-            Advance();
-            initializer = ParseExpression();
+            var initializerToken = Advance();
+            initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This field declaration");
         }
 
         return new FieldDeclaration(name, type, initializer, modifiers, propertyModifier, attributes, line, column);
@@ -1988,7 +1991,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Assert, "Expected 'assert'");
+        var assertToken = Consume(TokenType.Assert, "Expected 'assert'");
 
         // Check for assert throws ExceptionType { body }
         if (Current.Type == TokenType.Identifier && Current.Value == "throws")
@@ -1999,7 +2002,10 @@ public class Parser
             return new AssertThrowsStatement(exceptionType, body, line, column);
         }
 
-        var condition = ParseExpression();
+        var condition = ParseRequiredExpressionAfter(
+            assertToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This assert statement");
 
         // Check for optional message: assert condition, "message"
         Expression? message = null;
@@ -2148,8 +2154,11 @@ public class Parser
         Expression? initializer = null;
         if (Check(TokenType.Assign) || Check(TokenType.ColonAssign))
         {
-            Advance();
-            initializer = ParseExpression();
+            var initializerToken = Advance();
+            initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This variable declaration");
         }
 
         return new VariableDeclarationStatement(name, type, initializer, kind, line, column);
@@ -2192,12 +2201,20 @@ public class Parser
             }
         }
 
+        Token initializerToken;
         if (Check(TokenType.ColonAssign) || Check(TokenType.Assign))
         {
-            Advance(); // consume := or =
+            initializerToken = Advance(); // consume := or =
+        }
+        else
+        {
+            initializerToken = Previous;
         }
 
-        var initializer = ParseExpression();
+        var initializer = ParseRequiredExpressionAfter(
+            initializerToken,
+            expectedDescription: "an initializer expression",
+            ownerDescription: "This tuple deconstruction");
 
         return new TupleDeconstructionStatement(names, initializer, kind, line, column);
     }
@@ -2206,9 +2223,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.If, "Expected 'if'");
+        var ifToken = Consume(TokenType.If, "Expected 'if'");
 
-        var condition = ParseExpression();
+        var condition = ParseRequiredExpressionAfter(
+            ifToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This if statement");
         var thenStatement = ParseStatement();
 
         Statement? elseStatement = null;
@@ -2231,8 +2251,11 @@ public class Parser
         if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In)
         {
             var varName = Advance().Value;
-            Consume(TokenType.In, "Expected 'in'");
-            var collection = ParseExpression();
+            var inToken = Consume(TokenType.In, "Expected 'in'");
+            var collection = ParseRequiredExpressionAfter(
+                inToken,
+                expectedDescription: "a collection expression",
+                ownerDescription: "This for-in statement");
             var body = ParseStatement();
             return new ForStatement(null, null, null,
                 new ForeachStatement(varName, collection, body, line, column), line, column);
@@ -2263,8 +2286,11 @@ public class Parser
                 // Check for := shorthand declaration
                 if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
                 {
-                    Advance();
-                    var init = ParseExpression();
+                    var initializerToken = Advance();
+                    var init = ParseRequiredExpressionAfter(
+                        initializerToken,
+                        expectedDescription: "an initializer expression",
+                        ownerDescription: "This for-loop initializer");
                     initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, initLine, initCol);
                 }
                 else
@@ -2310,8 +2336,11 @@ public class Parser
         var hasParens = Match(TokenType.LeftParen);
 
         var varName = ConsumeIdentifier("Expected variable name");
-        Consume(TokenType.In, "Expected 'in'");
-        var collection = ParseExpression();
+        var inToken = Consume(TokenType.In, "Expected 'in'");
+        var collection = ParseRequiredExpressionAfter(
+            inToken,
+            expectedDescription: "a collection expression",
+            ownerDescription: "This foreach statement");
 
         if (hasParens)
         {
@@ -2334,8 +2363,11 @@ public class Parser
         var hasParens = Match(TokenType.LeftParen);
 
         var varName = ConsumeIdentifier("Expected variable name");
-        Consume(TokenType.In, "Expected 'in'");
-        var collection = ParseExpression();
+        var inToken = Consume(TokenType.In, "Expected 'in'");
+        var collection = ParseRequiredExpressionAfter(
+            inToken,
+            expectedDescription: "a collection expression",
+            ownerDescription: "This await foreach statement");
 
         if (hasParens)
         {
@@ -2351,9 +2383,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.While, "Expected 'while'");
+        var whileToken = Consume(TokenType.While, "Expected 'while'");
 
-        var condition = ParseExpression();
+        var condition = ParseRequiredExpressionAfter(
+            whileToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This while statement");
         var body = ParseStatement();
 
         return new WhileStatement(condition, body, line, column);
@@ -2415,13 +2450,16 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Yield, "Expected 'yield'");
+        var yieldToken = Consume(TokenType.Yield, "Expected 'yield'");
 
         // Check for "yield break" (no expression)
         Expression? value = null;
         if (!Check(TokenType.Break))
         {
-            value = ParseExpression();
+            value = ParseRequiredExpressionAfter(
+                yieldToken,
+                expectedDescription: "a value to yield",
+                ownerDescription: "This yield statement");
         }
         else
         {
@@ -2435,9 +2473,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Print, "Expected 'print'");
+        var printToken = Consume(TokenType.Print, "Expected 'print'");
 
-        var value = ParseExpression();
+        var value = ParseRequiredExpressionAfter(
+            printToken,
+            expectedDescription: "an expression to print",
+            ownerDescription: "This print statement");
         return new PrintStatement(value, line, column);
     }
 
@@ -2471,9 +2512,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Throw, "Expected 'throw'");
+        var throwToken = Consume(TokenType.Throw, "Expected 'throw'");
 
-        var expr = ParseExpression();
+        var expr = ParseRequiredExpressionAfter(
+            throwToken,
+            expectedDescription: "an exception expression",
+            ownerDescription: "This throw statement");
         return new ThrowStatement(expr, line, column);
     }
 
@@ -2541,7 +2585,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Using, "Expected 'using'");
+        var usingToken = Consume(TokenType.Using, "Expected 'using'");
 
         // using varName := expr { ... } or using varName := expr (no block)
         if (Check(TokenType.Identifier) || Check(TokenType.Let))
@@ -2575,8 +2619,11 @@ public class Parser
             else
             {
                 var varName = ConsumeIdentifier("Expected variable name");
-                Consume(TokenType.ColonAssign, "Expected ':='");
-                var init = ParseExpression();
+                var initializerToken = Consume(TokenType.ColonAssign, "Expected ':='");
+                var init = ParseRequiredExpressionAfter(
+                    initializerToken,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This using declaration");
                 decl = new VariableDeclarationStatement(varName, null, init, VariableKind.Let, line, column);
             }
 
@@ -2590,7 +2637,10 @@ public class Parser
         }
 
         // using (expr) or using expr
-        var expr = ParseExpression();
+        var expr = ParseRequiredExpressionAfter(
+            usingToken,
+            expectedDescription: "a resource expression",
+            ownerDescription: "This using statement");
         Statement? usingBody = null;
 
         if (Check(TokenType.LeftBrace))
@@ -2605,14 +2655,18 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Lock, "Expected 'lock'");
+        var lockToken = Consume(TokenType.Lock, "Expected 'lock'");
 
         // lock obj { ... } or lock (obj) { ... }
         var hasParens = Check(TokenType.LeftParen);
+        var expressionAnchor = lockToken;
         if (hasParens)
-            Consume(TokenType.LeftParen, "Expected '('");
+            expressionAnchor = Consume(TokenType.LeftParen, "Expected '('");
 
-        var lockObject = ParseExpression();
+        var lockObject = ParseRequiredExpressionAfter(
+            expressionAnchor,
+            expectedDescription: "an object expression",
+            ownerDescription: "This lock statement");
 
         if (hasParens)
             Consume(TokenType.RightParen, "Expected ')'");
@@ -2643,9 +2697,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Switch, "Expected 'switch'");
+        var switchToken = Consume(TokenType.Switch, "Expected 'switch'");
 
-        var value = ParseExpression();
+        var value = ParseRequiredExpressionAfter(
+            switchToken,
+            expectedDescription: "a value expression",
+            ownerDescription: "This switch statement");
         Consume(TokenType.LeftBrace, "Expected '{'");
 
         var cases = new List<SwitchCase>();
@@ -2967,7 +3024,10 @@ public class Parser
             if (Check(TokenType.Assign))
             {
                 Advance(); // consume '='
-                var initializer = ParseExpression();
+                var initializer = ParseRequiredExpressionAfter(
+                    Previous,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This typed variable declaration");
                 return new VariableDeclarationStatement(name, typeRef, initializer, VariableKind.Let, line, column);
             }
 
@@ -3010,8 +3070,11 @@ public class Parser
                     names.Add(name);
                 } while (Match(TokenType.Comma));
 
-                Advance(); // consume := or =
-                var initializer = ParseExpression();
+                var initializerToken = Advance(); // consume := or =
+                var initializer = ParseRequiredExpressionAfter(
+                    initializerToken,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This tuple deconstruction");
                 return new TupleDeconstructionStatement(names, initializer, VariableKind.Let, line, column);
             }
         }
@@ -3063,8 +3126,11 @@ public class Parser
         // Check for := shorthand declaration
         if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
         {
-            Advance();
-            var initializer = ParseExpression();
+            var initializerToken = Advance();
+            var initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This shorthand variable declaration");
             return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, line, column);
         }
 
@@ -3192,6 +3258,88 @@ public class Parser
 
         var column = operatorToken.Column + Math.Max(1, operatorToken.Value.Length);
         return new IdentifierExpression("<error>", operatorToken.Line, column);
+    }
+
+    private Expression ParseRequiredExpressionAfter(
+        Token anchorToken,
+        string expectedDescription,
+        string ownerDescription)
+    {
+        if (!IsMissingRequiredExpressionBoundary(anchorToken))
+            return ParseExpression();
+
+        var markerColumn = anchorToken.Column + Math.Max(1, anchorToken.Value.Length);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected {expectedDescription} after '{anchorToken.Value}'",
+            anchorToken.Line,
+            markerColumn,
+            humanExplanation: $"{ownerDescription} needs {expectedDescription} after '{anchorToken.Value}'.",
+            hint: "Finish the expression before starting the next statement.",
+            suggestions: new List<string>
+            {
+                $"Add {expectedDescription} after '{anchorToken.Value}'",
+                $"Remove '{anchorToken.Value}' until the expression is ready"
+            },
+            length: 1);
+
+        return new IdentifierExpression("<error>", anchorToken.Line, markerColumn);
+    }
+
+    private bool IsMissingRequiredExpressionBoundary(Token anchorToken)
+    {
+        if (IsMissingOperandBoundary(anchorToken))
+            return true;
+
+        if (Current.Line > anchorToken.Line && LooksLikeStatementStartAfterRequiredExpression())
+            return true;
+
+        return Current.Line == anchorToken.Line &&
+               (Check(TokenType.LeftBrace) ||
+                Check(TokenType.RightBrace) ||
+                Check(TokenType.RightParen) ||
+                Check(TokenType.RightBracket) ||
+                Check(TokenType.Comma) ||
+                Check(TokenType.Semicolon));
+    }
+
+    private bool LooksLikeStatementStartAfterRequiredExpression()
+    {
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.ColonAssign)
+            return true;
+
+        if (Check(TokenType.Identifier) &&
+            LookAhead(1).Type == TokenType.Colon &&
+            LookAhead(2).Type == TokenType.Identifier)
+        {
+            return true;
+        }
+
+        return StartsTupleDeconstructionAtCurrentPosition();
+    }
+
+    private bool StartsTupleDeconstructionAtCurrentPosition()
+    {
+        if (!Check(TokenType.Identifier) || LookAhead(1).Type != TokenType.Comma)
+            return false;
+
+        var pos = 1;
+        while (_position + pos < _tokens.Count)
+        {
+            var token = _tokens[_position + pos];
+            if (token.Line != Current.Line)
+                return false;
+
+            if (token.Type == TokenType.ColonAssign || token.Type == TokenType.Assign)
+                return true;
+
+            if (token.Type != TokenType.Identifier && token.Type != TokenType.Comma)
+                return false;
+
+            pos++;
+        }
+
+        return false;
     }
 
     private Expression ParseTernaryExpression()

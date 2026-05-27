@@ -322,6 +322,60 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name :=
+                    greeting := "hi"
+                print greeting
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an initializer expression after ':='"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(12, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    name :=", diagnostic.SourceSnippet);
+        Assert.Contains("initializer expression", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL301" && diagnostic.Message.Contains("greeting"));
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL001" && diagnostic.Message.Contains("name"));
+    }
+
+    [Fact]
+    public void Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                throw
+                    greeting := "hi"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an exception expression after 'throw'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal("    throw", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL312");
+    }
+
+    [Fact]
     public void Format_ValidProgram_ReturnsFormattedCode()
     {
         var result = new PlaygroundCompiler().Format("func main(){print 5}");

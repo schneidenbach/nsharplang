@@ -45,6 +45,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL104`: UnexpectedEndOfFile
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at the insertion position when possible
+- Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, and similar anchors recover at the insertion position instead of consuming the next statement, including statements that VS Code auto-indents after a dangling anchor
 
 ### Type Errors (200-299)
 - `NL201`: TypeNotFound

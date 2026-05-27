@@ -619,9 +619,14 @@ public class Analyzer : IDisposable
     {
         switch (statement)
         {
+            case ReturnStatement { Value: { } value }:
+                return !ContainsParserErrorPlaceholder(value);
+
             case ReturnStatement:
-            case ThrowStatement:
                 return true;
+
+            case ThrowStatement throwStmt:
+                return !ContainsParserErrorPlaceholder(throwStmt.Expression);
 
             case BlockStatement block:
                 // If any statement always returns, the remainder of the block is unreachable,
