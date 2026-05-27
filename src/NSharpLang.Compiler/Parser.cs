@@ -734,7 +734,7 @@ public class Parser
                 var paramLine = Current.Line;
                 var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
-                Consume(TokenType.Colon, "Expected ':' after parameter name");
+                ConsumeParameterColon(paramName, paramLine, paramColumn);
                 var paramType = ParseTypeReference();
 
                 Expression? defaultValue = null;
@@ -1358,7 +1358,7 @@ public class Parser
                 var paramLine = Current.Line;
                 var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
-                Consume(TokenType.Colon, "Expected ':'");
+                ConsumeParameterColon(paramName, paramLine, paramColumn);
                 var paramType = ParseTypeReference();
                 parameters.Add(new Parameter(paramName, paramType, null, false, Line: paramLine, Column: paramColumn));
             } while (Match(TokenType.Comma));
@@ -5482,6 +5482,31 @@ public class Parser
             TokenType.Semicolon => "Statements can end with a semicolon, though it's optional in N#.",
             _ => null
         };
+    }
+
+    private Token ConsumeParameterColon(string parameterName, int parameterLine, int parameterColumn)
+    {
+        if (Check(TokenType.Colon))
+            return Advance();
+
+        if (parameterName == "<error>" || parameterLine <= 0 || parameterColumn <= 0)
+            return Consume(TokenType.Colon, "Expected ':' after parameter name");
+
+        var insertionColumn = parameterColumn + Math.Max(1, parameterName.Length);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' after parameter name. Got '{Current.Value}'",
+            parameterLine,
+            insertionColumn,
+            humanExplanation: $"Parameter '{parameterName}' needs a ':' before its type.",
+            hint: $"Write this parameter as `{parameterName}: Type`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' after '{parameterName}'"
+            },
+            length: 1);
+
+        return new Token(TokenType.Colon, ":", parameterLine, insertionColumn, Current.FileName);
     }
 
     private bool EnsureProgress(int startPosition)

@@ -179,6 +179,23 @@ func test() {
     }
 
     [Fact]
+    public void Parser_MissingParameterColon_PointsAtExpectedColonSlot()
+    {
+        var source = "func greet(name string): string { return name }";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.ExpectedToken &&
+                     error.Message.Contains("Expected ':' after parameter name"));
+
+        Assert.Equal(1, error.Line);
+        Assert.Equal(16, error.Column);
+        Assert.Equal(1, error.Length);
+        Assert.Contains("name: Type", error.ContextualHint);
+    }
+
+    [Fact]
     public void Parser_ReturnsCorrectErrorCode_UnexpectedToken()
     {
         var source = "class Test { ] }"; // Random closing bracket

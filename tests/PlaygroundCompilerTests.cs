@@ -981,6 +981,26 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MissingParameterColon_PreservesExpectedColonSlot()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func greet(name string): string {
+                return name
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' after parameter name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 16, length: 1);
+        Assert.Equal("func greet(name string): string {", diagnostic.SourceSnippet);
+        Assert.Contains("name: Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Check_MissingInitializer_PreservesInsertionSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""

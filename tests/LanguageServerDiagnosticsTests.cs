@@ -1285,6 +1285,28 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_MissingParameterColon_UsesExpectedColonSlot()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///missing-parameter-colon.nl";
+
+        var source = "func greet(name string): string { return name }";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected ':' after parameter name"));
+
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 16, length: 1);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 15, endCharacter: 16);
+        Assert.Contains("name: Type", diagnostic.ContextualHint);
+    }
+
+    [Fact]
     public void Diagnostics_MissingInitializer_PointsAtInsertionPosition()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
