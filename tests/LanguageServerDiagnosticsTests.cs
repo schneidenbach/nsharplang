@@ -32,6 +32,39 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_NSharpNoMatchingOverload_UsesCallableNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nsharp-overload-spans.nl";
+
+        var source = """
+class Processor {
+    func Process(x: int): int { return x }
+    func Process(x: string): string { return x }
+}
+
+func main() {
+    p := new Processor()
+    p.Process(true)
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.NoMatchingOverload &&
+                          diagnostic.Message.Contains("Process"));
+
+        AssertDiagnosticSpan(diagnostic, line: 8, column: 7, length: "Process".Length);
+        AssertLspRange(diagnostic, line0: 7, startCharacter: 6, endCharacter: 13);
+        Assert.Contains("Process(x: int): int", diagnostic.ContextualHint);
+        Assert.Contains("Process(x: string): string", diagnostic.ContextualHint);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

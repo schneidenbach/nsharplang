@@ -4188,7 +4188,35 @@ func Hello(): string {
                 p := new Processor()
                 p.Process(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Process' accepts");
+    }
+
+    [Fact]
+    public void OverloadResolution_NoMatchingOverload_UsesCallableNameSpanAndRichContext()
+    {
+        const string source = """
+class Processor {
+    func Process(x: int): int { return x }
+    func Process(x: string): string { return x }
+}
+
+func Main() {
+    p := new Processor()
+    p.Process(true)
+}
+""";
+
+        var result = AnalyzeWithSource(source);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.NoMatchingOverload);
+        Assert.Equal(8, diagnostic.Line);
+        Assert.Equal(7, diagnostic.Column);
+        Assert.Equal("Process".Length, diagnostic.Length);
+        Assert.Equal("    p.Process(true)", diagnostic.SourceSnippet);
+        Assert.Contains("I cannot find an overload of `Process`", diagnostic.HumanExplanation);
+        Assert.Contains("Process(x: int): int", diagnostic.ContextualHint);
+        Assert.Contains("Process(x: string): string", diagnostic.ContextualHint);
     }
 
     [Fact]
@@ -4616,7 +4644,7 @@ func Hello(): string {
             func Main() {
                 Process(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Process' accepts");
     }
 
     [Fact]
@@ -4641,7 +4669,7 @@ func Hello(): string {
             func Main() {
                 5.Format(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Format' accepts");
     }
 
     // ================================================================

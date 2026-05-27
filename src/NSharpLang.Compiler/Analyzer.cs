@@ -5771,13 +5771,48 @@ public class Analyzer : IDisposable
                     : BuiltInTypes.Void;
             }
 
-            // No matching overload found
-            Error(ErrorCode.NoMatchingOverload,
-                $"None of the overloads of '{nsharpGroup.Declarations[0].Name}' accept {argTypes.Count} argument(s) with these types — check the function signature",
-                call.Line, call.Column);
+            ReportNoMatchingNSharpOverload(nsharpGroup, call, argTypes);
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
+    {
+        if (methodGroup.Declarations.Count == 0)
+            return;
+
+        var functionName = GetCallTargetName(call) ?? methodGroup.Declarations[0].Name;
+        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
+        var candidateSignatures = methodGroup.Declarations
+            .Select(declaration => FormatNSharpMethodSignature(declaration, call))
+            .Distinct(StringComparer.Ordinal)
+            .Take(8)
+            .ToList();
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                functionName,
+                call.Arguments.Count,
+                argumentTypes,
+                candidateSignatures));
+            return;
+        }
+
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
+            line,
+            column,
+            "Check the argument count and types against the available overloads.",
+            length);
     }
 
     private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
@@ -5899,6 +5934,42 @@ public class Analyzer : IDisposable
             MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
             _ => (call.Line, call.Column, Math.Max(1, functionName.Length))
         };
+    }
+
+    private string FormatNSharpMethodSignature(FunctionDeclaration declaration, CallExpression call)
+    {
+        var parameterStart = call.Callee is MemberAccessExpression &&
+                             declaration.Parameters.Count > 0 &&
+                             declaration.Parameters[0].IsThis
+            ? 1
+            : 0;
+        var name = declaration.IsOperatorOverload
+            ? $"operator {declaration.OperatorSymbol}"
+            : declaration.Name;
+        var typeParameters = declaration.TypeParameters is { Count: > 0 }
+            ? $"<{string.Join(", ", declaration.TypeParameters.Select(parameter => parameter.Name))}>"
+            : string.Empty;
+        var parameters = declaration.Parameters
+            .Skip(parameterStart)
+            .Select(FormatNSharpParameterSignature);
+        var returnType = declaration.ReturnType != null
+            ? $": {TranspileTypeReference(declaration.ReturnType)}"
+            : string.Empty;
+
+        return $"{name}{typeParameters}({string.Join(", ", parameters)}){returnType}";
+    }
+
+    private string FormatNSharpParameterSignature(Parameter parameter)
+    {
+        var modifier = parameter.Modifier switch
+        {
+            Ast.ParameterModifier.Ref => "ref ",
+            Ast.ParameterModifier.Out => "out ",
+            Ast.ParameterModifier.Params => "params ",
+            _ => parameter.IsThis ? "this " : string.Empty
+        };
+        var defaultValue = parameter.DefaultValue != null ? " = ..." : string.Empty;
+        return $"{modifier}{parameter.Name}: {TranspileTypeReference(parameter.Type)}{defaultValue}";
     }
 
     private static string FormatReflectionMethodSignature(MethodInfo method, CallExpression call)

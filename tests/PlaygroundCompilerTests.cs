@@ -140,6 +140,32 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_NSharpNoMatchingOverload_PreservesCallableNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Processor {
+                func Process(x: int): int { return x }
+                func Process(x: string): string { return x }
+            }
+
+            func main() {
+                p := new Processor()
+                p.Process(true)
+            }
+            """);
+
+        Assert.False(result.Ok);
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL402" &&
+                          diagnostic.Message.Contains("Process"));
+        AssertPlaygroundSpan(diagnostic, line: 10, column: 7, length: "Process".Length);
+        Assert.Contains("Process(x: int): int", diagnostic.Hint);
+        Assert.Contains("Process(x: string): string", diagnostic.Hint);
+    }
+
+    [Fact]
     public void Check_TypeMismatchDiagnostics_PreserveOffendingExpressionSpans()
     {
         var result = new PlaygroundCompiler().Check("""
