@@ -430,6 +430,7 @@ public partial class ILCompiler
         var savedCurrentYieldBreakLabel = _currentYieldBreakLabel;
         var savedExpectedExpressionType = _expectedExpressionType;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -447,8 +448,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
-            || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, lambda.BlockBody, lambda.ExpressionBody, lambda.Parameters);
         _inferredLocalTypes = null;
         _currentHasThis = false;
         _expectedExpressionType = null;
@@ -538,6 +538,7 @@ public partial class ILCompiler
         _currentYieldBreakLabel = savedCurrentYieldBreakLabel;
         _expectedExpressionType = savedExpectedExpressionType;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
@@ -620,6 +621,7 @@ public partial class ILCompiler
         var savedCurrentTypeBuilder = _currentTypeBuilder;
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -640,8 +642,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
-            || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, lambda.BlockBody, lambda.ExpressionBody, lambda.Parameters);
         _currentHasThis = true;
         _expectedExpressionType = null;
         _currentTypeBuilder = closureClass;
@@ -735,6 +736,7 @@ public partial class ILCompiler
         _currentTypeBuilder = savedCurrentTypeBuilder;
         _closureFields = savedClosureFields;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;

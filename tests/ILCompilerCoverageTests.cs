@@ -651,6 +651,44 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_DirectLocalFunctionLoop_DoesNotLiftUncapturedLocals()
+    {
+        var source = @"
+func main(): int {
+    func addOne(value: int): int {
+        return value + 1
+    }
+
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += addOne(i)
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
     public void ILCompiler_DirectCapturingLocalFunctionCall_DoesNotMaterializeDelegateInCaller()
     {
         var source = @"
@@ -789,6 +827,41 @@ func main(): int {
         Assert.Equal(0, result.NewobjCount);
         Assert.Equal(0, result.CallvirtCount);
         Assert.True(result.CallCount >= 2, "Non-escaping lambda local invocations should lower to direct call instructions.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectLambdaLocalLoop_DoesNotLiftUncapturedLocals()
+    {
+        var source = @"
+func main(): int {
+    one := () => 1
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += i + one()
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
     }
 
     [Fact]

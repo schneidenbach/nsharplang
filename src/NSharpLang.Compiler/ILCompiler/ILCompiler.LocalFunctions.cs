@@ -203,7 +203,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (_liftLocalsIntoBoxes)
+            if (ShouldLiftLocalIntoBox(capture.Name))
             {
                 var liftedCaptureLocal = DeclareNamedLocal(capture.Name, capture.CaptureParameterType);
                 EmitLoadArgument(captureIndex);
@@ -842,6 +842,7 @@ public partial class ILCompiler
         var savedCurrentTypeBuilder = _currentTypeBuilder;
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedPendingLocalFunctionDefinition = _pendingLocalFunctionDefinition;
@@ -871,8 +872,7 @@ public partial class ILCompiler
                 bodyReturnType = asyncResultType ?? typeof(void);
             }
 
-            InitializeBodyContext(bodyReturnType, ContainsNestedFunction(localFunction.Function.Body)
-                || (localFunction.Function.ExpressionBody != null && ContainsNestedFunction(localFunction.Function.ExpressionBody)));
+            InitializeBodyContextForBody(bodyReturnType, localFunction.Function.Body, localFunction.Function.ExpressionBody, localFunction.Function.Parameters);
             _currentHasThis = !methodBuilder.IsStatic;
             _liftedClosureFields = methodBuilder.IsStatic ? null : savedLiftedClosureFields;
 
@@ -970,6 +970,7 @@ public partial class ILCompiler
             _currentTypeBuilder = savedCurrentTypeBuilder;
             _closureFields = savedClosureFields;
             _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+            _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
             _liftedIdentifiers = savedLiftedIdentifiers;
             _liftedClosureFields = savedLiftedClosureFields;
             _pendingLocalFunctionDefinition = savedPendingLocalFunctionDefinition;
