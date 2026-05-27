@@ -1095,6 +1095,12 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   handler: Func<string, void> = msg => Process(msg)
   transformer: Func<int, int> = x => x * 2
   ```
+- Transparent dual ABI:
+  - Public APIs, external calls, stored/returned function values, expression trees, and `Delegate`/`MulticastDelegate` boundaries emit CLR delegates for C# interop.
+  - Non-escaping local function calls and non-escaping lambda locals may lower to compiler-generated helper methods plus direct `call` instructions.
+  - Non-capturing lambdas and method groups that do escape can use a static delegate cache when CLR semantics allow it.
+  - This is an implementation optimization, not source syntax. There is no first-class internal function type or project switch in v1.
+- Performance claims for function values must cite dated benchmark evidence. Delegate-free lowering is allowed where semantics are preserved; C#/CLR delegate interop remains the public contract.
 
 #### Resource Management
 - Using statements for IDisposable (C# style)

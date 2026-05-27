@@ -164,7 +164,7 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-ma
 
 ## Performance Characteristics
 
-- **Compilation speed**: Fast (single-pass parser, single-pass analyzer)
-- **Memory usage**: Low (streaming lexer, no intermediate files)
+- **Compilation speed**: Designed for fast front-end passes; quote exact speed only from dated runs
+- **Memory usage**: Designed to avoid unnecessary intermediate files; quote exact memory behavior only from measured runs
 - **Exported C# quality**: Clean, readable C# with proper indentation
-- **Runtime performance**: Same as hand-written C# (no overhead)
+- **Runtime performance**: The IL backend can emit direct calls for non-escaping local functions and lambda locals, and CLR delegates remain the public ABI for escaping function values. Do not claim C#, Go, or Rust parity without dated BenchmarkDotNet output and IL-shape evidence for the scenario.

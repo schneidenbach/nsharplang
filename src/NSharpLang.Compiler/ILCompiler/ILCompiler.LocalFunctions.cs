@@ -1016,6 +1016,109 @@ public partial class ILCompiler
             ReferenceEqualityComparer.Instance);
     }
 
+    private Dictionary<VariableDeclarationStatement, LocalFunctionStatement> GetDirectLambdaLocalDeclarations(
+        BlockStatement block,
+        IReadOnlyCollection<LocalFunctionStatement> localFunctions)
+    {
+        var localFunctionNames = localFunctions
+            .Select(localFunction => localFunction.Function.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var candidateDeclarations = new Dictionary<string, VariableDeclarationStatement>(StringComparer.Ordinal);
+        var duplicateNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var statement in block.Statements)
+        {
+            if (statement is not VariableDeclarationStatement
+                {
+                    Type: null,
+                    Initializer: LambdaExpression lambda
+                } variableDeclaration)
+            {
+                continue;
+            }
+
+            if (LambdaContainsNestedFunction(lambda))
+            {
+                continue;
+            }
+
+            if (localFunctionNames.Contains(variableDeclaration.Name)
+                || !candidateDeclarations.TryAdd(variableDeclaration.Name, variableDeclaration))
+            {
+                duplicateNames.Add(variableDeclaration.Name);
+            }
+        }
+
+        foreach (var duplicateName in duplicateNames)
+        {
+            candidateDeclarations.Remove(duplicateName);
+        }
+
+        if (candidateDeclarations.Count == 0)
+        {
+            return new Dictionary<VariableDeclarationStatement, LocalFunctionStatement>(ReferenceEqualityComparer.Instance);
+        }
+
+        var candidateNames = candidateDeclarations.Keys.ToHashSet(StringComparer.Ordinal);
+        var escapingNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var statement in block.Statements)
+        {
+            if (statement is VariableDeclarationStatement { Initializer: LambdaExpression lambda } variableDeclaration
+                && candidateDeclarations.TryGetValue(variableDeclaration.Name, out var candidate)
+                && ReferenceEquals(candidate, variableDeclaration))
+            {
+                FindEscapingLocalFunctionReferences(lambda, candidateNames, escapingNames, isDirectCallCallee: false);
+                continue;
+            }
+
+            FindEscapingLocalFunctionReferences(statement, candidateNames, escapingNames);
+        }
+
+        var directLambdaLocals = new Dictionary<VariableDeclarationStatement, LocalFunctionStatement>(ReferenceEqualityComparer.Instance);
+        foreach (var (name, declaration) in candidateDeclarations)
+        {
+            if (escapingNames.Contains(name) || declaration.Initializer is not LambdaExpression lambda)
+            {
+                continue;
+            }
+
+            directLambdaLocals[declaration] = CreateSyntheticLambdaLocalFunction(declaration, lambda);
+        }
+
+        return directLambdaLocals;
+    }
+
+    private bool LambdaContainsNestedFunction(LambdaExpression lambda)
+    {
+        return (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody))
+            || (lambda.BlockBody != null && ContainsNestedFunction(lambda.BlockBody));
+    }
+
+    private static LocalFunctionStatement CreateSyntheticLambdaLocalFunction(
+        VariableDeclarationStatement declaration,
+        LambdaExpression lambda)
+    {
+        var function = new FunctionDeclaration(
+            declaration.Name,
+            lambda.Parameters,
+            ReturnType: null,
+            lambda.BlockBody,
+            lambda.ExpressionBody,
+            TypeParameters: null,
+            Constraints: null,
+            Modifiers.None,
+            new List<AttributeNode>(),
+            IsOperatorOverload: false,
+            OperatorSymbol: null,
+            IsConversionOperator: false,
+            IsImplicitConversion: false,
+            declaration.Line,
+            declaration.Column);
+
+        return new LocalFunctionStatement(function, declaration.Line, declaration.Column);
+    }
+
     private bool CanMaterializeLocalFunctionValueAtBoundary(LocalFunctionStatement localFunction)
     {
         if (localFunction.Function.TypeParameters is { Count: > 0 })
@@ -1051,20 +1154,15 @@ public partial class ILCompiler
         }
 
         var delegateType = GetLocalFunctionDelegateType(declaration);
-        var delegateConstructor = delegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) })
-            ?? throw new InvalidOperationException($"Could not resolve delegate constructor for local function {declaration.Name}");
-
         if (methodBuilder.IsStatic)
         {
-            _currentIL.Emit(OpCodes.Ldnull);
-        }
-        else
-        {
-            EmitGenericLocalFunctionReceiver(methodBuilder);
+            EmitStaticDelegate(methodBuilder, delegateType);
+            return true;
         }
 
+        EmitGenericLocalFunctionReceiver(methodBuilder);
         _currentIL.Emit(OpCodes.Ldftn, methodBuilder);
-        _currentIL.Emit(OpCodes.Newobj, delegateConstructor);
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
         return true;
     }
 

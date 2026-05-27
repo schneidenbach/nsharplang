@@ -113,6 +113,7 @@ public partial class ILCompiler
     private TypeBuilder? _currentTypeBuilder;
     private int _asyncSequenceAdapterCounter = 0;
     private int _customDelegateCounter = 0;
+    private int _delegateCacheCounter = 0;
     private int _liftedStorageCounter = 0;
     private bool _currentHasThis;
     private ConstructorInfo? _nullableAttributeByteConstructor;
@@ -4062,11 +4063,14 @@ public partial class ILCompiler
             return false;
         }
 
+        if (target.ReceiverKind == MethodGroupReceiverKind.None)
+        {
+            EmitStaticDelegate(target.Method, target.DelegateType);
+            return true;
+        }
+
         switch (target.ReceiverKind)
         {
-            case MethodGroupReceiverKind.None:
-                _currentIL.Emit(OpCodes.Ldnull);
-                break;
             case MethodGroupReceiverKind.ImplicitThis:
                 EmitLoadImplicitThisDelegateReceiver(target.Method);
                 break;
@@ -7369,11 +7373,18 @@ public partial class ILCompiler
         var localFunctions = block.Statements
             .OfType<LocalFunctionStatement>()
             .ToList();
+        var directLambdaLocals = GetDirectLambdaLocalDeclarations(block, localFunctions);
 
         foreach (var localFunction in localFunctions)
         {
             _localFunctionDeclarations ??= new Dictionary<string, FunctionDeclaration>();
             _localFunctionDeclarations[localFunction.Function.Name] = localFunction.Function;
+        }
+
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            _localFunctionDeclarations ??= new Dictionary<string, FunctionDeclaration>();
+            _localFunctionDeclarations[directLambdaLocal.Function.Name] = directLambdaLocal.Function;
         }
 
         if (_liftLocalsIntoBoxes)
@@ -7384,6 +7395,9 @@ public partial class ILCompiler
                 switch (statement)
                 {
                     case VariableDeclarationStatement variableDeclaration:
+                        if (directLambdaLocals.ContainsKey(variableDeclaration))
+                            break;
+
                         if (!predeclaredNames.Add(variableDeclaration.Name))
                             break;
 
@@ -7455,6 +7469,11 @@ public partial class ILCompiler
             }
         }
 
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            DeclareGenericLocalFunction(directLambdaLocal);
+        }
+
         foreach (var localFunction in localFunctions)
         {
             if (localFunction.Function.TypeParameters is { Count: > 0 }
@@ -7467,6 +7486,11 @@ public partial class ILCompiler
             EmitLocalFunctionInitialization(localFunction);
         }
 
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            EmitGenericLocalFunctionBody(directLambdaLocal);
+        }
+
         var declaredNames = new HashSet<string>();
         foreach (var statement in block.Statements)
         {
@@ -7477,6 +7501,12 @@ public partial class ILCompiler
 
             if (!_liftLocalsIntoBoxes)
                 ShadowOuterLocalsForBlockDeclaration(statement, outerLocals, declaredNames);
+            if (statement is VariableDeclarationStatement variableDeclaration
+                && directLambdaLocals.ContainsKey(variableDeclaration))
+            {
+                continue;
+            }
+
             EmitStatement(statement);
         }
     }

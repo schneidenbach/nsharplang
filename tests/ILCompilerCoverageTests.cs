@@ -760,6 +760,179 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_DirectLambdaLocalCall_DoesNotMaterializeDelegateInCaller()
+    {
+        var source = @"
+func main(): int {
+    getValue := () => 42
+    return getValue() + getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(84, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 2, "Non-escaping lambda local invocations should lower to direct call instructions.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingLambdaLocal_MaterializesDelegateAtBoundary()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    getValue: Func<int> = () => 42
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.True(result.NewobjCount >= 1, "Escaping a lambda as a Func value must materialize a delegate at the value boundary.");
+        Assert.True(result.CallvirtCount >= 1, "Invoking an escaped lambda delegate should use the CLR delegate Invoke path.");
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingEscapedLambda_UsesCachedDelegateField()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    getValue: Func<int> = () => 42
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+            var cachedDelegateFields = assembly.GetTypes()
+                .SelectMany(type => type.GetFields(BindingFlags.NonPublic | BindingFlags.Static))
+                .Where(field => typeof(Delegate).IsAssignableFrom(field.FieldType))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                LdsfldCount = opCodes.Count(opCode => opCode == OpCodes.Ldsfld),
+                StsfldCount = opCodes.Count(opCode => opCode == OpCodes.Stsfld),
+                CachedDelegateFieldCount = cachedDelegateFields.Length
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.True(result.LdsfldCount >= 1, "A cached non-capturing lambda should load a static delegate field.");
+        Assert.True(result.StsfldCount >= 1, "A cached non-capturing lambda should initialize a static delegate field.");
+        Assert.True(result.CachedDelegateFieldCount >= 1, "The compiler should define a static delegate cache field.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaWithoutInstanceAccess_DoesNotCreateDisplayClass()
+    {
+        var source = @"
+import System
+
+class Holder {
+    value: int = 40
+
+    func Run(): int {
+        getValue: Func<int> = () => 42
+        return getValue()
+    }
+}
+
+func main(): int {
+    holder := new Holder()
+    return holder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda in an instance method must not allocate a closure when it does not reference instance state.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectMutableCapturedLambdaLocal_PreservesMutation()
+    {
+        var source = @"
+func main(): int {
+    value := 0
+    increment := () => {
+        value += 1
+        return value
+    }
+
+    return increment() + increment()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(3, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteGenericLocalFunctionCapturingByRefParameter()
     {
         var source = @"
