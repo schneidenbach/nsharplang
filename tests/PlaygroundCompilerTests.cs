@@ -783,7 +783,7 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
-    public void Check_ObjectInitializerEquals_PreservesOneCharacterSpanForMarkers()
+    public void Check_ObjectInitializerEquals_PreservesPropertyNameSpanForMarkers()
     {
         var result = new PlaygroundCompiler().Check("""
             package Playground
@@ -802,8 +802,8 @@ public sealed class PlaygroundCompilerTests
                           diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
 
         Assert.Equal(8, diagnostic.Line);
-        Assert.Equal(29, diagnostic.Column);
-        Assert.Equal(1, diagnostic.Length);
+        Assert.Equal(24, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
         Assert.Contains("colon", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
     }

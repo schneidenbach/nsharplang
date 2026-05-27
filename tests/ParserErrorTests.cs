@@ -858,7 +858,8 @@ func test() {
             error.Code == ErrorCode.InvalidSyntax &&
             error.Message.Contains("Object initializer member 'Name' uses '='"));
         Assert.Equal(3, diagnostic.Line);
-        Assert.Equal(29, diagnostic.Column);
+        Assert.Equal(24, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
         Assert.Contains("N# uses ':'", diagnostic.Message);
         Assert.Contains("Name: value", diagnostic.ContextualHint);
         Assert.Contains("Name: ...", Assert.Single(diagnostic.Suggestions!));

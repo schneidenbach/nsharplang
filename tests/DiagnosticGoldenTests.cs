@@ -123,7 +123,7 @@ public class DiagnosticGoldenTests
             "func greet(name string) {",
             "Function parameters use `name: Type`; without the colon, the type name is parsed in the wrong slot.",
             "Write `func greet(name: string) { ... }`.");
-        yield return Parser("NL103", "Invalid syntax in object initializer", "parser/object-initializer-equals.nl", 2, 28, 1,
+        yield return Parser("NL103", "Invalid syntax in object initializer", "parser/object-initializer-equals.nl", 2, 23, 4,
             "    return new User { Name = \"Ada\" }",
             "N# object initializers use colon fields; `=` is C# object-initializer syntax.",
             "Use `new User { Name: \"Ada\" }`.");

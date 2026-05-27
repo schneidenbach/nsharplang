@@ -1139,7 +1139,8 @@ func main() {
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.InvalidSyntax &&
             diagnostic.Line == 8 &&
-            diagnostic.Length == 1 &&
+            diagnostic.Column == 24 &&
+            diagnostic.Length == "Name".Length &&
             diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
         Assert.Contains(diagnostics, diagnostic =>
             diagnostic.Code == ErrorCode.UndefinedVariable &&
@@ -1158,16 +1159,16 @@ func main() {
             "Object initializer member 'Name' uses '='; N# uses ':'",
             "Program.nl",
             line: 8,
-            column: 29,
+            column: 24,
             sourceSnippet: "    user := new User { Name = \"Ada\" }",
-            length: 1);
+            length: "Name".Length);
 
         var diagnostic = LspDiagnosticConverter.FromCompilerError(error);
 
         Assert.Equal(7, (int)diagnostic.Range.Start.Line);
-        Assert.Equal(28, (int)diagnostic.Range.Start.Character);
+        Assert.Equal(23, (int)diagnostic.Range.Start.Character);
         Assert.Equal(7, (int)diagnostic.Range.End.Line);
-        Assert.Equal(29, (int)diagnostic.Range.End.Character);
+        Assert.Equal(27, (int)diagnostic.Range.End.Character);
     }
 
     [Fact]

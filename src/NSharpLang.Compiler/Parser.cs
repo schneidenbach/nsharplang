@@ -4820,21 +4820,22 @@ public class Parser
                 else
                 {
                     // Regular property initializer
+                    var propNameToken = Current;
                     var propName = ConsumeIdentifier("Expected property name");
                     if (Check(TokenType.Assign))
                     {
                         ReportError(
                             ErrorCode.InvalidSyntax,
                             $"Object initializer member '{propName}' uses '='; N# uses ':'",
-                            Current.Line,
-                            Current.Column,
+                            propNameToken.Line,
+                            propNameToken.Column,
                             humanExplanation: "Object initializer members in N# use a colon between the member name and value. The equals sign is C# initializer syntax.",
                             hint: $"Write '{propName}: value' instead of '{propName} = value'.",
                             suggestions: new List<string>
                             {
                                 $"Change '{propName} = ...' to '{propName}: ...'"
                             },
-                            length: Current.Value.Length
+                            length: TokenLengthOrFallback(propNameToken)
                         );
                         Advance();
                     }

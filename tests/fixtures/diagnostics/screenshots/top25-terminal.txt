@@ -101,10 +101,10 @@ Suggestion: Write `func greet(name: string) { ... }`.
 
 See: https://docs.n-sharp.dev/errors/parser/NL102
 
-── [NL103] ERROR ─── parser/object-initializer-equals.nl:2:28 ──
+── [NL103] ERROR ─── parser/object-initializer-equals.nl:2:23 ──
 
     2 |     return new User { Name = "Ada" }
-      |                            ^
+      |                       ^^^^
 
 [parser] Invalid syntax in object initializer
 
