@@ -2721,18 +2721,24 @@ public class Parser
         if (Check(TokenType.Identifier) || Check(TokenType.Let))
         {
             VariableDeclarationStatement? decl = null;
+            Expression? invalidUsingExpression = null;
+            DiagnosticSpan? invalidUsingDeclarationSpan = null;
 
             if (Check(TokenType.Let))
             {
+                if (TryGetSingleLineDelimiterSpanAt(_position + 1, TokenType.LeftParen, TokenType.RightParen, out var tuplePatternSpan))
+                    invalidUsingDeclarationSpan = tuplePatternSpan;
+
                 var stmt = ParseVariableDeclaration(VariableKind.Let);
                 decl = stmt as VariableDeclarationStatement;
                 if (decl == null)
                 {
+                    var diagnosticSpan = invalidUsingDeclarationSpan ?? DiagnosticSpanFromToken(usingToken);
                     ReportError(
                         ErrorCode.InvalidSyntax,
                         "Using statement requires a variable declaration, not tuple deconstruction",
-                        Current.Line,
-                        Current.Column,
+                        diagnosticSpan.Line,
+                        diagnosticSpan.Column,
                         humanExplanation: "The 'using' statement can only work with single variable declarations, not tuple deconstruction.",
                         hint: "Use a single variable: using let resource := getResource() { ... }",
                         suggestions: new List<string> {
@@ -2740,10 +2746,11 @@ public class Parser
                             "Example: using let file := File.Open(path) { ... }",
                             "Note: The variable will be automatically disposed when the block ends"
                         },
-                        length: 1
+                        length: diagnosticSpan.Length
                     );
-                    // Create placeholder declaration
-                    decl = new VariableDeclarationStatement("<error>", null, null, VariableKind.Let, line, column);
+
+                    if (stmt is TupleDeconstructionStatement tupleDeconstruction)
+                        invalidUsingExpression = tupleDeconstruction.Initializer;
                 }
             }
             else
@@ -2762,6 +2769,9 @@ public class Parser
             {
                 body = ParseBlock(DiagnosticSpanFromToken(usingToken));
             }
+
+            if (invalidUsingExpression != null)
+                return new UsingStatement(null, invalidUsingExpression, body, line, column);
 
             return new UsingStatement(decl, null, body, line, column);
         }
@@ -5411,6 +5421,48 @@ public class Parser
 
     private static DiagnosticSpan DiagnosticSpanFromToken(Token token)
         => new(token.Line, token.Column, TokenLengthOrFallback(token));
+
+    private bool TryGetSingleLineDelimiterSpanAt(int openingIndex, TokenType openingType, TokenType closingType, out DiagnosticSpan span)
+    {
+        span = default;
+
+        if (openingIndex < 0 || openingIndex >= _tokens.Count)
+            return false;
+
+        var openingToken = _tokens[openingIndex];
+        if (openingToken.Type != openingType)
+            return false;
+
+        var depth = 0;
+        for (var index = openingIndex; index < _tokens.Count; index++)
+        {
+            var token = _tokens[index];
+            if (token.Type == TokenType.Eof || token.Line != openingToken.Line)
+                break;
+
+            if (token.Type == openingType)
+            {
+                depth++;
+                continue;
+            }
+
+            if (token.Type != closingType)
+                continue;
+
+            depth--;
+            if (depth == 0)
+            {
+                span = new DiagnosticSpan(
+                    openingToken.Line,
+                    openingToken.Column,
+                    TokenSpanLengthOrFallback(openingToken, token));
+                return true;
+            }
+        }
+
+        span = DiagnosticSpanFromToken(openingToken);
+        return true;
+    }
 
     private static Token? LaterToken(Token? left, Token? right)
     {

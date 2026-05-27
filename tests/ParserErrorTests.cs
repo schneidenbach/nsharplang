@@ -1080,6 +1080,31 @@ func test() {
     }
 
     [Fact]
+    public void Parser_UsingTupleDeconstruction_PointsAtTuplePattern()
+    {
+        var source = """
+func test() {
+    using let (left, right) := getPair() {
+        print "ok"
+    }
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidSyntax &&
+            error.Message.Contains("Using statement requires a variable declaration"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(15, diagnostic.Column);
+        Assert.Equal("(left, right)".Length, diagnostic.Length);
+        Assert.Equal("    using let (left, right) := getPair() {", diagnostic.SourceSnippet);
+        Assert.Contains("single variable declarations", diagnostic.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("using let resource", diagnostic.ContextualHint, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
     {
         // Multiple distinct bad statements inside a single function body

@@ -1289,6 +1289,36 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_UsingTupleDeconstruction_PreservesTuplePatternSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func getPair(): (int, int) {
+                return (1, 2)
+            }
+
+            func main() {
+                using let (left, right) := getPair() {
+                    print "ok"
+                }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Using statement requires a variable declaration"));
+
+        AssertPlaygroundSpan(diagnostic, line: 8, column: 15, length: "(left, right)".Length);
+        Assert.Equal("    using let (left, right) := getPair() {", diagnostic.SourceSnippet);
+        Assert.Contains("single variable declarations", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("using let resource", diagnostic.Hint, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("<error>", StringComparison.Ordinal) ||
+                          diagnostic.Message.Contains("can't determine the type", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable()
     {
         var result = new PlaygroundCompiler().Check("""

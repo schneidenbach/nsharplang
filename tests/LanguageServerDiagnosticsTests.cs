@@ -1759,4 +1759,38 @@ func main() {
         AssertDiagnosticSpan(missingPrintExpression, line: 10, column: 5, length: "print".Length);
         AssertLspRange(missingPrintExpression, line0: 9, startCharacter: 4, endCharacter: 9);
     }
+
+    [Fact]
+    public void Diagnostics_UsingTupleDeconstruction_UsesTuplePatternSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///using-tuple-deconstruction.nl";
+
+        var source = """
+func getPair(): (int, int) {
+    return (1, 2)
+}
+
+func main() {
+    using let (left, right) := getPair() {
+        print "ok"
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.InvalidSyntax &&
+                          diagnostic.Message.Contains("Using statement requires a variable declaration"));
+
+        AssertDiagnosticSpan(diagnostic, line: 6, column: 15, length: "(left, right)".Length);
+        AssertLspRange(diagnostic, line0: 5, startCharacter: 14, endCharacter: 27);
+        Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Message.Contains("<error>", System.StringComparison.Ordinal) ||
+                          diagnostic.Message.Contains("can't determine the type", System.StringComparison.OrdinalIgnoreCase));
+    }
 }
