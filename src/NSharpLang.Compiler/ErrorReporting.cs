@@ -44,6 +44,7 @@ public enum ErrorCode
     InvalidModifier = 311,
     UnreachableStatement = 312,
     InvalidExpressionStatement = 313,
+    UnverifiedErrorResult = 314,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -690,6 +691,9 @@ public static class ErrorSuggestions
 
             ErrorCode.DefiniteAssignmentError
                 => "Initialize property in constructor or provide default value",
+
+            ErrorCode.UnverifiedErrorResult
+                => "Check the paired error first, or return/throw from the error branch before using the result",
 
             ErrorCode.UndefinedVariable when context != null
                 => $"Variable '{context}' is not defined in current scope",

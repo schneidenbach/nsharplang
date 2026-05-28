@@ -65,6 +65,42 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ErrorTupleResultUseRequiresNullErrorProof()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///error-tuple-result.nl";
+
+        var source = """
+func Hi(): int {
+    return 1
+}
+
+func Main() {
+    i, err := Hi()
+    if err != null {
+        print err
+    }
+
+    print i
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.UnverifiedErrorResult);
+
+        Assert.Equal("NL314", diagnostic.DiagnosticId);
+        Assert.Contains("'i'", diagnostic.Message);
+        Assert.Contains("'err'", diagnostic.Message);
+        AssertDiagnosticSpan(diagnostic, line: 11, column: 11, length: "i".Length);
+        AssertLspRange(diagnostic, line0: 10, startCharacter: 10, endCharacter: 11);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

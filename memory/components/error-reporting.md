@@ -107,6 +107,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
+- `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount
