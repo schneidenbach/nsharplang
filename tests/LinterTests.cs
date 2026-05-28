@@ -1278,6 +1278,33 @@ class Builder {
     }
 
     [Fact]
+    public void DiagnosticCatalog_RegistersPerformanceDiagnostics()
+    {
+        var expected = new[]
+        {
+            ("NL950", "Allocation here", DiagnosticSeverity.Info),
+            ("NL951", "Boxing here", DiagnosticSeverity.Warning),
+            ("NL952", "Virtual dispatch not devirtualized", DiagnosticSeverity.Info),
+            ("NL953", "Closure allocation", DiagnosticSeverity.Warning),
+            ("NL954", "Delegate allocation", DiagnosticSeverity.Warning),
+        };
+
+        foreach (var (code, title, severity) in expected)
+        {
+            Assert.True(
+                DiagnosticCatalog.TryGetDescriptor(code, out var descriptor),
+                $"Expected performance diagnostic '{code}' to be registered in the catalog.");
+
+            Assert.Equal(title, descriptor.Title);
+            Assert.Equal(DiagnosticCategory.Performance, descriptor.Category);
+            Assert.Equal(DiagnosticSource.Compiler, descriptor.Source);
+            Assert.Equal(severity, descriptor.DefaultSeverity);
+            Assert.False(descriptor.BlocksBuildByDefault);
+            Assert.False(string.IsNullOrWhiteSpace(descriptor.Explanation));
+        }
+    }
+
+    [Fact]
     public void LinterConfig_CanOverrideSeverity()
     {
         var config = LinterConfig.Default();

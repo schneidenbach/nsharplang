@@ -251,6 +251,18 @@ nlc completion bash > /etc/bash_completion.d/nlc
 | NL006 | error | Unreachable code |
 | NL010 | error | Unused import |
 
+### Performance Diagnostics (NL950–NL999)
+
+Advisory diagnostics emitted by the optimizer to explain allocation and dispatch decisions. They never block builds.
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| NL950 | info | Allocation here — the value escapes its scope and cannot live on the stack |
+| NL951 | warning | Boxing here — a value type is used through an interface or object |
+| NL952 | info | Virtual dispatch not devirtualized — receiver type is not proven exact |
+| NL953 | warning | Closure allocation — the lambda captures enclosing variables |
+| NL954 | warning | Delegate allocation — a method group or lambda is converted to a delegate |
+
 ## Inline Lint Suppression
 
 Specific lints can be suppressed on the next line or the current line:
