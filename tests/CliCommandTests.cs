@@ -1092,13 +1092,17 @@ func Main() {
     [Fact]
     public void HoverCommand_AtFunctionDefinition_ReturnsSignature()
     {
-        // hello-world Program.nl line 2: func Hi(): int {
+        var hiLine = File.ReadLines(Path.Combine(HelloWorldProject, "Program.nl"))
+            .Select((text, index) => (Text: text, Line: index + 1))
+            .First(line => line.Text.TrimStart().StartsWith("func Hi(", StringComparison.Ordinal))
+            .Line;
+
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
         {
             "hover",
             "--project", HelloWorldProject,
             "--file", "Program.nl",
-            "--pos", "2:6"
+            "--pos", $"{hiLine}:6"
         }));
 
         Assert.Equal(0, exitCode);

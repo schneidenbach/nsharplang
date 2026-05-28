@@ -27,7 +27,7 @@ func main() {
         Assert.NotNull(document);
 
         var diagnostics = document!.Diagnostics ?? Enumerable.Empty<CompilerError>();
-        Assert.Contains(diagnostics, diagnostic => diagnostic.Code == ErrorCode.InvalidExpressionStatement);
+        Assert.Contains(diagnostics, diagnostic => diagnostic.Code == ErrorCode.MethodGroupUsedAsValue);
         Assert.Contains(diagnostics, diagnostic => diagnostic.Code == ErrorCode.NoMatchingOverload);
     }
 

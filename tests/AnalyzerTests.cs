@@ -386,7 +386,7 @@ func Main() {
     }
 
     [Fact]
-    public void ExpressionStatement_BareMemberAccess_Error()
+    public void ExpressionStatement_BareMemberAccess_MethodGroupUsedAsValue()
     {
         var result = AnalyzeWithSource(@"
             func Main() {
@@ -396,9 +396,8 @@ func Main() {
         ");
 
         Assert.Contains(result.Errors, e =>
-            e.Code == ErrorCode.InvalidExpressionStatement
-            && e.Message.Contains("no effect")
-            && e.ContextualHint?.Contains("Only assignments, calls") == true);
+            e.Code == ErrorCode.MethodGroupUsedAsValue &&
+            e.Message.Contains("CompareTo"));
     }
 
     [Fact]
@@ -435,6 +434,38 @@ func Main() {
         var result = AnalyzeWithSource(@"
             func Main() {
                 value := ""hello"".ToString
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.MethodGroupUsedAsValue &&
+            e.Message.Contains("ToString"));
+    }
+
+    [Fact]
+    public void MethodGroupUsedAsExpressionStatement_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                ""hello"".ToString
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.MethodGroupUsedAsValue &&
+            e.Message.Contains("ToString"));
+    }
+
+    [Fact]
+    public void MethodGroupUsedAsObjectArgument_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Use(value: object) {
+                print value
+            }
+
+            func Main() {
+                Use(""hello"".ToString)
             }
         ");
 

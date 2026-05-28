@@ -954,8 +954,11 @@ func Main() {
     [Fact]
     public void References_HelloWorld_FindsMainFunctionDeclaration()
     {
-        // Main() is declared on line 11
-        var refs = _service.FindReferences(HelloWorld, "Program.nl", 11, 6);
+        var programPath = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
+        var line = FindLineInFile(programPath, "func Main()");
+        var column = FindColumnInFile(programPath, line, "Main");
+
+        var refs = _service.FindReferences(HelloWorld, "Program.nl", line, column);
 
         // Should find at least the declaration itself
         Assert.NotEmpty(refs);

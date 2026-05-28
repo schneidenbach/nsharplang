@@ -1463,7 +1463,7 @@ public class Analyzer : IDisposable
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
     {
         var errorsBefore = _errors.Count;
-        AnalyzeExpressionAllowingUnboundCallableReference(exprStmt.Expression);
+        AnalyzeExpression(exprStmt.Expression);
 
         if (ContainsParserErrorPlaceholder(exprStmt.Expression))
             return;
@@ -3221,11 +3221,17 @@ public class Analyzer : IDisposable
             return false;
 
         var resolvedType = ResolveTypeAlias(type);
-        return resolvedType is ReflectionMethodInfo
-            or ReflectionMethodGroupInfo
-            or NSharpMethodGroupInfo
-            || resolvedType is FunctionTypeInfo { Declaration: not null };
+        return IsCallableReferenceType(resolvedType);
     }
+
+    private static bool IsCallableReferenceType(TypeInfo type)
+        => IsMethodGroupReferenceType(type)
+            || type is FunctionTypeInfo { Declaration: not null };
+
+    private static bool IsMethodGroupReferenceType(TypeInfo type)
+        => type is ReflectionMethodInfo
+            or ReflectionMethodGroupInfo
+            or NSharpMethodGroupInfo;
 
     private bool CanBindCallableReferenceToExpectedType(TypeInfo expectedType)
     {
@@ -4541,12 +4547,6 @@ public class Analyzer : IDisposable
             }
         }
 
-        if (objectType is GenericTypeInfo genericType
-            && TryResolveKnownGenericMember(genericType, memberName, out var knownGenericMember))
-        {
-            return knownGenericMember;
-        }
-
         // Handle reflection-based types
         if (objectType is ReflectionTypeInfo reflectionType)
         {
@@ -4744,39 +4744,6 @@ public class Analyzer : IDisposable
 
         memberType = BuiltInTypes.Unknown;
         return false;
-    }
-
-    private static bool TryResolveKnownGenericMember(GenericTypeInfo genericType, string memberName, out TypeInfo memberType)
-    {
-        if (memberName == "Count" && IsCountedGenericCollection(genericType))
-        {
-            memberType = BuiltInTypes.Int;
-            return true;
-        }
-
-        memberType = BuiltInTypes.Unknown;
-        return false;
-    }
-
-    private static bool IsCountedGenericCollection(GenericTypeInfo genericType)
-    {
-        var name = genericType.Name;
-        var namespaceSeparator = name.LastIndexOf('.');
-        if (namespaceSeparator >= 0)
-            name = name[(namespaceSeparator + 1)..];
-
-        var aritySeparator = name.IndexOf('`');
-        if (aritySeparator >= 0)
-            name = name[..aritySeparator];
-
-        return genericType.TypeArguments.Count switch
-        {
-            1 => name is "List" or "IList" or "IReadOnlyList"
-                or "Collection" or "ICollection" or "ReadOnlyCollection" or "IReadOnlyCollection"
-                or "HashSet" or "SortedSet" or "Queue" or "Stack",
-            2 => name is "Dictionary" or "IDictionary" or "SortedDictionary",
-            _ => false
-        };
     }
 
     /// <summary>
@@ -5692,7 +5659,7 @@ public class Analyzer : IDisposable
             for (int i = 0; i < call.Arguments.Count; i++)
             {
                 var expectedType = i < functionType.ParameterTypes.Count ? functionType.ParameterTypes[i] : null;
-                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType, allowUnboundCallableReference: true));
+                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
             }
         }
         else
@@ -5710,7 +5677,7 @@ public class Analyzer : IDisposable
                     argTypes.Add(BuiltInTypes.Unknown);
                     continue;
                 }
-                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: true));
+                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: isMethodGroup));
             }
         }
 
@@ -9601,7 +9568,26 @@ public class Analyzer : IDisposable
         if (resolvedSource is UnionTypeInfo { IsAnonymous: true } unionSource)
             return unionSource.Arms.All(sourceArm => IsAssignable(resolvedTarget, sourceArm));
 
-        // Everything is assignable to object
+        if (resolvedSource is FunctionTypeInfo { Declaration: not null } sourceFunction)
+        {
+            if (!CanBindCallableReferenceToExpectedType(resolvedTarget))
+                return false;
+
+            if (resolvedTarget is ReflectionTypeInfo reflectionTarget && IsRuntimeDelegateType(reflectionTarget.Type))
+            {
+                var delegateSignature = CreateFunctionTypeInfoFromDelegate(reflectionTarget.Type);
+                return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(sourceFunction, delegateSignature);
+            }
+        }
+        else if (IsMethodGroupReferenceType(resolvedSource))
+        {
+            return false;
+        }
+
+        if (IsCallableReferenceType(resolvedTarget))
+            return false;
+
+        // Everything is assignable to object, except bare method references which are not values.
         if (resolvedTarget == BuiltInTypes.Object) return true;
 
         // Nullable widening: T -> T? and T? -> U? (inner type widening)
