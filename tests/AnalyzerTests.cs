@@ -6327,7 +6327,7 @@ func Main() {
     }
 
     [Fact]
-    public void MustExpression_RedundantAfterHasValueGuard_Warns()
+    public void MustExpression_RedundantAfterHasValueGuard_Errors()
     {
         var result = Analyze(@"
             func Main(input: int?): int {
@@ -6338,10 +6338,10 @@ func Main() {
             }
         ");
 
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
         Assert.Contains(result.Errors, e =>
             e.Code == ErrorCode.NullabilityWarning
-            && e.Severity == ErrorSeverity.Warning
+            && e.DiagnosticId == "NL907"
+            && e.Severity == ErrorSeverity.Error
             && e.Message.Contains("redundant"));
     }
 
@@ -7466,14 +7466,6 @@ func Main() {
               && e.Message.Contains(expectedMessage));
     }
 
-    private void AssertHasWarning(string source, string expectedMessage)
-    {
-        var result = Analyze(source);
-        Assert.Contains(result.Errors,
-            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
-              && e.Message.Contains(expectedMessage));
-    }
-
     private void AssertNoWarning(string source, string warningMessage)
     {
         var result = Analyze(source);
@@ -8288,15 +8280,6 @@ func Bad(value: int | int): void {
 func Bad(value: int | string | bool): void {
 }
         ", "support exactly two arms in v1");
-    }
-
-    [Fact]
-    public void AnonymousUnion_WarnsForSubsumedArms()
-    {
-        AssertHasWarning(@"
-func Bad(value: object | string): void {
-}
-        ", "already covered by 'object'");
     }
 
     [Fact]

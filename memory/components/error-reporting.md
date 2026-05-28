@@ -128,9 +128,15 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL701`: ImportNotFound
 - `NL702-704`: ImportCollision, CircularImport, NamespaceNotFound
 
-### Warnings (900-999)
+### Compiler diagnostics (900-999) — all build-blocking errors
+N# is strict: every compiler diagnostic in this range is an `Error` that blocks the build.
 - `NL901`: UnusedVariable
-- `NL902-906`: UnreachableCode, VisibilityConvention, ObsoleteUsage, Nullability, UnnecessaryTypeAnnotation
+- `NL902`: UnreachableCode
+- `NL903`: VisibilityConventionWarning (changes accessibility — semantic)
+- `NL904`: ObsoleteUsage
+- `NL905`: PossibleNullAccess
+- `NL907`: NullabilityWarning
+- `NL906` (UnnecessaryTypeAnnotation) was removed; the equivalent style hint lives only in the linter as `NL014`.
 
 ## Example Output (Elm-style)
 

@@ -94,7 +94,6 @@ public enum ErrorCode
     VisibilityConventionWarning = 903,
     ObsoleteUsage = 904,
     PossibleNullAccess = 905,
-    UnnecessaryTypeAnnotation = 906,
     NullabilityWarning = 907,
 }
 

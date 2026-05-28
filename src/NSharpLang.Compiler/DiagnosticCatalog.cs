@@ -91,17 +91,15 @@ public static class DiagnosticCatalog
                 >= ErrorCode.ImportNotFound and <= ErrorCode.NamespaceNotFound => DiagnosticCategory.Import,
                 >= ErrorCode.MultipleInheritance and <= ErrorCode.ConstructorError => DiagnosticCategory.TypeDeclaration,
                 ErrorCode.PossibleNullAccess or ErrorCode.NullabilityWarning => DiagnosticCategory.Nullability,
-                ErrorCode.UnusedVariable or ErrorCode.UnreachableCode or ErrorCode.UnnecessaryTypeAnnotation => DiagnosticCategory.Hygiene,
+                ErrorCode.UnusedVariable or ErrorCode.UnreachableCode => DiagnosticCategory.Hygiene,
                 ErrorCode.VisibilityConventionWarning or ErrorCode.ObsoleteUsage => DiagnosticCategory.Style,
                 _ => DiagnosticCategory.Semantic
             };
 
-            var severity = code switch
-            {
-                ErrorCode.VisibilityConventionWarning or ErrorCode.ObsoleteUsage or ErrorCode.UnnecessaryTypeAnnotation
-                    => DiagnosticSeverity.Warning,
-                _ => DiagnosticSeverity.Error
-            };
+            // All compiler diagnostics are build-blocking errors. N# is strict: semantic and
+            // correctness signals (visibility convention NL903, obsolete usage NL904, possible
+            // null access NL905, nullability NL907) all block the build rather than warn.
+            const DiagnosticSeverity severity = DiagnosticSeverity.Error;
 
             yield return new DiagnosticDescriptor(
                 diagnosticCode,
