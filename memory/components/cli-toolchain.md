@@ -207,25 +207,22 @@ $ nlc fix --file F                  # fix single file
 
 **Built-in lint rules:**
 
+N# is near-zero-warnings: every active linter rule is a build-blocking **error**. Pure-style rules have been deleted.
+
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
 | NL001 | Error | `unused-variable` | Local variable declared but never read |
 | NL002 | Error | `missing-import` | Type used without the required `import` |
-| NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
-| NL004 | Warning | `async-without-await` | `async` function never uses `await` |
-| NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
+| NL003 | Error | `unnecessary-null-check` | Null check on a value-type literal |
+| NL004 | Error | `async-without-await` | `async` function never uses `await` |
 | NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
-| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase (locals use camelCase; PascalCase is for exported declarations) |
 | NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
-| NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
-| NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
-| NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
-| NL014 | Info | `unnecessary-type-annotation` | Explicit type annotation on a `let` declaration whose type is trivially obvious from a literal initializer (e.g. `let x: int = 5`) |
-| NL015 | Info | `prefer-const` | `let x: T = ...` variable with explicit type annotation that is never reassigned — suggest `const` |
-| NL016 | Warning | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
-| NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
-| NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
-| NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+| NL011 | Error | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
+| NL012 | Error | `unused-parameter` | Function parameter never referenced in the body (underscore-prefixed names are exempt) |
+| NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal) |
+| NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+
+**Deleted (pure-style):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
 
 Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
 
@@ -238,8 +235,6 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
 | NL010 | Remove unused import line | `ReviewNeeded` | Known false positives in NL010 analysis |
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
-| NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
-| NL015 | Replace `let` with `const` | `Safe` | |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
 **`FixSafety` levels** (on `CodeAction`):

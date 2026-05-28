@@ -753,22 +753,6 @@ func Main() {
     }
 
     [Fact]
-    public void FixCommand_DryRun_File_NL015_ReportsExactZeroBasedEditAndDoesNotModifyFile()
-    {
-        AssertDryRunSingleFix(
-            "NL015",
-            @"func Main() {
-    let answer: int = 42
-    print answer
-}",
-            startLine: 2,
-            startColumn: 4,
-            endLine: 2,
-            endColumn: 8,
-            newText: "const ");
-    }
-
-    [Fact]
     public void FixCommand_DryRun_LastLineWholeLineDeletion_PreflightsSafely()
     {
         var tempDir = CreateTempDir();

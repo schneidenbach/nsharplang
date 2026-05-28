@@ -20,9 +20,8 @@ func TryParseInt(input: string, out result: int): bool {
 
 // Dictionary TryGetValue pattern
 func TryGetValue(dict: Dictionary<string, int>, key: string, out value: int): bool {
-    // Simulated implementation
-    if key == "test" {
-        value = 123
+    if dict.ContainsKey(key) {
+        value = dict[key]
         return true
     }
 

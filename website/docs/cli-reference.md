@@ -248,11 +248,14 @@ nlc completion bash > /etc/bash_completion.d/nlc
 | NL001 | error | Unused variable |
 | NL002 | error | Missing import |
 | NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
-| NL003 | warning | Unnecessary null check on value type |
-| NL004 | warning | Async function without await |
-| NL005 | info | Use pattern matching |
+| NL003 | error | Unnecessary null check on value type |
+| NL004 | error | Async function without await |
 | NL006 | error | Unreachable code |
 | NL010 | error | Unused import |
+| NL011 | error | Empty catch block |
+| NL012 | error | Unused parameter |
+| NL016 | error | Redundant null check |
+| NL020 | error | Shadowed variable |
 
 ## Inline Lint Suppression
 

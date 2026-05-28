@@ -118,21 +118,14 @@ public static class DiagnosticCatalog
     {
         yield return Linter("NL001", "Unused variable", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
         yield return Linter("NL002", "Missing import", DiagnosticCategory.Import, DiagnosticSeverity.Error, blocksBuild: true);
-        yield return Linter("NL003", "Unnecessary null check", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
-        yield return Linter("NL004", "Async without await", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
-        yield return Linter("NL005", "Use pattern matching", DiagnosticCategory.Style, DiagnosticSeverity.Info);
+        yield return Linter("NL003", "Unnecessary null check", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
+        yield return Linter("NL004", "Async without await", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
         yield return Linter("NL006", "Unreachable code", DiagnosticCategory.Semantic, DiagnosticSeverity.Error, blocksBuild: true);
-        yield return Linter("NL008", "Camel-case local", DiagnosticCategory.Style, DiagnosticSeverity.Info);
         yield return Linter("NL010", "Unused import", DiagnosticCategory.Import, DiagnosticSeverity.Error, blocksBuild: true);
-        yield return Linter("NL011", "Empty catch", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
-        yield return Linter("NL012", "Unused parameter", DiagnosticCategory.Hygiene, DiagnosticSeverity.Info);
-        yield return Linter("NL013", "Prefer interpolation", DiagnosticCategory.Style, DiagnosticSeverity.Info);
-        yield return Linter("NL014", "Unnecessary type annotation", DiagnosticCategory.Style, DiagnosticSeverity.Info);
-        yield return Linter("NL015", "Prefer const", DiagnosticCategory.Style, DiagnosticSeverity.Info);
-        yield return Linter("NL016", "Redundant null check", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
-        yield return Linter("NL018", "Prefer readonly", DiagnosticCategory.Style, DiagnosticSeverity.Info);
-        yield return Linter("NL019", "Empty block", DiagnosticCategory.Style, DiagnosticSeverity.Info);
-        yield return Linter("NL020", "Shadowed variable", DiagnosticCategory.Hygiene, DiagnosticSeverity.Warning);
+        yield return Linter("NL011", "Empty catch", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
+        yield return Linter("NL012", "Unused parameter", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
+        yield return Linter("NL016", "Redundant null check", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
+        yield return Linter("NL020", "Shadowed variable", DiagnosticCategory.Hygiene, DiagnosticSeverity.Error, blocksBuild: true);
     }
 
     private static DiagnosticDescriptor Linter(

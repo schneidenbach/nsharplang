@@ -92,7 +92,7 @@ interface ICache {
 }
 
 class MemoryCache: ICache {
-    func Get(key: string): string? {
+    func Get(_key: string): string? {
         return null
     }
 }

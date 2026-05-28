@@ -22,7 +22,9 @@ async func* ProcessDataAsync(items: string[]): IAsyncEnumerable<string> {
 // Example 3: Consuming async streams with await foreach
 async func ConsumeNumbersAsync() {
     print "Starting to consume numbers..."
-
+    await foreach n in GetNumbersAsync() {
+        print n
+    }
     print "Done consuming numbers!"
 }
 
@@ -31,7 +33,9 @@ async func ProcessAndDisplayAsync() {
     items := ["hello", "world", "async", "streams"]
 
     print "Processing items..."
-
+    await foreach processed in ProcessDataAsync(items) {
+        print processed
+    }
     print "All items processed!"
 }
 

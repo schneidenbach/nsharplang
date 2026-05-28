@@ -520,61 +520,6 @@ func main() {
 
     #endregion
 
-    #region NL008: Camel-Case Local Tests
-
-    [Fact]
-    public void NL008_CamelCaseLocal_InfoOnUppercaseLocal()
-    {
-        var source = @"
-func main() {
-    MyVar := 5
-    x := MyVar + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL008" && d.Message.Contains("MyVar"));
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL008").Severity);
-    }
-
-    [Fact]
-    public void NL008_CamelCaseLocal_NoInfoOnCorrectLocal()
-    {
-        var source = @"
-func main() {
-    myVar := 5
-    x := myVar + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL008");
-    }
-
-    [Fact]
-    public void NL008_CamelCaseLocal_NoInfoOnUnderscorePrefixed()
-    {
-        var source = @"
-func main() {
-    _MyVar := 5
-    x := _MyVar + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL008");
-    }
-
-    [Fact]
-    public void NL008_CamelCaseLocal_HasSuggestion()
-    {
-        var source = @"
-func main() {
-    UserName := ""alice""
-    x := UserName + ""!""
-}";
-        var diagnostics = Lint(source);
-        var diag = diagnostics.FirstOrDefault(d => d.Code == "NL008");
-        Assert.NotNull(diag);
-        Assert.Contains("userName", diag!.Suggestion ?? "");
-    }
-
-    #endregion
-
     #region NL011: Empty Catch Tests
 
     [Fact]
@@ -589,7 +534,7 @@ func main() {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL011");
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL011").Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL011").Severity);
     }
 
     [Fact]
@@ -609,7 +554,6 @@ func main() {
         Assert.Equal(4, diagnostic.Location.Line);
         Assert.Equal(7, diagnostic.Location.Column);
         Assert.Equal("catch".Length, diagnostic.Length);
-        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL019");
     }
 
     [Fact]
@@ -641,7 +585,7 @@ func add(a: int, b: int): int {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'b'"));
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL012").Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL012").Severity);
     }
 
     [Fact]
@@ -656,154 +600,16 @@ func add(a: int, b: int): int {
     }
 
     [Fact]
-    public void NL012_UnusedParameter_NoInfoOnUnderscorePrefixed()
+    public void NL012_UnusedParameter_NoErrorOnUnderscorePrefixed()
     {
-        // Convention: _-prefixed parameter names are intentionally unused
+        // Convention: _-prefixed parameter names are an explicit "intentionally unused"
+        // signal, so the build-blocking NL012 error must not fire for them.
         var source = @"
 func handler(event: int, _context: int) {
     x := event + 1
 }";
         var diagnostics = Lint(source);
-        // _context should not fire NL012 (it's underscore-prefixed — but the rule only checks params, not _ prefix)
-        // The rule fires for 'x' as unused variable only
-        // NL012 should NOT fire for _context because the NL020 shadow check skips _ prefix
-        // but NL012 tracks all params — let's verify _context does fire (it's unused)
-        // Actually per spec: "skip _ prefixed" is for NL008 only; NL012 fires for _context if unused
-        // This test verifies the diagnostic fires
-        var nl012 = diagnostics.Where(d => d.Code == "NL012").ToList();
-        Assert.Contains(nl012, d => d.Message.Contains("_context"));
-    }
-
-    #endregion
-
-    #region NL013: Prefer Interpolation Tests
-
-    [Fact]
-    public void NL013_PreferInterpolation_InfoOnStringPlusVariable()
-    {
-        var source = @"
-func main() {
-    name := ""world""
-    greeting := ""hello "" + name
-    x := greeting + ""!""
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL013");
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL013").Severity);
-    }
-
-    [Fact]
-    public void NL013_PreferInterpolation_NoInfoOnStringPlusStringLiteral()
-    {
-        // Two string literals concatenated — no variable, no interpolation benefit
-        var source = @"
-func main() {
-    x := ""hello "" + ""world""
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL013");
-    }
-
-    [Fact]
-    public void NL013_PreferInterpolation_NoInfoOnInterpolatedString()
-    {
-        var source = @"
-func main() {
-    name := ""world""
-    greeting := $""hello {name}""
-    x := greeting + ""!""
-}";
-        // greeting + "!" has string literal on right and identifier on left
-        var diagnostics = Lint(source);
-        // NL013 should fire for `greeting + "!"` since right is a string literal and left is not
-        Assert.Contains(diagnostics, d => d.Code == "NL013");
-    }
-
-    #endregion
-
-    #region NL019: Empty Block Tests
-
-    [Fact]
-    public void NL019_EmptyBlock_InfoOnEmptyFunctionBody()
-    {
-        var source = "func doNothing() { }";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL019");
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL019").Severity);
-    }
-
-    [Fact]
-    public void NL019_EmptyBlock_NoInfoOnNonEmptyFunctionBody()
-    {
-        var source = @"
-func doSomething() {
-    x := 5
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL019");
-    }
-
-    [Fact]
-    public void NL019_EmptyBlock_InfoOnEmptyIfBlock()
-    {
-        var source = @"
-func main() {
-    if true { }
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL019");
-    }
-
-    [Fact]
-    public void NL019_EmptyBlock_UsesOwnerKeywordSpan()
-    {
-        var source = """
-func main() {
-    if true { }
-}
-""";
-        var diagnostics = LintWithSource(source);
-
-        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
-        Assert.Equal(2, diagnostic.Location.Line);
-        Assert.Equal(5, diagnostic.Location.Column);
-        Assert.Equal("if".Length, diagnostic.Length);
-    }
-
-    [Fact]
-    public void NL019_EmptyElseBlock_UsesElseKeywordSpan()
-    {
-        var source = """
-func main() {
-    if true {
-        print "x"
-    } else {
-    }
-}
-""";
-        var diagnostics = LintWithSource(source);
-
-        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
-        Assert.Equal(4, diagnostic.Location.Line);
-        Assert.Equal(7, diagnostic.Location.Column);
-        Assert.Equal("else".Length, diagnostic.Length);
-    }
-
-    [Fact]
-    public void NL019_EmptyAssertThrowsBlock_UsesThrowsKeywordSpan()
-    {
-        var source = """
-func main() {
-    assert throws InvalidOperationException {
-    }
-}
-""";
-        var diagnostics = LintWithSource(source);
-
-        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
-        Assert.Equal(2, diagnostic.Location.Line);
-        Assert.Equal(12, diagnostic.Location.Column);
-        Assert.Equal("throws".Length, diagnostic.Length);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("_context"));
     }
 
     #endregion
@@ -823,7 +629,7 @@ func main() {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL020" && d.Message.Contains("'x'"));
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL020").Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL020").Severity);
     }
 
     [Fact]
@@ -1030,135 +836,6 @@ test ""does not use the import"" {
 
     #endregion
 
-    #region NL014: Unnecessary Type Annotation Tests
-
-    [Fact]
-    public void NL014_UnnecessaryTypeAnnotation_InfoOnObviousIntLiteral()
-    {
-        var source = @"
-func Main() {
-    let x: int = 5
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL014");
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL014").Severity);
-    }
-
-    [Fact]
-    public void NL014_UnnecessaryTypeAnnotation_InfoOnObviousStringLiteral()
-    {
-        var source = @"
-func Main() {
-    let s: string = ""hello""
-    y := s + ""!""
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL014");
-    }
-
-    [Fact]
-    public void NL014_UnnecessaryTypeAnnotation_InfoOnObviousBoolLiteral()
-    {
-        var source = @"
-func Main() {
-    let b: bool = true
-    y := b
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL014");
-    }
-
-    [Fact]
-    public void NL014_UnnecessaryTypeAnnotation_NoInfoOnComplexExpression()
-    {
-        // The RHS is a function call — type can't be trivially inferred
-        var source = @"
-import System.Collections.Generic
-
-func GetCount(): int {
-    return 42
-}
-
-func Main() {
-    let x: int = GetCount()
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL014");
-    }
-
-    [Fact]
-    public void NL014_UnnecessaryTypeAnnotation_NoInfoOnShorthandDeclaration()
-    {
-        // Shorthand := has no explicit type annotation — nothing to flag
-        var source = @"
-func Main() {
-    x := 5
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL014");
-    }
-
-    #endregion
-
-    #region NL015: Prefer Const Tests
-
-    [Fact]
-    public void NL015_PreferConst_InfoOnNeverReassigned()
-    {
-        var source = @"
-func Main() {
-    let x: int = 5
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL015" && d.Message.Contains("'x'"));
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL015").Severity);
-    }
-
-    [Fact]
-    public void NL015_PreferConst_NoInfoOnReassigned()
-    {
-        var source = @"
-func Main() {
-    let x: int = 5
-    x = 10
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL015" && d.Message.Contains("'x'"));
-    }
-
-    [Fact]
-    public void NL015_PreferConst_NoInfoOnShorthandDeclaration()
-    {
-        // `:=` shorthand without explicit type — NL015 does not fire for these
-        var source = @"
-func Main() {
-    x := 5
-    y := x + 1
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL015");
-    }
-
-    [Fact]
-    public void NL015_PreferConst_NoInfoOnUnusedVariable()
-    {
-        // If the variable is never read, NL001 fires instead — NL015 stays silent
-        var source = @"
-func Main() {
-    let x: int = 5
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL015" && d.Message.Contains("'x'"));
-        Assert.Contains(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'x'"));
-    }
-
-    #endregion
-
     #region NL016: Redundant Null Check Tests
 
     [Fact]
@@ -1175,7 +852,7 @@ func Main() {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL016");
-        Assert.Equal(DiagnosticSeverity.Warning, diagnostics.First(d => d.Code == "NL016").Severity);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL016").Severity);
     }
 
     [Fact]
@@ -1212,129 +889,6 @@ func GetString(): string {
 
     #endregion
 
-    #region NL018: Prefer Readonly Tests
-
-    [Fact]
-    public void NL018_PreferReadonly_InfoOnConstructorOnlyField()
-    {
-        var source = @"
-class Counter {
-    count: int
-
-    constructor(initial: int) {
-        count = initial
-    }
-
-    func GetCount(): int {
-        return count
-    }
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
-        Assert.Equal(DiagnosticSeverity.Info, diagnostics.First(d => d.Code == "NL018").Severity);
-    }
-
-    [Fact]
-    public void NL018_PreferReadonly_NoInfoOnMutatedField()
-    {
-        var source = @"
-class Counter {
-    count: int
-
-    constructor(initial: int) {
-        count = initial
-    }
-
-    func Increment() {
-        count = count + 1
-    }
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
-    }
-
-    [Fact]
-    public void NL018_PreferReadonly_NoInfoOnIncrementedField()
-    {
-        var source = @"
-class Counter {
-    count: int
-
-    constructor(initial: int) {
-        count = initial
-    }
-
-    func Increment() {
-        count++
-    }
-}";
-        var diagnostics = Lint(source);
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
-    }
-
-    [Fact]
-    public void NL018_PreferReadonly_InfoOnThisAssignedConstructorOnlyField()
-    {
-        var source = @"
-class Counter {
-    count: int
-
-    constructor(initial: int) {
-        this.count = initial
-    }
-
-    func GetCount(): int {
-        return count
-    }
-}";
-        var diagnostics = Lint(source);
-        Assert.Contains(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'count'"));
-    }
-
-    [Fact]
-    public void NL018_PreferReadonly_NoInfoOnAlreadyReadonlyField()
-    {
-        var source = @"
-class Config {
-    readonly name: string
-
-    constructor(n: string) {
-        name = n
-    }
-
-    func GetName(): string {
-        return name
-    }
-}";
-        var diagnostics = Lint(source);
-        // Field already has readonly — should not emit NL018
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'name'"));
-    }
-
-    [Fact]
-    public void NL018_PreferReadonly_NoInfoOnFieldNotAssignedInCtor()
-    {
-        // Field is only assigned in a non-constructor method — don't suggest readonly
-        // because readonly requires initialization in ctor/initializer
-        var source = @"
-class Builder {
-    result: string
-
-    func SetResult(r: string) {
-        result = r
-    }
-
-    func GetResult(): string {
-        return result
-    }
-}";
-        var diagnostics = Lint(source);
-        // result is only assigned outside ctor → (InCtor=false, Elsewhere=true) → no NL018
-        Assert.DoesNotContain(diagnostics, d => d.Code == "NL018" && d.Message.Contains("'result'"));
-    }
-
-    #endregion
-
     #region .editorconfig Configuration Tests
 
     [Fact]
@@ -1344,21 +898,14 @@ class Builder {
 
         Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL001"));
         Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL002"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL003"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL004"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL005"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL003"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL004"));
         Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL006"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL008"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL011"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL012"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL013"));
         Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL010"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL014"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL015"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL016"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL018"));
-        Assert.Equal(DiagnosticSeverity.Info, config.GetSeverity("NL019"));
-        Assert.Equal(DiagnosticSeverity.Warning, config.GetSeverity("NL020"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL011"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL012"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL016"));
+        Assert.Equal(DiagnosticSeverity.Error, config.GetSeverity("NL020"));
     }
 
     [Fact]
