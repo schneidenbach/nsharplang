@@ -84,7 +84,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL101`: UnexpectedToken
 - `NL102`: ExpectedToken
 - `NL103`: InvalidSyntax
-- `NL104`: UnexpectedEndOfFile
+- `NL104`: UnexpectedEndOfFile — emitted when `Consume`/`ConsumeIdentifier` reach EOF while a token is still required (e.g. `func`, `class Foo`, or a trailing `<expected>` with no body). The span anchors on the last visible owner token (the keyword/identifier), never on the empty EOF position, and the message reads "...but reached the end of the file" instead of exposing the empty `''` token.
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at visible owner tokens when available
 - Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, `await`, `must`, `=>`, ternary `?`/`:`, and similar anchors recover without consuming the next statement, including statements that VS Code auto-indents after a dangling anchor. Declaration and assignment value gaps underline the variable/target name when available; keyword anchors underline the visible keyword; binary operator operand gaps underline the incomplete expression segment such as `1 +` instead of a one-character operator. Parser-recovery placeholders for missing boolean conditions must not cascade into semantic `NL202` diagnostics on whitespace.
