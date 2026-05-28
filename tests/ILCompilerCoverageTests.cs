@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -3369,5 +3370,172 @@ func main(): int {
         });
 
         Assert.Equal(0, Assert.IsType<int>(result));
+    }
+
+    // ---- foreach over Span<T> / ReadOnlySpan<T> lowering (allocation-free index loop) ----
+
+    /// <summary>
+    /// Decodes a method body and returns the simple names of every method referenced by a
+    /// call/callvirt/newobj instruction. Used to assert that span foreach never resolves an
+    /// enumerator (GetEnumerator / MoveNext / get_Current) or allocates one.
+    /// </summary>
+    private static IReadOnlyList<string> GetReferencedMethodNames(MethodInfo method)
+    {
+        var body = method.GetMethodBody();
+        var il = body?.GetILAsByteArray() ?? Array.Empty<byte>();
+        var module = method.Module;
+        var genericTypeArgs = method.DeclaringType?.GetGenericArguments();
+        var genericMethodArgs = method.GetGenericArguments();
+        var names = new List<string>();
+
+        for (var offset = 0; offset < il.Length;)
+        {
+            var opCodeValue = il[offset++];
+            OpCode opCode;
+            if (opCodeValue == 0xfe)
+            {
+                opCode = MultiByteOpCodes[il[offset++]];
+            }
+            else
+            {
+                opCode = SingleByteOpCodes[opCodeValue];
+            }
+
+            if ((opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj)
+                && opCode.OperandType == OperandType.InlineMethod)
+            {
+                var token = BitConverter.ToInt32(il, offset);
+                try
+                {
+                    var member = module.ResolveMethod(token, genericTypeArgs, genericMethodArgs);
+                    if (member != null)
+                    {
+                        names.Add(member.Name);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort: unresolved tokens are not enumerator references we care about.
+                }
+            }
+
+            offset += GetOperandSize(opCode.OperandType, il, offset);
+        }
+
+        return names;
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReadOnlySpan_DoesNotAllocateEnumerator()
+    {
+        // A `params ReadOnlySpan<int>` parameter hands the body a ReadOnlySpan<int> we can
+        // iterate with `for ... in`, exercising the span foreach lowering directly.
+        var source = @"
+func sumSpan(params numbers: ReadOnlySpan<int>): int {
+    total := 0
+    for number in numbers {
+        total += number
+    }
+    return total
+}
+
+func main(): int {
+    return sumSpan(1, 2, 3, 4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var sumSpan = programType!.GetMethod("sumSpan", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(sumSpan);
+
+            var opCodes = GetMethodOpCodes(sumSpan!);
+            var calledMethods = GetReferencedMethodNames(sumSpan!);
+            var main = programType.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CalledMethods = calledMethods,
+            };
+        });
+
+        Assert.Equal(10, Assert.IsType<int>(result.Value));
+        // No enumerator allocation in the loop method.
+        Assert.Equal(0, result.NewobjCount);
+        // No enumerator protocol calls — the loop is a plain index walk.
+        Assert.DoesNotContain("GetEnumerator", result.CalledMethods);
+        Assert.DoesNotContain("MoveNext", result.CalledMethods);
+        Assert.DoesNotContain("get_Current", result.CalledMethods);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverSpan_DoesNotAllocateEnumerator()
+    {
+        var source = @"
+func sumSpan(params numbers: Span<int>): int {
+    total := 0
+    for number in numbers {
+        total += number
+    }
+    return total
+}
+
+func main(): int {
+    return sumSpan(5, 6, 7)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var sumSpan = programType!.GetMethod("sumSpan", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(sumSpan);
+
+            var opCodes = GetMethodOpCodes(sumSpan!);
+            var calledMethods = GetReferencedMethodNames(sumSpan!);
+            var main = programType.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CalledMethods = calledMethods,
+            };
+        });
+
+        Assert.Equal(18, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.DoesNotContain("GetEnumerator", result.CalledMethods);
+        Assert.DoesNotContain("MoveNext", result.CalledMethods);
+        Assert.DoesNotContain("get_Current", result.CalledMethods);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReadOnlySpan_IteratesAllElementsInOrder()
+    {
+        // Behavioral coverage: the lowered loop must visit every element exactly once, in order.
+        var source = @"
+func lastTimesCount(params numbers: ReadOnlySpan<int>): int {
+    last := 0
+    count := 0
+    for number in numbers {
+        last = number
+        count += 1
+    }
+    return last * 100 + count
+}
+
+func main(): int {
+    return lastTimesCount(2, 4, 6, 8, 9)
+}";
+
+        var result = CompileAndInvoke(source);
+        // last element 9 * 100 + count 5 = 905
+        Assert.Equal(905, Assert.IsType<int>(result));
     }
 }

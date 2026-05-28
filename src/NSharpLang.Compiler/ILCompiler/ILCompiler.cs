@@ -10161,6 +10161,15 @@ public partial class ILCompiler
             return;
         }
 
+        // Span<T> / ReadOnlySpan<T> get an allocation-free index-loop fast path
+        // (Length + indexer) with no enumerator allocation. Spans are ref structs,
+        // so the enumerator path would be undesirable anyway.
+        if (TryGetSpanElementType(collectionType, out var spanElementType, out _))
+        {
+            EmitForeachForSpan(foreachStmt, collectionType, spanElementType);
+            return;
+        }
+
         enumerableInterface = GetRuntimeInterfaces(collectionType)
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>));
 
@@ -10526,6 +10535,96 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Br, loopStart);
 
         // Mark loop end
+        _currentIL.MarkLabel(loopEnd);
+    }
+
+    /// <summary>
+    /// Emit IL for foreach over a Span&lt;T&gt; or ReadOnlySpan&lt;T&gt; using an
+    /// allocation-free index loop. Reads the span's Length once and loads each element
+    /// through MemoryMarshal.GetReference + Unsafe.Add + ldind, exactly as span indexing
+    /// does. No enumerator is allocated and the ref struct never escapes the stack frame.
+    /// </summary>
+    private void EmitForeachForSpan(ForeachStatement foreachStmt, Type spanType, Type elementType)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Store the span in a local (ref struct value type — stays on the stack frame).
+        EmitExpression(foreachStmt.Collection);
+        var spanLocal = _currentIL.DeclareLocal(spanType);
+        _currentIL.Emit(OpCodes.Stloc, spanLocal);
+
+        // Cache the length once so the bounds check does not re-read it each iteration.
+        var lengthGetter = ResolveRuntimeProperty(spanType, "Length", BindingFlags.Public | BindingFlags.Instance)?.Getter
+            ?? throw new InvalidOperationException($"Cannot find Length property for span type {spanType}");
+        var lengthLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Ldloca, spanLocal);
+        _currentIL.Emit(OpCodes.Call, lengthGetter);
+        _currentIL.Emit(OpCodes.Stloc, lengthLocal);
+
+        // Index variable initialized to 0.
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        var loopStart = _currentIL.DefineLabel();
+        var continueLabel = _currentIL.DefineLabel();
+        var loopEnd = _currentIL.DefineLabel();
+
+        _currentIL.MarkLabel(loopStart);
+
+        // if (index >= length) break;
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, lengthLocal);
+        _currentIL.Emit(OpCodes.Bge, loopEnd);
+
+        // Load span[index] via GetReference + Unsafe.Add + ldind (the span indexer shape).
+        _currentIL.Emit(OpCodes.Ldloc, spanLocal);
+        _currentIL.Emit(OpCodes.Call, ResolveSpanGetReferenceMethod(spanType));
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Call, ResolveUnsafeAddMethod(elementType));
+        EmitLoadIndirect(elementType);
+
+        // Declare loop variable and store the element.
+        LocalBuilder loopVar;
+        if (_locals.TryGetValue(foreachStmt.VariableName, out var existingSpanLoopVar))
+        {
+            loopVar = existingSpanLoopVar;
+        }
+        else
+        {
+            loopVar = DeclareNamedLocal(foreachStmt.VariableName, elementType);
+        }
+        if (IsLiftedIdentifier(foreachStmt.VariableName))
+        {
+            EmitStoreLiftedLocalValue(loopVar, elementType, leaveValueOnStack: false);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Stloc, loopVar);
+        }
+
+        _breakLabels.Push(new BranchTarget(loopEnd, useLeave: false));
+        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        try
+        {
+            EmitStatement(foreachStmt.Body);
+        }
+        finally
+        {
+            _continueLabels.Pop();
+            _breakLabels.Pop();
+        }
+
+        _currentIL.MarkLabel(continueLabel);
+
+        // index++
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Add);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        _currentIL.Emit(OpCodes.Br, loopStart);
+
         _currentIL.MarkLabel(loopEnd);
     }
 
