@@ -681,6 +681,91 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_CircularImport_UsesQuotedPathSpan()
+    {
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nsharp-lsp-circular-import-span-{System.Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "project.yml"), """
+name: CircularImportSpan
+version: 1.0.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+""");
+
+            System.IO.File.WriteAllText(System.IO.Path.Combine(tempRoot, "B.nl"), """
+import "./Program"
+
+func Helper() {
+    print "helper"
+}
+""");
+
+            var programPath = System.IO.Path.Combine(tempRoot, "Program.nl");
+            var source = """
+import "./B"
+
+func main() {
+}
+""";
+            System.IO.File.WriteAllText(programPath, source);
+
+            var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+            documentManager.UpdateDocument(new System.Uri(programPath).AbsoluteUri, source, version: 1);
+
+            var document = documentManager.GetDocument(new System.Uri(programPath).AbsoluteUri);
+            Assert.NotNull(document);
+
+            var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+                diagnostic => diagnostic.Code == ErrorCode.CircularImport);
+
+            // The squiggle must underline the quoted import path "./B", not the `import` keyword.
+            AssertDiagnosticSpan(diagnostic, line: 1, column: 8, length: "\"./B\"".Length);
+            AssertLspRange(diagnostic, line0: 0, startCharacter: 7, endCharacter: 12);
+            Assert.NotNull(diagnostic.Suggestion);
+            Assert.NotNull(diagnostic.ContextualHint);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Diagnostics_NamespaceNotFound_UsesNamespaceNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///namespace-not-found-span.nl";
+
+        var source = """
+import Foo.Bar.Baz
+
+func main() {
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.NamespaceNotFound);
+
+        Assert.Equal("NL704", diagnostic.DiagnosticId);
+        Assert.Contains("Foo.Bar.Baz", diagnostic.Message);
+        // The squiggle must underline the namespace name, not the `import` keyword.
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 8, length: "Foo.Bar.Baz".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 7, endCharacter: 18);
+    }
+
+    [Fact]
     public void Diagnostics_UnreachableStatement_UsesUnreachableKeywordSpan()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
