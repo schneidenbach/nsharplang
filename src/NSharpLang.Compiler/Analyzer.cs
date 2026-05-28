@@ -1475,7 +1475,121 @@ public class Analyzer : IDisposable
         if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
         {
             ReportInvalidExpressionStatement(exprStmt.Expression);
+            return;
         }
+
+        if (_errors.Count == errorsBefore)
+        {
+            ReportDiscardedMustUseResultIfNeeded(exprStmt.Expression);
+        }
+    }
+
+    /// <summary>
+    /// Enforces the must-use policy: a bare call whose result is "must-use" (annotated
+    /// with [MustUse]) cannot be discarded silently as an expression statement. The result
+    /// must be used or discarded explicitly with `_ = call()`.
+    /// </summary>
+    private void ReportDiscardedMustUseResultIfNeeded(Expression expression)
+    {
+        var call = UnwrapMustUseCandidate(expression);
+        if (call is null)
+            return;
+
+        if (!TryGetMustUseReason(call, out var reason))
+            return;
+
+        var calleeName = GetCallTargetName(call);
+        var (line, column, length) = GetCallDiagnosticSpan(call, calleeName ?? "call");
+        var subject = calleeName != null ? $"the result of '{calleeName}'" : "this result";
+
+        Error(
+            ErrorCode.DiscardedMustUseResult,
+            $"You're discarding {subject}, but {reason} — its result must be used",
+            line,
+            column,
+            "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`.",
+            length);
+    }
+
+    /// <summary>
+    /// Returns the underlying call expression if the statement is a bare call whose result
+    /// would be silently discarded. Explicit discards (`_ = call()`) and any other use of
+    /// the value are intentionally excluded.
+    /// </summary>
+    private static CallExpression? UnwrapMustUseCandidate(Expression expression)
+    {
+        return expression switch
+        {
+            CallExpression call => call,
+            ParenthesizedExpression parenthesized => UnwrapMustUseCandidate(parenthesized.Inner),
+            CheckedExpression checkedExpression => UnwrapMustUseCandidate(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => UnwrapMustUseCandidate(uncheckedExpression.Expression),
+            _ => null
+        };
+    }
+
+    private bool TryGetMustUseReason(CallExpression call, out string reason)
+    {
+        reason = string.Empty;
+
+        // The call was already analyzed above, so the callee's resolved type is recorded in the
+        // semantic model. Reuse it instead of re-analyzing the AST, which would double-record
+        // bindings/references and corrupt find-references.
+        if (!_semanticModel.ExpressionTypes.TryGetValue(
+                (call.Callee.Line, call.Callee.Column), out var calleeType))
+        {
+            return false;
+        }
+
+        switch (calleeType)
+        {
+            case FunctionTypeInfo { Declaration: { } declaration } when HasMustUseAttribute(declaration.Attributes):
+                reason = $"'{declaration.Name}' is marked [MustUse]";
+                return true;
+            case NSharpMethodGroupInfo group when group.Declarations.All(d => HasMustUseAttribute(d.Attributes)) && group.Declarations.Count > 0:
+                reason = $"'{group.Declarations[0].Name}' is marked [MustUse]";
+                return true;
+            case ReflectionMethodInfo method when HasMustUseAttribute(method.Method):
+                reason = $"'{method.Method.Name}' is marked [MustUse]";
+                return true;
+            case ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 && methodGroup.Methods.All(HasMustUseAttribute):
+                reason = $"'{methodGroup.Methods[0].Name}' is marked [MustUse]";
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool HasMustUseAttribute(IEnumerable<AttributeNode> attributes)
+        => attributes.Any(attribute => IsMustUseAttributeName(attribute.Name));
+
+    private static bool HasMustUseAttribute(MethodInfo method)
+    {
+        try
+        {
+            return method.GetCustomAttributesData()
+                .Any(data => IsMustUseAttributeName(data.AttributeType.Name)
+                    || IsMustUseAttributeName(data.AttributeType.FullName ?? string.Empty));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsDiscardTarget(Expression target)
+        => target is IdentifierExpression { Name: "_" };
+
+    private static bool IsMustUseAttributeName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        var lastDot = name.LastIndexOf('.');
+        var simpleName = lastDot >= 0 ? name[(lastDot + 1)..] : name;
+
+        return simpleName.Equals("MustUse", StringComparison.Ordinal)
+            || simpleName.Equals("MustUseAttribute", StringComparison.Ordinal);
     }
 
     private static bool ContainsParserErrorPlaceholder(Expression expression)
@@ -8113,6 +8227,26 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
+        // Discard assignment: `_ = expr` explicitly throws away a value. The discard is the
+        // sanctioned escape hatch for must-use results, so the target binds nothing and we
+        // only analyze the right-hand side.
+        if (IsDiscardTarget(assignment.Target))
+        {
+            if (assignment.Operator != AssignmentOperator.Assign)
+            {
+                var (discardLine, discardColumn, discardLength) = GetExpressionDiagnosticSpan(assignment.Target);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    "The discard `_` can only be used with a plain `=` assignment",
+                    discardLine,
+                    discardColumn,
+                    "Use `_ = expr` to discard a value, or assign to a named variable for compound operators.",
+                    discardLength);
+            }
+
+            return AnalyzeExpression(assignment.Value);
+        }
+
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
         TypeInfo targetType;

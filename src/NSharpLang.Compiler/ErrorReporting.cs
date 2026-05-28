@@ -45,6 +45,7 @@ public enum ErrorCode
     UnreachableStatement = 312,
     InvalidExpressionStatement = 313,
     UnverifiedErrorResult = 314,
+    DiscardedMustUseResult = 315,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -695,6 +696,9 @@ public static class ErrorSuggestions
 
             ErrorCode.UnverifiedErrorResult
                 => "Check the paired error first, or return/throw from the error branch before using the result",
+
+            ErrorCode.DiscardedMustUseResult
+                => "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`",
 
             ErrorCode.UndefinedVariable when context != null
                 => $"Variable '{context}' is not defined in current scope",

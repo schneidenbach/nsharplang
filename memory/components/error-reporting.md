@@ -122,6 +122,7 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
+- `NL315`: DiscardedMustUseResult (bare call to a `[MustUse]`-annotated function/method whose result is silently discarded; use the value or discard explicitly with `_ = call()`). Span underlines the callee name.
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount

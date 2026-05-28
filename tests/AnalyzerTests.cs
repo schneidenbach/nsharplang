@@ -335,6 +335,105 @@ func main(): int {
     }
 
     [Fact]
+    public void DiscardedMustUseFunctionResult_IsRejected()
+    {
+        var result = Analyze(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Compute'", error.Message);
+        Assert.Contains("must be used", error.Message);
+    }
+
+    [Fact]
+    public void DiscardedMustUseMethodResult_IsRejected()
+    {
+        var result = Analyze(@"
+            class Calc {
+                [MustUse]
+                func Add(a: int, b: int): int {
+                    return a + b
+                }
+            }
+
+            func Main() {
+                let c := new Calc()
+                c.Add(1, 2)
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Add'", error.Message);
+    }
+
+    [Fact]
+    public void ExplicitDiscardOfMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                _ = Compute()
+            }
+        ");
+    }
+
+    [Fact]
+    public void UsedMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                let x := Compute()
+                print $""{x}""
+            }
+        ");
+    }
+
+    [Fact]
+    public void DiscardedNonMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+    }
+
+    [Fact]
+    public void VoidCallStatement_IsAllowed()
+    {
+        AssertNoErrors(@"
+            func SideEffect() {
+                print ""hi""
+            }
+
+            func Main() {
+                SideEffect()
+            }
+        ");
+    }
+
+    [Fact]
     public void ConstWithoutInitializer_Error()
     {
         AssertHasError(@"

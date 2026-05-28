@@ -101,6 +101,37 @@ func Main() {
     }
 
     [Fact]
+    public void Diagnostics_DiscardedMustUseResult_UnderlinesCalleeName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///discarded-must-use.nl";
+
+        var source = """
+[MustUse]
+func Compute(): int {
+    return 42
+}
+
+func Main() {
+    Compute()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.DiscardedMustUseResult);
+
+        Assert.Equal("NL315", diagnostic.DiagnosticId);
+        Assert.Contains("'Compute'", diagnostic.Message);
+        AssertDiagnosticSpan(diagnostic, line: 7, column: 5, length: "Compute".Length);
+        AssertLspRange(diagnostic, line0: 6, startCharacter: 4, endCharacter: 11);
+    }
+
+    [Fact]
     public void Diagnostics_UndefinedBareCall_ReportsFunctionNotVariable()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
