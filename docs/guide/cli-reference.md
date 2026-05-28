@@ -13,7 +13,7 @@ Updated: 2026-05-27
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--timings`, `--output` | `nlc build` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
@@ -104,6 +104,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- `nlc build --perf-report` builds the project and then prints a versioned JSON performance report to stdout. The envelope is `{ schemaVersion: 1, command: "build", ok: true, projectRoot, perfReport: { allocationSites, delegateSites, boxingSites, dispatchSites, closureCaptures, aotBlockers } }`. The `perfReport` categories are currently emitted as empty arrays while the compiler's performance-fact source is wired up; the envelope shape is stable. Combine with `--project <dir>` to point at a specific project root.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.
 - `nlc publish --runtime <rid>` is supported only when `<rid>` is the current host runtime. It adds a small framework-dependent launcher beside the `.dll`.
