@@ -4694,7 +4694,7 @@ func Main() {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "doesn't implement");
+        ", "does not implement");
     }
 
     [Fact]
@@ -6852,7 +6852,7 @@ func Main() {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "doesn't implement");
+        ", "does not implement");
     }
 
     // --- Special constraint tests ---
@@ -6939,7 +6939,7 @@ func Main() {
                 p := new Point(1, 2)
                 result := Create<Point>(p)
             }
-        ", "doesn't have a parameterless constructor");
+        ", "has no parameterless constructor");
     }
 
     [Fact]
@@ -7033,7 +7033,7 @@ func Main() {
                 r := new RequiresPrimary(1)
                 result := Create<RequiresPrimary>(r)
             }
-        ", "doesn't have a parameterless constructor");
+        ", "has no parameterless constructor");
     }
 
     [Fact]

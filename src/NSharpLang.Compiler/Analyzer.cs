@@ -6466,14 +6466,20 @@ public class Analyzer : IDisposable
         {
             if (bindings.TryGetValue(constraint.TypeParameter, out var boundType))
             {
+                // Underline the argument that forced this binding (e.g. the literal `42`),
+                // falling back to the callee name when no single argument can be identified.
+                var (line, column, length) = GetGenericConstraintDiagnosticSpan(decl, call, constraint.TypeParameter);
+
                 // Validate special constraints
                 if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
                 {
                     if (!IsReferenceType(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' is a value type, but type parameter '{constraint.TypeParameter}' requires a reference type (class constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` is a value type, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires a reference type (the `class` constraint)",
+                            line, column,
+                            $"Pass a class instance for `{constraint.TypeParameter}`, or relax the `class` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6484,8 +6490,10 @@ public class Analyzer : IDisposable
                     if (IsReferenceType(boundType) || boundType is NullableTypeInfo)
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' is not a non-nullable value type, but type parameter '{constraint.TypeParameter}' requires one (struct constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` is not a non-nullable value type, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires one (the `struct` constraint)",
+                            line, column,
+                            $"Pass a non-nullable value type for `{constraint.TypeParameter}`, or relax the `struct` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6494,8 +6502,10 @@ public class Analyzer : IDisposable
                     if (!HasParameterlessConstructor(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' doesn't have a parameterless constructor, but type parameter '{constraint.TypeParameter}' requires one (new() constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` has no parameterless constructor, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires one (the `new()` constraint)",
+                            line, column,
+                            $"Give `{boundType}` a parameterless constructor, or relax the `new()` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6505,12 +6515,51 @@ public class Analyzer : IDisposable
                     var constraintType = ApplyNSharpGenericBindings(ResolveType(constraintTypeRef), bindings);
                     if (!IsSubtypeOf(boundType, constraintType) && !IsAssignable(constraintType, boundType))
                     {
-                        Error($"'{boundType}' doesn't implement '{constraintType}', which is required by type parameter '{constraint.TypeParameter}'",
-                            call.Line, call.Column);
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"`{boundType}` does not implement `{constraintType}`, which type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires",
+                            line, column,
+                            $"Implement `{constraintType}` on `{boundType}`, or relax the constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Locates the source span to underline for a generic-constraint violation.
+    /// Prefers the single argument whose declared parameter type is exactly the offending
+    /// type parameter (e.g. the literal `42` for `Identity&lt;T&gt;(value: T)`); otherwise
+    /// falls back to the callee name span.
+    /// </summary>
+    private (int Line, int Column, int Length) GetGenericConstraintDiagnosticSpan(
+        FunctionDeclaration decl,
+        CallExpression call,
+        string typeParameter)
+    {
+        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+        var paramStart = isExtension ? 1 : 0;
+
+        Expression? offendingArgument = null;
+        for (var i = 0; i + paramStart < decl.Parameters.Count && i < call.Arguments.Count; i++)
+        {
+            if (decl.Parameters[i + paramStart].Type is SimpleTypeReference simple &&
+                simple.Name == typeParameter)
+            {
+                if (offendingArgument != null)
+                {
+                    // More than one argument binds this type parameter — no single token to blame.
+                    offendingArgument = null;
+                    break;
+                }
+
+                offendingArgument = call.Arguments[i].Value;
+            }
+        }
+
+        return offendingArgument != null
+            ? GetExpressionDiagnosticSpan(offendingArgument)
+            : GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? decl.Name);
     }
 
     /// <summary>
