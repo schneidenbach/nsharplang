@@ -347,6 +347,13 @@ func main() {
 }
 ```
 
+**Performance:** The success path of `result, err :=` is exception-free at runtime. The
+compiler lowers the pattern to a value carrier (`err`, initialized to `null`) plus a single
+exception-capture region; when the call does not throw, the catch is never entered and no
+exception is thrown or unwound — the cost is essentially the call plus a null check. A CLR
+exception is only paid on the failure path, when the call actually throws and `err` captures
+it. This keeps ordinary `(result, err)` control flow off the expensive exception path.
+
 ## Async/Await
 
 Async functions are declared with `async func`. The return type is automatically wrapped in `Task` or `ValueTask`.
