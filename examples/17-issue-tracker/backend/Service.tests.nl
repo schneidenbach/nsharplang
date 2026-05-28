@@ -1,6 +1,5 @@
 namespace IssueTracker
 
-import System
 import System.Collections.Generic
 import "Models"
 import "Database"

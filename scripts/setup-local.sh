@@ -20,8 +20,22 @@ VSCODE_EXT_DIR="$NSHARP_VSCODE_EXT_DIR"
 
 DRY_RUN=0
 WITH_VSCODE=0
+VSCODE_REQUEST_EXPLICIT=0
 RESTART_VSCODE=1
 UPDATE_PATH=1
+
+case "${NSHARP_SETUP_LOCAL_DEFAULT_WITH_VSCODE:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+        WITH_VSCODE=1
+        ;;
+    0|false|FALSE|no|NO|off|OFF|"")
+        WITH_VSCODE=0
+        ;;
+    *)
+        echo "Error: NSHARP_SETUP_LOCAL_DEFAULT_WITH_VSCODE must be 0 or 1." >&2
+        exit 2
+        ;;
+esac
 
 usage() {
     cat <<EOF
@@ -33,8 +47,8 @@ launchers, installs the templates, and makes nlc available on PATH
 for future shells.
 
 Options:
-  --with-vscode        Also package/install the VS Code extension
-  --skip-vscode        Do not package/install the VS Code extension (default)
+  --with-vscode        Also package/install the VS Code extension$([[ "$WITH_VSCODE" -eq 1 ]] && echo " (default)")
+  --skip-vscode        Do not package/install the VS Code extension$([[ "$WITH_VSCODE" -eq 0 ]] && echo " (default)")
   --no-restart-vscode  Install VS Code extension without reopening VS Code
   --no-path-update     Do not update shell profile files
   --dry-run            Print the steps without making changes
@@ -194,13 +208,9 @@ verify_local_toolchain() {
 
 deploy_local_toolset() {
     local skip_vscode="$1"
+    local vscode_vsix=""
 
     nsharp_require_command dotnet
-    if [[ "$skip_vscode" -eq 0 ]]; then
-        nsharp_require_command npm
-        nsharp_require_command npx
-        nsharp_require_command code
-    fi
 
     echo "========================================"
     echo "Deploying Local N# Toolset"
@@ -246,12 +256,17 @@ deploy_local_toolset() {
     if [[ "$skip_vscode" -eq 0 ]]; then
         nsharp_log "Building and installing the VS Code extension"
         nsharp_build_vscode_extension_package
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            vscode_vsix="$VSCODE_EXT_DIR/nsharp-$(nsharp_vscode_package_version).vsix"
+        else
+            vscode_vsix="$(nsharp_latest_vscode_vsix)"
+        fi
 
         if [[ "$RESTART_VSCODE" -eq 1 ]]; then
             nsharp_kill_vscode
         fi
 
-        nsharp_run code --install-extension "$VSCODE_EXT_DIR"/nsharp-*.vsix --force
+        nsharp_run code --install-extension "$vscode_vsix" --force
 
         if [[ "$RESTART_VSCODE" -eq 1 ]]; then
             nsharp_run code "$SAMPLE_PROJECT"
@@ -268,9 +283,35 @@ deploy_local_toolset() {
         if [[ "$RESTART_VSCODE" -eq 1 ]]; then
             echo "  - VS Code reopened with: $SAMPLE_PROJECT"
         else
-            echo "  - VS Code extension installed from: $VSCODE_EXT_DIR"
+            echo "  - VS Code extension installed from: $vscode_vsix"
         fi
     fi
+}
+
+maybe_disable_default_vscode_install() {
+    if [[ "$WITH_VSCODE" -eq 0 || "$DRY_RUN" -eq 1 ]]; then
+        return 0
+    fi
+
+    local missing=()
+    for cmd in npm npx code; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [[ "${#missing[@]}" -eq 0 ]]; then
+        return 0
+    fi
+
+    if [[ "$VSCODE_REQUEST_EXPLICIT" -eq 1 ]]; then
+        echo "Error: VS Code extension install requested, but missing required command(s): ${missing[*]}" >&2
+        exit 1
+    fi
+
+    echo "VS Code extension install skipped because required command(s) were not found: ${missing[*]}"
+    echo "Install the missing command(s), or run '$SETUP_LOCAL_INVOCATION --with-vscode' to require the editor reinstall."
+    WITH_VSCODE=0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -280,9 +321,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-vscode)
             WITH_VSCODE=1
+            VSCODE_REQUEST_EXPLICIT=1
             ;;
         --skip-vscode)
             WITH_VSCODE=0
+            VSCODE_REQUEST_EXPLICIT=1
             ;;
         --no-restart-vscode)
             RESTART_VSCODE=0
@@ -302,6 +345,8 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+
+maybe_disable_default_vscode_install
 
 deploy_args=()
 deploy_skip_vscode=0

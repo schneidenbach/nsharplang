@@ -761,7 +761,7 @@ Migration note: the earlier tree JSON wrapper exposed raw `dotnet list package` 
 
 ## Local Contributor Install
 
-Use [install-local.sh](/Users/spencer/repos/nsharplang/install-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local N# package cache, publishes `nlc` and `nsharp-lsp` as framework-dependent apps, installs launchers under `~/.nsharp/bin`, and writes `~/.nsharp/env` so future shells put those launchers on PATH.
+Use [install-local.sh](/Users/spencer/repos/nsharplang/install-local.sh) as the contributor bootstrap. It builds packages from the current checkout, refreshes the local N# package cache, publishes `nlc` and `nsharp-lsp` as framework-dependent apps, installs launchers under `~/.nsharp/bin`, refreshes the VS Code extension when the `code` CLI is available, and writes `~/.nsharp/env` so future shells put those launchers on PATH.
 
 ```bash
 ./install-local.sh
@@ -770,8 +770,8 @@ Use [install-local.sh](/Users/spencer/repos/nsharplang/install-local.sh) as the 
 The script:
 - refreshes packages and toolset apps through the shared `scripts/lib/toolset.sh` helpers
 - refreshes the local `~/.nsharp/packages` package cache used by generated projects
-- verifies `nlc doctor --skip-vscode` by default
-- supports `--with-vscode` when the local VS Code extension should also be packaged and installed
+- packages and reinstalls the local VS Code extension by default from `./install-local.sh`
+- verifies `nlc doctor --require-vscode` when the VS Code reinstall path runs
 
 For a CLI-only reinstall while debugging packaging, use `./install-local.sh --skip-vscode --no-path-update`.
 

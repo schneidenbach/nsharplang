@@ -10,7 +10,7 @@ For local repo development, set up the full local toolchain once:
 ./install-local.sh
 ```
 
-This installs the repo-built `nlc` and `nsharp-lsp` launchers under `~/.nsharp/bin`, installs templates, and makes that launcher directory available to future shells. Then create a project through the N# CLI:
+This installs the repo-built `nlc` and `nsharp-lsp` launchers under `~/.nsharp/bin`, installs templates, refreshes the VS Code extension when the `code` CLI is available, and makes that launcher directory available to future shells. Then create a project through the N# CLI:
 
 ```bash
 nlc new MyApp

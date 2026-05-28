@@ -15,7 +15,7 @@ nlc doctor
 
 This public setup path installs `nlc`, `nsharp-lsp`, the N# templates, SDK restore support, and the VS Code extension when the `code` CLI is available. It also sources `~/.nsharp/env` so this shell has the N# launcher PATH and .NET root settings, and it wires the same env file into future shells.
 
-Contributors working from source should clone the repo and run `./install-local.sh`; that path builds `nlc`, `nsharp-lsp`, packages, templates, and local launchers from the checkout.
+Contributors working from source should clone the repo and run `./install-local.sh`; that path builds `nlc`, `nsharp-lsp`, packages, templates, local launchers, and the VS Code extension from the checkout when the `code` CLI is available.
 
 ### 2. Create Project
 
@@ -133,7 +133,7 @@ The `NSharpLang.Sdk` package remains available for direct `dotnet build` compati
 git clone <repo-url>
 cd nsharplang
 ./install-local.sh
-nlc doctor --skip-vscode
+nlc doctor
 ```
 
 For compiler-only debugging before reinstalling launchers, use `dotnet build` and `dotnet test tests/Tests.csproj`. Do not hard-code test totals in docs; they move quickly. Use the current `dotnet test` output for release/talk evidence.

@@ -10,7 +10,7 @@ nlc doctor
 ```
 
 For contributor source builds, clone the repo and run `./install-local.sh`; public users should use the one-line installer.
-The local install script builds `nlc`, `nsharp-lsp`, SDK/template packages, and launchers from the checkout, installs them under `~/.nsharp`, and adds `~/.nsharp/bin` to future shells through `~/.nsharp/env`.
+The local install script builds `nlc`, `nsharp-lsp`, SDK/template packages, launchers, and the VS Code extension from the checkout, installs them under `~/.nsharp`, and adds `~/.nsharp/bin` to future shells through `~/.nsharp/env`.
 
 ## Create Your First Project
 

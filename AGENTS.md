@@ -110,3 +110,7 @@ The ONLY exception is if you need to work around a temporary MSBuild limitation 
 ## Documentation
 
 We live and die by our documentation. When you make a feature, add it to the appropriate documentation, and make sure your documentation is up to date.
+
+## Dealing with computer use failures
+
+If computer use is failing or timing out, please kill any computer use processes and any processes relying on computer use, and try again.

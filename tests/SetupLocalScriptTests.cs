@@ -25,14 +25,18 @@ public class SetupLocalScriptTests
                 $"--- stdout ---\n{result.Stdout}\n" +
                 $"--- stderr ---\n{result.Stderr}");
             Assert.Contains("Deploying Local N# Toolset", result.Stdout);
-            Assert.Contains("--skip-vscode", result.Stdout);
+            Assert.Contains("VS Code install:   yes", result.Stdout);
             Assert.Contains("publish nlc and nsharp-lsp", result.Stdout);
             Assert.Contains("install toolset", result.Stdout);
             Assert.Contains("dotnet new install", result.Stdout);
+            Assert.Contains("npm run build-server", result.Stdout);
+            Assert.Contains("code --install-extension", result.Stdout);
+            Assert.Contains(".vsix --force", result.Stdout);
             Assert.Contains(".nsharp/env", result.Stdout);
             Assert.Contains("DOTNET_ROOT", result.Stdout);
-            Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
+            Assert.Contains("nlc doctor --require-vscode", result.Stdout);
             Assert.Contains("nlc new MyApp", result.Stdout);
+            Assert.DoesNotContain("--skip-vscode", result.Stdout);
             Assert.DoesNotContain("dotnet" + " tool", result.Stdout);
         }
         finally
@@ -59,8 +63,64 @@ public class SetupLocalScriptTests
                 $"--- stdout ---\n{result.Stdout}\n" +
                 $"--- stderr ---\n{result.Stderr}");
             Assert.Contains("Usage: ./install-local.sh [options]", result.Stdout);
-            Assert.Contains("--with-vscode", result.Stdout);
+            Assert.Contains("--with-vscode        Also package/install the VS Code extension (default)", result.Stdout);
+            Assert.Contains("--skip-vscode        Do not package/install the VS Code extension", result.Stdout);
             Assert.Contains("NSHARP_INSTALL_DIR", result.Stdout);
+        }
+        finally
+        {
+            try { Directory.Delete(home, recursive: true); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void InstallLocalSkipVscodeDryRunKeepsCliOnlyPath()
+    {
+        var repoRoot = FindRepoRoot();
+        var home = Path.Combine(Path.GetTempPath(), "nsharp-install-local-skip-vscode-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+
+        try
+        {
+            var result = RunBash(repoRoot, home, "./install-local.sh --dry-run --skip-vscode");
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"install-local skip-vscode dry-run failed with exit code {result.ExitCode}\n" +
+                $"--- stdout ---\n{result.Stdout}\n" +
+                $"--- stderr ---\n{result.Stderr}");
+            Assert.Contains("VS Code install:   no", result.Stdout);
+            Assert.Contains("--skip-vscode", result.Stdout);
+            Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
+            Assert.DoesNotContain("code --install-extension", result.Stdout);
+        }
+        finally
+        {
+            try { Directory.Delete(home, recursive: true); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void SetupLocalScriptDryRunStillSkipsVscodeByDefault()
+    {
+        var repoRoot = FindRepoRoot();
+        var home = Path.Combine(Path.GetTempPath(), "nsharp-setup-local-direct-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+
+        try
+        {
+            var result = RunBash(repoRoot, home, "scripts/setup-local.sh --dry-run");
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"setup-local direct dry-run failed with exit code {result.ExitCode}\n" +
+                $"--- stdout ---\n{result.Stdout}\n" +
+                $"--- stderr ---\n{result.Stderr}");
+            Assert.Contains("VS Code install:   no", result.Stdout);
+            Assert.Contains("--skip-vscode", result.Stdout);
+            Assert.Contains("nlc doctor --skip-vscode", result.Stdout);
         }
         finally
         {
