@@ -42,6 +42,7 @@ public static class QueryCommand
             "doc" => DocCommand(positionalArgs, options),
             "hover" => HoverCommand(positionalArgs, options),
             "call-graph" => CallGraphCommand(positionalArgs, options),
+            "perf" => PerformanceCommand(positionalArgs, options),
             "implementors" => ImplementorsCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
             _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
@@ -178,6 +179,33 @@ public static class QueryCommand
             Console.Write(OutputFormatter.CallGraphToJson(result));
         }
 
+        return 0;
+    }
+
+    private static int PerformanceCommand(string[] args, QueryOptions options)
+    {
+        var file = GetOption(args, "--file") ?? options.File;
+        var posStr = GetOption(args, "--pos") ?? options.Pos;
+
+        if (file == null || posStr == null)
+        {
+            return QueryError("Usage: nlc query perf --file <path> --pos <line>:<col>");
+        }
+
+        if (!TryParsePosition(posStr, out var line, out var col))
+        {
+            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+        }
+
+        if (options.UseText)
+        {
+            return QueryError("Performance facts are only available as JSON output.");
+        }
+
+        // Performance facts (allocation/dispatch/capture/ABI) are not yet wired into
+        // the analyzer; a separate unit adds the data model. For now emit a
+        // well-formed envelope with no facts, echoing the resolved file/position.
+        Console.Write(OutputFormatter.PerfToJson(file, line, col, GetProjectRoot(options)));
         return 0;
     }
 
@@ -1066,6 +1094,7 @@ Examples:
   nlc query call-graph --function Main --limit 50
   nlc query implementors --name IShape           # Types implementing IShape
   nlc query implementors --file Program.nl --pos 10:11
+  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts
   nlc query doc Console                          # Type documentation
   nlc query doc Console.WriteLine                # Method documentation
   nlc query doc List                             # Generic type docs
