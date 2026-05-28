@@ -599,6 +599,9 @@ public class Analyzer : IDisposable
         {
             AnalyzeStatement(func.Body);
 
+            // Definite-assignment for locals (NL304): reads before assignment.
+            CheckLocalDefiniteAssignment(func.Body);
+
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
             var isIterator = func.Modifiers.HasFlag(Modifiers.Generator);
@@ -1329,6 +1332,485 @@ public class Analyzer : IDisposable
         }
     }
 
+    // ── Definite assignment for locals (NL304) ─────────────────────────────
+    //
+    // A read of a local that was declared without an initializer is an error
+    // unless the local is definitely assigned on every path that reaches the
+    // read. Modeled after Roslyn's DataFlowPass: we thread an "assigned" set
+    // through the control-flow graph, intersecting at merge points (if/else,
+    // switch) and treating loop bodies conservatively (they may run zero times).
+    // The squiggle lands on the offending READ of the variable.
+
+    private sealed class DefiniteAssignmentState
+    {
+        // Locals declared without an initializer that must be definitely assigned before use.
+        public HashSet<string> Candidates { get; } = new(StringComparer.Ordinal);
+
+        // Currently-definitely-assigned locals on the path being analyzed.
+        public HashSet<string> Assigned { get; } = new(StringComparer.Ordinal);
+
+        // Reads already reported, keyed by name+position, to avoid duplicate squiggles.
+        public HashSet<(string Name, int Line, int Column)> Reported { get; } = new();
+    }
+
+    /// <summary>
+    /// Run definite-assignment analysis over a function/constructor body, reporting
+    /// NL304 on reads of locals that are not definitely assigned on all paths.
+    /// </summary>
+    private void CheckLocalDefiniteAssignment(BlockStatement body)
+    {
+        var state = new DefiniteAssignmentState();
+        AnalyzeDefiniteAssignmentBlock(body, state);
+    }
+
+    // Returns true if the statement (and therefore the path through it) always
+    // exits the enclosing flow via return/throw/break/continue.
+    private bool AnalyzeDefiniteAssignmentStatement(Statement stmt, DefiniteAssignmentState state)
+    {
+        switch (stmt)
+        {
+            case BlockStatement block:
+                return AnalyzeDefiniteAssignmentBlock(block, state);
+
+            case VariableDeclarationStatement varDecl:
+                if (varDecl.Initializer != null)
+                {
+                    AnalyzeDefiniteAssignmentExpression(varDecl.Initializer, state);
+                    state.Assigned.Add(varDecl.Name);
+                }
+                else
+                {
+                    // Declared without initializer: must be assigned before use.
+                    state.Candidates.Add(varDecl.Name);
+                    state.Assigned.Remove(varDecl.Name);
+                }
+                return false;
+
+            case TupleDeconstructionStatement tupleDecl:
+                AnalyzeDefiniteAssignmentExpression(tupleDecl.Initializer, state);
+                foreach (var name in tupleDecl.Names)
+                {
+                    if (name != "_")
+                        state.Assigned.Add(name);
+                }
+                return false;
+
+            case ExpressionStatement exprStmt:
+                AnalyzeDefiniteAssignmentExpression(exprStmt.Expression, state);
+                return false;
+
+            case PrintStatement printStmt:
+                AnalyzeDefiniteAssignmentExpression(printStmt.Value, state);
+                return false;
+
+            case ReturnStatement returnStmt:
+                if (returnStmt.Value != null)
+                    AnalyzeDefiniteAssignmentExpression(returnStmt.Value, state);
+                return true;
+
+            case YieldStatement yieldStmt:
+                if (yieldStmt.Value != null)
+                    AnalyzeDefiniteAssignmentExpression(yieldStmt.Value, state);
+                return false;
+
+            case ThrowStatement throwStmt:
+                AnalyzeDefiniteAssignmentExpression(throwStmt.Expression, state);
+                return true;
+
+            case BreakStatement:
+            case ContinueStatement:
+                return true;
+
+            case IfStatement ifStmt:
+                return AnalyzeDefiniteAssignmentIf(ifStmt, state);
+
+            case WhileStatement whileStmt:
+                AnalyzeDefiniteAssignmentExpression(whileStmt.Condition, state);
+                AnalyzeDefiniteAssignmentLoopBody(whileStmt.Body, state);
+                return false;
+
+            case ForStatement forStmt:
+                if (forStmt.Initializer != null)
+                    AnalyzeDefiniteAssignmentStatement(forStmt.Initializer, state);
+                if (forStmt.Condition != null)
+                    AnalyzeDefiniteAssignmentExpression(forStmt.Condition, state);
+                AnalyzeDefiniteAssignmentLoopBody(forStmt.Body, state, forStmt.Iterator);
+                return false;
+
+            case ForeachStatement foreachStmt:
+                AnalyzeDefiniteAssignmentExpression(foreachStmt.Collection, state);
+                AnalyzeDefiniteAssignmentLoopBody(foreachStmt.Body, state);
+                return false;
+
+            case AwaitForEachStatement awaitForeach:
+                AnalyzeDefiniteAssignmentExpression(awaitForeach.Collection, state);
+                AnalyzeDefiniteAssignmentLoopBody(awaitForeach.Body, state);
+                return false;
+
+            case SwitchStatement switchStmt:
+                return AnalyzeDefiniteAssignmentSwitch(switchStmt, state);
+
+            case TryStatement tryStmt:
+                return AnalyzeDefiniteAssignmentTry(tryStmt, state);
+
+            case UsingStatement usingStmt:
+                if (usingStmt.Declaration != null)
+                    AnalyzeDefiniteAssignmentStatement(usingStmt.Declaration, state);
+                if (usingStmt.Expression != null)
+                    AnalyzeDefiniteAssignmentExpression(usingStmt.Expression, state);
+                if (usingStmt.Body != null)
+                    return AnalyzeDefiniteAssignmentStatement(usingStmt.Body, state);
+                return false;
+
+            case LockStatement lockStmt:
+                AnalyzeDefiniteAssignmentExpression(lockStmt.LockObject, state);
+                AnalyzeDefiniteAssignmentBlock(lockStmt.Body, state);
+                return false;
+
+            case AssertStatement assertStmt:
+                AnalyzeDefiniteAssignmentExpression(assertStmt.Condition, state);
+                if (assertStmt.Message != null)
+                    AnalyzeDefiniteAssignmentExpression(assertStmt.Message, state);
+                return false;
+
+            // Local functions have their own bodies analyzed independently; do not
+            // flow the enclosing assignment state into them.
+            case LocalFunctionStatement:
+            default:
+                return false;
+        }
+    }
+
+    private bool AnalyzeDefiniteAssignmentBlock(BlockStatement block, DefiniteAssignmentState state)
+    {
+        foreach (var statement in block.Statements)
+        {
+            if (AnalyzeDefiniteAssignmentStatement(statement, state))
+                return true;
+        }
+        return false;
+    }
+
+    private bool AnalyzeDefiniteAssignmentIf(IfStatement ifStmt, DefiniteAssignmentState state)
+    {
+        AnalyzeDefiniteAssignmentExpression(ifStmt.Condition, state);
+
+        var beforeBranches = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        var thenAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ThenStatement, state);
+        var afterThen = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        // Reset to pre-branch state for the else path.
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(beforeBranches);
+
+        bool elseAlwaysExits;
+        HashSet<string> afterElse;
+        if (ifStmt.ElseStatement != null)
+        {
+            elseAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ElseStatement, state);
+            afterElse = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        }
+        else
+        {
+            elseAlwaysExits = false;
+            afterElse = beforeBranches;
+        }
+
+        // Merge: a variable is assigned afterward only if it is assigned on every
+        // path that can fall through. A path that always exits contributes nothing.
+        state.Assigned.Clear();
+        if (thenAlwaysExits && elseAlwaysExits)
+        {
+            // Both paths exit — code after the if is unreachable; keep pre-branch state.
+            state.Assigned.UnionWith(beforeBranches);
+            return true;
+        }
+        if (thenAlwaysExits)
+        {
+            state.Assigned.UnionWith(afterElse);
+        }
+        else if (elseAlwaysExits)
+        {
+            state.Assigned.UnionWith(afterThen);
+        }
+        else
+        {
+            afterThen.IntersectWith(afterElse);
+            state.Assigned.UnionWith(afterThen);
+        }
+        return false;
+    }
+
+    private void AnalyzeDefiniteAssignmentLoopBody(
+        Statement body,
+        DefiniteAssignmentState state,
+        Expression? iterator = null)
+    {
+        // The body may execute zero times, so assignments inside it are not
+        // definite afterward. Analyze reads against a snapshot, then restore.
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        AnalyzeDefiniteAssignmentStatement(body, state);
+        if (iterator != null)
+            AnalyzeDefiniteAssignmentExpression(iterator, state);
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+    }
+
+    private bool AnalyzeDefiniteAssignmentSwitch(SwitchStatement switchStmt, DefiniteAssignmentState state)
+    {
+        AnalyzeDefiniteAssignmentExpression(switchStmt.Value, state);
+
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        HashSet<string>? merged = null;
+        var hasDefault = false;
+        var allCasesExit = true;
+
+        foreach (var switchCase in switchStmt.Cases)
+        {
+            if (switchCase.Pattern == null)
+                hasDefault = true;
+
+            state.Assigned.Clear();
+            state.Assigned.UnionWith(before);
+
+            var caseExits = false;
+            foreach (var statement in switchCase.Statements)
+            {
+                if (AnalyzeDefiniteAssignmentStatement(statement, state))
+                {
+                    caseExits = true;
+                    break;
+                }
+            }
+
+            if (!caseExits)
+            {
+                allCasesExit = false;
+                var afterCase = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+                if (merged == null)
+                    merged = afterCase;
+                else
+                    merged.IntersectWith(afterCase);
+            }
+        }
+
+        state.Assigned.Clear();
+        if (hasDefault && allCasesExit)
+            return true;
+        // Without a default case, the value may fall through unmatched, so only
+        // the pre-switch assignments are guaranteed.
+        state.Assigned.UnionWith(hasDefault && merged != null ? merged : before);
+        return false;
+    }
+
+    private bool AnalyzeDefiniteAssignmentTry(TryStatement tryStmt, DefiniteAssignmentState state)
+    {
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        // The try block may throw partway through, so its assignments are not
+        // guaranteed to reach the catch/finally. Analyze reads, then discard.
+        AnalyzeDefiniteAssignmentBlock(tryStmt.TryBlock, state);
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+
+        foreach (var catchClause in tryStmt.CatchClauses)
+        {
+            var catchState = new HashSet<string>(before, StringComparer.Ordinal);
+            state.Assigned.Clear();
+            state.Assigned.UnionWith(catchState);
+            AnalyzeDefiniteAssignmentBlock(catchClause.Block, state);
+        }
+
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+        if (tryStmt.FinallyBlock != null)
+            AnalyzeDefiniteAssignmentBlock(tryStmt.FinallyBlock, state);
+        return false;
+    }
+
+    private void AnalyzeDefiniteAssignmentExpression(Expression? expr, DefiniteAssignmentState state)
+    {
+        switch (expr)
+        {
+            case null:
+                return;
+
+            case IdentifierExpression identifier:
+                ReportIfReadBeforeAssigned(identifier, state);
+                return;
+
+            case AssignmentExpression assignment:
+                // Compound assignment (+=, etc.) reads the target first.
+                if (assignment.Operator != AssignmentOperator.Assign
+                    && assignment.Target is IdentifierExpression compoundTarget)
+                {
+                    ReportIfReadBeforeAssigned(compoundTarget, state);
+                }
+                else if (assignment.Target is not IdentifierExpression)
+                {
+                    AnalyzeDefiniteAssignmentExpression(assignment.Target, state);
+                }
+
+                AnalyzeDefiniteAssignmentExpression(assignment.Value, state);
+
+                if (assignment.Target is IdentifierExpression assignTarget)
+                    state.Assigned.Add(assignTarget.Name);
+                return;
+
+            case BinaryExpression binary:
+                AnalyzeDefiniteAssignmentExpression(binary.Left, state);
+                AnalyzeDefiniteAssignmentExpression(binary.Right, state);
+                return;
+
+            case UnaryExpression unary:
+                AnalyzeDefiniteAssignmentExpression(unary.Operand, state);
+                return;
+
+            case MemberAccessExpression member:
+                AnalyzeDefiniteAssignmentExpression(member.Object, state);
+                return;
+
+            case IndexAccessExpression index:
+                AnalyzeDefiniteAssignmentExpression(index.Object, state);
+                AnalyzeDefiniteAssignmentExpression(index.Index, state);
+                return;
+
+            case CallExpression call:
+                AnalyzeDefiniteAssignmentExpression(call.Callee, state);
+                foreach (var argument in call.Arguments)
+                {
+                    // out arguments assign the target rather than reading it.
+                    if (argument.Modifier == ArgumentModifier.Out
+                        && argument.Value is IdentifierExpression outTarget)
+                    {
+                        state.Assigned.Add(outTarget.Name);
+                    }
+                    else
+                    {
+                        AnalyzeDefiniteAssignmentExpression(argument.Value, state);
+                    }
+                }
+                return;
+
+            case TernaryExpression ternary:
+                AnalyzeDefiniteAssignmentExpression(ternary.Condition, state);
+                AnalyzeDefiniteAssignmentExpression(ternary.ThenExpression, state);
+                AnalyzeDefiniteAssignmentExpression(ternary.ElseExpression, state);
+                return;
+
+            case ParenthesizedExpression parenthesized:
+                AnalyzeDefiniteAssignmentExpression(parenthesized.Inner, state);
+                return;
+
+            case CastExpression cast:
+                AnalyzeDefiniteAssignmentExpression(cast.Expression, state);
+                return;
+
+            case IsExpression isExpr:
+                AnalyzeDefiniteAssignmentExpression(isExpr.Expression, state);
+                return;
+
+            case AwaitExpression await:
+                AnalyzeDefiniteAssignmentExpression(await.Expression, state);
+                return;
+
+            case MustExpression must:
+                AnalyzeDefiniteAssignmentExpression(must.Expression, state);
+                return;
+
+            case ThrowExpression throwExpr:
+                AnalyzeDefiniteAssignmentExpression(throwExpr.Expression, state);
+                return;
+
+            case CheckedExpression checkedExpr:
+                AnalyzeDefiniteAssignmentExpression(checkedExpr.Expression, state);
+                return;
+
+            case UncheckedExpression uncheckedExpr:
+                AnalyzeDefiniteAssignmentExpression(uncheckedExpr.Expression, state);
+                return;
+
+            case RangeExpression range:
+                AnalyzeDefiniteAssignmentExpression(range.Start, state);
+                AnalyzeDefiniteAssignmentExpression(range.End, state);
+                return;
+
+            case ArrayLiteralExpression array:
+                foreach (var element in array.Elements)
+                    AnalyzeDefiniteAssignmentExpression(element, state);
+                return;
+
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                    AnalyzeDefiniteAssignmentExpression(element.Value, state);
+                return;
+
+            case InterpolatedStringExpression interpolated:
+                foreach (var part in interpolated.Parts)
+                {
+                    if (part is InterpolatedStringHole hole)
+                        AnalyzeDefiniteAssignmentExpression(hole.Expression, state);
+                }
+                return;
+
+            case NewExpression newExpr:
+                foreach (var argument in newExpr.ConstructorArguments)
+                    AnalyzeDefiniteAssignmentExpression(argument.Value, state);
+                if (newExpr.Initializer != null)
+                {
+                    foreach (var property in newExpr.Initializer.Properties)
+                    {
+                        AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
+                        AnalyzeDefiniteAssignmentExpression(property.Value, state);
+                    }
+                }
+                return;
+
+            case SpreadExpression spread:
+                AnalyzeDefiniteAssignmentExpression(spread.Expression, state);
+                return;
+
+            case WithExpression with:
+                AnalyzeDefiniteAssignmentExpression(with.Target, state);
+                foreach (var property in with.Properties)
+                {
+                    AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
+                    AnalyzeDefiniteAssignmentExpression(property.Value, state);
+                }
+                return;
+
+            case NameofExpression:
+                // nameof does not read the value of its operand.
+                return;
+
+            // Lambdas capture by reference and may run later; their bodies are
+            // analyzed independently and must not consume the enclosing flow state.
+            case LambdaExpression:
+            default:
+                return;
+        }
+    }
+
+    private void ReportIfReadBeforeAssigned(IdentifierExpression identifier, DefiniteAssignmentState state)
+    {
+        var name = identifier.Name;
+        if (!state.Candidates.Contains(name) || state.Assigned.Contains(name))
+            return;
+
+        var key = (name, identifier.Line, identifier.Column);
+        if (!state.Reported.Add(key))
+            return;
+
+        Error(
+            ErrorCode.DefiniteAssignmentError,
+            $"'{name}' is used here before it has been assigned a value on every path that reaches this point",
+            identifier.Line,
+            identifier.Column,
+            $"Give '{name}' an initial value where you declare it, or assign it on every branch before this use.",
+            Math.Max(1, name.Length));
+    }
+
     private void AnalyzeStatements(IReadOnlyList<Statement> statements)
     {
         var terminated = false;
@@ -1991,6 +2473,7 @@ public class Analyzer : IDisposable
         if (func.Body != null)
         {
             AnalyzeStatements(func.Body.Statements);
+            CheckLocalDefiniteAssignment(func.Body);
         }
         else if (func.ExpressionBody != null)
         {
@@ -11113,6 +11596,8 @@ public class Analyzer : IDisposable
         }
         else
         {
+            CheckShadowedDeclaration(name, type, line, nameColumn);
+
             currentScope.Symbols[name] = type;
             currentScope.NullStates[name] = GetDefaultNullState(type);
 
@@ -11126,6 +11611,76 @@ public class Analyzer : IDisposable
                 currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
             }
         }
+    }
+
+    /// <summary>
+    /// Compiler-level shadowing guarantee (NL315). A local or parameter declaration
+    /// that shadows a local/parameter from an enclosing function/block scope is a hard,
+    /// build-blocking error. This is authoritative: when it fires the file has a compiler
+    /// error, which suppresses the linter's NL020 for the same file (see
+    /// CodeIntelligenceService.GetDiagnostics), so the user sees exactly one diagnostic.
+    /// </summary>
+    private void CheckShadowedDeclaration(string name, TypeInfo type, int line, int nameColumn)
+    {
+        if (_scopes.Count == 0)
+            return;
+
+        // Discards and underscore-prefixed names are intentionally ignored (mirrors NL020).
+        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
+            return;
+
+        var currentScope = _scopes.Peek();
+
+        // Only locals and parameters can shadow; functions, types, type parameters,
+        // "this"/"value", and members declared in type scopes are out of scope.
+        if (currentScope.Kind is not (ScopeKind.Function or ScopeKind.Block))
+            return;
+        if (!IsValueBinding(currentScope, name, type))
+            return;
+
+        // Walk enclosing scopes outward. Stop at the first non-local scope boundary
+        // (class/struct/record/interface/global) — members there are not "outer locals".
+        var sawCurrent = false;
+        foreach (var scope in _scopes)
+        {
+            if (!sawCurrent)
+            {
+                // Skip the scope we are declaring into.
+                sawCurrent = ReferenceEquals(scope, currentScope);
+                continue;
+            }
+
+            if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
+                return; // reached a type/global boundary — no shadowing of an outer local
+
+            if (scope.Symbols.TryGetValue(name, out var outerType) && IsValueBinding(scope, name, outerType))
+            {
+                Error(
+                    ErrorCode.ShadowedDeclaration,
+                    $"'{name}' shadows an existing '{name}' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
+                    line,
+                    nameColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.ShadowedDeclaration, name),
+                    Math.Max(1, name.Length));
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when the named symbol in <paramref name="scope"/> is a local variable or
+    /// parameter binding (not a function, method group, type, or type parameter).
+    /// </summary>
+    private static bool IsValueBinding(Scope scope, string name, TypeInfo type)
+    {
+        // "this" is the receiver; "value" is the implicit property-setter parameter.
+        // Excluding "value" avoids false shadowing reports for locals named `value`
+        // inside setters (a common, harmless pattern).
+        if (name is "this" or "value")
+            return false;
+        if (scope.Types.ContainsKey(name))
+            return false; // type parameter
+        return type is not (FunctionTypeInfo or NSharpMethodGroupInfo);
     }
 
     /// <summary>

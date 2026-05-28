@@ -71,6 +71,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Declaration diagnostics should underline the duplicate or invalid declaration token, not a one-character fallback: duplicate symbols/types/cases/members underline the duplicate name, duplicate test lifecycle blocks underline the full `setup` or `teardown` keyword, invalid local variable declarations such as `const answer: int` or `let value` underline the full variable name, `params` ordering/type errors underline the params parameter name, required-after-optional errors underline the required parameter name, and invalid default values underline the default expression.
 - Missing declaration names underline the visible declaration keyword, such as `func`, `class`, `struct`, `record`, `interface`, `union`, `enum`, or `type`, instead of punctuation like `(`, `{`, or `=`.
 - Assignment diagnostics should underline the target or value token that must change: readonly field reassignment (`NL309`) underlines the assigned field name, whether the assignment is direct (`id = ...`) or qualified (`this.id = ...`).
+- Shadowing diagnostics (`NL315`) underline the shadowing declaration's NAME (the inner local/parameter), not the `:=`/`let` keyword. Definite-assignment diagnostics for locals (`NL304`) underline the READ of the unassigned variable, not its declaration.
 
 ## Error Codes
 
@@ -101,13 +102,14 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL301`: UndefinedVariable
 - `NL302`: UndefinedType
 - `NL303`: UndefinedMember
-- `NL304`: DefiniteAssignmentError
+- `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
 - `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
+- `NL315`: ShadowedDeclaration — a local or parameter that shadows a local/parameter from an enclosing function/block scope is a hard, build-blocking error. This compiler check is authoritative: when it fires the file has a compiler error, which suppresses the linter's `NL020` for that file, so the user sees exactly one diagnostic. Shadowing a class member (field/property) is allowed, as are discards/underscore-prefixed names and sibling blocks that reuse a name without nesting.
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount

@@ -45,6 +45,7 @@ public enum ErrorCode
     UnreachableStatement = 312,
     InvalidExpressionStatement = 313,
     UnverifiedErrorResult = 314,
+    ShadowedDeclaration = 315,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -692,6 +693,12 @@ public static class ErrorSuggestions
 
             ErrorCode.DefiniteAssignmentError
                 => "Initialize property in constructor or provide default value",
+
+            ErrorCode.ShadowedDeclaration when context != null
+                => $"Rename this declaration (the outer '{context}' is still in scope), or remove it and reuse the existing '{context}'",
+
+            ErrorCode.ShadowedDeclaration
+                => "Rename this declaration, or remove it and reuse the variable from the enclosing scope",
 
             ErrorCode.UnverifiedErrorResult
                 => "Check the paired error first, or return/throw from the error branch before using the result",
