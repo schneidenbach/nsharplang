@@ -311,6 +311,8 @@ N# embraces .NET's nullable types pragmatically:
 // Nullable types use ?
 name: string? = null
 count: int? = null
+maybeNames: string?[] = [null, "Alice"]
+maybeArray: string[]? = null
 
 // Non-nullable types
 required: string = "must have value"

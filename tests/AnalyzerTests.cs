@@ -5867,6 +5867,56 @@ func Main() {
     }
 
     [Fact]
+    public void ReflectionGenericReceiver_ToArrayPreservesNonNullableElementType()
+    {
+        var result = Analyze(@"
+            import System.Collections.Generic
+
+            func Accept(tags: string[]): void {
+            }
+
+            func Main() {
+                tags := new List<string>()
+                array := tags.ToArray()
+                Accept(array)
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Equal("string[]", result.SemanticModel.LookupIdentifier("array")?.ToString());
+    }
+
+    [Fact]
+    public void ReflectionGenericReceiver_ToArrayPreservesNullableElementType()
+    {
+        var result = Analyze(@"
+            import System.Collections.Generic
+
+            func Main() {
+                tags := new List<string?>()
+                array := tags.ToArray()
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.Equal("string?[]", result.SemanticModel.LookupIdentifier("array")?.ToString());
+    }
+
+    [Fact]
+    public void ReflectionGenericReceiver_UsesBoundTypeParameterAssignabilityForArguments()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            func Main() {
+                values := new List<object>()
+                values.Add(42)
+                values.Add(""hello"")
+            }
+        ");
+    }
+
+    [Fact]
     public void CSharpInterop_ImportsFlowNullabilityAttributes()
     {
         var result = AnalyzeWithInteropProbe(@"

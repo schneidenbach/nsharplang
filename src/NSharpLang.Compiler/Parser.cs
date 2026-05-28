@@ -1687,26 +1687,53 @@ public class Parser
     {
         var baseType = ParseBaseTypeReference();
 
-        // Array type
-        // Only treat '[' as array if it's followed by ']' (not an attribute)
-        while (Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket)
+        while (true)
         {
-            Advance();
-            var rightBracket = Consume(TokenType.RightBracket, "Expected ']'");
-            baseType = new ArrayTypeReference(baseType)
+            // Array type. Only treat '[' as array if it's followed by ']' (not an attribute).
+            if (Check(TokenType.LeftBracket) && LookAhead(1).Type == TokenType.RightBracket)
             {
-                Span = ExtendSpan(baseType, rightBracket)
-            };
-        }
+                Advance();
+                var rightBracket = Consume(TokenType.RightBracket, "Expected ']'");
+                baseType = new ArrayTypeReference(baseType)
+                {
+                    Span = ExtendSpan(baseType, rightBracket)
+                };
+                continue;
+            }
 
-        // Nullable type
-        if (Check(TokenType.Question))
-        {
-            var question = Advance();
-            baseType = new NullableTypeReference(baseType)
+            if (Check(TokenType.QuestionBracket) && LookAhead(1).Type == TokenType.RightBracket)
             {
-                Span = ExtendSpan(baseType, question)
-            };
+                var questionBracket = Advance();
+                baseType = new NullableTypeReference(baseType)
+                {
+                    Span = baseType.Span.IsValid
+                        ? new SourceSpan(
+                            baseType.Span.StartLine,
+                            baseType.Span.StartColumn,
+                            questionBracket.Line,
+                            questionBracket.Column + 1)
+                        : SourceSpan.None
+                };
+
+                var rightBracket = Consume(TokenType.RightBracket, "Expected ']'");
+                baseType = new ArrayTypeReference(baseType)
+                {
+                    Span = ExtendSpan(baseType, rightBracket)
+                };
+                continue;
+            }
+
+            if (Check(TokenType.Question))
+            {
+                var question = Advance();
+                baseType = new NullableTypeReference(baseType)
+                {
+                    Span = ExtendSpan(baseType, question)
+                };
+                continue;
+            }
+
+            break;
         }
 
         return baseType;
@@ -1901,6 +1928,7 @@ public class Parser
                 }
                 else if (token.Type == TokenType.Dot || token.Type == TokenType.Less ||
                          token.Type == TokenType.LeftBracket || token.Type == TokenType.Question ||
+                         token.Type == TokenType.QuestionBracket ||
                          token.Type == TokenType.Identifier || token.Type == TokenType.RightBracket)
                 {
                     // Continue scanning (qualified names, nested generics, arrays, nullables)
@@ -5369,17 +5397,33 @@ public class Parser
             if (!ScanBaseTypeReference())
                 return false;
 
-            while (CurrentType() == TokenType.LeftBracket
-                   && position + 1 < _tokens.Count
-                   && _tokens[position + 1].Type == TokenType.RightBracket)
+            while (true)
             {
-                AdvanceScan();
-                AdvanceScan();
-            }
+                if (CurrentType() == TokenType.LeftBracket
+                    && position + 1 < _tokens.Count
+                    && _tokens[position + 1].Type == TokenType.RightBracket)
+                {
+                    AdvanceScan();
+                    AdvanceScan();
+                    continue;
+                }
 
-            while (CurrentType() == TokenType.Question)
-            {
-                AdvanceScan();
+                if (CurrentType() == TokenType.Question)
+                {
+                    AdvanceScan();
+                    continue;
+                }
+
+                if (CurrentType() == TokenType.QuestionBracket
+                    && position + 1 < _tokens.Count
+                    && _tokens[position + 1].Type == TokenType.RightBracket)
+                {
+                    AdvanceScan();
+                    AdvanceScan();
+                    continue;
+                }
+
+                break;
             }
 
             return true;

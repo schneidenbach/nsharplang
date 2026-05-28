@@ -6968,7 +6968,7 @@ public class Analyzer : IDisposable
             analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
         }
 
-        var candidates = new List<(MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
+        var candidates = new List<(MethodInfo RuntimeMethod, MethodInfo SignatureMethod, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
             Dictionary<int, FunctionTypeInfo> MethodGroupArguments, IReadOnlyList<ReflectionBoundArgument> BoundArguments,
             int Score, bool UsesParams, int DefaultsUsed)>();
 
@@ -6991,7 +6991,8 @@ public class Analyzer : IDisposable
         {
             var errorsBefore = _errors.Count;
             var boundCall = FinalizeBoundReflectionCall(
-                candidate.Method,
+                candidate.RuntimeMethod,
+                candidate.SignatureMethod,
                 call,
                 candidate.Bindings,
                 candidate.TypeInfoBindings,
@@ -7034,7 +7035,8 @@ public class Analyzer : IDisposable
             return null;
 
         return FinalizeBoundReflectionCall(
-            preBound.Value.Method,
+            preBound.Value.RuntimeMethod,
+            preBound.Value.SignatureMethod,
             call,
             preBound.Value.Bindings,
             preBound.Value.TypeInfoBindings,
@@ -7042,7 +7044,7 @@ public class Analyzer : IDisposable
             preBound.Value.BoundArguments);
     }
 
-    private (MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
+    private (MethodInfo RuntimeMethod, MethodInfo SignatureMethod, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
         Dictionary<int, FunctionTypeInfo> MethodGroupArguments, IReadOnlyList<ReflectionBoundArgument> BoundArguments,
         int Score, bool UsesParams, int DefaultsUsed)? PreBindReflectionMethod(
         MethodInfo method,
@@ -7054,7 +7056,7 @@ public class Analyzer : IDisposable
         var bindings = new Dictionary<Type, Type>();
         var typeInfoBindings = new Dictionary<Type, TypeInfo>();
         var methodGroupArguments = new Dictionary<int, FunctionTypeInfo>();
-        var openMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
+        var openMethod = GetOpenReflectionSignatureMethod(method);
         var parameterOffset = IsExtensionMethodCall(openMethod, call, receiverClrType) ? 1 : 0;
         var parameters = openMethod.GetParameters();
         var receiverScore = 0;
@@ -7069,6 +7071,12 @@ public class Analyzer : IDisposable
                 PopulateTypeInfoBindingsFromType(parameters[0].ParameterType, receiverTypeInfo, typeInfoBindings);
 
             receiverScore = GetReflectionMatchScore(ApplyReflectionBindings(parameters[0].ParameterType, bindings), receiverClrType);
+        }
+        else if (receiverClrType != null
+                 && receiverTypeInfo != null
+                 && !TryPopulateReceiverGenericTypeBindings(openMethod.DeclaringType, receiverClrType, receiverTypeInfo, bindings, typeInfoBindings))
+        {
+            return null;
         }
 
         if (call.TypeArguments != null && call.TypeArguments.Count > 0)
@@ -7120,7 +7128,49 @@ public class Analyzer : IDisposable
         }
 
         score += argumentScore;
-        return (openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed);
+        return (method, openMethod, bindings, typeInfoBindings, methodGroupArguments, boundArguments, score, usesParams, defaultsUsed);
+    }
+
+    private static MethodInfo GetOpenReflectionSignatureMethod(MethodInfo method)
+    {
+        var signatureMethod = method.IsGenericMethod ? method.GetGenericMethodDefinition() : method;
+        var declaringType = signatureMethod.DeclaringType;
+        if (declaringType is not { IsGenericType: true } || declaringType.IsGenericTypeDefinition)
+            return signatureMethod;
+
+        try
+        {
+            var genericDefinition = declaringType.GetGenericTypeDefinition();
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+            return genericDefinition.GetMethods(flags)
+                .FirstOrDefault(candidate => candidate.MetadataToken == signatureMethod.MetadataToken)
+                ?? signatureMethod;
+        }
+        catch
+        {
+            return signatureMethod;
+        }
+    }
+
+    private bool TryPopulateReceiverGenericTypeBindings(
+        Type? declaringType,
+        Type receiverClrType,
+        TypeInfo receiverTypeInfo,
+        Dictionary<Type, Type> bindings,
+        Dictionary<Type, TypeInfo> typeInfoBindings)
+    {
+        if (declaringType is not { IsGenericType: true, ContainsGenericParameters: true })
+            return true;
+
+        var receiverSignatureType = declaringType.IsGenericTypeDefinition
+            ? declaringType
+            : declaringType.GetGenericTypeDefinition();
+
+        if (!TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings))
+            return false;
+
+        PopulateTypeInfoBindingsFromType(receiverSignatureType, receiverTypeInfo, typeInfoBindings);
+        return true;
     }
 
     private bool TryBindReflectionArguments(
@@ -7624,7 +7674,9 @@ public class Analyzer : IDisposable
     }
 
     private FunctionTypeInfo? FinalizeBoundReflectionCall(
-        MethodInfo method, CallExpression call,
+        MethodInfo runtimeMethod,
+        MethodInfo signatureMethod,
+        CallExpression call,
         Dictionary<Type, Type> bindings,
         Dictionary<Type, TypeInfo> typeInfoBindings,
         Dictionary<int, FunctionTypeInfo> methodGroupArguments,
@@ -7632,7 +7684,8 @@ public class Analyzer : IDisposable
     {
         var workingBindings = new Dictionary<Type, Type>(bindings);
         var workingTypeInfoBindings = new Dictionary<Type, TypeInfo>(typeInfoBindings);
-        var openMethod = method; // Preserve the open method for TypeInfo-based resolution
+        var openMethod = signatureMethod; // Preserve the open method for TypeInfo-based resolution
+        var method = runtimeMethod;
         var hasTypeInfoOverrides = workingTypeInfoBindings.Count > 0;
 
         foreach (var boundArgument in EnumerateSuppliedReflectionArguments(boundArguments))
@@ -7982,7 +8035,9 @@ public class Analyzer : IDisposable
         if (parameterType.IsGenericParameter)
         {
             if (bindings.TryGetValue(parameterType, out var existingBinding))
-                return existingBinding == argumentType;
+                return HaveSameReflectionTypeIdentity(existingBinding, argumentType)
+                    || IsReflectionAssignableFrom(existingBinding, argumentType)
+                    || IsImplicitNumericConversion(argumentType, existingBinding);
 
             bindings[parameterType] = argumentType;
             return true;

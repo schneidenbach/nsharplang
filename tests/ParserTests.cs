@@ -4371,6 +4371,26 @@ func Helper(): int {
     }
 
     [Fact]
+    public void TestNullableArrayPostfixOrder()
+    {
+        var source = "func Use(names: string?[], maybeNames: string[]?) { }";
+        var lexer = new Lexer(source, "test.nl");
+        var parser = new Parser(lexer.Tokenize(), "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+
+        Assert.True(result.Success, string.Join(", ", result.Errors.Select(error => error.Message)));
+        var func = Assert.IsType<FunctionDeclaration>(result.CompilationUnit!.Declarations[0]);
+
+        var namesArray = Assert.IsType<ArrayTypeReference>(func.Parameters[0].Type);
+        var nullableElement = Assert.IsType<NullableTypeReference>(namesArray.ElementType);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(nullableElement.InnerType).Name);
+
+        var nullableArray = Assert.IsType<NullableTypeReference>(func.Parameters[1].Type);
+        var innerArray = Assert.IsType<ArrayTypeReference>(nullableArray.InnerType);
+        Assert.Equal("string", Assert.IsType<SimpleTypeReference>(innerArray.ElementType).Name);
+    }
+
+    [Fact]
     public void TestParamsWithOtherParameters()
     {
         var source = "func Format(format: string, params args: object[]) { }";
