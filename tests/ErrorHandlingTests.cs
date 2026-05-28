@@ -130,7 +130,9 @@ func main() {
         var analyzer = new Analyzer();
         var result = analyzer.Analyze(unit);
 
-        Assert.Contains(result.Errors, e => e.Message.Contains("undefined") || e.Message.Contains("not found"));
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.UndefinedVariable &&
+            e.Message.Contains("undefinedVar"));
     }
 
     [Fact]
@@ -145,7 +147,9 @@ func main() {
         var analyzer = new Analyzer();
         var result = analyzer.Analyze(unit);
 
-        Assert.Contains(result.Errors, e => e.Message.Contains("undefined") || e.Message.Contains("not found"));
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.UndefinedFunction &&
+            e.Message.Contains("undefinedFunc"));
     }
 
     [Fact]

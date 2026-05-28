@@ -5659,7 +5659,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeCall(CallExpression call)
     {
-        var calleeType = AnalyzeExpressionAllowingUnboundCallableReference(call.Callee);
+        var calleeType = AnalyzeCallCallee(call.Callee);
         ReportPossibleNullAccess(call.Callee, calleeType, call.Line, call.Column, "call", isNullConditional: false);
 
         // Analyze arguments
@@ -5954,6 +5954,26 @@ public class Analyzer : IDisposable
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeCallCallee(Expression callee)
+    {
+        if (callee is IdentifierExpression identifier)
+            return AnalyzeIdentifierCallTarget(identifier);
+
+        return AnalyzeExpressionAllowingUnboundCallableReference(callee);
+    }
+
+    private TypeInfo AnalyzeIdentifierCallTarget(IdentifierExpression identifier)
+    {
+        var type = ResolveIdentifier(identifier.Name, identifier.Line, identifier.Column, reportMissingAsFunction: true);
+        var nullState = GetExpressionNullState(identifier, type);
+        var flowType = ApplyNullabilityFlowType(identifier, type, nullState);
+
+        _semanticModel.RecordExpressionType(identifier.Line, identifier.Column, flowType);
+        _semanticModel.RecordExpressionNullState(identifier.Line, identifier.Column, nullState);
+
+        return flowType;
     }
 
     private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
@@ -9644,7 +9664,7 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private TypeInfo ResolveIdentifier(string name, int line, int column)
+    private TypeInfo ResolveIdentifier(string name, int line, int column, bool reportMissingAsFunction = false)
     {
         if (name == "<error>")
             return BuiltInTypes.Unknown;
@@ -9656,28 +9676,47 @@ public class Analyzer : IDisposable
         }
 
         // Use ErrorMessageBuilder for better error message with suggestions
-        var similarNames = FindSimilarVariableNames(name);
+        var similarNames = reportMissingAsFunction
+            ? FindSimilarFunctionNames(name)
+            : FindSimilarVariableNames(name);
         var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
             ? _sourceLines[line - 1]
             : null;
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
-            var error = ErrorMessageBuilder.UndefinedVariable(
-                _currentFilePath,
-                line,
-                column,
-                sourceSnippet,
-                name.Length,
-                name,
-                similarNames
-            );
+            var error = reportMissingAsFunction
+                ? ErrorMessageBuilder.UndefinedFunction(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    name.Length,
+                    name,
+                    similarNames
+                )
+                : ErrorMessageBuilder.UndefinedVariable(
+                    _currentFilePath,
+                    line,
+                    column,
+                    sourceSnippet,
+                    name.Length,
+                    name,
+                    similarNames
+                );
             _errors.Add(error);
         }
         else
         {
             // Fallback to simple error
-            Error(ErrorCode.UndefinedVariable, $"I can't find '{name}' — it hasn't been declared in this scope", line, column);
+            if (reportMissingAsFunction)
+            {
+                Error(ErrorCode.UndefinedFunction, $"Function '{name}' not found", line, column, length: name.Length);
+            }
+            else
+            {
+                Error(ErrorCode.UndefinedVariable, $"I can't find '{name}' — it hasn't been declared in this scope", line, column);
+            }
         }
 
         return BuiltInTypes.Unknown;
@@ -12894,6 +12933,31 @@ public class Analyzer : IDisposable
 
         // Use SmartSuggester to find similar names
         var suggester = new SmartSuggester(candidates);
+        return suggester.SuggestSimilarNames(typo);
+    }
+
+    /// <summary>
+    /// Find similar function, method, or callable value names in current resolution scope.
+    /// </summary>
+    private List<string> FindSimilarFunctionNames(string typo)
+    {
+        var candidates = new List<string>();
+
+        foreach (var scope in _scopes)
+        {
+            candidates.AddRange(scope.Symbols
+                .Where(symbol => IsCallableReferenceType(symbol.Value))
+                .Select(symbol => symbol.Key));
+        }
+
+        candidates.AddRange(_projectSymbols.Values
+            .SelectMany(symbols => symbols)
+            .Where(symbol => IsCallableReferenceType(symbol.Type))
+            .Select(symbol => symbol.Name));
+
+        candidates.AddRange(_extensionMethods.Select(method => method.Name));
+
+        var suggester = new SmartSuggester(candidates.Distinct(StringComparer.Ordinal).ToList());
         return suggester.SuggestSimilarNames(typo);
     }
 

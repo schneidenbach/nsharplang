@@ -19,7 +19,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
 - **`DiagnosticCatalog`** — Central policy for diagnostic metadata, default severities, categories, and build-blocking behavior across compiler, linter, CLI, MSBuild, and LSP surfaces.
-- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
+- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedFunction`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
 - **`ErrorSuggestions`** — Fallback suggestions keyed by error code
@@ -42,7 +42,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
 - Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
 - Shorthand declarations such as `Message := "hi"` store the identifier column, so style diagnostics like `NL008` underline `Message`, not the `:=` operator or the tail of the identifier.
-- Name lookup diagnostics should underline the unresolved name itself: missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`.
+- Name lookup diagnostics should underline the unresolved name itself: missing variables (`NL301`) and missing bare call targets (`NL412`) underline the identifier being resolved, while missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`.
 - File-import diagnostics (`NL701`, `NL702`, `NL703`, and file-import `NL010`) underline the quoted path token that the developer must edit; import collisions point at the later duplicate import path rather than `(0,0)` or the `import` keyword.
 - The Playground/WASM fallback analyzer still reports built-in member typos such as `"text".ToUp()` when reflection metadata is unavailable, while suppressing diagnostics for known valid built-in members such as `ToUpper` and `Length`.
 - Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
@@ -114,6 +114,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL402`: NoMatchingOverload
 - `NL403-410`: Various parameter errors
 - `NL411`: MethodGroupUsedAsValue (bare method reference used where a value is required; call it or pass it to a delegate parameter)
+- `NL412`: UndefinedFunction (bare call target cannot be resolved as a function, method, or callable value)
 
 ### Pattern Matching Errors (500-599)
 - `NL501`: NonExhaustiveMatch
